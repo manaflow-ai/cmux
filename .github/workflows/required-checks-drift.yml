@@ -48,9 +48,8 @@ concurrency:
 jobs:
   reconcile:
     name: Reconcile required checks with GitHub
-    # The cmux-bot mint below holds an App key, so no variable may move this job to a reused machine
-    # (RUNNER_POOLS could): LINUX_RUNNER moves it only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The cmux-bot mint below holds an App key; the job follows LINUX_RUNNER, owned runners included (Leo 2026-11-18 removed the ephemeral-only rule).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Check out the reconciliation

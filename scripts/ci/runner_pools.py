@@ -67,12 +67,21 @@ that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU
 The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
 runs once (dead_labels() there), and they then read the pool's new member.
 
-RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
-job reading it can never land on an owned Mac, whoever started it (a fork's pull request
-included). Owned Macs come first through a picker's output (the routing order: owned Macs, then
-Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
-that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
-`"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
+An x64 Linux pool leads with owned GCP runners (OWNED_LINUX): `cmux-fleet-linux-x64`, the ephemeral GCP fleet (one
+VM per queued job), then `cmux-gcp-lane-x64` (persistent org runners on the gcp-agent-lane VMs, shared with hq), and
+its Blacksmith sizes follow as overflow. A pool member may be a reused machine, and a
+job holding a secret may run there. Leo, 2026-11-18: "The jobs thing, the secrets thing, you guys need to look. Didn't
+we set up those profiles? So we should basically just be able to run whatever. I mean, it's not like I'm going to all
+of a sudden write some sort of what, like exfiltrate my own secrets for what? Like it's just my pull request. There's
+essentially no risk. So you guys are just... remove that belt and suspenders, please." The rule it replaces (every
+member an ephemeral Blacksmith label) kept four idle owned Linux runners out of the pools while Blacksmith started
+almost nothing (cmux at 21:49Z that day: 2,500 runs queued, 112 in progress). The one guard kept is on the hosts: a
+job-started hook refuses pull_request jobs from forks outside the org (GitHub hands those no secrets anyway). An owned
+label is judged like any member: the probe asks for it (cloud_overflow_switch.HEALTH_LABELS), a start keeps it
+serving, a probe that starts nothing marks it dead and the pool takes its next member. Owned Macs still come first
+through a picker's output (the routing order: owned Macs, then Blacksmith macOS), never through a pool. A pool that
+must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says `"hosted": true` with its reason; no
+other pool may name a GitHub-hosted label.
 
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
 MIRRORS variables (each a member of its pool unless the overflow record changed it).
@@ -157,6 +166,16 @@ HEALTH_MAX_AGE = dt.timedelta(minutes=25)
 SNAPSHOT_MAX_AGE = dt.timedelta(minutes=pr_runner_pool.MAX_SNAPSHOT_MINUTES)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
+# The owned Linux runner labels a pool may lead with (Leo 2026-11-18): cmux-fleet-linux-x64, the ephemeral GCP fleet
+# (one VM per queued job), and cmux-gcp-lane-x64, the persistent GCP lane org runners hq also uses.
+OWNED_LINUX = re.compile(r"^cmux-(?:gcp-lane|fleet-linux)-[a-z0-9-]+$")
+
+
+def pool_label(label: str) -> bool:
+    """Whether a label may be a pool member outside a hosted pool: a Blacksmith label or an owned Linux runner."""
+    return bool(EPHEMERAL.match(label) or OWNED_LINUX.match(label))
+
+
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 # The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
@@ -204,8 +223,12 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
     for name, spec in declared.items():
         listed = spec.get("members")
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
-            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
+                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or OWNED_LINUX.match(m)) for m in listed) \
+                and any(X64_UBUNTU.match(m) for m in listed):
+            # Owned runners stay ahead of it: the override stands in for Blacksmith, not for them.
+            owned = [m for m in listed if OWNED_LINUX.match(m)]
+            rest = [m for m in listed if not OWNED_LINUX.match(m)]
+            declared[name] = {**spec, "members": [*owned, label, *rest], "hosted": True,
                               "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
     return declared
 
@@ -244,7 +267,8 @@ def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
     (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
     by the next pass, so it could not be set by hand either."""
-    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    # Owned members (OWNED_LINUX) have no size: the valve is judged on the Blacksmith ones.
+    sizes = [X64_SIZE.match(label) for label in members(spec) if not OWNED_LINUX.match(label)]
     if not sizes or not all(sizes):
         return []
     images = {match.group(2) for match in sizes}
@@ -282,13 +306,14 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             if HOSTED.match(member):
                 if not spec.get("hosted"):
                     found.append(f"{where}: {member} is GitHub-hosted, which is not in the runner set")
-            elif not EPHEMERAL.match(member):
-                found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
-                             "through a picker, never a pool")
+            elif not pool_label(member):
+                found.append(f"{where}: {member} is neither a Blacksmith label nor an owned Linux runner "
+                             "(OWNED_LINUX); owned Macs come only through a picker, never a pool")
         least = memory_floor(spec)
         if "min_vcpu" in spec and not least:
             found.append(f"{where}: min_vcpu is a positive whole number of vCPU")
-        first = X64_SIZE.match(listed[0])
+        sized = [member for member in listed if not OWNED_LINUX.match(member)]
+        first = X64_SIZE.match(sized[0]) if sized else None
         if first and int(first.group(1)) >= MEMORY_FLOOR_REQUIRED_FROM and not least:
             found.append(f"{where}: a pool led by {first.group(1)} vCPU declares min_vcpu, the smallest size its jobs fit "
                          "in, so the release valve never sends them below it (memory_floor())")
@@ -298,7 +323,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
-        grows = grows_before_shrinking(listed)
+        grows = grows_before_shrinking(sized)
         if grows:
             found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
                          "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
@@ -436,7 +461,7 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
         # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
         # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
-        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
+        if current and not pool_label(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
     writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
@@ -619,7 +644,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
-            if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
+            if not (isinstance(label, str) and pool_label(label) and isinstance(load, Mapping)):
                 continue
             try:
                 queued = int(load.get("queued") or 0)
@@ -652,6 +677,7 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
     snapshot (fresh and complete) covers every other pool member: it lists the Blacksmith macOS labels'
     queues, but no Linux label, so the linux pool's sizes are covered only by the probe."""
     covered: set[str] = set()
+    # The linux pool's sizes and owned labels are covered only by the probe (cloud_overflow_switch.HEALTH_LABELS).
     probed = set(members(pools["linux"])) if "linux" in pools else set()
     if isinstance(health, Mapping):
         checked, labels = parse_time(health.get("checked")), health.get("labels")
@@ -678,7 +704,7 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     found = set()
     for label, when in starts.items():
         moment = parse_time(when)
-        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+        if isinstance(label, str) and pool_label(label) and moment is not None \
                 and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
             found.add(label)
     return found

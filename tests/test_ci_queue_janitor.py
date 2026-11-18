@@ -848,9 +848,9 @@ class WorkflowShapeTests(unittest.TestCase):
                          .replace("workflow_run.pull_requests[0]", ""))
         self.assertIn("\npermissions: {}\n", text)
         self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
-        # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY: RUNNER_POOLS and LINUX_RUNNER move it only
-        # among the Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY and follows RUNNER_POOLS.linux, then
+        # LINUX_RUNNER, owned runners included (Leo 2026-11-18 removed the ephemeral-only rule).
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -962,8 +962,10 @@ class SweepRunnerTests(unittest.TestCase):
 
     def test_falls_back_to_linux_runner_then_four_vcpu(self):
         self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "blacksmith-32vcpu-ubuntu-2404")
-        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "glaeda-std-xcode-26.6"}),
-                                      "LINUX_RUNNER": "cmux-lawrence"}), "blacksmith-4vcpu-ubuntu-2404")
+        # An owned runner is followed too (Leo 2026-11-18): the pool member first, then LINUX_RUNNER.
+        self.assertEqual(self.runner({"RUNNER_POOLS": json.dumps({"linux": "cmux-gcp-lane-x64"}),
+                                      "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}), "cmux-gcp-lane-x64")
+        self.assertEqual(self.runner({"LINUX_RUNNER": "cmux-gcp-lane-x64"}), "cmux-gcp-lane-x64")
         self.assertEqual(self.runner({}), "blacksmith-4vcpu-ubuntu-2404")
 
 

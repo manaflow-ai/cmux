@@ -56,8 +56,10 @@ class Declared(unittest.TestCase):
     def test_the_linux_pool_is_the_runner_set(self) -> None:
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
-        self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+        # Owned GCP runners first since Leo, 2026-11-18 ("remove that belt and suspenders, please").
+        self.assertEqual(runner_pools.load_pools(env={})["linux"]["members"],
+                         ["cmux-fleet-linux-x64", "cmux-gcp-lane-x64",
+                          "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
@@ -65,31 +67,29 @@ class Declared(unittest.TestCase):
         pools = runner_pools.load_pools()
         for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
             with self.subTest(pool=name):
-                listed = runner_pools.members(pools[name])
+                listed = [m for m in runner_pools.members(pools[name]) if not runner_pools.OWNED_LINUX.match(m)]
                 self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
 
-    def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
-        # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
-        # sends its readers back to the stalled size when the pool steps onto it.
-        selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
-                              r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
-        members = runner_pools.load_pools()["linux"]["members"]
-        found = 0
-        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            for match in selector.finditer(workflow.read_text(encoding="utf-8")):
-                found += 1
-                with self.subTest(workflow=workflow.name):
-                    self.assertLessEqual(set(members), set(json.loads(match.group(1))))
-        self.assertGreater(found, 0)
+    def test_every_x64_linux_pool_leads_with_the_owned_gcp_runners(self) -> None:
+        # Leo, 2026-11-18: "remove that belt and suspenders, please." The ephemeral GCP fleet, then the GCP lanes, then Blacksmith.
+        pools = runner_pools.load_pools(env={})
+        for name in ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion"):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[:2], ["cmux-fleet-linux-x64", "cmux-gcp-lane-x64"])
+                self.assertTrue(all(runner_pools.EPHEMERAL.match(m) for m in listed[2:]))
+        self.assertEqual(runner_pools.members(pools["linux_arm64"]), ["blacksmith-4vcpu-ubuntu-2404-arm"])
 
-    def test_no_pool_names_a_reused_machine(self) -> None:
-        # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
-        # those come only through a picker.
+    def test_pool_members_are_blacksmith_owned_linux_or_hosted(self) -> None:
+        # Owned Linux runners may lead a pool and take secret-bearing jobs (Leo, 2026-11-18); owned Macs still come
+        # only through a picker, and a GitHub-hosted label only in a pool marked hosted.
         for name, spec in runner_pools.load_pools().items():
             for label in runner_pools.members(spec):
                 with self.subTest(pool=name, label=label):
-                    self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
+                    if spec.get("hosted") and runner_pools.HOSTED.match(label):
+                        continue
+                    self.assertTrue(runner_pools.pool_label(label), label)
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -455,7 +455,7 @@ class NeverHosted(unittest.TestCase):
         value, _ = runner_pools.reconcile({}, pools, dead_now=every, served_now=(), now=NOW)
         for name, spec in pools.items():
             if not spec.get("hosted"):
-                self.assertRegex(value[name], runner_pools.EPHEMERAL)
+                self.assertTrue(runner_pools.pool_label(value[name]), value[name])
         current, dropped = runner_pools.parse_value(json.dumps({"linux": "ubuntu-24.04"}), pools)
         self.assertNotIn("linux", current)
         self.assertTrue(dropped)

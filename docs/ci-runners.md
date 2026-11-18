@@ -1015,8 +1015,21 @@ floor (`RAW_LABEL_MIN_VCPU`). On 2026-11-18 the valve without a floor sent the
 fat-LTO cmux-tui build to 4 and 2 vCPU, where rustc was killed out of memory,
 and no NEXT nightly could publish.
 
-Every member outside the two hosted pools is an ephemeral Blacksmith label, so
-a job reading a pool never lands on a reused machine, whoever started the run.
+Every x64 Linux pool (`linux`, `linux_2` ... `linux_32`, `promotion`) leads
+with owned GCP runners (`runner_pools.OWNED_LINUX`): `cmux-fleet-linux-x64`,
+the ephemeral GCP fleet (one VM per queued job), then `cmux-gcp-lane-x64`
+(persistent org runners on the gcp-agent-lane VMs, shared with hq). Its
+Blacksmith sizes follow as overflow. A reused machine may take a job that holds a secret: Leo,
+2026-11-18, "it's just my pull request. There's essentially no risk. So you
+guys are just... remove that belt and suspenders, please." The old rule (every
+member ephemeral, and a bounded selector in each key-holding job) kept four idle
+owned Linux runners out of the pools while Blacksmith started almost nothing
+(cmux at 21:49Z: 2,500 runs queued, 112 in progress). The guard kept is on the
+hosts: a job-started hook refuses pull_request jobs from forks outside the org.
+Each owned label is probed like a Blacksmith size
+(`cloud_overflow_switch.HEALTH_LABELS`): a start keeps it serving, a probe that
+starts nothing marks it dead and the pool takes its next member. Every other
+member outside the two hosted pools is a Blacksmith label.
 Owned Macs come first through a picker job's output (`simple_pool_picker.py`,
 `side_lane_placement.py`, the nightly pickers) in the routing order: owned
 Macs, then Blacksmith macOS. The pool is what follows the picker. Jobs that

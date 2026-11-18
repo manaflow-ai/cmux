@@ -6,8 +6,9 @@ ephemeral runner (Blacksmith or GitHub's hosted Linux), never a reused machine
 (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7 on
 feat-cmux-next; "blacksmith runners we can simply trust", Leo, 2026-10-24).
 Some of those jobs read their runner from a repository variable, so such a
-variable may hold only an ephemeral label, or be unset (its readers then fall
-back to a Blacksmith literal).
+variable may hold only an ephemeral label or an owned GCP Linux label
+(cmux-fleet-linux-*, cmux-gcp-lane-*, allowed since Leo, 2026-11-18), or be unset (its readers then
+fall back to a Blacksmith literal).
 
 Which variables those are is not a hand list: signing_variables() reads every
 workflow's jobs and collects the `vars.NAME` each signing job's runs-on reads.
@@ -43,7 +44,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRS_ENV = "SIGNING_WORKFLOW_DIRS"
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+# blacksmith-* and ubuntu-* are ephemeral; cmux-fleet-linux-* and cmux-gcp-lane-* are the owned GCP Linux runners, which may take
+# secret-bearing jobs since Leo, 2026-11-18 ("it's just my pull request. There's essentially no risk. So you guys
+# are just... remove that belt and suspenders, please."; runner_pools.OWNED_LINUX). Their hosts refuse pull_request
+# jobs from forks outside the org.
+EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-|cmux-gcp-lane-|cmux-fleet-linux-)[a-z0-9.-]+$")
 # Rule 7's tests (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
 SIGNING_SECRET = re.compile(
     r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
@@ -119,7 +124,7 @@ def is_signing_variable(name: str, env: dict[str, str] | None = None) -> bool:
 
 
 def ephemeral_label(value: str | None) -> bool:
-    """Whether a runner label names an ephemeral runner (blacksmith-* or ubuntu-*)."""
+    """Whether a runner label is one signing variables may hold: blacksmith-*, ubuntu-* or an owned cmux-fleet-linux-*/cmux-gcp-lane-*."""
     return bool(EPHEMERAL_LABEL.match((value or "").strip()))
 
 
