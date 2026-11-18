@@ -473,10 +473,18 @@ async fn a_peer_list_is_one_batch_for_a_client_that_asked_and_every_row_for_one_
     let hub = hub_with(1, 0, 0).await;
     let mut old = Client::new(&hub, Origin::Web).await;
     let mut new = Client::new(&hub, Origin::Web).await;
-    let hello = json!({"protocolVersion": 1, "clientCapabilities": {},
-        "clientInfo": {"name": "batches", "version": "0"},
-        "_meta": {"acpmux": {"peerRowBatches": true}}});
-    new.call(method::INITIALIZE, hello).await;
+    // `Client::new` names itself a peer link, which hears no peer rows at all: both name
+    // themselves an app, one with the opt-in and one without.
+    let hello = |batches: bool| {
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": {"name": "app", "version": "0"}});
+        if batches {
+            hello["_meta"] = json!({"acpmux": {"peerRowBatches": true}});
+        }
+        hello
+    };
+    old.call(method::INITIALIZE, hello(false)).await;
+    new.call(method::INITIALIZE, hello(true)).await;
     old.call(method::MUX_WATCH, json!({"enabled": true})).await;
     let listed = new.call(method::MUX_WATCH, json!({"enabled": true})).await;
     add_peer(&hub, "peer-0", 40).await;
