@@ -584,14 +584,24 @@ function callExpression(source: string, start: number): string {
 /// asks the shared navigation helper for one supplies the hand-over callback. The helper's
 /// behavioral tests check that it runs before the pane request, and only when a pane opens.
 test("opening a subagent in its own pane hands the chat over first", async () => {
-  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  // The pane's subagent navigation (subagents/useSubagents.ts), handed App's own `directClient`.
+  const pane = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  const app = await readFile(new URL("../src/agent-session/acpmux/subagents/useSubagents.ts", import.meta.url), "utf8");
+  expect(
+    pane.match(/showSubagentIn\(/g) ?? [],
+    "App asks the navigation helper only through useSubagentNavigation",
+  ).toEqual([]);
+  expect(
+    /useSubagentNavigation\(\{[^}]*directClientRef:\s*directClient\b/s.test(pane),
+    "useSubagentNavigation is not handed the pane's own direct client, so the hand-over goes to no client",
+  ).toBe(true);
   const sites = [...app.matchAll(/showSubagentIn\(callNative/g)];
   expect(sites.length).toBe(1);
   for (const site of sites) {
     // The whole call, so a comment beside the option never hides it (#36650).
     const call = callExpression(app, site.index);
     expect(
-      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.tailHandOver\(\)/.test(call),
+      /beforeOpen:\s*\(\)\s*=>\s*directClientRef\.current\?\.tailHandOver\(\)/.test(call),
       "showSubagent does not supply the shared helper's tail hand-over (tailHandOver), so the pane's request " +
         "carries no tail and the pane can open cold (tailCache.ts, #36650).",
     ).toBe(true);

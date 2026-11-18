@@ -349,7 +349,7 @@ import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
-import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";
+import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
@@ -358,16 +358,8 @@ import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
 import { releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
-import {
-  backToOpeningChat,
-  showSubagent as showSubagentIn,
-  revealedSubagent,
-  subagentTabTitle,
-  useAutoOpenSubagents,
-  useOpenNewSubagents,
-  subagentRowMark,
-} from "./subagents/subagentPanes";
-import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
+import { revealedSubagent } from "./subagents/subagentPanes";
+import { useSubagentNavigation, useSubsessions } from "./subagents/useSubagents";
 import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -714,7 +706,6 @@ import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from 
 import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
-import { useSenderIconLook } from "./subagents/senderIconLook";
 import {
   SubagentHarnessContext,
   SubagentNavContext,
@@ -724,7 +715,6 @@ import {
   SubagentViewsContext,
   running,
 } from "./subagents/subagentGroupModel";
-import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, type ShellActions } from "./shell/shellRowModel";
 import { SwitchNotice } from "./SwitchNotice";
@@ -821,7 +811,7 @@ import { type SessionHover, SessionHoverContext } from "./started/sessionHoverCa
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { pageChatStore, setPageChats } from "./chips/cmuxLinkResolve";
 import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
-import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
+import { subsessionRows } from "./subagents/subsessions";
 import {
   type StartedCache,
   type StartedSession,
@@ -2850,24 +2840,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
-  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
-  const subagentTitle = (id: string) =>
-    subagentTabTitle(
-      freshAgents.find((agent) => agent.id === id),
-      `${t("subagents.of")} ${chatName}`,
-    );
-  // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
-  const senderBadge = useSenderIconLook().badge;
-  const chatMark = knownMark(snapshot.summary?.harness, snapshot.summary?.family);
-  const subagentMark = (id: string) =>
-    subagentRowMark(
-      freshAgents.find((agent) => agent.id === id),
-      chatMark,
-      senderBadge,
-    );
-  // For callbacks that keep one identity (showSubagent names a pane's tab and its icon with them).
-  const subagentTitleRef = useRef({ title: subagentTitle, mark: subagentMark });
-  subagentTitleRef.current = { title: subagentTitle, mark: subagentMark };
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -3091,23 +3063,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
   }, []);
   const sessionHover = useMemo<SessionHover>(() => ({ store: hoverStore.current!, open: openOfferChat }), []);
-  // The transcript's sub-session cards read each sub-session's state from one store, so a session
-  // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
-  const subsessionStore = useRef<SubsessionStore | null>(null);
-  subsessionStore.current ??= new SubsessionStore();
-  useLayoutEffect(() => {
-    subsessionStore.current!.set(snapshot.sessions);
-  }, [snapshot.sessions]);
-  const subsessions = useMemo<Subsessions>(
-    () => ({
-      store: subsessionStore.current!,
-      open: openOfferChat,
-      openSender: openSenderChat,
-      // A sender chip whose name acpmux resolves to no chat says so, in a toast.
-      senderMissing: notices.senderMissing,
-    }),
-    [notices],
-  );
+  // The transcript's sub-session cards' store (subagents/useSubagents.ts).
+  const subsessions = useSubsessions(snapshot.sessions, notices);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const [previewHost, setPreviewHost] = useState(false);
@@ -5552,16 +5509,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
   // running command's row says so (conversation/runInBackground.ts).
   const canBackground = backgroundsWork(snapshot.summary);
-  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
-  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
-  const stopsSubagents = canBackground;
-  const stopSubagent = useMemo(
-    () =>
-      stopsSubagents
-        ? (id: string) => directClient.current?.stopSubagent(id) ?? Promise.reject(new Error())
-        : undefined,
-    [stopsSubagents],
-  );
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
@@ -5582,63 +5529,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   foregroundNow.current = foreground;
-  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
-  /// Shows subagent `id`: a person's open in a pane of its own right of the chat, focused; a new
-  /// subagent's own open (`focus` false) only while the summary card's switch is on
-  /// (subagents/subagentPanes.ts).
-  const showSubagent = useCallback(
-    (id: string, focus = true) =>
-      void showSubagentIn(callNative, id, focus, {
-        panes: autoOpenSubagents,
-        inSubagentPane: subagentPane.current,
-        here: setSubagentView,
-        title: subagentTitleRef.current.title(id),
-        tone: workflowPaneRequest(id) ? undefined : agentTone(id),
-        // Seed a new pane from this chat's kept tail before its own attach answers: carried on the
-        // pane's request, so the host holds it before it decides how the pane opens (#36650).
-        beforeOpen: () => directClient.current?.tailHandOver(),
-        mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
-      }),
-    [autoOpenSubagents],
-  );
-  /// Shows subagent `id`'s view in place, or the chat's (`undefined`). In a pane opened on a subagent
-  /// (beside the chat that opened it), going to the chat goes back to that chat's own tab instead and
-  /// closes this one, so the chat never shows twice (subagentPanes.ts backToOpeningChat); a pane no
-  /// chat opened shows the chat in place.
-  const navigateSubagent = useCallback((id: string | undefined) => {
-    if (id !== undefined || !subagentPane.current) return setSubagentView(id);
-    void backToOpeningChat(callNative).then((back) => {
-      if (!back) setSubagentView(undefined);
+  // Opening, showing and stopping the chat's subagents (subagents/useSubagents.ts).
+  const { stopSubagent, autoOpenSubagents, setAutoOpenSubagents, showSubagent, navigateSubagent } =
+    useSubagentNavigation({
+      snapshot,
+      t,
+      chatName,
+      shownSessionId,
+      quick,
+      freshAgents,
+      ownLoggedAgent: ownLogged?.agent,
+      subagentView,
+      setSubagentView,
+      ownSubagentPane,
+      subagentPaneRef: subagentPane,
+      inSubagentPane: subagentPane.current,
+      directClientRef: directClient,
+      canBackground,
     });
-  }, []);
-  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
-  useEscapeClosesSubagent(!quick && !!subagentView, () => navigateSubagent(undefined));
-  // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
-  // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
-  // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
-  // while this page has no rows for the subagent yet (they load after the pane opens), which would name
-  // it "Subagent of" over the name the chat's page gave it.
-  // A subagent the chat's rows no longer hold is known from its own records (subagentOwnLog.ts).
-  const shownAgent = subagentView
-    ? (freshAgents.find((agent) => agent.id === subagentView) ?? ownLogged?.agent)
-    : undefined;
-  const shownSubagentTitle =
-    ownSubagentPane && subagentView && shownAgent
-      ? subagentTabTitle(shownAgent, `${t("subagents.of")} ${chatName}`)
-      : undefined;
-  const shownFacts = useMemo(
-    () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
-    [shownAgent, snapshot.clockOffsetMs],
-  );
-  // Its tab's hover card and spinner say the subagent's own state, not its chat's.
-  useShownSubagent(
-    callNative,
-    ownSubagentPane,
-    subagentView,
-    shownSubagentTitle,
-    shownFacts,
-    subagentRowMark(shownAgent, chatMark, senderBadge),
-  );
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
@@ -5646,14 +5554,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (request) showSubagent(workflowPaneId(request));
     },
     [workflows, showSubagent],
-  );
-  useOpenNewSubagents(
-    quick || subagentPane.current ? undefined : shownSessionId,
-    snapshot.rows,
-    snapshot.subagentViews,
-    autoOpenSubagents,
-    (id) => showSubagent(id, false),
-    snapshot.clockOffsetMs ?? 0,
   );
   // Each subagent's color (agentTones.ts), which the transcript's subagent rows share. A streamed
   // chunk makes a new list of the same agents: the last one stays while nothing a row shows changed,
