@@ -4068,10 +4068,6 @@
     {
       "accepts" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
@@ -4084,34 +4080,6 @@
             "text" : "Minimal"
           },
           "value" : "minimal"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateCards",
-            "text" : "Cards"
-          },
-          "value" : "cards"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateDefault",
-            "text" : "Default"
-          },
-          "value" : "default"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateThreads",
-            "text" : "Threads"
-          },
-          "value" : "threads"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateConsole",
-            "text" : "Console"
-          },
-          "value" : "console"
         },
         {
           "title" : {
@@ -4149,12 +4117,8 @@
         "layout",
         "page",
         "minimal",
-        "greeting",
         "terminal",
         "classic",
-        "threads",
-        "console",
-        "cards",
         "search",
         "ask"
       ],
@@ -92542,7 +92506,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",

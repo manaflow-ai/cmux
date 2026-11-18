@@ -1373,10 +1373,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -5987,7 +5983,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
