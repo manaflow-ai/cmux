@@ -88,19 +88,12 @@ enum TerminalChatHandler {
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
         let tabs = services.agentTabs, terminal = tab.kind == .pty
-        // A terminal's session is its agent's report; a chat's, the outside session it adopted, else (started here) the
-        // conversation its acpmux run holds (its lane's `agentSessionId`, which a terminal running it reports), else the run.
-        let own = terminal ? nil : tab.agentSession.flatMap { ref in
-            ref.harness.flatMap { harness in tabs.session(of: tab.id).map {
-                AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0)
-            } }
-        }
-        let adopted = terminal ? nil : tabs.adoption(of: tab.id) ?? own, key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+        let adopted = terminal ? nil : chatSession(of: tab, services: services), key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
         var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
-                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId,
-                                            cannotStartTerminal: !terminal && (QuitAgents.environment(services) == nil // a remote chat's
-                                                || tabs.session(of: tab.id) == nil || tabs.remoteMachineID(of: tab.id) != nil)) // run: not ours
+                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId, // a terminal's: its agent's report
+                                            cannotStartTerminal: !terminal && (tabs.session(of: tab.id) == nil // a remote chat's run: not ours
+                                                || tabs.remoteMachineID(of: tab.id) != nil || QuitAgents.environment(services) == nil)) // searches paths: last
         guard !membership, let adopted else { return (facts, key, []) }
         let terminals = DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
                                            harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
@@ -111,6 +104,13 @@ enum TerminalChatHandler {
         facts.handOffOpen = handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false
         facts.now = Date().timeIntervalSince1970
         return (facts, key, terminals)
+    }
+
+    /// Chat `tab`'s session: the outside one it adopted, else (started here) its acpmux run's conversation (its lane's `agentSessionId`), else the run.
+    static func chatSession(of tab: TabModel, services: AppServices) -> AgentPaneAdopt? {
+        services.agentTabs.adoption(of: tab.id) ?? tab.agentSession.flatMap { ref in ref.harness.flatMap { harness in
+            services.agentTabs.session(of: tab.id).map { AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0) }
+        } }
     }
 
     /// Whether `tab` is half of a terminal and chat pair, so Toggle Terminal and Chat acts on it; false when the route refuses

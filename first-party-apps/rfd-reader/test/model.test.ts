@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { blockForLine, byUpdated, isSafeHref, jump, linkKind, newFileUrl, openableUrl, newRfdText, nextNumber, templateBody, toc, TEMPLATE_BODY, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd } from "../web-src/model"
-import { Source, type Host } from "../web-src/source"
-import { COMMENTS, FILES, PR_FILE, TEMPLATE, answer } from "../preview/fixtures"
+import { blockForLine, byRead, byUpdated, isSafeHref, jump, jumpNotes, linkKind, newFileUrl, newNoteFileUrl, newNoteText, noteFileName, noteIndexRow, noteOfHref, noteTemplateBody, NOTE_TEMPLATE_BODY, openableUrl, newRfdText, nextNumber, parseNoteName, searchNotes, tagCounts, templateBody, toc, toNote, TEMPLATE_BODY, parseFrontMatter, parseRfdName, renderBlocks, rfdOfHref, rfdRefs, search, threads, toRfd, withIndexRow } from "../web-src/model"
+import { NoteSource, Source, type Host } from "../web-src/source"
+import { COMMENTS, FILES, NOTE_FILES, NOTE_PR_FILE, NOTE_README, NOTE_TEMPLATE, PR_FILE, TEMPLATE, answer } from "../preview/fixtures"
 
 const all = () => [...Object.entries(FILES).map(([p, f]) => toRfd(p, f.sha, f.text, f.date)!), toRfd(PR_FILE.path, PR_FILE.sha, PR_FILE.text)!]
 
@@ -244,5 +244,121 @@ describe("review fixes", () => {
     store.set(`${config.repo}:${config.dir}:index`, [{ number: 7 }])
     await expect(new Source(h, config).index()).rejects.toThrow("rate limited")
     expect(store.get(`${config.repo}:${config.dir}:index`)).toEqual([{ number: 7 }])
+  })
+})
+
+describe("reading notes", () => {
+  const notesOf = () => [...Object.entries(NOTE_FILES).map(([p, f]) => toNote(p, f.sha, f.text)!), toNote(NOTE_PR_FILE.path, NOTE_PR_FILE.sha, NOTE_PR_FILE.text)!]
+
+  test("only YYYY-MM-DD-slug.md names are notes: the index and the template are not", () => {
+    expect(parseNoteName("2026-11-18-google-abfs.md")).toEqual({ id: "2026-11-18-google-abfs", date: "2026-11-18", slug: "google-abfs" })
+    expect(parseNoteName("README.md")).toBeNull()
+    expect(parseNoteName("_template.md")).toBeNull()
+    expect(parseNoteName("0002-earned-access-ladder.md")).toBeNull()
+  })
+
+  test("a note reads every front matter field, its title from the heading", () => {
+    const n = toNote("docs/reading/2026-11-18-lazy-checkouts.md", "x", NOTE_FILES["docs/reading/2026-11-18-lazy-checkouts.md"].text)!
+    expect(n).toMatchObject({
+      id: "2026-11-18-lazy-checkouts",
+      title: "Lazy git checkouts with content-checked caching",
+      state: "acting",
+      source: "https://example.com/blog/lazy-git-checkouts",
+      sourceAuthor: "The build team (Example Co)",
+      published: "2026-11-17",
+      read: "2026-11-18",
+      sharedBy: "Leo",
+      ask: "hey this came out recently",
+      access: "internal",
+      tags: ["git", "ci", "projection"],
+      links: ["https://github.com/manaflow-ai/cmuxterm-hq/pull/13166"],
+    })
+  })
+
+  test("an ask with quotes inside keeps them", () => {
+    const n = toNote("docs/reading/2026-11-18-x.md", "x", `---\nstate: read\nask: "https://a.example what do we think" and later "https://b.example"\n---\n\n# X\n`)!
+    expect(n.ask).toBe(`https://a.example what do we think" and later "https://b.example`)
+  })
+
+  test("the list is newest read first", () => {
+    expect(notesOf().sort(byRead).map((n) => n.read)).toEqual(["2026-11-18", "2026-11-17", "2026-11-16", "2026-11-10"])
+  })
+
+  test("a link to a note is a note, never RFD 2026", () => {
+    expect(noteOfHref("../reading/2026-11-16-session-pools.md")).toBe("2026-11-16-session-pools")
+    expect(noteOfHref("https://github.com/o/r/blob/main/docs/reading/2026-11-16-session-pools.md#x")).toBe("2026-11-16-session-pools")
+    expect(rfdOfHref("../reading/2026-11-16-session-pools.md")).toBeNull()
+    expect(rfdOfHref("../rfd/0002-agent-access-ladder.md")).toBe(2)
+    expect(rfdRefs("docs/reading/2026-11-16-x.md and RFD 7")).toEqual([7])
+    expect(linkKind("../reading/2026-11-16-session-pools.md").kind).toBe("note")
+  })
+
+  test("search and jump-to cover notes: tags and titles weigh most", () => {
+    const hits = searchNotes(notesOf(), "ci")
+    expect(hits.map((h) => h.id).slice(0, 2).sort()).toEqual(["2026-11-17-verification", "2026-11-18-lazy-checkouts"])
+    expect(searchNotes(notesOf(), "warm pool").map((h) => h.id)).toEqual(["2026-11-16-session-pools"])
+    expect(jumpNotes(notesOf(), "lazy").map((n) => n.id)).toEqual(["2026-11-18-lazy-checkouts"])
+    expect(jumpNotes(notesOf(), "2026-11-10").map((n) => n.id)).toEqual(["2026-11-10-old-browser-post"])
+    expect(tagCounts(notesOf())[0]).toEqual(["ci", 2])
+  })
+
+  test("a new note starts from _template.md's sections and has its index row", () => {
+    const body = noteTemplateBody(NOTE_TEMPLATE.text)
+    expect(body.startsWith("## What it says")).toBe(true)
+    expect(body).not.toContain("<!--")
+    expect(body).not.toContain("# Title")
+    expect(noteTemplateBody(undefined)).toBe(NOTE_TEMPLATE_BODY)
+    const f = { title: "How one team verifies", state: "read", source: "https://example.com/v", sourceAuthor: "Alex Kim (Example Labs)", published: "2026-11-16", read: "2026-11-17", readBy: "review lane", sharedBy: "Leo", ask: "what do u think", tags: ["review", "ci"] }
+    const text = newNoteText({ ...f, template: body })
+    const file = noteFileName(f.read, f.title)
+    expect(file).toBe("2026-11-17-how-one-team-verifies.md")
+    const n = toNote(`docs/reading/${file}`, "x", text)!
+    expect(n).toMatchObject({ title: f.title, state: "read", source: f.source, sourceAuthor: f.sourceAuthor, read: f.read, ask: f.ask, tags: f.tags, access: "internal" })
+    expect(toc(renderBlocks(n)).map((c) => c.text)).toEqual(["What it says", "What we already do", "What we take from it", "What we did"])
+    const row = noteIndexRow({ ...f, file })
+    expect(row).toBe("| 2026-11-17 | [How one team verifies](2026-11-17-how-one-team-verifies.md) | Example Labs, example.com | read | review, ci |")
+    const readme = withIndexRow(NOTE_README.text, row)!
+    const lines = readme.split("\n")
+    expect(lines[lines.findIndex((l) => l.startsWith("| ---")) + 1]).toBe(row)
+    expect(withIndexRow("# no table\n", row)).toBeNull()
+    const url = new URL(newNoteFileUrl("o/r", "main", "docs/reading", file, text))
+    expect(url.searchParams.get("filename")).toBe("docs/reading/2026-11-17-how-one-team-verifies.md")
+    expect(url.searchParams.get("value")).toBe(text)
+  })
+
+  test("the source lists the folder (no README or template) and the notes on open pull requests", async () => {
+    const reads: string[] = []
+    const store = new Map<string, unknown>()
+    const h: Host = {
+      async get<T>(path: string) {
+        reads.push(path)
+        return structuredClone(answer(path)) as T
+      },
+      async load<T>(k: string) {
+        return (store.get(k) as T) ?? null
+      },
+      async save(k, v) {
+        store.set(k, v)
+      },
+    }
+    const src = new NoteSource(h, { repo: "manaflow-ai/cmuxterm-hq", dir: "docs/rfd", branch: "main" })
+    const { notes } = await src.index()
+    expect(notes.map((n) => n.id).sort()).toEqual(["2026-11-10-old-browser-post", "2026-11-16-session-pools", "2026-11-17-verification", "2026-11-18-lazy-checkouts"])
+    const pr = notes.find((n) => n.id === "2026-11-17-verification")!
+    expect(pr.pr?.number).toBe(12410)
+    expect(pr.indexed).toBe(false)
+    expect(notes.find((n) => n.id === "2026-11-18-lazy-checkouts")!.pr).toBeUndefined()
+    expect((await src.templateText())?.includes("## What it says")).toBe(true)
+    // Comments: the open pull request, else the one in the newest commit's subject (kept by sha).
+    expect((await src.comments(pr)).comments.length).toBe(1)
+    const base = notes.find((n) => n.id === "2026-11-18-lazy-checkouts")!
+    expect(await src.prOf(base)).toBe(13172)
+    const before = reads.length
+    expect(await src.prOf(base)).toBe(13172)
+    expect(reads.length).toBe(before)
+    expect(await src.prOf(notes.find((n) => n.id === "2026-11-10-old-browser-post")!)).toBeNull()
+    // The RFD list is unchanged by the notes' pull request.
+    const { rfds } = await new Source(h, { repo: "manaflow-ai/cmuxterm-hq", dir: "docs/rfd", branch: "main" }).index()
+    expect(rfds.map((r) => r.number).sort()).toEqual([0, 1, 2, 3, 4])
   })
 })

@@ -25,7 +25,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: NSView {
+final class HomeHostView: NSView, PaneCommitMotionPicture {
     let transcript: HomeNativeTranscriptView
     private let message = HomeUnavailableLabel.make(HomeStrings.unavailable)
     private var availability: Task<Void, Never>?
@@ -179,7 +179,8 @@ final class HomeHostView: NSView {
         transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             guard let services else { return }
-            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
+            // A link to elsewhere opens only its target; the floating Chief comes with it only when the person
+            // turned on `home.chiefDock.openBeside` (off by default, cmux#45889).
             WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
@@ -288,22 +289,22 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // task-owner: lives as long as this view; event-driven (Observation):
-        // the user's agents for the first-run glance, only while it can show
-        // (the Chief with no messages yet): otherwise no tab is read, so tab
-        // changes never wake a Chief with history.
+        // task-owner: lives as long as this view; event-driven (Observation): the user's agents for the first-run
+        // glance, only while it can show (the Chief with no messages yet): otherwise no tab is read, so tab changes
+        // never wake a Chief with history. The feed reads one workspace in each observation: a new tab wakes no stream here.
+        let agentsFeed = HomeAgentGlances(services: services).feed {
+            store.rows.first { $0.summary.id == id }.map { $0.summary.lastSeq == 0 && $0.summary.participants.contains { $0.agentClass == .chief } } ?? false
+        }
         agentsWatch = Task { [weak self] in
-            for await state in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
-                let glances = HomeAgentGlances(services: services)
-                let agents = glances.current
-                return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+            agentsFeed.start()
+            for await case let (agents, starters)? in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
+                guard let agents = agentsFeed.observedItems?.flatMap({ $0 }) else { return nil }
+                return (agents, HomeAgentGlances(services: services).starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
             }) {
-                guard let state else { continue }
-                self?.transcript.setFirstRunAgents(state.0)
-                self?.transcript.setFirstRunStarters(state.1)
+                self?.transcript.setFirstRunAgents(agents)
+                self?.transcript.setFirstRunStarters(starters)
             }
+            agentsFeed.stop() // the view's release cancelled this task: the feed's observations end with it
         }
         // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
         // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage

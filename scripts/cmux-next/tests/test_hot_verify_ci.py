@@ -634,7 +634,7 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", scripts[0]], cwd=ROOT, env=env, capture_output=True, text=True)
         self.assertNotEqual(done.returncode, 0)  # no look result is never green
         self.assertIn(f"cancel {step}", calls.read_text(), (done.stdout, done.stderr))
-        # A job cancelled while it waits (a newer push's run, the 75 min limit) cancels its step too.
+        # A job cancelled while it waits (a newer push's run, the job's time limit) cancels its step too.
         self.assertTrue(any("cancelled()" in line for line in self.job_block("look")), "no step runs on cancel")
         calls.unlink()
         (temp / "look.log").write_text(f"submitted step {step}\n")
@@ -707,6 +707,60 @@ class Workflow(unittest.TestCase):
         # The first step is cancelled before the fresh one: a client that stopped early may have left it queued.
         cancels = [i for i, c in enumerate(made) if c.startswith(f"cancel {old}")]
         self.assertTrue(cancels and cancels[0] < made.index(runs[1]), made)
+
+    def test_a_looks_queue_bound_follows_the_fleets_p90_wait(self) -> None:
+        # 2026-11-18: 77 look steps since 00Z waited 13 s p50 but 6087 s p90 for a Mac, past the fixed --queue-timeout 1800
+        # (hq docs/handbook/deadline-counts-queue-wait.md lists this caller as missing). The bound is the controller's
+        # reported p90 for class light, at least 1800 s and at most 3 h; unreadable, it stays 1800 s.
+        body = "[[ $1 == run ]] && { echo 'cmux-ci: step aaaaaaaaaaaaaaaaaaaaaaaa (light, key x)'; exit 75; }\n" \
+               "[[ $1 == cancel ]] && exit 0\nexit 1\n"
+        for p90, bound in ((6087.4, 6088), (600, 1800), (50000, 10800), (None, 1800)):
+            with self.subTest(p90=p90):
+                scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-bound-")))
+                env, calls = self.look_env(scratch, body, "99", "1")
+                status = "" if p90 is None else json.dumps({"step_queue_wait_p90_seconds": {"light": p90, "simulator": 1}})
+                (scratch / "status.json").write_text(status)
+                (scratch / "bin" / "curl").write_text(
+                    "#!/bin/bash\nurl=; out=\nwhile [[ $# -gt 0 ]]; do case $1 in -o) shift; out=$1;; http*) url=$1;; esac; shift; done\n"
+                    f"if [[ $url == */v1/status ]]; then [[ -s '{scratch / 'status.json'}' ]] || exit 22; "
+                    f"cp '{scratch / 'status.json'}' \"$out\"; else printf '{{\"commit\": \"%s\"}}' {HEAD} > \"$out\"; fi\n")
+                subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+                run = next(c for c in calls.read_text().splitlines() if c.startswith("run "))
+                self.assertIn(f"--queue-timeout {bound} ", run)
+        # The job outlives a fast first try (120 s), the longest bound, the step's own run limit (2400 s) and the reads.
+        limit = next(int(line.split(":")[1]) for line in self.job_block("look") if line.strip().startswith("timeout-minutes:"))
+        self.assertGreaterEqual(limit * 60, 120 + 10800 + 2400 + 600)
+        # Whatever the controller sends, the bound is a number in range.
+        for text in ("[]", '"x"', "null", '{"step_queue_wait_p90_seconds": null}', '{"step_queue_wait_p90_seconds": {"light": -Infinity}}',
+                     '{"step_queue_wait_p90_seconds": {"light": NaN}}', '{"step_queue_wait_p90_seconds": {"light": ' + "9" * 400 + "}}"):
+            self.assertIn(hv.queue_bound(text), (1800, 10800), text)
+
+    def test_a_look_rejoins_its_head_step_at_that_steps_hq_commit(self) -> None:
+        # #45082, 2026-11-17: its head step hv-45082-70e741a61349 was queued at 23:06 at HQ 1848f209. A run at 23:38 sent
+        # the same key at the controller's newer HQ commit, got "HTTP 409: step_key already names a different step"
+        # (the ref is part of the request), ran a fresh step instead, and the head step ran at 00:32 for nobody.
+        old_ref, now_ref = "1" * 40, HEAD
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-ref-")))
+        jobs = [{"id": "aaaaaaaaaaaaaaaaaaaaaaaa", "step_key": f"hv-7-{HEAD[:12]}", "ref": old_ref, "state": "queued",
+                 "created_at": "2026-11-17T23:06:52Z"},
+                {"id": "bbbbbbbbbbbbbbbbbbbbbbbb", "step_key": "hv-8-0123456789ab", "ref": "2" * 40, "state": "queued",
+                 "created_at": "2026-11-17T23:10:00Z"}]
+        (scratch / "all.json").write_text(json.dumps(jobs))
+        body = (f"if [[ $1 == status && $2 == --all ]]; then cat '{scratch / 'all.json'}'; exit 0; fi\n"
+                "if [[ $1 == run ]]; then echo 'cmux-ci: step aaaaaaaaaaaaaaaaaaaaaaaa (light, key x)'; exit 75; fi\n"
+                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        env, calls = self.look_env(scratch, body, "99", "")
+        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        self.assertEqual(len(runs), 1, runs)
+        self.assertIn(f"--ref {old_ref} ", runs[0])
+        # With no step under the head key yet, the look runs at the controller's own HQ commit.
+        (scratch / "all.json").write_text(json.dumps(jobs[1:]))
+        calls.unlink()
+        env, calls = self.look_env(scratch, body, "100", "")
+        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        self.assertIn(f"--ref {now_ref} ", runs[0])
 
     def test_a_look_at_a_new_head_cancels_the_prs_steps_at_other_heads(self) -> None:
         # A look that stopped waiting leaves its head's step queued for `look again`; when the author pushes meanwhile,
