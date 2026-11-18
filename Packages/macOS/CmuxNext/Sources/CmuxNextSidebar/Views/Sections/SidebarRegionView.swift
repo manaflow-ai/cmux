@@ -131,6 +131,8 @@ final class SidebarRegionView: NSView {
     /// the tonal step: every other section a shade lighter. By key (the section below a line, or `tone:<section>`).
     private var lineLayers: [String: CALayer] = [:]
     private var drawsLines = true
+    /// A fold's move in flight and the items its close keeps under the closing slot (`SidebarRegionFoldMove`).
+    let foldMove = SidebarRegionFoldMove()
 
     init(region: SidebarRegion) {
         self.region = region
@@ -181,6 +183,7 @@ final class SidebarRegionView: NSView {
     /// items spring to their new frames, as the list's rows do for a gap.
     func show(_ content: Content, width: CGFloat, animated: Bool) {
         guard animated, self.content != nil, content != self.content || width != self.width else { return update(content, width: width) }
+        foldMove.folds = self.content?.collapsed != content.collapsed
         self.content = content
         self.width = width
         relayout(animated: true)
@@ -224,11 +227,13 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
+        let move = foldMove.begin(in: self)
         Motion.sidebar.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)
-            self.animatesFrames = false
+            (self.animatesFrames, self.foldMove.folds) = (false, false)
         }, completion: { [weak self] in
+            self?.foldMove.end(move)
             // The rows ended their move under a possibly still pointer (cx-3wu5).
             PointerHover.refresh(in: self?.window)
         })
@@ -308,8 +313,8 @@ final class SidebarRegionView: NSView {
             view.alphaValue = 0
         }
         for (id, view) in itemViews where !liveItems.contains(id) && !pressed.contains(ObjectIdentifier(view)) {
-            view.removeFromSuperview()
             itemViews[id] = nil
+            if animatesFrames, foldMove.folds { foldMove.closing.append(view) } else { view.removeFromSuperview() } // under the slot
         }
         for (id, view) in appViews where !liveApps.contains(id) {
             view.removeFromSuperview()
@@ -538,14 +543,6 @@ final class SidebarRegionView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         contextMenuProvider?(emptySpaceTarget)
-    }
-
-    /// `info` drawn active when `id` is the selected item, and as part of the multi-selection when its workspace is.
-    private func activeInfo(_ info: SidebarItemInfo, _ id: LayoutItemID) -> SidebarItemInfo {
-        var info = info
-        info.isActive = id == activeItem
-        info.isSecondarySelected = !info.isActive && info.workspace.map(selectedWorkspaces.contains) == true
-        return info
     }
 
     /// The item view for `id` (tests, hover cards).
