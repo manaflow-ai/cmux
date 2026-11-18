@@ -78,6 +78,9 @@ final class PaneCommitMotion {
         let zoomed: Bool
         /// Each shown subview's layer frame (the pane hosts and the dividers).
         let frames: [ObjectIdentifier: CGRect]
+        /// ``cancel()`` came while this change waited: `frames` are not where the panes show now, so no change that
+        /// comes before the pass moves from them.
+        var still = false
     }
 
     /// The frame clock ends the motion when this part of the spring's way is left: where the spring's animation ends
@@ -87,6 +90,8 @@ final class PaneCommitMotion {
     private var armed: Armed?
     /// Seconds of frame time left in the motion.
     private var remaining: TimeInterval = 0
+    /// The frame ticks that a motion whose time is spent stayed for the pass of a change that waits (``step(_:)``).
+    private var overtime = 0
     /// One number for each act, in the keys of its animations.
     var serial = 0
     /// Each animation in flight.
@@ -127,7 +132,7 @@ final class PaneCommitMotion {
         let alone = armed == nil
         var next = armed ?? Armed(act: nil, panes: Set(screen.layout.panes), zoomed: screen.zoomed, frames: Self.shown(screen.subviews))
         let panes = Set(layout.panes)
-        if !structural || still {
+        if !structural || still || next.still {
             next.act = nil
         } else if next.zoomed {
             next.act = alone && !zoomed && next.panes.count == 1 && panes.isStrictSuperset(of: next.panes) ? .unzoom : nil
@@ -191,6 +196,7 @@ final class PaneCommitMotion {
     func panesPlaced(on screen: ScreenContentView) -> (act: Act, change: Change)? {
         guard let armed else { return nil }
         self.armed = nil
+        overtime = 0
         passBegan = false
         let last = taken
         taken = nil
@@ -281,18 +287,28 @@ final class PaneCommitMotion {
         return nil
     }
 
-    /// One frame tick of the motion's time. The tick in which the time is spent takes the moves away.
+    /// One frame tick of the motion's time. The tick in which the time is spent takes the moves away, but not under a
+    /// change that waits for its frame: the pass that shows that change ends the motion or adds to it
+    /// (``panesPlaced(on:)``). The frame clock steps before that pass, and a change can wait for its panes' surfaces,
+    /// so without this the first act's panes would show at rest for those ticks: a zoom's covered panes with no dim
+    /// and each ring. The motion stays as long as a change can wait (`ScreenContentView.commitBound` ticks and the
+    /// tick that shows it), then its time ends it: a change whose pass never comes keeps no motion.
     func step(_ dt: Double) {
         guard remaining > 0 else { return }
+        if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.commitBound {
+            overtime += 1
+            return
+        }
         remaining -= dt
         if remaining <= PaneZoomDim.spent { finish() }
     }
 
     /// No change that waits for its frame moves from here, and the motion ends now (``finish()``): the screen's size
     /// changed, the screen goes out of sight or away, or panes stopped animating. What the screen showed before the
-    /// change is not where its panes show now.
+    /// change is not where its panes show now, so a change that comes before that one's pass does not move either.
     func cancel() {
         armed?.act = nil
+        armed?.still = true
         taken = nil
         finish()
     }
@@ -302,6 +318,7 @@ final class PaneCommitMotion {
     /// frame shows.
     func finish() {
         remaining = 0
+        overtime = 0
         let held = Array(holds.values)
         holds = [:]
         for holder in held { holder.endPaneCommitMotionHold() }
