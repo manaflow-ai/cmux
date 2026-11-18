@@ -6,9 +6,11 @@
 //! On macOS 14 and later a display that dims for idle locks the session (loginwindow's
 //! `kLWLockFromDisplayDim`), even with "require password" set to never, and nothing gets past a
 //! lock: every app's AX windows go empty, input lands on the password field, and the helper
-//! answers `mac_locked` (`ScreenLockedRefusal`, CmuxCuaHelperCore `MachineConsent.swift`). Keep Mac Awake (`sessions.keepAwake`) holds off
-//! idle *system* sleep only, so a person who walks away from an agent driving their apps came back
-//! to a locked Mac and a stopped task after the display's idle time.
+//! answers `mac_locked` (`ScreenLockedRefusal`, CmuxCuaHelperCore `MachineConsent.swift`). Keep
+//! Mac Awake (`sessions.keepAwake`) holds off idle *system* sleep only, so a person who walks away
+//! from an agent driving their apps came back to a locked Mac and a stopped task after the
+//! display's idle time (measured on a fleet mini, macOS 27: a display sleep alone locked it, then
+//! AX listed 0 elements, every input was refused and the desktop capture was black).
 //!
 //! So every tool call through this bridge arms a display hold: `/usr/bin/caffeinate -d -i -u`
 //! for [`WINDOW`], tied to this bridge with `-w` (it exits when the bridge does, so a crash never
