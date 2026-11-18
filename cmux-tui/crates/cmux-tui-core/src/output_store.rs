@@ -282,8 +282,11 @@ impl OutputStore {
                     return retired[index].clone();
                 }
                 // A new incarnation (a respawn) is live: its stream starts
-                // at offset 0 (see `append`).
+                // at offset 0 (see `append`). A pass that ran while the log
+                // was departed left its flag set; cleared, the next append
+                // asks for a pass again.
                 if let Some(log) = retired.remove(index) {
+                    log.state().dirty = false;
                     logs.insert(terminal_id.clone(), log.clone());
                     return log;
                 }
@@ -582,6 +585,32 @@ mod tests {
         store.append(&terminal, &respawned, b"again");
         assert_eq!(store.stream_end(&terminal), Some((respawned, 5)));
         assert_eq!(store.logs.lock().unwrap().len(), 1);
+    }
+
+    /// A departed log that becomes live again (a respawn) asks for a pass on
+    /// its next output, also when the pass its last output asked for ran
+    /// while it was departed.
+    #[test]
+    fn a_respawned_terminal_schedules_its_snapshot() {
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-output-store-respawn-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let store = OutputStore::with_policy(
+            Some(&directory),
+            PersistencePolicy::resolve(Some("snapshot")),
+        );
+        let terminal = terminal();
+        store.append(&terminal, &Arc::from("generation-one"), b"before the exit");
+        assert!(store.writer.pass_due());
+        store.forget(&terminal);
+        // The writer runs that pass; the departed log is not among the dirty.
+        store.writer.take_due_for_test();
+        assert!(store.take_dirty().is_empty());
+
+        store.append(&terminal, &Arc::from("generation-two"), b"respawned");
+        assert!(store.writer.pass_due(), "the respawned terminal's output asked for no pass");
+        assert_eq!(store.take_dirty().len(), 1);
     }
 
     /// A cursor past the end (a daemon that stopped before it recorded the

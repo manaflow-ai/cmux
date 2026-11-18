@@ -104,6 +104,12 @@ impl Writer {
         self.state.0.lock().unwrap_or_else(PoisonError::into_inner).due.is_some()
     }
 
+    /// What the writer thread does when it starts the due pass.
+    #[cfg(test)]
+    pub(super) fn take_due_for_test(&self) {
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).due = None;
+    }
+
     /// Stop the writer thread. `false` when it did not finish within
     /// [`STOP_TIMEOUT`] (now or at an earlier stop): it stays detached and
     /// may still hold the pass, so the caller must not start another pass.
@@ -207,11 +213,11 @@ pub(super) fn write_pass(mux: &Mux, store: &OutputStore, final_end: bool) {
         // A terminal that left the session has nothing to write; its files
         // go with the prune its departure asked for.
         let Some(surface) = mux.output_store_terminal(&log.terminal_id) else { continue };
-        let (previous, epoch) = {
+        let (previous, epoch, captured_generation) = {
             let state = log.state();
             let end_moved = state.snapshot_end != Some(state.next_offset());
             let previous = if final_end && end_moved { None } else { state.snapshot_digest };
-            (previous, state.clear_epoch)
+            (previous, state.clear_epoch, state.generation.clone())
         };
         let captured = surface.try_with_terminal(|terminal| {
             capture(terminal, previous, policy.max_bytes_per_terminal)
@@ -229,9 +235,11 @@ pub(super) fn write_pass(mux: &Mux, store: &OutputStore, final_end: bool) {
         let _write = log.write_lock();
         let (generation, stream_end) = {
             let state = log.state();
-            if state.clear_epoch != epoch {
-                // The person cleared the history after this capture; the
-                // pass the clear asked for writes the cleared screen.
+            if state.clear_epoch != epoch || state.generation != captured_generation {
+                // The person cleared the history after this capture (the
+                // pass the clear asked for writes the cleared screen), or a
+                // new incarnation started (its output asks for a pass): this
+                // screen does not belong with the current stream.
                 continue;
             }
             (state.generation.clone(), state.next_offset())

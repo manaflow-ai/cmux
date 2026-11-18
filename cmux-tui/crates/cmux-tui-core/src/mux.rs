@@ -5949,9 +5949,11 @@ impl Mux {
     }
 
     /// `terminal.output_read` over the `terminal.output` records a daemon
-    /// that still journaled output wrote (before the output store): its
-    /// latest generation, record windows as before. Nothing journaled: an
-    /// empty, complete stream.
+    /// that still journaled output wrote (before the output store), for its
+    /// latest generation, with the output store's window rules: a raw byte
+    /// window from the cursor of at most `max_bytes` (at least one byte),
+    /// and a cursor past the end starts at the oldest retained byte.
+    /// Nothing journaled: an empty, complete stream.
     fn legacy_terminal_output_read(
         &self,
         terminal_id: &TerminalPublicId,
@@ -5960,29 +5962,43 @@ impl Mux {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<Value> {
-        let window = {
+        let (after, window) = {
             let registry = self.workspace_registry.lock().unwrap();
-            let Some((generation, _)) = registry.terminal_stream_latest(terminal_id.as_str())?
+            let Some((generation, end)) = registry.terminal_stream_latest(terminal_id.as_str())?
             else {
                 return Ok(terminal_output_read_result(String::new(), requested, requested, true));
             };
-            registry.terminal_output_records_after(
+            let after = if requested > end { 0 } else { requested };
+            let window = registry.terminal_output_records_after(
                 terminal_id.as_str(),
                 &generation,
-                requested,
+                after,
                 max_bytes,
-            )?
+            )?;
+            (after, window)
         };
-        let Some((first, last)) = window.chunks.first().zip(window.chunks.last()) else {
-            return Ok(terminal_output_read_result(String::new(), requested, requested, true));
+        let Some(first) = window.chunks.first() else {
+            let cursor = after.min(requested);
+            return Ok(terminal_output_read_result(String::new(), cursor, cursor, true));
         };
-        let (start_offset, next_offset) = (first.stream_offset_start, last.stream_offset_end);
-        let text = render_terminal_output_plain(
-            window.chunks.iter().map(|chunk| chunk.bytes.as_ref()),
-            cols,
-            rows,
-        )?;
-        Ok(terminal_output_read_result(text, start_offset, next_offset, !window.truncated))
+        // Records come whole; the window is clipped to the cursor and the
+        // byte budget, as the output store's windows are.
+        let bytes = window.chunks.iter().flat_map(|chunk| chunk.bytes.iter().copied());
+        let start_offset = after.max(first.stream_offset_start);
+        let skip = usize::try_from(start_offset - first.stream_offset_start)?;
+        let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
+        let mut bytes = bytes.skip(skip);
+        let window_bytes = bytes.by_ref().take(budget).collect::<Vec<_>>();
+        let clipped = bytes.next().is_some();
+        let next_offset = start_offset + u64::try_from(window_bytes.len())?;
+        let text =
+            render_terminal_output_plain(std::iter::once(window_bytes.as_slice()), cols, rows)?;
+        Ok(terminal_output_read_result(
+            text,
+            start_offset,
+            next_offset,
+            !window.truncated && !clipped,
+        ))
     }
 
     /// The `terminal.output` stream end an older daemon journaled for each
@@ -33059,6 +33075,18 @@ mod tests {
         let resumed = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
         assert_eq!(resumed["text"], "");
         assert_eq!(resumed["complete"], true);
+
+        // A window starts at the cursor and holds at most max_bytes, also
+        // inside a record.
+        let clipped = mux.terminal_output_read(&terminal, Some(2), 7).unwrap();
+        assert_eq!(clipped["text"].as_str().unwrap().trim_end(), "urnaled", "{clipped}");
+        assert_eq!(clipped["start_offset"], "2");
+        assert_eq!(clipped["next_offset"], "9");
+        assert_eq!(clipped["complete"], false);
+        // A cursor past the end starts at the oldest retained byte.
+        let reset = mux.terminal_output_read(&terminal, Some(total + 100), 1 << 20).unwrap();
+        assert_eq!(reset["start_offset"], "0", "{reset}");
+        assert_eq!(reset["next_offset"], total.to_string());
 
         assert_eq!(
             mux.legacy_terminal_stream_ends().get(&terminal),

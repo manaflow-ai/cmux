@@ -342,7 +342,7 @@ output now:
   close) keeps its tail readable in memory, for the 64 most recent such
   terminals. With no stream in this daemon and no exit snapshot,
   `terminal.output_read` serves the output records an older daemon journaled,
-  whole records as before.
+  with the same raw byte windows.
 
 Accepted geometry changes and the small `terminal.output.gap` markers
 (`host_reconnect`; no bytes) still use the FIFO terminal lane. Registries
