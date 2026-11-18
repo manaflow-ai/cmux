@@ -46,8 +46,16 @@ rm -rf "$dest"
 mkdir -p "$app/Contents/Library"
 ditto -x -k "$zip" "$app/Contents/Library"
 [[ -d "$dest" ]] || { echo "error: $zip has no $name" >&2; exit 1; }
-codesign --verify --strict --deep -R "=$requirement" "$dest" ||
-  { rm -rf "$dest"; echo "error: the embedded cmux Files (dev) is not signed as $requirement" >&2; exit 1; }
+# The pin's sha256 already fixes the bytes. On macOS also check the team requirement the launcher
+# stages with (cmux-signed-bundle checks it again at run time); the fleet's Linux cross-build
+# `codesign` verifies the signature but cannot evaluate a requirement, as for the sibling helpers.
+if [[ "$(uname -s)" == Darwin ]]; then
+  codesign --verify --strict --deep -R "=$requirement" "$dest" ||
+    { rm -rf "$dest"; echo "error: the embedded cmux Files (dev) is not signed as $requirement" >&2; exit 1; }
+else
+  codesign --verify --strict --deep "$dest" ||
+    { rm -rf "$dest"; echo "error: the embedded cmux Files (dev)'s signature does not verify" >&2; exit 1; }
+fi
 mkdir -p "$(dirname "$stamp")"
 echo "$want" > "$stamp"
 echo "note: embedded cmux Files (dev) sha256 $want"
