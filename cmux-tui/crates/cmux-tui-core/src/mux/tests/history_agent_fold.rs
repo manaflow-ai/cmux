@@ -39,7 +39,7 @@ fn list_agents_through_the_router(mux: &Arc<Mux>) -> Value {
 }
 
 /// Checkpoint and seal the whole journal; returns the new segment ids.
-fn seal_whole_journal(mux: &Mux, key: &str) -> Vec<String> {
+pub(super) fn seal_whole_journal(mux: &Mux, key: &str) -> Vec<String> {
     let checkpoint =
         mux.create_journal_checkpoint("client_test", &format!("{key}_checkpoint")).unwrap();
     let sealed = mux
@@ -273,7 +273,7 @@ fn stride_hook(mux: &Arc<Mux>, terminal: &TerminalPublicId, event: &str, mut nat
 
 /// The saved agent fold in the registry: its cursor and its sessions (`None`
 /// when the fold was never saved).
-fn saved_agent_fold(mux: &Mux) -> Option<(u64, String)> {
+pub(super) fn saved_agent_fold(mux: &Mux) -> Option<(u64, String)> {
     mux.workspace_registry
         .lock()
         .unwrap()
@@ -283,7 +283,10 @@ fn saved_agent_fold(mux: &Mux) -> Option<(u64, String)> {
 }
 
 /// Journal rows after `sequence`, counted by kind.
-fn journal_kinds_after(mux: &Mux, mut sequence: u64) -> std::collections::BTreeMap<String, usize> {
+pub(super) fn journal_kinds_after(
+    mux: &Mux,
+    mut sequence: u64,
+) -> std::collections::BTreeMap<String, usize> {
     let mut kinds = std::collections::BTreeMap::new();
     loop {
         let page = mux.session_journal_after(sequence, 500).unwrap();

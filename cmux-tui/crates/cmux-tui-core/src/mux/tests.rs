@@ -44,6 +44,7 @@ mod dock_columns;
 mod exit_snapshot_cost;
 pub(crate) mod floating_panes;
 mod history_agent_fold;
+mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
 mod input_queue_backstop;
