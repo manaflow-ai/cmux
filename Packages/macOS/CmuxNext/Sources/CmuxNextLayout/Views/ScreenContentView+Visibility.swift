@@ -97,6 +97,7 @@ extension ScreenContentView {
     func pane(at localPoint: NSPoint) -> PaneID? {
         // Canvas panes overlap: the front-most one under the point.
         if let canvas = canvasState.canvas { return canvas.pane(at: localPoint) }
+        if let front = geometry.floating.last(where: { geometry.floatingCards[$0]?.contains(localPoint) == true }) { return front }
         // A pane scrolled out of its scroll area's window takes no click there.
         func shown(_ pane: PaneID) -> Bool { displayedAreaWindow(of: pane)?.contains(localPoint) ?? true }
         if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
