@@ -11,8 +11,10 @@ const STEPS: VisibleStep[] = ["type", "scroll", "hover", "changeOne", "resize"];
 
 const server = await startVisibleLists();
 try {
-  console.log("| case | N | rows | DOM nodes | step | row renders (max/mean) | main ms p95 (p50) |");
-  console.log("|---|---|---|---|---|---|---|");
+  console.log(
+    "| case | N | rows | DOM nodes | step | row renders (max/mean) | by name (max/mean) | main ms p95 (p50) |",
+  );
+  console.log("|---|---|---|---|---|---|---|---|");
   for (const name of CASES) {
     for (const n of COUNTS) {
       for (const step of STEPS) {
@@ -27,7 +29,7 @@ try {
           const { rows, domNodes } = await open.counts();
           const numbers = await open.measure(step);
           console.log(
-            `| ${name} | ${n} | ${rows} | ${domNodes} | ${step} | ${numbers.rowRendersMax} / ${numbers.rowRendersMean.toFixed(1)} | ${numbers.taskMsP95} (${numbers.taskMsP50}) |`,
+            `| ${name} | ${n} | ${rows} | ${domNodes} | ${step} | ${numbers.rowRendersMax} / ${numbers.rowRendersMean.toFixed(1)} | ${numbers.byNameMax} / ${numbers.byNameMean.toFixed(1)} | ${numbers.taskMsP95} (${numbers.taskMsP50}) |`,
           );
         }
         await open.close();

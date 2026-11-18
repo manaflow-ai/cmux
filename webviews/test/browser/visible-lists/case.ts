@@ -1,9 +1,11 @@
 // The contract a visible-only list case keeps (test/browser/visible-lists.harness.tsx).
 
 export interface VisibleListControls {
-  /** Matches each mounted row of the list (a listbox's options, say). */
+  /** Matches each mounted row of the list (a listbox's options, say): the row renders are counted
+   * by it, so a row drawn inline counts. It must match a row after mount, or the case fails. */
   rowSelector: string;
-  /** The components whose renders count as row renders (named functions: the build keeps names). */
+  /** Components whose renders give a breakdown by name (named functions: the build keeps names);
+   * the headline row count comes from `rowSelector`. */
   rowComponents: readonly string[];
   /** The element whose scrollTop a scroll step moves. */
   scroller(): HTMLElement;

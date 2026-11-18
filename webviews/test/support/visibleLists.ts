@@ -5,7 +5,10 @@
 // For each case at N items it reads
 // - mounted rows and the list's DOM nodes;
 // - row renders per step (typing one key, one scroll step of one row, a hover onto the next row,
-//   one item changed, one resize step of 1 px), from the commit hook (visibleListsHook.ts);
+//   one item changed, one resize step of 1 px), from the commit hook (visibleListsHook.ts): the
+//   rows, by the case's row selector, that anything rendering drew into, so an inline row counts
+//   as a named one does. A case must name its rows: `open` fails when its selector is missing or
+//   matches no row in its list after mount;
 // - main-thread time per step: the renderer's TaskDuration (CDP Performance.getMetrics) across the
 //   step and the two frames after it. Waiting for the display's next frame is idle, not counted,
 //   so this is the work a key, scroll or resize costs. The timing passes run with the commit hook
@@ -21,6 +24,9 @@ export interface StepNumbers {
   /** Row renders per step: the largest seen, and the mean. */
   rowRendersMax: number;
   rowRendersMean: number;
+  /** The same counted by the case's `rowComponents` names (a row with no name counts 0 here). */
+  byNameMax: number;
+  byNameMean: number;
   /** Main-thread milliseconds per step: p95 and median. */
   taskMsP95: number;
   taskMsP50: number;
@@ -88,6 +94,19 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
             .__visibleList.ready,
       );
       if (errors.length) throw new Error(errors.join("\n"));
+      const named = await page.evaluate((selector) => {
+        if (typeof selector !== "string" || selector.trim() === "") return "has no rowSelector";
+        const list = (
+          window as unknown as { __visibleListControls: { list(): HTMLElement } }
+        ).__visibleListControls.list();
+        return list.querySelector(selector)
+          ? null
+          : `rowSelector ${JSON.stringify(selector)} matches no row in its list`;
+      }, rowSelector);
+      if (named) {
+        await page.close();
+        throw new Error(`visible-lists case "${caseName}" (n=${n}) ${named} after mount: a case must name its rows`);
+      }
       await frames(page);
       const cdp = await page.context().newCDPSession(page);
       await cdp.send("Performance.enable");
@@ -194,23 +213,36 @@ async function measure(
   await frames(page);
   // Counting pass.
   const renders: number[] = [];
+  const byName: number[] = [];
   for (let index = 1; index <= steps; index++) {
     await page.evaluate(() =>
       (window as unknown as { __visibleList: { renderCounts: { start(): void } } }).__visibleList.renderCounts.start(),
     );
     await doStep(page, step, index, rowSelector);
     await frames(page);
-    renders.push(
-      await page.evaluate((names) => {
-        const counts = (
-          window as unknown as {
-            __visibleList: { renderCounts: { stop(): void; read(names: readonly string[]): { renders: number } } };
-          }
-        ).__visibleList.renderCounts;
+    const counted = await page.evaluate(
+      ({ selector, names }) => {
+        const scope = window as unknown as {
+          __visibleList: {
+            renderCounts: {
+              stop(): void;
+              read(names: readonly string[]): { renders: number };
+              rows(selector: string, list: Element): { renders: number };
+            };
+          };
+          __visibleListControls: { list(): HTMLElement };
+        };
+        const counts = scope.__visibleList.renderCounts;
         counts.stop();
-        return counts.read(names).renders;
-      }, rowComponents),
+        return {
+          rows: counts.rows(selector, scope.__visibleListControls.list()).renders,
+          byName: counts.read(names).renders,
+        };
+      },
+      { selector: rowSelector, names: rowComponents },
     );
+    renders.push(counted.rows);
+    byName.push(counted.byName);
   }
   // Timing pass, the hook off.
   const times: number[] = [];
@@ -224,11 +256,14 @@ async function measure(
   const at = (quantile: number) => ms[Math.min(ms.length - 1, Math.ceil(quantile * ms.length) - 1)] ?? 0;
   return {
     rowRendersMax: Math.max(0, ...renders),
-    rowRendersMean: renders.reduce((a, b) => a + b, 0) / Math.max(1, renders.length),
+    rowRendersMean: mean(renders),
+    byNameMax: Math.max(0, ...byName),
+    byNameMean: mean(byName),
     taskMsP95: round(at(0.95)),
     taskMsP50: round(at(0.5)),
     steps,
   };
 }
 
+const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / Math.max(1, values.length);
 const round = (value: number) => Math.round(value * 10) / 10;
