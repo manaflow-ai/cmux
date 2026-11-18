@@ -118,7 +118,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -5015,6 +5015,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
   const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
+  const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -7577,10 +7579,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (startingQueued.length || heldRows.length)
       withCommands.queue = [...shownQueue, ...startingQueued.map(startingQueueEntry), ...heldRows];
     else if (shownQueue !== snapshot.queue) withCommands.queue = [...shownQueue];
-    return withDraftFolder(withCommands, projectDraft);
+    // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
+    // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
+    return projectDraft
+      ? withDraftFolder(withCommands, projectDraft)
+      : withCloudStartFolder(withCommands, cloudStartFolderShown);
   }, [
     snapshot,
     projectDraft,
+    cloudStartFolderShown,
     continueAvailable,
     forkable,
     forkSeq,
