@@ -140,6 +140,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that build-nightly-deltas waits for a quiet nightly-next loop
     # before the keyed job asks for the signer Mac; run it by hand after changing the yield script or the delta jobs.
     "tests/test_nightly_deltas_yield.py",
+    # lane = "manual" for the same rule. It checks that the nightly-next delta republish ships the deltas R2 serves past
+    # one failed upload and fails red when the live feed's newest item offers none; run it by hand after changing
+    # nightly_next_delta_check.py or republish-deltas-upload-next-appcasts.sh.
+    "tests/test_nightly_next_delta_check.py",
     # lane = "manual" for the same rule. It checks that nightly-next-one's Release compile has its own step bound;
     # run it by hand after changing that step or the job's timeout.
     "tests/test_nightly_next_build_step_bound.py",
