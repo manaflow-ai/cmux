@@ -57,11 +57,13 @@ export function cloudReadiness(models: ModelsState, row: CloudRow): CloudReadine
 }
 
 /** The person's own connections that serve the row: ready on the first that works, else off on the
- * first one (the one its button fixes), else missing. */
+ * one its button fixes, else missing. A connection added in cmux (a ChatGPT plan, a token) is fixed
+ * before a CLI login the person turned off, so the ChatGPT row offers Sign in with ChatGPT rather than
+ * turning the Codex CLI login back on. */
 function readiness(serving: ModelConnection[]): CloudReadiness {
   const ready = serving.find(works);
   if (ready) return { state: "ready", via: ready.label, connection: ready };
-  const first = serving[0] ?? null;
+  const first = serving.find((c) => !c.kind.endsWith("-login")) ?? serving[0] ?? null;
   return { state: first ? "off" : "missing", via: first?.label ?? null, connection: first };
 }
 

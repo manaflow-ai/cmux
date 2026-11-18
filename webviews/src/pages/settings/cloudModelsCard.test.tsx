@@ -92,6 +92,27 @@ test("a turned-off ChatGPT plan says Turned off and Turn On makes it Connected f
   expect(statuses(rendered).chatgpt).toBe("ready");
 });
 
+test("a Codex CLI login signed in with ChatGPT serves Cloud; turned off, the plan's sign-in leads", async () => {
+  const serving = structuredClone(mockModels.chatgptSignedOut);
+  serving.personal.connections = serving.personal.connections.map((c) =>
+    c.kind === "codex-login" ? { ...c, servesCloud: true } : c,
+  );
+  expect(cloudReadiness(serving, "chatgpt")).toMatchObject({
+    state: "ready",
+    via: serving.personal.connections[0]!.label,
+  });
+  const off = structuredClone(serving);
+  off.personal.connections = off.personal.connections.map((c) =>
+    c.kind === "codex-login" ? { ...c, enabled: false } : c,
+  );
+  const rendered = await render(off);
+  const chatgpt = row(rendered, "chatgpt");
+  expect(chatgpt.querySelector("[data-cloud-status-text]")?.textContent).toBe("Signed out");
+  expect(chatgpt.querySelector('[data-cloud-action="turnOn"]')).toBeNull();
+  await click(chatgpt.querySelector('[data-cloud-action="connectChatGPT"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT", id: "chatgpt" }]);
+});
+
 test("a ChatGPT plan both turned off and signed out turns on as it signs in", async () => {
   const both = structuredClone(mockModels.chatgptSignedOut);
   both.personal.connections = both.personal.connections.map((c) =>
