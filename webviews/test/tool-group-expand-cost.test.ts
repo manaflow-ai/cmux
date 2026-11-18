@@ -176,11 +176,19 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
       GROUP,
     );
     await settled(page);
-    // Back to the very end, as the reader's wheel puts it, so each open starts from one place.
-    await page.locator(".acpmux-scroll").evaluate((node) => {
-      node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
-      node.scrollTop = node.scrollHeight;
-    });
+    // Back to the very end with the reader's wheel (the pointer near the transcript's top-left, clear
+    // of the floating jump-to-latest button), so each open starts from one place.
+    const scroller = page.locator(".acpmux-scroll");
+    const view = (await scroller.boundingBox())!;
+    await page.mouse.move(view.x + 8, view.y + 8);
+    for (
+      let notch = 0;
+      notch < 100 && (await scroller.evaluate((node) => node.scrollTop + node.clientHeight < node.scrollHeight - 1));
+      notch++
+    ) {
+      await page.mouse.wheel(0, 2_000);
+      await settled(page);
+    }
     await settled(page);
   };
 
@@ -239,17 +247,21 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
 
   // Rows of mixed heights (a long lead thought, failures, later thoughts, images) that the run's box
   // brings in as it scrolls take their own heights: 0 px of drift. Every step keeps its place in the
-  // box's content (its top in the box plus the box's offset), and the run's own row its top and
-  // height in the transcript's content, as rows mount and are measured (stepWindow.ts `measure`,
-  // review of cmux#37152). The other rows in view are recorded, not asserted: the transcript, still
-  // following after this test's scroll up from the latest row, settles back to it partway down on
-  // base and head alike (VirtualTranscript.tsx follow-latest layout pass, `settleFollowBottom`),
-  // which moves every row on screen; a known issue of the row window, not of the run.
+  // box's content (its top in the box plus the box's offset), the run's own row its top and height in
+  // the transcript's content, and every other row in view its place on screen, as rows mount and are
+  // measured (stepWindow.ts `measure`, review of cmux#37152). The reader's own input drives it: a
+  // click opens the run and wheel notches scroll the transcript and then the box. A synthetic wheel
+  // plus scrollTop writes can leave the transcript following the latest row while it sits above it,
+  // and its follow-latest pass (VirtualTranscript.tsx `settleFollowBottom`) then snaps it back down,
+  // which real input never does. The notches aim near the box's top-left corner, clear of the
+  // floating jump-to-latest button, and stop at the box's end, where the next notch would chain to
+  // the transcript as the browser chains any scroll.
   // (Reads never group since 2026-11-17, readPath.ts: no run of reads to open.)
   for (const variant of ["n100", "mixed-commands"] as const)
     test(`${variant}: scrolling the opened run's box moves nothing in view`, async () => {
       const page = await open(variant);
-      await page.locator(GROUP).click();
+      const group = (await page.locator(GROUP).boundingBox())!;
+      await page.mouse.click(group.x + group.width / 2, group.y + group.height / 2);
       await page.waitForFunction(
         (row) => {
           const body = document.querySelector<HTMLElement>(`${row} [data-tool-group-items]`)?.parentElement;
@@ -262,17 +274,27 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
         ROW,
         { timeout: 10_000 },
       );
-      // The reader scrolls the transcript so the run's box sits mid-view, the reply under it in view.
-      await page.evaluate((row) => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
-        const box = document.querySelector<HTMLElement>(`${row} .cv-run-scroll`)!.getBoundingClientRect();
-        const view = scroller.getBoundingClientRect();
-        scroller.scrollTop += box.top + box.height / 2 - (view.top + scroller.clientHeight / 2);
-      }, ROW);
+      // The reader wheels the transcript (the pointer over its left edge, off the box) until the run's
+      // box sits mid-view, the reply under it in view.
+      for (let notch = 0; notch < 100; notch++) {
+        const { off, x, y } = await page.evaluate((row) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const box = document.querySelector<HTMLElement>(`${row} .cv-run-scroll`)!.getBoundingClientRect();
+          const view = scroller.getBoundingClientRect();
+          return {
+            off: box.top + box.height / 2 - (view.top + scroller.clientHeight / 2),
+            x: view.left + 8,
+            y: view.top + 8,
+          };
+        }, ROW);
+        if (Math.abs(off) < 60) break;
+        await page.mouse.move(x, y);
+        await page.mouse.wheel(0, Math.sign(off) * Math.min(Math.abs(off), 120));
+        await settled(page);
+      }
       await settled(page);
-      const seen = await page.evaluate(
-        async ({ row, TRANSCRIPT_ROW }) => {
+      await page.evaluate(
+        ({ row, TRANSCRIPT_ROW }) => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const box = document.querySelector<HTMLElement>(`${row} .cv-run-scroll`)!;
           /// Every other transcript row in view by its viewport top, and every drawn step by its top in
@@ -293,38 +315,66 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
               tops.set(`step:${step.dataset.step}`, step.getBoundingClientRect().top - inside.top + box.scrollTop);
             return tops;
           };
-          const moves: string[] = [];
-          let last = places();
-          const rowsInView = [...last.keys()].filter((key) => key.startsWith("row:")).length;
-          const check = (what: string) => {
-            const now = places();
-            for (const [key, top] of now) {
-              const before = last.get(key);
-              if (before !== undefined && Math.abs(top - before) > 0.5)
-                moves.push(`${what} ${key} ${before.toFixed(1)}->${top.toFixed(1)}`);
-            }
-            last = now;
+          const seen = { moves: [] as string[], mounted: 0, rowsInView: 0, last: places() };
+          seen.rowsInView = [...seen.last.keys()].filter((key) => key.startsWith("row:")).length;
+          (window as unknown as { __noJump: unknown }).__noJump = {
+            seen,
+            check(what: string) {
+              const now = places();
+              for (const [key, top] of now) {
+                const before = seen.last.get(key);
+                if (before !== undefined && Math.abs(top - before) > 0.5)
+                  seen.moves.push(`${what} ${key} ${before.toFixed(1)}->${top.toFixed(1)}`);
+              }
+              seen.last = now;
+              seen.mounted = Math.max(seen.mounted, box.querySelectorAll("[data-step]").length);
+            },
+            atEnd: () => box.scrollTop + box.clientHeight >= box.scrollHeight - 1,
+            corner: () => {
+              const rect = box.getBoundingClientRect();
+              return { x: rect.left + 12, y: rect.top + 12 };
+            },
           };
-          let scrolls = 0;
-          let mounted = 0;
-          // 60px a wheel notch, to the box's end, two painted frames each.
-          for (let guard = 0; guard < 200 && box.scrollTop + box.clientHeight < box.scrollHeight - 1; guard++) {
-            await window.cmuxPaintFrame(() => {
-              box.scrollTop += 60;
-            });
-            await window.cmuxPaintFrame();
-            scrolls += 1;
-            mounted = Math.max(mounted, box.querySelectorAll("[data-step]").length);
-            check(`scroll ${scrolls}`);
-          }
-          for (let frame = 0; frame < 8; frame++) {
-            await window.cmuxPaintFrame();
-            check("after");
-          }
-          return { scrolls, rowsInView, moves, mounted };
         },
         { row: ROW, TRANSCRIPT_ROW },
       );
+      type Probe = {
+        __noJump: {
+          seen: { moves: string[]; mounted: number; rowsInView: number };
+          check(what: string): void;
+          atEnd(): boolean;
+          corner(): { x: number; y: number };
+        };
+      };
+      /// Two painted frames, then every place compared with the last.
+      const check = (what: string) =>
+        page.evaluate(async (what) => {
+          await window.cmuxPaintFrame();
+          await window.cmuxPaintFrame();
+          (window as unknown as Probe).__noJump.check(what);
+        }, what);
+      const corner = await page.evaluate(() => (window as unknown as Probe).__noJump.corner());
+      await page.mouse.move(corner.x, corner.y);
+      // A 60 px wheel notch at a time, to the box's end.
+      let scrolls = 0;
+      for (
+        let guard = 0;
+        guard < 200 && !(await page.evaluate(() => (window as unknown as Probe).__noJump.atEnd()));
+        guard++
+      ) {
+        await page.mouse.wheel(0, 60);
+        scrolls += 1;
+        await check(`scroll ${scrolls}`);
+      }
+      for (let frame = 0; frame < 4; frame++) await check("after");
+      const seen = {
+        scrolls,
+        ...(await page.evaluate(() => {
+          const { moves, mounted, rowsInView } = (window as unknown as Probe).__noJump.seen;
+          return { moves, mounted, rowsInView };
+        })),
+      };
+
       await page.close();
       if (process.env.TOOL_GROUP_COST === "1") console.log(`no-jump ${variant} ${JSON.stringify(seen)}`);
       expect({
@@ -338,12 +388,8 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
         inView: true,
         windowed: true,
       });
-      // The run's steps and its own row: 0 px. The other rows: recorded (the known follow settle above).
-      const gated = seen.moves.filter((move) => move.includes(" step:") || move.includes(" own:"));
-      console.log(
-        `drift ${variant}: run ${gated.length} moves; other rows ${JSON.stringify(seen.moves.filter((move) => move.includes(" row:")))}`,
-      );
-      expect({ variant, moves: gated }).toEqual({ variant, moves: [] });
+      // The run's steps, its own row and every other row in view: 0 px.
+      expect({ variant, moves: seen.moves }).toEqual({ variant, moves: [] });
     });
 
   // Opened at 1,000 and 10,000 commands, the run mounts the same steps and DOM nodes within 10%, and
