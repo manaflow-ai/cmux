@@ -43,6 +43,8 @@ setup you install from a repo.
   rewritten. `cmux settings validate` prints the new name, for example
   `sidebar.showCounts is now sidebar.workspaceRow.tabCount (until 2026-12-05)`.
   When you change that setting in Settings, the old key goes.
+- A **renamed choice** (for example `updates.notify` `card`, now `badge`) reads
+  as the new value. A setup that sets the old value installs the new one.
 - A **removed** key is ignored. A setup that sets one installs without it, and
   its consent card lists it under "left out".
 - A setup made for a **newer** cmux can set keys this cmux doesn't have yet.
@@ -80,6 +82,10 @@ you don't, the `cmux-config` tests fail and name the key.
 
 Run `python3 scripts/cmux-next/gen-settings-sources.py` after you edit the file.
 It checks the entry and writes the app's copy.
+
+To rename a choice value, give the row `"aliases": {"old": "new"}` in
+`schemas/settings/source`. The same script writes it for the app and for the
+daemon (`schemas/settings/choice-aliases.generated.json`).
 
 ## Editor completion
 

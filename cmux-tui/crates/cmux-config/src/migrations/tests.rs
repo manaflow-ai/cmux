@@ -115,6 +115,8 @@ fn the_window_ends_after_its_date_or_at_its_version() {
         reason: String::new(),
         since: None,
         until: Some(until.into()),
+        old_value: None,
+        new_value: None,
     };
     assert!(!notice("2027-01-01").window_ended("2027-01-01", "1.0.0"));
     assert!(notice("2027-01-01").window_ended("2027-01-02", "1.0.0"));
@@ -122,4 +124,48 @@ fn the_window_ends_after_its_date_or_at_its_version() {
     assert!(notice("0.90.0").window_ended("2027-01-02", "0.90.0"));
     assert!(!notice("0.90.0").window_ended("2027-01-02", "0.0.0"), "an unstamped build");
     assert!(!Notice { until: None, ..notice("x") }.window_ended("2099-01-01", "9.0.0"));
+}
+
+/// A row's `aliases` (schemas/settings/source, generated for the daemon as
+/// choice-aliases.generated.json): each names a live row, maps to a value the
+/// row accepts, and an old value is one the row no longer takes.
+#[test]
+fn every_choice_alias_maps_to_a_value_its_row_accepts() {
+    let schema = Schema::embedded();
+    assert!(!choice_aliases().is_empty(), "updates.notify has card -> badge");
+    for (key, aliases) in choice_aliases() {
+        let row = schema.row(key).unwrap_or_else(|| panic!("{key} has aliases and is no row"));
+        for (old, new) in aliases {
+            let domains = Default::default();
+            assert!(crate::schema::accepts(row, &json!(new), &domains).is_ok(), "{key}: {new}");
+            assert!(crate::schema::accepts(row, &json!(old), &domains).is_err(), "{key}: {old}");
+        }
+    }
+}
+
+#[test]
+fn a_renamed_choice_value_is_rewritten_dotted_or_nested() {
+    for (written, at) in [
+        (json!({ "updates.notify": "card" }), json!({ "updates.notify": "badge" })),
+        (json!({ "updates": { "notify": "card" } }), json!({ "updates": { "notify": "badge" } })),
+    ] {
+        let (migrated, notices) = migrate(&written);
+        assert_eq!(migrated, at);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].kind, NoticeKind::RenamedValue);
+        assert_eq!(notices[0].old_value, Some(json!("card")));
+        assert_eq!(notices[0].new_value, Some(json!("badge")));
+        assert_eq!(notices[0].message(), "updates.notify: \"card\" is now \"badge\"");
+    }
+    let current = json!({ "updates.notify": "silent" });
+    assert_eq!(migrate(&current), (current.clone(), Vec::new()));
+}
+
+/// The daemon reads an old choice value as its replacement, with no diagnostic.
+#[test]
+fn the_daemon_reads_an_old_choice_value_as_its_replacement() {
+    let row = Schema::embedded().row("updates.notify").expect("the row");
+    let root = json!({ "updates": { "notify": "card" } });
+    let read = crate::schema::effective_value(row, &root, &Default::default());
+    assert_eq!(read, Some(json!("badge")));
 }

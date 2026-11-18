@@ -545,3 +545,23 @@ fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
         "your entry is still in the library"
     );
 }
+
+/// A choice a row renamed (`aliases`, `updates.notify`: `card` is now
+/// `badge`): a setup that sets the old value installs the new one.
+#[test]
+fn a_setup_with_an_old_choice_value_installs_the_new_one() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("updates.notify".to_owned(), json!("card"));
+    let customize = home.customize();
+    let plan = customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap();
+    let notify = plan.settings.iter().find(|s| s.key == "updates.notify").unwrap();
+    assert_eq!(notify.value, json!("badge"));
+    assert_eq!(plan.renamed.len(), 1);
+    assert_eq!(plan.renamed[0].old_value, Some(json!("card")));
+    assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+    customize.install_setup(&read, "setup", "cli", 10).unwrap();
+    assert_eq!(home.settings()["updates"]["notify"], json!("badge"));
+}

@@ -352,8 +352,8 @@ pub struct Plan {
     pub extensions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<String>,
-    /// Settings it names by an older name, which install under the new one
-    /// (`settings` lists them by the new name).
+    /// Settings it names by an older name, or set to a choice a row renamed:
+    /// they install under the new name and value (`settings` lists those).
     pub renamed: Vec<Notice>,
     /// Settings it sets that this cmux leaves out, and why: a key cmux
     /// removed, or one this cmux has no setting for (a newer cmux may).
@@ -649,7 +649,7 @@ impl Customize {
             renamed: settled
                 .notices
                 .iter()
-                .filter(|notice| notice.kind == NoticeKind::Renamed)
+                .filter(|notice| notice.kind != NoticeKind::Removed)
                 .cloned()
                 .collect(),
             skipped: settled

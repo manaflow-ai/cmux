@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::schema::{Retired, replaced_by_row, retired_entries};
+use crate::schema::{Retired, choice_aliases, replaced_by_row, retired_entries};
 
 /// What happened to one key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -30,10 +30,13 @@ pub enum NoticeKind {
     /// The key is gone (or its value has no equivalent under the new name):
     /// it was dropped and that setting keeps its default.
     Removed,
+    /// The key stays; its value is a choice the row renamed, now the new
+    /// one (`old_value`, `new_value`).
+    RenamedValue,
 }
 
 /// One key [`migrate`] rewrote.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Notice {
     /// The old dotted key.
     pub from: String,
@@ -48,6 +51,12 @@ pub struct Notice {
     /// The end of the deprecation window (`YYYY-MM-DD` or a cmux version).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub until: Option<String>,
+    /// For a renamed value: the value as written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<Value>,
+    /// For a renamed value: the value it is now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<Value>,
 }
 
 impl Notice {
@@ -59,6 +68,8 @@ impl Notice {
             reason,
             since: entry.since.clone(),
             until: entry.until.clone(),
+            old_value: None,
+            new_value: None,
         }
     }
 
@@ -67,6 +78,7 @@ impl Notice {
         let until =
             self.until.as_ref().map(|until| format!(" (until {until})")).unwrap_or_default();
         match (self.kind, &self.to) {
+            (NoticeKind::RenamedValue, _) => format!("{}: {}{until}", self.from, self.reason),
             (NoticeKind::Renamed, Some(to)) => format!("{} is now {to}{until}", self.from),
             (NoticeKind::Removed, Some(to)) => {
                 format!("{} is now {to}, {}{until}", self.from, self.reason)
@@ -126,7 +138,37 @@ pub fn migrate(settings: &Value) -> (Value, Vec<Notice>) {
         }
         notices.push(Notice::of(entry, NoticeKind::Renamed, entry.reason.clone()));
     }
+    // A choice value a row renamed (its `aliases`), under the key's new name.
+    for (key, aliases) in choice_aliases() {
+        let Some(value) = find_mut(&mut members, &path(key)) else { continue };
+        let Some(new) = value.as_str().and_then(|old| aliases.get(old)) else { continue };
+        let old = std::mem::replace(value, Value::String(new.clone()));
+        notices.push(Notice {
+            from: key.clone(),
+            to: Some(key.clone()),
+            kind: NoticeKind::RenamedValue,
+            reason: format!("{old} is now \"{new}\""),
+            since: None,
+            until: None,
+            old_value: Some(old),
+            new_value: Some(Value::String(new.clone())),
+        });
+    }
     (Value::Object(members), notices)
+}
+
+/// [`find`], for a change in place.
+fn find_mut<'a>(members: &'a mut Map<String, Value>, path: &[String]) -> Option<&'a mut Value> {
+    let split = (1..=path.len()).find(|&split| match members.get(&path[..split].join(".")) {
+        Some(_) if split == path.len() => true,
+        Some(Value::Object(child)) => find(child, &path[split..]).is_some(),
+        _ => false,
+    })?;
+    let head = members.get_mut(&path[..split].join("."))?;
+    if split == path.len() {
+        return Some(head);
+    }
+    find_mut(head.as_object_mut()?, &path[split..])
 }
 
 /// [`migrate`] for settings by dotted key (a profile's or a setup's).
