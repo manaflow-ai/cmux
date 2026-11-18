@@ -517,6 +517,79 @@ mod tests {
         assert!(error.contains("also visible at /alias"), "{error}");
     }
 
+    /// The fleet's identical-paths bind: the whole HOME is mounted a second
+    /// time (an fstab bind of /home/<user> at /Users/<user>). The plan must
+    /// rebuild HOME at that view too, so no guarded name is reachable there,
+    /// work folders stay readable, and nothing is writable through it.
+    #[test]
+    fn regression_home_bound_at_a_second_mount_point_is_rebuilt_there() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        fs::write(p.home.join(".ssh/id_ed25519"), "key").unwrap();
+        fs::create_dir_all(p.home.join(".config/gh")).unwrap();
+        fs::create_dir_all(p.home.join("Projects/repo")).unwrap();
+        let alias = PathBuf::from("/Users/u");
+        let at = |path: &Path| alias.join(path.strip_prefix(&p.home).unwrap());
+        let info = format!(
+            "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+            p.home.display(),
+            alias.display()
+        );
+        let denies = [p.home.join(".ssh"), p.home.join(".aws"), p.home.join(".config/gh")];
+        let (args, _fds) =
+            plan_with_mount_id(&p, &denies, &info, &strings(&["true"]), |_| Ok(1)).unwrap();
+        let alias_text = alias.to_str().unwrap();
+        assert!(
+            args.windows(2).any(|w| w[0] == "--tmpfs" && w[1] == alias_text),
+            "alias view not rebuilt: {args:?}"
+        );
+        assert!(
+            args.windows(2).any(|w| w[0] == "--remount-ro" && w[1] == alias_text),
+            "alias view not sealed read-only: {args:?}"
+        );
+        for hidden in [".ssh", ".aws", ".config/gh", ".claude/.credentials.json"] {
+            let name = at(&p.home.join(hidden));
+            assert!(
+                !args.iter().any(|a| Path::new(a).starts_with(&name)),
+                "{} reachable at the alias: {args:?}",
+                name.display()
+            );
+        }
+        let projects = at(&p.home.join("Projects"));
+        assert!(
+            args.windows(3).any(|w| w[0] == "--ro-bind-fd" && Path::new(&w[2]) == projects),
+            "work folders must stay readable at the alias: {args:?}"
+        );
+        let writable: Vec<_> =
+            args.windows(3).filter(|w| w[0] == "--bind-fd").map(|w| PathBuf::from(&w[2])).collect();
+        assert_eq!(writable.len(), 4, "{args:?}");
+        assert!(writable.iter().all(|w| !w.starts_with(&alias)), "{args:?}");
+    }
+
+    /// Masking covers only an alias of the whole HOME. An alias of a guarded
+    /// subtree, or of the HOME at a point inside it, still refuses.
+    #[test]
+    fn plan_still_refuses_aliases_it_cannot_mask() {
+        let fixture = Fixture::new();
+        let p = fixture.create_paths();
+        fs::create_dir_all(p.home.join(".ssh")).unwrap();
+        let ssh = p.home.join(".ssh");
+        for (root, point) in
+            [(ssh.clone(), PathBuf::from("/mnt/ssh")), (p.home.clone(), p.home.join("loop"))]
+        {
+            let info = format!(
+                "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 {} {} rw - ext4 root rw\n",
+                root.display(),
+                point.display()
+            );
+            let error =
+                plan_with_mount_id(&p, &[ssh.clone()], &info, &strings(&["true"]), |_| Ok(1))
+                    .unwrap_err();
+            assert!(error.contains("is also visible at"), "{}: {error}", point.display());
+        }
+    }
+
     fn real_probe() -> bool {
         match probe(Path::new("/usr/bin/bwrap")) {
             Ok(()) => true,
