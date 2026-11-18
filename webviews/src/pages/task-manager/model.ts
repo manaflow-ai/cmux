@@ -36,6 +36,33 @@ export function nextOrder(current: SortOrder | null, key: SortKey): SortOrder {
   return current?.key === key ? { key, ascending: !current.ascending } : { key, ascending: true };
 }
 
+// Every field of a row, each drawn or used to sort it: a new field fails to compile here until it is
+// listed, so a sample can never keep a row whose text changed.
+const ROW_FIELDS: Record<keyof TaskManagerRow, true> = {
+  id: true,
+  host: true,
+  pid: true,
+  task: true,
+  name: true,
+  cpu: true,
+  cpuText: true,
+  memoryBytes: true,
+  memoryText: true,
+  refusal: true,
+};
+const FIELDS = Object.keys(ROW_FIELDS) as (keyof TaskManagerRow)[];
+const sameRow = (a: TaskManagerRow, b: TaskManagerRow) => FIELDS.every((key) => Object.is(a[key], b[key]));
+
+/** A new sample's rows, each one the previous sample's object when nothing in it changed, so only
+ * the rows whose numbers moved draw again (a sample comes about once a second). */
+export function keptRows(previous: readonly TaskManagerRow[], next: readonly TaskManagerRow[]): TaskManagerRow[] {
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = byId.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  });
+}
+
 /** The selection after a new sample: kept while its process is listed, else none. */
 export function keptSelection(selected: string | null, rows: readonly TaskManagerRow[]): string | null {
   return selected !== null && rows.some((row) => row.id === selected) ? selected : null;

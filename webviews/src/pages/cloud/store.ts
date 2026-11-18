@@ -14,6 +14,7 @@ import { archives, capOffer, noticeKey, readDismissed, writeDismissed, type CapO
 import {
   applyEvent,
   defaultMemory,
+  keptMachines,
   memoryChoices,
   normalizeMachine,
   settled,
@@ -894,6 +895,10 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
+      // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
+      // so only the machines that changed draw again. Events need none of this (applyEvent keeps
+      // the others).
+      machines = keptMachines(this.state.machines, machines);
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
       void this.readArchives(session);
     } catch (error) {

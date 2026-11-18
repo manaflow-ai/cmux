@@ -2,7 +2,7 @@
 // unread dot in the gutter) or a pinned tile (a big avatar with the name under it and its unread
 // dot), as the native list (MessagesLab's sidebar) draws them. The avatar is the participant's
 // picture or their initials; a group shows up to three members; a Chief working shows a quiet mark.
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { memo, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { DrivenRow } from "../../../ui/DrivenList";
 import { useAvatarPicture } from "../../home-channels/avatars";
 import { graphemePrefix, initials } from "../../../ui/initials";
@@ -71,7 +71,60 @@ export interface ItemEvents {
   onHover(id: string): void;
 }
 
-export function ListRow({
+const sameParticipant = (a: HomeParticipant | undefined, b: HomeParticipant | undefined) =>
+  a === b || (!!a && !!b && a.id === b.id && a.name === b.name && a.kind === b.kind && a.chief === b.chief);
+
+const sameMembers = (a: readonly HomeParticipant[], b: readonly HomeParticipant[]) =>
+  a.length === b.length && a.slice(0, 3).every((member, index) => sameParticipant(member, b[index]));
+
+type Same<T> = (a: T, b: T) => boolean;
+
+/**
+ * How a row or tile compares each `ListItem` field, in one place: a field it draws gets its test,
+ * a field it does not draw is `null` and says where it shows instead. A new field fails to compile
+ * here until it is given one, so the compare cannot drift from what the row draws either way (a
+ * field drawn but not compared shows stale text; one compared but not drawn redraws for nothing).
+ */
+const LOOK: { [K in keyof ListItem]-?: Same<ListItem[K]> | null } = {
+  id: Object.is,
+  title: Object.is,
+  label: Object.is,
+  preview: Object.is,
+  time: Object.is,
+  badge: Object.is,
+  unread: Object.is,
+  muted: Object.is,
+  state: Object.is,
+  peer: sameParticipant,
+  members: sameMembers,
+  // Shown only through `label` (the count, the mention) or `badge` (Channel), compared above.
+  unreadCount: null,
+  mentions: null,
+  channel: null,
+  // Where the item sits (its order, the pinned tiles or the rows), not what it draws.
+  at: null,
+  pinned: null,
+  // The record the fields come from; the row's handlers take the id.
+  conversation: null,
+};
+const LOOK_FIELDS = Object.entries(LOOK).filter((entry): entry is [keyof ListItem, Same<unknown>] => entry[1] !== null);
+
+/** Whether two items draw the same (the list model builds every item again on each change and on its
+ * minute clock): every field the row or tile draws, by `LOOK`. */
+export function sameLook(a: ListItem, b: ListItem): boolean {
+  return a === b || LOOK_FIELDS.every(([key, same]) => same(a[key], b[key]));
+}
+
+/** Memo for a row or tile: its other props are numbers, booleans and the list's one `events`. */
+function sameItemProps<P extends { item: ListItem }>(a: P, b: P): boolean {
+  for (const key in a) {
+    if (key === "item") continue;
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  return sameLook(a.item, b.item);
+}
+
+export const ListRow = memo(function ListRow({
   item,
   top,
   selected,
@@ -124,9 +177,9 @@ export function ListRow({
       )}
     </DrivenRow>
   );
-}
+}, sameItemProps);
 
-export function PinnedTile({
+export const PinnedTile = memo(function PinnedTile({
   item,
   x,
   y,
@@ -174,4 +227,4 @@ export function PinnedTile({
       </span>
     </DrivenRow>
   );
-}
+}, sameItemProps);
