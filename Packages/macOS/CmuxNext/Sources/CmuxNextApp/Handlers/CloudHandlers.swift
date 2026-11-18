@@ -184,17 +184,17 @@ enum CloudHandlers {
         context.services.registry.track(task)
     }
 
-    /// Shows `workspaceID` in the active window (or a new one).
-    static func show(_ workspaceID: String, _ context: AppActionContext) {
+    /// Shows `workspaceID` in the active window (or a new one); a Cloud chat's own in place of `origin`, the workspace on this Mac its Send began in
+    /// (never Home): in that one's window, right above its row, which closes once empty, so after Enter the row sent from is the Cloud workspace.
+    static func show(_ workspaceID: String, _ context: AppActionContext, replacing origin: String? = nil) {
         let windows = context.services.windows
-        if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
+        if let origin, origin != workspaceID, origin != NewWorkspacePlacements.home(context.services.machines), let state = windows.actingWindow(for: origin).flatMap({ windows.states[$0] }) {
+            windows.claim(workspaceID: workspaceID, in: state); windows.place(newWorkspace: workspaceID, in: state.id, at: .above(origin))
+        } else if let state = windows.active?.state { windows.show(workspaceID: workspaceID, in: state) } else { windows.openWindow(workspaces: [workspaceID]) }
     }
 
     @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
-        let select: (PaneController) -> Void = { controller in
-            // Through the run's view-change gate (ActionRunScope).
-            controller.selectWhenReported(surface: surface)
-        }
+        let select: (PaneController) -> Void = { $0.selectWhenReported(surface: surface) } // through the run's view-change gate (ActionRunScope)
         if let controller = context.services.paneController(for: pane) {
             select(controller)
             show(workspaceID, context)
