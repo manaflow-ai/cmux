@@ -19,8 +19,23 @@ export type CronAuthResult =
   };
 
 export function authorizeCronRequest(request: Request): CronAuthResult {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return { ok: false, reason: "cron_secret_missing" };
+  const result = authorizeBearerSecret(request, process.env.CRON_SECRET);
+  if (result.ok) return result;
+  return { ok: false, reason: result.reason === "secret_missing" ? "cron_secret_missing" : "unauthorized" };
+}
+
+export type BearerAuthResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "secret_missing" | "unauthorized" };
+
+/**
+ * `Authorization: Bearer <secret>` against one configured secret, compared in
+ * constant time. An unset or blank secret never authorizes. For routes that
+ * hold their own narrower token instead of CRON_SECRET.
+ */
+export function authorizeBearerSecret(request: Request, configured: string | undefined): BearerAuthResult {
+  const secret = configured?.trim();
+  if (!secret) return { ok: false, reason: "secret_missing" };
   const authorization = request.headers.get("authorization")?.trim() ?? "";
   const token = authorization.toLowerCase().startsWith("bearer ")
     ? authorization.slice("bearer ".length).trim()

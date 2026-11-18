@@ -20,7 +20,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 - reads per-label start evidence (label_evidence()):
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
-    or "stalled"; the switch probes every linux pool member), read live through the API so it is this run's and not the job's start value;
+    or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
+    read live through the API so it is this run's and not the job's start value;
     used while its `checked` is at most HEALTH_MAX_AGE old;
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
@@ -31,14 +32,21 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
     The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
     pool members, so they are not read;
+  - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
+    probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
+    minutes on a size that keeps starting jobs;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
+  release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
+  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
+  Linux pool lists its smaller sizes before its larger ones (grows_before_shrinking(), checked by
+  spec_problems()), so a size stalled by the org's vCPU cap moves its jobs down, never up into the sizes the
+  cap starves first;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -46,6 +54,12 @@ LINUX_RUNNER predates RUNNER_POOLS and most Linux runs-on still read it (`vars.L
 so each pass also writes the linux pool's live member to it (MIRRORS, mirror_writes()) unless the
 overflow switch's record names it among the variables it changed, and --check fails while it names a
 label outside the pool.
+
+Other variables hold one raw Blacksmith Linux label that runs-on reads ahead of a pool (RAW_LABEL_VARS:
+LINUX_BUILD_RUNNER, LINUX_RUNNER_DARWIN_CROSS, CI_TRUSTED_RUNNER, ...). Each pass moves one that names a `_dead`
+label to the nearest live size of the same image, records the label it left in RUNNER_POOLS' `_raw_home`, and
+moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. A value
+that is not a Blacksmith Linux pool label is left alone.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
@@ -90,6 +104,33 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
+# (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
+# feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
+# LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS still named blacksmith-32vcpu-ubuntu-2404 (dead since 23:11Z the
+# day before) until they were moved by hand at 04:40Z, with about 1,706 jobs queued there that never started. Each
+# pass moves such a variable off a label `_dead` names to the nearest live size of its image (raw_substitute()),
+# keeps where it came from in RUNNER_POOLS' `_raw_home`, and moves it back once that label leaves `_dead`
+# (raw_homes(), raw_writes()). A value that is no Blacksmith Linux pool label (an owned runner, a hosted label,
+# unset) is never touched. tests/test_ci_runner_pools.py fails when a main workflow reads another variable that way.
+# macOS variables are never here: macOS moves through its pickers and the overflow switch.
+RAW_LABEL_VARS = (
+    "CI_CLASSIC_NIGHTLY_MINI",
+    "CI_COMPILE_CHECK_GATEWAY",
+    "CI_CONTROL_RUNNER",
+    "CI_LINUX_GATE_OWNED_RUNNER",
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "CI_TEST_COMPILE_GATEWAY",
+    "CI_TRUSTED_RUNNER",
+    "LINUX_ARM64_RUNNER",
+    "LINUX_BUILD_RUNNER",
+    "LINUX_RUNNER_DARWIN_CROSS",
+)
+RAW_HOME_KEY = "_raw_home"
+# The smallest size a RAW_LABEL_VARS variable may move to (memory_floor()): the cmux-tui tree build's fat-LTO legs
+# (cmux-tui-build-package.yml plan-build) were SIGKILLed out of memory on 4 and 2 vCPU on 2026-11-18.
+RAW_LABEL_MIN_VCPU = {"LINUX_BUILD_RUNNER": 8, "LINUX_RUNNER_DARWIN_CROSS": 8}
+BLACKSMITH_LINUX = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-[a-z0-9.-]+)$")
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
@@ -97,6 +138,12 @@ DEAD_KEY = "_dead"
 # (queue_janitor.LABEL_STARTED_KEY).
 LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
+# A label the janitor's `label_started` shows starting a job this recently is serving, whatever a probe saw: it is
+# never marked dead, and a mark on it clears (label_evidence()). Blacksmith caps the org on vCPUs at once, so under
+# load a probe can wait out its PROBE_MINUTES on a size that keeps starting jobs: at 02:00:26Z on 2026-11-18
+# RUNNER_POOLS marked blacksmith-4vcpu-ubuntu-2404 dead while it had completed 11 jobs and ran 6 since 01:05Z.
+RECENT_START = dt.timedelta(minutes=15)
+LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -110,6 +157,18 @@ UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+# The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
+# recovers?": "Allow until it recovers"). Blacksmith Linux started almost no jobs across the org (cmux: 2,500 queued,
+# 48 in progress at 21:34Z), and a hand-set RUNNER_POOLS is reset by the next pass, since a label outside a pool's
+# members is dropped (parse_value()). While the repository variable CI_LINUX_HOSTED_RUNNER names a GitHub-hosted
+# Ubuntu label, load_pools() puts it first in every x64 Linux pool (linux, linux_2 ... linux_32, promotion), so each pass keeps
+# those pools on it, and the queue spill (which loads main's pools the same way) agrees. linux_arm64,
+# macOS, Windows and provenance are never touched. Deleting the variable is the whole revert: the next pass points
+# each pool back at its first live Blacksmith member.
+HOSTED_OVERRIDE = "CI_LINUX_HOSTED_RUNNER"
+HOSTED_OVERRIDE_POOL = re.compile(r"^(?:linux(?:_\d+)?|promotion)$")
+HOSTED_OVERRIDE_LABEL = re.compile(r"^ubuntu-\d+\.\d+$")
+X64_UBUNTU = re.compile(r"^blacksmith-\d+vcpu-ubuntu-\d+$")
 
 
 def iso(moment: dt.datetime) -> str:
@@ -127,13 +186,81 @@ def parse_time(value: object) -> dt.datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
-def load_pools(path: Path = RUNNERS) -> dict[str, dict[str, Any]]:
+def hosted_override(env: Mapping[str, str] | None = None) -> str | None:
+    """The hosted Ubuntu label CI_LINUX_HOSTED_RUNNER names, or None when it is unset or not one."""
+    raw = ((os.environ if env is None else env).get(HOSTED_OVERRIDE) or "").strip()
+    return raw if HOSTED_OVERRIDE_LABEL.match(raw) else None
+
+
+def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """The declared pools, with the outage override (hosted_override()) first in each x64 Linux pool."""
     pools = json.loads(path.read_text(encoding="utf-8"))["pools"]
-    return {name: spec for name, spec in pools.items() if not name.startswith("$")}
+    declared = {name: spec for name, spec in pools.items() if not name.startswith("$")}
+    label = hosted_override(env)
+    if label is None:
+        return declared
+    for name, spec in declared.items():
+        listed = spec.get("members")
+        if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
+                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
+            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
+                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+    return declared
 
 
 def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
+
+
+X64_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+)$")
+
+
+# A pool whose first member is this large runs memory-bound work (fat-LTO release compiles, large suites) and
+# declares min_vcpu, the smallest size its jobs fit in (spec_problems()).
+MEMORY_FLOOR_REQUIRED_FROM = 16
+
+
+def memory_floor(spec: Mapping[str, Any]) -> int:
+    """The smallest x64 size, in vCPU, a pool's jobs fit in (its `min_vcpu`), else 0: no floor.
+
+    Blacksmith gives 4 GB per vCPU, so the size is also the memory. On 2026-11-18 the release valve moved linux_16
+    (the fat-LTO cmux-tui release compile, cmux-tui-build-package.yml) to 4 and then 2 vCPU: rustc on acpmux was
+    SIGKILLed out of memory (run 44289517882, jobs 134784646044 and 134784646088 on blacksmith-4vcpu-ubuntu-2404),
+    the next 12 feat-cmux-next tree builds failed the same way on 2 vCPU, no tree published, and NEXT nightlies
+    44293483500 and 44283774674 failed at "Bundle the cmux-tui client". A job waiting for a size it fits in is late;
+    one sent below it is certain to fail."""
+    value = spec.get("min_vcpu", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """The release valve's candidates for an x64 Blacksmith Linux pool, largest first: every x64 Blacksmith Linux
+    label some pool declares that is smaller than this pool's smallest member, on the same image. Empty for any
+    other pool (macOS, Windows, arm64, hosted, or the outage override's hosted-led pools).
+
+    2026-11-18: linux_16 is [16, 32] vCPU. 16 vCPU was marked dead at 01:18Z and 32 vCPU had started nothing since
+    about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
+    (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
+    by the next pass, so it could not be set by hand either."""
+    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    if not sizes or not all(sizes):
+        return []
+    images = {match.group(2) for match in sizes}
+    floor = min(int(match.group(1)) for match in sizes)
+    # min_vcpu (memory_floor()): the valve never goes below the size the pool's jobs fit in.
+    least = memory_floor(spec)
+    found: dict[str, int] = {}
+    for other in pools.values():
+        for label in members(other):
+            match = X64_SIZE.match(label)
+            if match and match.group(2) in images and least <= int(match.group(1)) < floor:
+                found[label] = int(match.group(1))
+    return sorted(found, key=lambda label: -found[label])
+
+
+def allowed(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Every label RUNNER_POOLS may hold for a pool: its members, then its release valve (valve_labels())."""
+    return [*members(spec), *(label for label in valve_labels(spec, pools) if label not in members(spec))]
 
 
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -156,9 +283,48 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
+        least = memory_floor(spec)
+        if "min_vcpu" in spec and not least:
+            found.append(f"{where}: min_vcpu is a positive whole number of vCPU")
+        first = X64_SIZE.match(listed[0])
+        if first and int(first.group(1)) >= MEMORY_FLOOR_REQUIRED_FROM and not least:
+            found.append(f"{where}: a pool led by {first.group(1)} vCPU declares min_vcpu, the smallest size its jobs fit "
+                         "in, so the release valve never sends them below it (memory_floor())")
+        for member in listed:
+            size = X64_SIZE.match(member)
+            if least and size and int(size.group(1)) < least:
+                found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
+        grows = grows_before_shrinking(listed)
+        if grows:
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
+                         "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
     return found
+
+
+def grows_before_shrinking(listed: Sequence[str]) -> str | None:
+    """The member out of order in a Blacksmith Linux pool's failovers, else None.
+
+    Blacksmith caps the org on vCPUs running at once, not per size, so when one size queues while the others start
+    the cap is what binds, and moving its jobs to a bigger size fills the cap faster: on 2026-11-17 (00:00-00:48Z)
+    32 vCPU started 1 of 282 jobs, 16 vCPU 5 of 63 and 4 vCPU 47 of 209, while linux_16 failed over to 32 vCPU. So a
+    pool's failovers go down in size first (the largest smaller size first), and only then up."""
+    sizes = [LINUX_SIZE.match(label) for label in listed]
+    if len(listed) < 2 or not all(sizes) or len({match.group(2) for match in sizes}) != 1:
+        return None
+    first = int(sizes[0].group(1))
+    larger_seen: str | None = None
+    previous = first
+    for label, match in zip(listed[1:], sizes[1:]):
+        size = int(match.group(1))
+        if size > first:
+            larger_seen = larger_seen or label
+        elif larger_seen is not None or size > previous:
+            return label
+        else:
+            previous = size
+    return None
 
 
 def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -181,10 +347,11 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
     for name, spec in pools.items():
         if name not in value:
             continue
-        if isinstance(value[name], str) and value[name] in members(spec):
+        if isinstance(value[name], str) and value[name] in allowed(spec, pools):
             clean[name] = value[name]
         else:
-            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
+            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member or release valve of "
+                           f"pools.{name}; reset")
     marks = value.get(DEAD_KEY, {})
     if isinstance(marks, dict):
         good = {label: since for label, since in marks.items()
@@ -196,19 +363,32 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    homes = value.get(RAW_HOME_KEY)
+    if homes is not None:
+        good = {name: {"home": entry["home"], "to": entry["to"]}
+                for name, entry in (homes.items() if isinstance(homes, dict) else ())
+                if name in RAW_LABEL_VARS and isinstance(entry, dict)
+                and all(isinstance(entry.get(key), str) and BLACKSMITH_LINUX.match(entry[key])
+                        for key in ("home", "to"))}
+        if not isinstance(homes, dict) or len(good) != len(homes):
+            dropped.append(f"{VARIABLE}.{RAW_HOME_KEY} holds entries that are not VARIABLE -> "
+                           "{home, to} Blacksmith Linux labels; dropped")
+        if good:
+            clean[RAW_HOME_KEY] = dict(sorted(good.items()))
     return clean, dropped
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is not its member."""
+    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is neither its member nor
+    its release valve (allowed())."""
     found = []
     for name, spec in sorted(pools.items()):
         label = value.get(name)
         if not isinstance(label, str) or not label:
             found.append(f"{VARIABLE} has no {name}: every job reading fromJSON(vars.{VARIABLE}).{name} fails")
-        elif label not in members(spec):
-            found.append(f"{VARIABLE}.{name}={label!r} is not a member of pools.{name} "
-                         f"({', '.join(spec['members'])})")
+        elif label not in allowed(spec, pools):
+            found.append(f"{VARIABLE}.{name}={label!r} is not a member or release valve of pools.{name} "
+                         f"({', '.join(allowed(spec, pools))})")
     return found
 
 
@@ -229,7 +409,7 @@ def switch_owned(record: str | None) -> frozenset[str] | None:
         return None
     if not isinstance(changed, dict):
         return None
-    return frozenset(name for name in MIRRORS if name in changed)
+    return frozenset(name for name in (*MIRRORS, *RAW_LABEL_VARS) if name in changed)
 
 
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
@@ -251,10 +431,112 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
             continue
-        if current and not EPHEMERAL.match(current):
+        # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
+        # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
+        # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
+        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
+    writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
     return writes
+
+
+def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]], least: int = 0) -> str | None:
+    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: the same image
+    (so the same arch), the largest size at most `label`'s (the release valve's direction), else the smallest larger
+    one, never below `least` vCPU (RAW_LABEL_MIN_VCPU). None when no other allowed size of that image is live."""
+    match = BLACKSMITH_LINUX.match(label)
+    if not match:
+        return None
+    size, image, dead = int(match.group(1)), match.group(2), set(dead)
+    sizes: dict[str, int] = {}
+    for spec in pools.values():
+        for member in members(spec):
+            other = BLACKSMITH_LINUX.match(member)
+            if other and other.group(2) == image and member != label and member not in dead \
+                    and int(other.group(1)) >= least:
+                sizes[member] = int(other.group(1))
+    down = sorted((name for name, n in sizes.items() if n <= size), key=lambda name: -sizes[name])
+    up = sorted((name for name, n in sizes.items() if n > size), key=lambda name: sizes[name])
+    return next(iter([*down, *up]), None)
+
+
+def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str | None], dead: Iterable[str],
+              pools: Mapping[str, Mapping[str, Any]], *, owned: frozenset[str]) -> tuple[dict[str, dict[str, str]],
+                                                                                         list[str]]:
+    """The next RUNNER_POOLS `_raw_home` (VARIABLE -> {home, to}) and a line per change.
+
+    A RAW_LABEL_VARS variable on a Blacksmith Linux pool label `_dead` names gets an entry: `home`, the label it
+    held, and `to`, the live size it moves to (raw_substitute()). The entry stays while the variable holds `home`,
+    `to` or another dead label; raw_writes() points it at `to` while `home` is dead and back at `home` after. Once
+    it holds `home` again with `home` live, the entry goes. A variable set by hand to anything else loses its entry
+    and is left alone, as is one this pass could not read or the overflow switch's record names (`owned`)."""
+    dead = set(dead)
+    known = {label for spec in pools.values() for label in members(spec) if BLACKSMITH_LINUX.match(label)}
+    homes: dict[str, dict[str, str]] = {}
+    lines: list[str] = []
+    for name in RAW_LABEL_VARS:
+        entry = previous.get(name)
+        if name not in live or name in owned:
+            if entry:
+                homes[name] = dict(entry)
+            continue
+        current = (live.get(name) or "").strip()
+        size = BLACKSMITH_LINUX.match(current)
+        below_floor = bool(size) and int(size.group(1)) < RAW_LABEL_MIN_VCPU.get(name, 0)
+        if entry and current not in (entry["home"], entry["to"]) and current not in dead and not below_floor:
+            lines.append(f"{name}={current or 'unset'} was set by hand after it moved off {entry['home']}; "
+                         "it stays as set")
+            entry = None
+        if entry is None:
+            if current not in known or current not in dead:
+                continue
+            to = raw_substitute(current, dead, pools, RAW_LABEL_MIN_VCPU.get(name, 0))
+            if to is None:
+                lines.append(f"{name}={current} is dead and no other size of its image is live; it stays")
+                continue
+            homes[name] = {"home": current, "to": to}
+            continue
+        home = entry["home"]
+        if home not in dead and current == home:
+            lines.append(f"{name} is back on {home}")
+            continue
+        to = entry["to"]
+        least = RAW_LABEL_MIN_VCPU.get(name, 0)
+        size = BLACKSMITH_LINUX.match(to)
+        if size and int(size.group(1)) < least:
+            # Moved below its floor (before RAW_LABEL_MIN_VCPU): an allowed live size, else back home to wait.
+            to = raw_substitute(home, dead, pools, least) or home
+            lines.append(f"{name}: {entry['to']} is below its {least} vCPU floor; it moves to {to}")
+        elif home in dead and to in dead:
+            to = raw_substitute(home, dead, pools, least) or to
+        homes[name] = {"home": home, "to": to}
+    return dict(sorted(homes.items())), lines
+
+
+def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
+               owned: frozenset[str]) -> list[tuple[str, str, str, str]]:
+    """(variable, label, current, why) for each `_raw_home` entry (raw_homes()) whose variable does not hold its
+    target: `to` while `home` is dead, `home` once it is not. Only a variable this pass read, the switch's record
+    does not name, and that still holds `home`, `to` or a dead label (else it was set by hand) moves."""
+    dead = set(value.get(DEAD_KEY) or {})
+    found = []
+    for name, entry in sorted((value.get(RAW_HOME_KEY) or {}).items()):
+        if name in owned or name not in live:
+            continue
+        current = (live.get(name) or "").strip()
+        size = BLACKSMITH_LINUX.match(current)
+        below_floor = bool(size) and int(size.group(1)) < RAW_LABEL_MIN_VCPU.get(name, 0)
+        if current not in (entry["home"], entry["to"]) and current not in dead and not below_floor:
+            continue
+        if entry["home"] in dead:
+            target, why = entry["to"], f"{entry['home']} is dead"
+        else:
+            target, why = entry["home"], f"{entry['home']} takes jobs again"
+        # `to` is `home` when no size at or above the variable's floor is live: it waits there, dead or not.
+        if current != target and (target not in dead or target == entry["home"]):
+            found.append((name, target, current, why))
+    return found
 
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
@@ -268,9 +550,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         if name in owned:
             continue
         current = (live.get(name) or "").strip()
-        allowed = members(pools[pool]) if pool in pools else []
-        if current not in allowed:
-            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+        allowed_labels = allowed(pools[pool], pools) if pool in pools else []
+        if current not in allowed_labels:
+            found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
+                         f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
 
@@ -332,6 +615,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
+        started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
                 continue
@@ -376,7 +660,26 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
     if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
             and not pr_runner_pool.snapshot_truncated(snapshot):
         covered |= {label for spec in pools.values() for label in members(spec)} - probed
+        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+        covered |= recently_started(snapshot, now=now)
     return covered
+
+
+def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[str]:
+    """The Blacksmith labels the janitor's `label_started` shows starting a job within RECENT_START of `now`.
+
+    Such a label is serving, so it is never dead, whatever the probe saw: a probe that waits out its minutes on a
+    size that keeps starting jobs is queued behind the org's vCPU cap, not on a dead size."""
+    starts = snapshot.get(LABEL_STARTED_KEY)
+    if not isinstance(starts, Mapping):
+        return set()
+    found = set()
+    for label, when in starts.items():
+        moment = parse_time(when)
+        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+                and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
+            found.add(label)
+    return found
 
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
@@ -410,7 +713,13 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        chosen = next((label for label in candidates if label not in marks), None)
+        if chosen is None:
+            # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
+            # leaving the pool on a label that starts nothing. With none, the first member, as before.
+            chosen = next((label for label in valve_labels(spec, pools) if label not in marks), candidates[0])
+            if chosen != candidates[0] and current.get(name) != chosen:
+                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
@@ -464,7 +773,7 @@ class Variables:
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
-         api: Any = None, switch: Any = None, now: dt.datetime | None = None) -> int:
+         api: Any = None, switch: Any = None, now: dt.datetime | None = None, fallback: Any = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="validate the live RUNNER_POOLS and exit")
@@ -472,7 +781,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
-    pools = load_pools()
+    pools = load_pools(env=env)
+    if hosted_override(env):
+        print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
+              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
+    elif (env.get(HOSTED_OVERRIDE) or "").strip():
+        print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
+              "label (ubuntu-NN.NN); ignored")
     problems = spec_problems(pools)
     if problems:
         for problem in problems:
@@ -499,13 +814,47 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
-            print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            fallback_token = (env.get("GH_FALLBACK_TOKEN") or "").strip()
+            if fallback is None and fallback_token and fallback_token != (env.get("GH_TOKEN") or "").strip() \
+                    and repo:
+                fallback = pr_runner_pool.GitHub(fallback_token, repo)
+            if fallback is None:
+                print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            else:
+                # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
+                # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
+                # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
+                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                try:
+                    snapshot = fallback.snapshot(now=now)
+                    if snapshot is None:
+                        print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: no trusted "
+                              "snapshot); judging on the probe alone")
+                    else:
+                        print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
+                except Exception as second:  # noqa: BLE001 - as above
+                    print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
+                          "judging on the probe alone")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
                              covered=evidence_covers(health, snapshot, pools, now=now))
+    # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
+    # one may have moved them, so the job-start values could undo its failover.
+    live, record, readable = _live(switch, env)
+    owned = switch_owned(record) if readable else None
+    previous_homes = current.get(RAW_HOME_KEY) or {}
+    if owned is not None:
+        homes, said = raw_homes(previous_homes, live, value[DEAD_KEY], pools, owned=owned)
+        lines += said
+    else:
+        homes = dict(previous_homes)
+    if homes:
+        value[RAW_HOME_KEY] = homes
+    if homes != previous_homes:
+        value[UPDATED_KEY] = iso(now)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")
@@ -518,11 +867,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"{VARIABLE} unchanged")
     else:
         writes.append((VARIABLE, render(value)))
-    # The mirrored variables and the switch's record, read live: the switch step just before this one
-    # may have moved them, so the job-start values could undo its failover.
-    live, record, readable = _live(switch, env)
     if readable:
         writes += mirror_writes(value, live, record=record)
+    if owned is not None:
+        # Every raw-label move is a warning, so the run's annotations say which variables left which label.
+        for name, target, was, why in raw_writes(value, live, owned=owned):
+            print(f"::warning title=Runner pools::{name}: {was or 'unset'} -> {target} ({why}; "
+                  f"{VARIABLE}.{RAW_HOME_KEY} keeps its home)")
     if not writes:
         return 0
     if args.dry_run:
@@ -541,7 +892,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
 
 def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], str | None, bool]:
-    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env."""
+    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env.
+
+    The RAW_LABEL_VARS values this pass could read are in the same map; one it could not read is absent, so it is
+    never moved on a guess (raw_homes(), raw_writes())."""
     names = (*MIRRORS, OVERFLOW_RECORD)
     if switch is not None and hasattr(switch, "get_variable"):
         try:
@@ -555,6 +909,14 @@ def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], s
             return {}, None, False
         got = {name: env.get(name) for name in names}
     record = got.pop(OVERFLOW_RECORD)
+    for name in RAW_LABEL_VARS:
+        if switch is not None and hasattr(switch, "get_variable"):
+            try:
+                got[name] = switch.get_variable(name)
+            except Exception as error:  # noqa: BLE001 - an unread variable is never moved
+                print(f"::warning title=Runner pools::could not read {name} ({error}); not moving it")
+        elif name in env:
+            got[name] = env.get(name)
     return got, record, True
 
 

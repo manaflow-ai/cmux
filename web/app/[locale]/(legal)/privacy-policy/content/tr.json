@@ -2,13 +2,13 @@
   "metadataTitle": "Gizlilik Politikası — cmux",
   "metadataDescription": "cmux için gizlilik politikası",
   "title": "Gizlilik Politikası",
-  "lastUpdated": "Son güncelleme: 1 Eylül 2026",
+  "lastUpdated": "Son güncelleme: 17 Kasım 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (\"Şirket\"), kullanıcıları için güçlü gizlilik korumaları sağlamaya kararlıdır. Bu Gizlilik Politikası, bize sağladığınız bilgileri nasıl topladığımızı, kullandığımızı ve koruduğumuzu açıklamaktadır.",
+        "Manaflow, Inc. (\"Şirket\"), kullanıcıları için güçlü gizlilik korumaları sağlamaya kararlıdır. Bu Gizlilik Politikası, bize sağladığınız bilgileri nasıl topladığımızı, kullandığımızı ve koruduğumuzu açıklamaktadır.",
         "Bu politikada \"Site\", [cmux.com](https://cmux.com) adresindeki Şirketin web sitesi anlamına gelir. \"Uygulama\", macOS için cmux masaüstü uygulaması ve iPhone ve iPad için cmux mobil uygulaması anlamına gelir. \"Hizmet\" Site ve Uygulamayı birlikte ifade eder. \"Biz\", \"bize\" ve \"bizim\" Şirket anlamına gelir. \"Siz\" Hizmetimizin kullanıcısı anlamına gelir.",
-        "Hizmetimizi kullanarak, bu Gizlilik Politikasını ve [Hizmet Şartlarımızı](https://cmux.com/terms-of-service) kabul etmiş ve burada açıklanan toplama, saklama, kullanma ve ifşa etme işlemlerini kabul etmiş olursunuz."
+        "Bu Gizlilik Politikası, bilgileri nasıl topladığımızı, kullandığımızı ve açıkladığımızı size anlatır. Bir bildirimdir: açıkça belirtmedikçe sizden onay istemez. Hizmeti kullanımınıza [Hizmet Şartlarımız](https://cmux.com/terms-of-service) uygulanır."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: özel dahili bildirimler. Bir platform bekleme listesine katılırsanız gönderdiğiniz e-posta ve platformlar özel Slack çalışma alanımıza gönderilir."
       ],
       "afterBullets": [
-        "Her hizmetin kendi gizlilik politikası vardır. Üçüncü bir taraf cmux için Kişisel Bilgileri işlediğinde, en az bu politika kadar koruyucu önlemlere ihtiyaç duyarız ve kullanımı cmux'e hizmet sağlamayla sınırlandırırız."
+        "Her hizmetin kendi gizlilik politikası vardır. cmux Cloud bölümünün belirttiği durumlar dışında, üçüncü bir taraf cmux için Kişisel Bilgileri işlediğinde, en az bu politika kadar koruyucu önlemlere ihtiyaç duyarız ve kullanımı cmux'e hizmet sağlamayla sınırlandırırız."
       ]
     },
     {

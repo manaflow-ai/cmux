@@ -35,7 +35,8 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # so it starts as the old one ends and a started rescue is never killed. A
 # run the old one re-ran is resumed at attempt 2, and a run refused while no
 # sweeper ran is still found by its marker. A dispatch without run_id starts
-# a sweeper by hand; one with run_id watches that run alone.
+# a sweeper by hand; one with run_id watches that run alone, at its current
+# attempt whatever its number (owned_pool_rescue.dispatch_target()).
 #
 # Two kinds of source keep the workflow_run trigger:
 # - ios-screenshots.yml: release.yml calls it with only `contents: read`, so a
