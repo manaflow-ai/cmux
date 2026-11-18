@@ -7,7 +7,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, modelsCategory, cloudCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, mcpServersCategory, modelsCategory, cloudCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
@@ -196,6 +196,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.folderTrust"),
         ],
         trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+    )
+
+    /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
+    private static let mcpServersCategory = CategorySpec(
+        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
+        groups: [],
+        lead: [.mcpServers]
     )
 
     /// Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).

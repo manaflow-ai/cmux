@@ -1101,8 +1101,11 @@ impl Brain {
     }
 
     /// Reads a subagent's turn ends since its floor; when one ended, its
-    /// last reply is its report.
-    fn finish_sub(&mut self, id: &str, session_id: &str) {
+    /// last reply is its report. Under a goal (goal.rs) a Codex subagent's
+    /// next turns are its own (acpmux `background_turn` brackets): their
+    /// words count as replies, and while its goal goes on it is held for the
+    /// tick (`goal_held`) instead of reported.
+    pub(super) fn finish_sub(&mut self, id: &str, session_id: &str) {
         let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
         let events = match self.agents.events(session_id, floor) {
             Ok(events) => events,
@@ -1111,10 +1114,36 @@ impl Brain {
                 return;
             }
         };
-        let (replies, last_end, cancelled) = ended_replies(&events);
+        let (mut replies, mut last_end, cancelled) = ended_replies(&events);
+        let goal = super::children::has_goal(&events);
+        if goal
+            && let Some((seq, reply)) = super::children::last_background_reply(&events)
+            && last_end.is_none_or(|end| seq > end)
+        {
+            replies.push(reply);
+            last_end = Some(seq);
+        }
         // Idle before its prompt started (a new session is ready first); the
         // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
+        // Codex under its goal ends a turn and starts the next by itself
+        // while the goal is active: that idle is not its end. One quiet for
+        // QUIET_AFTER since reports after all.
+        if !cancelled
+            && super::children::goal_goes_on(&events, self.now(), super::control::QUIET_AFTER)
+        {
+            if let Some(sub) = self.state.sub_mut(id)
+                && !sub.goal_held
+            {
+                sub.goal_held = true;
+                self.save();
+                self.trace.emit("subagent.goal_goes_on", json!({"id": id}));
+            }
+            return;
+        }
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.goal_held = false;
+        }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));

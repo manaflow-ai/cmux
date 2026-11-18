@@ -74,6 +74,7 @@ sys.path.insert(0, HERE)
 import tab_switch_capture as capture  # noqa: E402
 import tab_switch_foreign as foreign  # noqa: E402
 import tab_switch_judge as judge  # noqa: E402
+import tab_switch_matrix as matrix  # noqa: E402
 import tab_switch_settle as settle  # noqa: E402
 
 
@@ -199,6 +200,12 @@ class App:
         # defaults: the same key the card sets when asked. This run's own domain only; the product default is unchanged.
         for key in ("home.firstRun.historyImportShown", "cmux.next.hangReports.asked"):
             subprocess.run(["defaults", "write", self.bundle_id, key, "-bool", "YES"], capture_output=True, timeout=30)
+        self.spawn()
+
+    def spawn(self, before=None):
+        """The app's process in this run's home, waited for until its socket lists a workspace. `before`, when given,
+        runs just before the exec (the settle matrix's relaunch flips its marker there)."""
+        from pathlib import Path
         self.socket_path = os.path.join(self.root, "c.sock")
         env = self.smoke.fresh_env(Path(self.root), Path(self.socket_path), 2)
         write_run_settings(Path(env["HOME"]))
@@ -210,6 +217,8 @@ class App:
         os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
         binary = os.path.join(self.bundle, "Contents/MacOS", self.executable)
         self.log = open(os.path.join(self.root, "app.log"), "a")
+        if before is not None:
+            before()
         self.process = subprocess.Popen([binary, "-ApplePersistenceIgnoreState", "YES"], env=env, stdout=self.log,
                                         stderr=self.log, stdin=subprocess.DEVNULL, start_new_session=True)
         say(f"app pid {self.process.pid}")
@@ -957,6 +966,10 @@ class Harness:
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
             covered = self.foreign_over(label)
+            if covered and item.get("foreign_ok"):
+                # A relaunch leaves the desktop in view by design between the quit and the new window.
+                item["behind"] = "+".join(foreign.owners(covered))
+                covered = []
             if covered:
                 # Another process's window was over the content or sidebar: these pixels measure it, not the app.
                 judged.append((item, {"label": label, "foreign_window": "+".join(foreign.owners(covered)),
@@ -1007,6 +1020,7 @@ class Harness:
         switch.update({k: v for k, v in st.items() if k != "change_frames"})
         switch["change_frames"] = st.get("change_frames", [])[:20]
         switch["oddities"] = odd
+        matrix.add_region_settle(self, switch, frames, window, leave, mark, end)
 
     def run(self, loads, rounds, scenarios, agents, sessions, load_notes=None):
         """The scenario rows. A load in `load_notes` (its setup failed) and the chat scenario without a measurable chat
@@ -1032,6 +1046,10 @@ class Harness:
             if spec.get("cpu") and cpu is None:
                 cpu = CpuLoad(self.root)
             pending = []  # (scenario name, what to judge), in the order driven
+            blocks = []  # (that block's pending, frames, flips)
+            # The matrix records a block per round: CuaDriver ends a session with no tool call for a while, and one
+            # block of five rounds at Leo's scale (about 20 minutes) lost every row on a CI mini (2026-11-18).
+            per_round = any(s in scenarios for s in matrix.MATRIX_SCENARIOS)
             setup = []
             try:
                 setup = self.enter_load(spec, agents, cpu)
@@ -1054,27 +1072,55 @@ class Harness:
                         pending += self.workspace_round(load, r)
                     if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):
                         pending += self.rapid_round(load, r)
+                    if any(s in scenarios for s in matrix.MATRIX_SCENARIOS if s not in ("new-workspace", "launch-restore")):
+                        pending += matrix.matrix_round(self, load, r, scenarios, agents)
                     say(f"  round {r} driven")
-                frames, flips = self.rec.end()
+                    if per_round:
+                        done = sum(len(b[0]) for b in blocks)
+                        frames, flips = self.rec.end()
+                        blocks.append((pending[done:], frames, flips))
+                        if r < rounds:
+                            self.rec.begin()
+                if not per_round:
+                    frames, flips = self.rec.end()
+                    blocks.append((pending, frames, flips))
             except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
-                for name, _item in pending or [(s, None) for s in scenarios]:
+                judged = sum(len(b[0]) for b in blocks)
+                for name, _item in pending[judged:] or [(s, None) for s in scenarios]:
                     notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
                 try:
                     self.rec.end()  # a block a driving fault left open
                 except Exception:  # noqa: BLE001 - it was already closed
                     pass
-                frames = None
             finally:
                 # After the block's recording: ending a load can recalibrate, which records a block of its own.
                 self.exit_load(spec, agents, cpu)
-            if frames is None:
+            if not blocks:
                 continue
-            for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
-                if name in scenarios:
-                    if setup:
-                        switch["load_setup"] = setup
-                    rows.setdefault((name, load), []).append(switch)
-            say(f"load {load}: {len(pending)} switches judged on {len(frames)} frames")
+            for block, frames, flips in blocks:
+                for (name, _), (_item, switch) in zip(block, self.settle_block([p for _, p in block], frames, flips)):
+                    if name in scenarios:
+                        if _item.get("chat_perf") is not None:
+                            switch["chat_perf"] = _item["chat_perf"]
+                        if setup:
+                            switch["load_setup"] = setup
+                        rows.setdefault((name, load), []).append(switch)
+            say(f"load {load}: {sum(len(b[0]) for b in blocks)} switches judged on "
+                f"{sum(len(b[1]) for b in blocks)} frames in {len(blocks)} blocks")
+        for key, note in (getattr(self, "matrix_notes", None) or {}).items():
+            if key not in rows:
+                notes.setdefault(key, note)
+        if "switch-workspace-cold" in scenarios and getattr(self, "cold_note", None):
+            for load in loads:
+                notes.setdefault(("switch-workspace-cold", load), self.cold_note)
+        if "launch-restore" in scenarios:
+            # Last: each relaunch restores what the loads left. Its own block, judged as the loads' are.
+            try:
+                pending, frames, flips = matrix.launch_block(self, rounds, self.opt("launch_record", 8.0), say)
+                for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
+                    rows.setdefault((name, "scale"), []).append(switch)
+            except Exception as error:  # noqa: BLE001 - the row says why
+                notes[("launch-restore", "scale")] = f"{type(error).__name__}: {error}"[:600]
         out = [judge.scenario_row(name, load, switches) for (name, load), switches in rows.items()]
         return out + [judge.scenario_row(name, load, [], notes=note) for (name, load), note in notes.items()]
 
@@ -1128,12 +1174,28 @@ def main(argv=None):
     parser.add_argument("--load-settle", type=float, default=5.0)
     parser.add_argument("--out", default=os.path.join(os.getcwd(), ".build/tab-switch"))
     parser.add_argument("--no-gate", action="store_true", help="exit 0 when the report is written, budgets or not")
+    parser.add_argument("--scale", default="none",
+                        help="the settle matrix's scale (tab_switch_matrix.py): leo (10,789 sessions, 206 workspaces), "
+                             "SESSIONSxWORKSPACES, or none")
+    parser.add_argument("--seeder", help="the built cmux-tui acpmux example scale_home (needed with --scale)")
+    parser.add_argument("--launch-record", type=float, default=8.0, help="seconds recorded after each relaunch")
+    parser.add_argument("--chat-perf", action="store_true",
+                        help="the settle matrix also runs the measured chat page's own capture (agent.chat.perf) over "
+                             "each step: its long tasks and layout shift say whether the page did work")
     args = parser.parse_args(argv)
     # Decoded h264 frames of one picture differ in the low bits: 16 gray levels, not 32, so noise is not a change.
     judge.QUANT = bytes(v >> 4 for v in range(256))
     loads = [x for x in args.loads.split(",") if x]
-    scenarios = list(judge.ALL_SCENARIOS) if args.scenarios == "all" else [x for x in args.scenarios.split(",") if x]
-    bad = [x for x in scenarios if x not in judge.ALL_SCENARIOS]
+    known = judge.ALL_SCENARIOS + tuple(s for s in matrix.MATRIX_SCENARIOS if s not in judge.ALL_SCENARIOS)
+    scenarios = (list(judge.ALL_SCENARIOS) if args.scenarios == "all" else list(matrix.MATRIX_SCENARIOS)
+                 if args.scenarios == "matrix" else [x for x in args.scenarios.split(",") if x])
+    bad = [x for x in scenarios if x not in known]
+    try:
+        scale = matrix.parse_scale(args.scale)
+    except ValueError as error:
+        parser.error(str(error))
+    if scale and not args.seeder:
+        parser.error("--scale needs --seeder (cargo build --release -p acpmux --example scale_home)")
     for load in loads:
         try:
             parse_load(load)
@@ -1163,6 +1225,11 @@ def main(argv=None):
         extra["bundle_version"] = subprocess.run(["defaults", "read", os.path.join(bundle, "Contents/Info"), "CFBundleVersion"],
                                                  capture_output=True, text=True).stdout.strip()
         app = App(bundle, root, smoke)
+        scale_ids = []
+        if scale:
+            # The NIGHTLY's daemon home is ~/.acpmux of the app's HOME (fresh_env: ROOT/h), written before its first exec.
+            scale_ids = matrix.seed_home(args.seeder, os.path.join(root, "h", ".acpmux"), scale[0], say)
+            extra["scale"] = {"sessions": len(scale_ids), "workspaces": scale[1]}
         app.launch()
         # The chat and the chat loads are optional: a setup fault in either leaves the terminal and page scenarios
         # measured, and names the fault on the rows it cost.
@@ -1194,6 +1261,16 @@ def main(argv=None):
         harness.chat_note = setup.get("chat")
         harness.long_session = session
         harness.build(session)
+        if scale:
+            made = matrix.open_scale_workspaces(harness, scale_ids, scale[1], say)
+            extra["scale"]["workspaces_shown"] = len(harness.workspace_ids())
+            extra["scale"]["opened"] = len(made)
+        if agents is not None and any(s in scenarios for s in ("chat-10k-open", "chat-10k-return")):
+            try:
+                matrix.prepare_10k(harness, agents, say)
+            except Exception as error:  # noqa: BLE001 - the chat-10k rows say why
+                harness.chat_10k_note = f"10k-row chat: {type(error).__name__}: {error}"[:300]
+                say(harness.chat_10k_note)
         extra["content_rect_px"], extra["strip_rect_px"] = harness.content, harness.strip
         extra["sidebar_rect_px"] = harness.sidebar
         extra["tabs_at_build"] = harness.tabs_at_build
@@ -1251,6 +1328,17 @@ def main(argv=None):
     for line in lines:
         print("TSW-TABLE", json.dumps(line), flush=True)
     print(settle.table_markdown(lines), flush=True)
+    if any(s in matrix.MATRIX_SCENARIOS for s in scenarios):
+        # The settle matrix: trigger to truly settled over the window, the page side and the sidebar (SETTLE lines).
+        settled = matrix.table([r for r in rows if r["name"] in matrix.MATRIX_SCENARIOS])
+        out["matrix"] = settled
+        with open(os.path.join(args.out, "report.json"), "w") as handle:
+            json.dump(out, handle, indent=1)
+        with open(os.path.join(args.out, "matrix.md"), "w") as handle:
+            handle.write(matrix.table_markdown(settled))
+        for line in settled:
+            print("SETTLE", json.dumps(line), flush=True)
+        print(matrix.table_markdown(settled), flush=True)
     say(f"pass={out['pass']} report {os.path.join(args.out, 'report.json')}")
     if status == 3:
         return 3

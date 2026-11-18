@@ -1520,6 +1520,10 @@ pub struct Config {
     /// a switch to roll the inbox back without a new build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_inbox: Option<bool>,
+    /// `mcpStore`: the machine's one store of MCP connections, shared with every Chief
+    /// (cmux-mcp-connect `shared`). Unset: `$CMUX_MCP_HOME`, else `$ACPMUX_HOME/mcp`.
+    #[serde(rename = "mcpStore", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_store: Option<std::path::PathBuf>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
