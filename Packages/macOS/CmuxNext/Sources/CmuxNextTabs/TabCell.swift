@@ -592,9 +592,7 @@ final class TabCell {
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
-                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
-                         width: m.closeButtonSize, height: m.closeButtonSize)
-                : nil
+                ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
                                                  animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
