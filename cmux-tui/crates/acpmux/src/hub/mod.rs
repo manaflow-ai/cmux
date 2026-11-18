@@ -22,7 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
-pub(crate) mod return_compact;
+pub mod return_compact;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
