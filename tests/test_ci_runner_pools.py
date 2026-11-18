@@ -1183,5 +1183,122 @@ class RefusedRead(unittest.TestCase):
         finally:
             runner_pools.pr_runner_pool.GitHub = real
 
+
+class FleetLinux(unittest.TestCase):
+    # 2026-11-18: React Doctor (changed React projects), a required check, sat queued 90+ min on
+    # blacksmith-4vcpu-ubuntu-2404 (job 134929243181) while RUNNER_POOLS marked 8, 16 and 32 vCPU dead, and every
+    # Linux pool's members were Blacksmith sizes: the writer had nowhere else to send a job. Our own ephemeral GCP
+    # runners (cmux-fleet-linux-x64, one job per VM) are the Linux route that is not Blacksmith, but only while they
+    # exist: the label had no runner from 2026-11-01 (credential_provider_broken) and a react-doctor job sat 13 h on
+    # it on 2026-11-16. So the label is a pool member only while CI_FLEET_LINUX_STATE says runners are online and
+    # ready and the reading is fresh, and then only after every Blacksmith member.
+    X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
+
+    @staticmethod
+    def state(at=NOW, **fields):
+        return json.dumps({"label": "cmux-fleet-linux-x64", "ready": True, "online": 2,
+                           "at": runner_pools.iso(at), **fields})
+
+    def live_env(self, at=NOW, **fields):
+        return {"CI_FLEET_LINUX_STATE": self.state(at, **fields)}
+
+    def test_the_gate_opens_only_on_a_fresh_ready_reading_with_runners_online(self) -> None:
+        self.assertTrue(runner_pools.fleet_linux_alive(self.state(), now=NOW))
+        for why, raw in (
+                ("unset", None), ("empty", ""), ("not JSON", "{"), ("not an object", "[]"),
+                ("another label", self.state(label="cmux-gcp-lane-build-x64")),
+                ("not ready", self.state(ready=False)), ("ready as a string", self.state(ready="true")),
+                ("no runner online", self.state(online=0)), ("online not a number", self.state(online="2")),
+                ("online a bool", self.state(online=True)),
+                ("stale", self.state(at=NOW - runner_pools.FLEET_STATE_MAX_AGE - dt.timedelta(seconds=1))),
+                ("from the future", self.state(at=NOW + dt.timedelta(minutes=5))),
+                ("undated", json.dumps({"label": "cmux-fleet-linux-x64", "ready": True, "online": 2})),
+                # The HQ reconciler's state on 2026-11-18: the GCP grant is missing.
+                ("credential_provider_broken", self.state(ready=False, online=0, state="credential_provider_broken"))):
+            with self.subTest(why=why):
+                self.assertFalse(runner_pools.fleet_linux_alive(raw, now=NOW))
+
+    def test_a_dead_or_missing_gate_changes_no_pool(self) -> None:
+        declared = runner_pools.load_pools(env={}, now=NOW)
+        for env in ({}, self.live_env(ready=False), self.live_env(online=0),
+                    self.live_env(at=NOW - dt.timedelta(hours=1))):
+            with self.subTest(env=env):
+                self.assertEqual(runner_pools.load_pools(env=env, now=NOW), declared)
+
+    def test_a_live_gate_lists_the_fleet_last_in_every_x64_linux_pool_and_nothing_else(self) -> None:
+        declared = runner_pools.load_pools(env={}, now=NOW)
+        pools = runner_pools.load_pools(env=self.live_env(), now=NOW)
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        for name in self.X64:
+            self.assertEqual(pools[name]["members"], [*declared[name]["members"], "cmux-fleet-linux-x64"], name)
+        for name in set(declared) - set(self.X64):
+            self.assertEqual(pools[name], declared[name], name)
+
+    def test_the_fleet_label_is_the_one_non_blacksmith_member_and_only_in_x64_linux_pools(self) -> None:
+        problems = runner_pools.spec_problems({
+            "linux": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "cmux-fleet-linux-x64"]},
+            "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "cmux-fleet-linux-x64"]},
+            "linux_arm64": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404-arm", "cmux-fleet-linux-x64"]},
+            "owned": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "glaeda-side-light-xcode-26.6"]},
+        })
+        self.assertEqual(len(problems), 3, problems)
+        self.assertFalse([p for p in problems if p.startswith("pools.linux:")], problems)
+        self.assertTrue([p for p in problems if p.startswith("pools.owned:") and "owned Macs" in p], problems)
+
+    def test_every_blacksmith_member_dead_moves_the_pool_to_the_fleet_before_the_release_valve(self) -> None:
+        # RUNNER_POOLS at 16:40:19Z on 2026-11-18: 8, 16 and 32 vCPU dead, so linux_8, linux_16 and linux_32 sat on
+        # the 4 vCPU release valve with everything else.
+        dead = {"blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
+        off = runner_pools.reconcile({}, runner_pools.load_pools(env={}, now=NOW), dead_now=dead, served_now=(),
+                                     now=NOW)[0]
+        self.assertEqual(off["linux_8"], "blacksmith-4vcpu-ubuntu-2404")
+        pools = runner_pools.load_pools(env=self.live_env(), now=NOW)
+        on, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+        self.assertEqual(on["linux_8"], "cmux-fleet-linux-x64")
+        self.assertEqual(on["linux_32"], "cmux-fleet-linux-x64")
+        # A pool with a live Blacksmith member keeps it: the fleet is the last resort, not the first choice.
+        self.assertEqual(on["linux_4"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(on["linux_2"], "blacksmith-2vcpu-ubuntu-2404")
+        self.assertIn("pools.linux_8: unset -> cmux-fleet-linux-x64", lines)
+
+    def test_the_gate_closing_puts_every_pool_and_linux_runner_back_on_blacksmith(self) -> None:
+        dead = {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"}
+        on = runner_pools.reconcile({}, runner_pools.load_pools(env=self.live_env(), now=NOW), dead_now=dead,
+                                    served_now=(), now=NOW)[0]
+        self.assertEqual(on["linux"], "cmux-fleet-linux-x64")
+        # The fleet stops reporting runners: the next pass must strand nothing on its label.
+        later = NOW + dt.timedelta(minutes=10)
+        switch = Main.Switch({"LINUX_RUNNER": "cmux-fleet-linux-x64"})
+        env = {"RUNNER_POOLS": runner_pools.render(on), **self.live_env(online=0, at=later)}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main([], env, api=Main.Api(None), switch=switch, now=later), 0)
+        written = dict(switch.writes)
+        value = json.loads(written["RUNNER_POOLS"])
+        self.assertNotIn("cmux-fleet-linux-x64", [v for k, v in value.items() if not k.startswith("_")])
+        self.assertEqual(written["LINUX_RUNNER"], value["linux"])
+        self.assertTrue(runner_pools.EPHEMERAL.match(value["linux"]), value["linux"])
+
+    def test_the_mirror_follows_the_pool_onto_the_fleet_and_check_accepts_it(self) -> None:
+        self.assertEqual(runner_pools.mirror_writes({"linux": "cmux-fleet-linux-x64"},
+                                                    {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}, record=None),
+                         [("LINUX_RUNNER", "cmux-fleet-linux-x64")])
+        dead = {"blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"}
+        on = runner_pools.reconcile({}, runner_pools.load_pools(env=self.live_env(), now=NOW), dead_now=dead,
+                                    served_now=(), now=NOW)[0]
+        env = {"RUNNER_POOLS": runner_pools.render(on), "LINUX_RUNNER": "cmux-fleet-linux-x64", **self.live_env()}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(runner_pools.main(["--check"], env, now=NOW), 0)
+
+    def test_the_writer_and_the_check_read_the_gate(self) -> None:
+        for path, find in ((".github/workflows/ci-cloud-overflow-probe.yml", "runner_pools.py"),
+                           (".github/workflows/ci-repo-variables.yml", "runner_pools.py --check")):
+            workflow = yaml.safe_load((ROOT / path).read_text())
+            steps = [s for job in workflow["jobs"].values() for s in job.get("steps", [])
+                     if find in str(s.get("run", ""))]
+            self.assertTrue(steps, path)
+            for step in steps:
+                self.assertEqual(step["env"]["CI_FLEET_LINUX_STATE"], "${{ vars.CI_FLEET_LINUX_STATE }}", path)
+
+
 if __name__ == "__main__":
     unittest.main()
