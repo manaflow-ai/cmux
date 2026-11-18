@@ -212,6 +212,24 @@ def members(spec: Mapping[str, Any]) -> list[str]:
 X64_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+)$")
 
 
+# A pool whose first member is this large runs memory-bound work (fat-LTO release compiles, large suites) and
+# declares min_vcpu, the smallest size its jobs fit in (spec_problems()).
+MEMORY_FLOOR_REQUIRED_FROM = 16
+
+
+def memory_floor(spec: Mapping[str, Any]) -> int:
+    """The smallest x64 size, in vCPU, a pool's jobs fit in (its `min_vcpu`), else 0: no floor.
+
+    Blacksmith gives 4 GB per vCPU, so the size is also the memory. On 2026-11-18 the release valve moved linux_16
+    (the fat-LTO cmux-tui release compile, cmux-tui-build-package.yml) to 4 and then 2 vCPU: rustc on acpmux was
+    SIGKILLed out of memory (run 44289517882, jobs 134784646044 and 134784646088 on blacksmith-4vcpu-ubuntu-2404),
+    the next 12 feat-cmux-next tree builds failed the same way on 2 vCPU, no tree published, and NEXT nightlies
+    44293483500 and 44283774674 failed at "Bundle the cmux-tui client". A job waiting for a size it fits in is late;
+    one sent below it is certain to fail."""
+    value = spec.get("min_vcpu", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
 def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """The release valve's candidates for an x64 Blacksmith Linux pool, largest first: every x64 Blacksmith Linux
     label some pool declares that is smaller than this pool's smallest member, on the same image. Empty for any
@@ -226,11 +244,13 @@ def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         return []
     images = {match.group(2) for match in sizes}
     floor = min(int(match.group(1)) for match in sizes)
+    # min_vcpu (memory_floor()): the valve never goes below the size the pool's jobs fit in.
+    least = memory_floor(spec)
     found: dict[str, int] = {}
     for other in pools.values():
         for label in members(other):
             match = X64_SIZE.match(label)
-            if match and match.group(2) in images and int(match.group(1)) < floor:
+            if match and match.group(2) in images and least <= int(match.group(1)) < floor:
                 found[label] = int(match.group(1))
     return sorted(found, key=lambda label: -found[label])
 
@@ -260,6 +280,17 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             elif not EPHEMERAL.match(member):
                 found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
                              "through a picker, never a pool")
+        least = memory_floor(spec)
+        if "min_vcpu" in spec and not least:
+            found.append(f"{where}: min_vcpu is a positive whole number of vCPU")
+        first = X64_SIZE.match(listed[0])
+        if first and int(first.group(1)) >= MEMORY_FLOOR_REQUIRED_FROM and not least:
+            found.append(f"{where}: a pool led by {first.group(1)} vCPU declares min_vcpu, the smallest size its jobs fit "
+                         "in, so the release valve never sends them below it (memory_floor())")
+        for member in listed:
+            size = X64_SIZE.match(member)
+            if least and size and int(size.group(1)) < least:
+                found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
         grows = grows_before_shrinking(listed)

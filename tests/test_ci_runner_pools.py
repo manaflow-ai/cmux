@@ -400,6 +400,43 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(runner_pools.allowed(pools["macos_26"], pools), runner_pools.members(pools["macos_26"]))
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
 
+    def test_the_release_valve_never_goes_below_min_vcpu(self) -> None:
+        # 2026-11-18 11:47Z-13:18Z: with 16, 8 and 32 vCPU marked dead the valve put linux_16 on 4 and then 2 vCPU,
+        # and every fat-LTO cmux-tui tree build there was SIGKILLed out of memory (run 44289517882, acpmux rustc on
+        # blacksmith-4vcpu-ubuntu-2404, then 12 runs on 2 vCPU), so no tree published and the NEXT nightlies failed.
+        pools = {
+            "linux_2": {"why": "x", "members": ["blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
+            "linux_16": {"why": "x", "min_vcpu": 8,
+                         "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                                     "blacksmith-32vcpu-ubuntu-2404"]},
+        }
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        self.assertEqual(runner_pools.valve_labels(pools["linux_16"], pools), [])
+        dead = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
+                "blacksmith-4vcpu-ubuntu-2404"}
+        value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+        # It waits on its own first member rather than taking a size its jobs are killed on.
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_8"], "blacksmith-2vcpu-ubuntu-2404")  # no floor: the valve as before
+        # A value below the floor is not allowed, so a hand edit is reset too.
+        self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-4vcpu-ubuntu-2404"}, pools))
+
+    def test_a_large_pool_declares_its_memory_floor(self) -> None:
+        pools = {"linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("min_vcpu" in problem for problem in runner_pools.spec_problems(pools)))
+        below = {"linux_16": {"why": "x", "min_vcpu": 16,
+                              "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("below its min_vcpu" in problem for problem in runner_pools.spec_problems(below)))
+        bad = {"linux_16": {"why": "x", "min_vcpu": "8", "members": ["blacksmith-16vcpu-ubuntu-2404"]}}
+        self.assertTrue(any("positive whole number" in problem for problem in runner_pools.spec_problems(bad)))
+        # The declared fat-LTO pools keep 8 vCPU (32 GB) as their floor.
+        declared = runner_pools.load_pools()
+        for name in ("linux_16", "linux_32"):
+            with self.subTest(pool=name):
+                self.assertEqual(runner_pools.memory_floor(declared[name]), 8)
+
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})
         again, lines = self.run_once(value, now=NOW + dt.timedelta(minutes=10))

@@ -101,6 +101,7 @@
     },
     "linux_16": {
       "why": "CPU-bound jobs measured at 16 vCPU (compiles, linters, large suites). A stalled 16 vCPU size moves them down to 8 vCPU first (Blacksmith caps the org on vCPUs at once: on 2026-11-18 32 vCPU started 1 of 282 jobs, 00:00-00:48Z; runner_pools.py grows_before_shrinking()), else to 32 vCPU",
+      "min_vcpu": 8,
       "members": [
         "blacksmith-16vcpu-ubuntu-2404",
         "blacksmith-8vcpu-ubuntu-2404",
@@ -109,6 +110,7 @@
     },
     "linux_32": {
       "why": "The largest parallel builds and test shards, measured at 32 vCPU (linux_sizes). A stalled 32 vCPU size moves them to 16 vCPU",
+      "min_vcpu": 8,
       "members": [
         "blacksmith-32vcpu-ubuntu-2404",
         "blacksmith-16vcpu-ubuntu-2404"
