@@ -562,7 +562,7 @@ pub(super) fn credential_plan(
     let family = found.families.first().cloned().unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", crate::agent_credentials::CHATGPT_TOKEN, None));
+            return Ok((family, "chatgpt-plan", crate::agent_credentials::CODEX_LOGIN_TOKEN, None));
         }
         ("codex-login" | "subscription", _) if family == "codex" => {
             return Ok((family, found.kind, crate::agent_credentials::CODEX_LOGIN_TOKEN, None));
@@ -968,7 +968,7 @@ mod tests {
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
             anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
+            openai_base_url: Some(chatgpt::CODEX_BACKEND.into()),
             auth: None,
             secret: None,
             headers: Default::default(),
@@ -1125,7 +1125,7 @@ mod tests {
 
         // A Sign in with ChatGPT connection keeps Cloud: the CLI login no longer serves it.
         let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
+            client_id: chatgpt::CODEX_CLIENT_ID.into(),
             sub: "user-1".into(),
             refresh_token: "r".into(),
             ..Default::default()
@@ -1136,7 +1136,7 @@ mod tests {
         plan.kind = RouteKind::ChatgptPlan;
         plan.account_home = None;
         plan.notes = None;
-        plan.openai_base_url = Some(chatgpt::RESOURCE.into());
+        plan.openai_base_url = Some(chatgpt::CODEX_BACKEND.into());
         plan.provider = Some("openai".into());
         routes::add(Some(&d.routes), "chatgpt", &plan, false).unwrap();
         let s = state(Some(&d.routes), &d.home);
@@ -1204,7 +1204,7 @@ mod tests {
     fn a_chatgpt_plan_route_is_listed_from_its_record() {
         let d = dirs();
         let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
+            client_id: chatgpt::CODEX_CLIENT_ID.into(),
             sub: "user-1".into(),
             email: Some("alex@example.com".into()),
             plan: Some("plus".into()),
@@ -1217,7 +1217,7 @@ mod tests {
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
             anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
+            openai_base_url: Some(chatgpt::CODEX_BACKEND.into()),
             auth: None,
             secret: None,
             headers: Default::default(),
@@ -1242,9 +1242,15 @@ mod tests {
             credential_plan(Some(&d.routes), &d.home, "chatgpt").unwrap();
         assert_eq!(
             (family.as_str(), kind, var),
-            ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
+            ("codex", "chatgpt-plan", "CMUX_CODEX_ACCESS_TOKEN")
         );
         assert!(secret.is_none(), "the daemon's own token, not a reference");
+        // A sign-in from the retired token-sharing client (`oaiapp_...`) reads signed out: its
+        // token is refused by OpenAI, so the person signs in again (cmux#45774).
+        let old = chatgpt::store::Record { client_id: "oaiapp_x".into(), ..record.clone() };
+        chatgpt::store::write(&d.home, "chatgpt", &old).unwrap();
+        let list = super::list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        assert!(!list.iter().find(|c| c.id == "chatgpt").unwrap().signed_in);
         // A local chat never spawns on it.
         let route = routes::find(Some(&d.routes), "chatgpt").unwrap();
         assert!(matches!(

@@ -34,7 +34,7 @@ struct CloudAgentCredentialRefresherTests {
             // A refreshed token whenever fewer than ten minutes are left on the last one.
             if expiry - now.timeIntervalSince1970 <= 600 { expiry = now.timeIntervalSince1970 + 3_600 }
             return CloudAgentCredential(connectionID: id, family: "codex", kind: CloudAgentCredential.chatGPTPlan,
-                                        env: ["CMUX_CHATGPT_ACCESS_TOKEN": "token-\(reads)"], expiresAt: Date(timeIntervalSince1970: expiry))
+                                        env: ["CMUX_CODEX_ACCESS_TOKEN": "token-\(reads)"], expiresAt: Date(timeIntervalSince1970: expiry))
         }
     }
 
@@ -77,7 +77,7 @@ struct CloudAgentCredentialRefresherTests {
         #expect(machine.pushes.isEmpty && acpmux.reads == 1)
         clock.advance(by: .seconds(1))
         try await clock.waitForSleeper()
-        #expect(machine.pushes == [["CMUX_CHATGPT_ACCESS_TOKEN": "token-2"]])
+        #expect(machine.pushes == [["CMUX_CODEX_ACCESS_TOKEN": "token-2"]])
         // The next one 50 minutes into the new token's hour.
         #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(3_000 + 3_000))])
     }

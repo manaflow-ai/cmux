@@ -119,15 +119,10 @@ pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
 pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`): a Claude token or key, an
-/// OpenAI key, a ChatGPT plan token, or the access token of the Mac's Codex CLI ChatGPT login
-/// (cmux#45774).
-const CREDENTIAL_NAMES: [&str; 5] = [
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "CMUX_CHATGPT_ACCESS_TOKEN",
-    "CMUX_CODEX_ACCESS_TOKEN",
-];
+/// OpenAI key, or the access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or
+/// the Mac's `codex login`, cmux#45774).
+const CREDENTIAL_NAMES: [&str; 4] =
+    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CODEX_ACCESS_TOKEN"];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
