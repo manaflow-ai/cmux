@@ -27,8 +27,8 @@ test("a row's vertical margins add to its slot", () => {
   expect(virtualRowSize(28, "18px", "4px")).toBe(50);
 });
 
-test("fractional sizes round as the virtualizer's own measurement does", () => {
-  expect(virtualRowSize(27.6, "19.8px", "0px")).toBe(47);
+test("fractional sizes stay fractional, so rows at a fractional interface scale add up exactly", () => {
+  expect(virtualRowSize(27.6, "19.8px", "0px")).toBeCloseTo(47.4, 6);
 });
 
 test("a margin that does not parse counts as 0, so the size is never NaN", () => {

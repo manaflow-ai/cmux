@@ -20,13 +20,7 @@ import {
   memo,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import {
-  defaultRangeExtractor,
-  measureElement,
-  useVirtualizer,
-  type Range,
-  type Virtualizer,
-} from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
@@ -721,6 +715,8 @@ function VirtualRows({
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache
     // (no resize entry) was measured here already and holds the margins.
+    // The border box is taken fractional: the library's own measure rounds it (a 30.8 px row at an
+    // interface scale of 1.1 counts as 31, and the list grows a pixel every five rows).
     measureElement: (element, entry, instance) => {
       // A row that mounts again (scrolled back, or the menu reopened) has no resize entry: its slot is the one
       // measured here before, margins and all. The library's own answer is its border box alone, which would
@@ -731,7 +727,7 @@ function VirtualRows({
       return virtualRowSlot(cached, () => {
         const style = element.ownerDocument.defaultView?.getComputedStyle(element);
         return virtualRowSize(
-          measureElement(element, entry, instance),
+          entry?.borderBoxSize?.[0]?.blockSize ?? element.getBoundingClientRect().height,
           style?.marginTop ?? "",
           style?.marginBottom ?? "",
         );
@@ -802,10 +798,11 @@ export function virtualRowSlot(cached: number | undefined, measure: () => number
 }
 
 /// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
-/// strings such as "20px"). A value that does not parse counts as 0, so the size is never NaN.
+/// strings such as "20px"), fractional as laid out. A value that does not parse counts as 0, so the
+/// size is never NaN.
 export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
   const px = (value: number) => (Number.isFinite(value) ? value : 0);
-  return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
+  return px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom));
 }
 
 interface ComboboxOptionProps {
