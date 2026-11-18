@@ -1,7 +1,7 @@
 import XCTest
 
 /// A Cloud machine's chats on the shared infinite-scroll list (`PagedList`, verify/paged-list.md),
-/// in their DEBUG gallery (`-cmux-mobile-paged-lab cloudchats:SCENARIO`, `CloudChatsGallery`):
+/// in their DEBUG gallery (`-cmux-mobile-paged-screen cloudchats:SCENARIO`, `CloudChatsGallery`):
 /// older chats land as the reader nears the end without moving any row on screen (measured from
 /// outside, every row's frame, and inside, the list's probe); a chat that runs again moves to the
 /// top without moving the reader; flings meet rows with no hitches (CLOUDCHATS lines); and every
@@ -145,7 +145,7 @@ final class CloudChatsPagedListUITests: XCTestCase {
     @MainActor
     private func launch(_ lab: String, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-cmux-mobile-paged-lab", lab] + extra
+        app.launchArguments += ["-cmux-mobile-paged-screen", lab] + extra
         app.launch()
         return app
     }

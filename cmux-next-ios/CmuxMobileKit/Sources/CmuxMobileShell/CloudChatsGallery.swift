@@ -8,7 +8,7 @@ private let theme = CmuxMobileTheme.standard
 
 /// A Cloud machine's chats (``CloudMachineChatsList``, on the shared ``PagedList``) on fixed chats,
 /// for screenshots and UI tests of every state (verify/paged-list.md), with the lab's measurement
-/// line (`lab.hud`). Launch with `-cmux-mobile-paged-lab cloudchats:SCENARIO`:
+/// line (`lab.hud`). Launch with `-cmux-mobile-paged-screen cloudchats:SCENARIO`:
 /// - `fast`: 600 chats, all read: a page of 100 more shows as the reader nears the end;
 /// - `slow`: 100 chats while the hub reads older ones: the end spins until `lab.deliver` hands the
 ///   list 100 more (as a page of the hub's read lands), up to 300;
@@ -35,9 +35,7 @@ struct CloudChatsGallery: View {
     }
 
     var body: some View {
-        let rows = Array(hub.chats.prefix(shown))
-        let hasOlder = hub.chats.count > shown
-        let edge = CloudMachineChatsList.edge(hasOlder: hasOlder, listWhole: hub.listWhole, restStopped: hub.restStopped)
+        let state = CloudChatsListState(newestFirst: hub.chats, listWhole: hub.listWhole, restStopped: hub.restStopped, shown: shown)
         NavigationStack {
             Group {
                 switch hub.state {
@@ -48,15 +46,15 @@ struct CloudChatsGallery: View {
                         Task { await hub.connect() }
                     }
                 case .ready:
-                    CloudMachineChatsList(rows: rows, hasOlder: hasOlder, listWhole: hub.listWhole, restStopped: hub.restStopped,
-                                          shown: $shown, select: { _ in }, reconnect: { Task { await hub.connect() } }, probe: probe)
+                    CloudMachineChatsList(state: state, shown: $shown, select: { _ in },
+                                          reconnect: { Task { await hub.connect() } }, probe: probe)
                 }
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .navigationTitle("Build Box")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !clean { controls(edge: edge) }
+                if !clean { controls(edge: state.edge) }
             }
         }
         .preferredColorScheme(scheme)

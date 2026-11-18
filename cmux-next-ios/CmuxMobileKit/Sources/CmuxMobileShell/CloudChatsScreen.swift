@@ -232,10 +232,7 @@ private struct CloudMachineChatsScreen: View {
                     ContentUnavailableView("Chat unavailable", systemImage: "bubble.left",
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
-                    let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
-                    CloudMachineChatsList(rows: listed.rows.map(CloudChatsListItem.init), hasOlder: listed.hasOlder,
-                                          listWhole: relay.hub.listWhole,
-                                          restStopped: relay.hub.listRestStopped, shown: $shown,
+                    CloudMachineChatsList(state: CloudChatsListState(hub: relay.hub, shown: shown), shown: $shown,
                                           select: { selectedSession = $0 }, reconnect: { refresh += 1 })
                 }
             } else if let cause = failure {
@@ -335,26 +332,16 @@ struct CloudMachineChatsList: View {
     let reconnect: @MainActor () -> Void
     var probe: PagedListProbe?
 
-    /// `rows`: the chats shown (`shown` of them, newest first); `hasOlder`: the hub holds more.
-    init(rows: [CloudChatsListItem], hasOlder: Bool, listWhole: Bool, restStopped: Bool, shown: Binding<Int>,
-         select: @escaping @MainActor (String) -> Void, reconnect: @escaping @MainActor () -> Void,
-         probe: PagedListProbe? = nil) {
-        self.rows = rows
-        edge = Self.edge(hasOlder: hasOlder, listWhole: listWhole, restStopped: restStopped)
+    init(state: CloudChatsListState, shown: Binding<Int>, select: @escaping @MainActor (String) -> Void,
+         reconnect: @escaping @MainActor () -> Void, probe: PagedListProbe? = nil) {
+        rows = state.rows
+        edge = state.edge
         // One page per drawn list: the list asks on every scroll step near the end.
         let next = shown.wrappedValue + CloudChatList.pageSize
-        more = hasOlder ? { if shown.wrappedValue < next { shown.wrappedValue = next } } : {}
+        more = state.hasOlder ? { if shown.wrappedValue < next { shown.wrappedValue = next } } : {}
         self.select = select
         self.reconnect = reconnect
         self.probe = probe
-    }
-
-    /// More chats held than shown: `.more`. All shown: the end once the hub read the whole list,
-    /// Try Again if its read stopped short, else a spinner while it reads.
-    static func edge(hasOlder: Bool, listWhole: Bool, restStopped: Bool) -> PagedListEdge {
-        if hasOlder { return .more }
-        if listWhole { return .end }
-        return restStopped ? .failed(String(localized: "Couldn't load older chats.")) : .loading
     }
 
     var body: some View {
@@ -371,6 +358,40 @@ struct CloudMachineChatsList: View {
         }
         .pagedIdentifier("cloudChats.list")
         .pagedProbe(probe)
+    }
+}
+
+/// The adapter between a Cloud machine's chats and their list: the chats shown (`shown` of them,
+/// newest first), whether more are held, and the list's edge. The screen makes it from the chat
+/// hub, the gallery from fixed chats; the view holds no read of its own.
+struct CloudChatsListState: Equatable {
+    let rows: [CloudChatsListItem]
+    let hasOlder: Bool
+    let edge: PagedListEdge
+
+    /// `newestFirst`: every chat held; `listWhole`: the hub read them all; `restStopped`: its read
+    /// of older chats stopped short.
+    init(newestFirst chats: [CloudChatsListItem], listWhole: Bool, restStopped: Bool, shown: Int) {
+        rows = Array(chats.prefix(shown))
+        hasOlder = chats.count > shown
+        edge = Self.edge(hasOlder: hasOlder, listWhole: listWhole, restStopped: restStopped)
+    }
+
+    /// The machine's own chats in the hub, newest first (``CloudChatList``).
+    @MainActor
+    init(hub: AcpmuxHub, shown: Int) {
+        let listed = CloudChatList.newest(hub.sessions.values, shown: shown)
+        rows = listed.rows.map(CloudChatsListItem.init)
+        hasOlder = listed.hasOlder
+        edge = Self.edge(hasOlder: hasOlder, listWhole: hub.listWhole, restStopped: hub.listRestStopped)
+    }
+
+    /// More chats held than shown: `.more`. All shown: the end once the hub read the whole list,
+    /// Try Again if its read stopped short, else a spinner while it reads.
+    static func edge(hasOlder: Bool, listWhole: Bool, restStopped: Bool) -> PagedListEdge {
+        if hasOlder { return .more }
+        if listWhole { return .end }
+        return restStopped ? .failed(String(localized: "Couldn't load older chats.")) : .loading
     }
 }
 
