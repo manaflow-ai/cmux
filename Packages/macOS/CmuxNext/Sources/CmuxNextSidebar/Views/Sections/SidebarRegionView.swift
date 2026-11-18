@@ -42,8 +42,8 @@ final class SidebarRegionView: NSView {
     /// The list this region draws one section in (the sidebar document's
     /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
     weak var docList: SidebarListView?
-    /// The rect, in this region's coordinates, whose items get views (the list's realization rect, for a list block);
-    /// `.null` for none. Nil draws every item (a band, a region on its own).
+    /// The rect, in this region's coordinates, whose items get views (the list's realization rect for a list block, the band's
+    /// shown rect for a band, `realizesItems(in:)`); `.null` for none. Nil draws every item (the footer, a region on its own).
     var itemWindow: (() -> NSRect?)?
     /// The item whose press the list's drag holds (it stays in the window, hidden, until the release).
     var docPressedItem: LayoutItemID?
@@ -244,7 +244,7 @@ final class SidebarRegionView: NSView {
         }
     }
 
-    private func displayed(_ content: Content) -> Content {
+    func displayed(_ content: Content) -> Content {
         var shown = content
         if let reorderSections { shown.sections = reorderSections }
         return shown
@@ -388,16 +388,16 @@ final class SidebarRegionView: NSView {
         }
     }
 
-    /// An item that keeps its view wherever it is: a drag's gap, the item a press or a drag holds, and the pinned row
+    /// An item that keeps its view wherever it is: a drag's gap, the item a press or a drag holds, the focused item, and the pinned row
     /// a rename is editing (as the list keeps a renamed row's view, `pruneOffscreen`).
     private func mustRealize(_ id: LayoutItemID) -> Bool {
         if id == SidebarListBlocks.gapID || id == docPressedItem { return true }
         guard let view = itemViews[id] else { return false }
-        return reorder?.hidden.contains(where: { $0 === view }) == true || docList?.inlineRename.session?.pinnedRow === view
+        return reorder?.hidden.contains(where: { $0 === view }) == true || docList?.inlineRename.session?.pinnedRow === view || window?.firstResponder === view
     }
 
     /// Makes or updates item `id`'s view at `row`; false when its section no longer holds it.
-    private func showItem(_ row: SidebarRegionRow, _ id: LayoutItemID, _ section: LayoutSection, _ content: Content) -> Bool {
+    func showItem(_ row: SidebarRegionRow, _ id: LayoutItemID, _ section: LayoutSection, _ content: Content) -> Bool {
         guard let item = itemIndex[id]?.item else { return false }
         let new = itemViews[id] == nil
         let view = itemViews[id] ?? makeItem(id)
@@ -429,7 +429,7 @@ final class SidebarRegionView: NSView {
 
     /// After a scroll: views for the items that came near the shown rect, and none for the ones far past it. Visits only
     /// the rows the rect reaches (binary search by y) and the views made, so a scroll costs the same over 50 items as
-    /// over 2,000. A region that draws every item (`itemWindow` nil: a band, a region on its own) does nothing.
+    /// over 2,000. A region that draws every item (`itemWindow` nil: the footer, a region on its own) does nothing.
     func realizeItems() {
         guard let realize = itemWindow?(), let content else { return }
         let shown = displayed(content)

@@ -20,7 +20,8 @@ extension SidebarItemRowView {
         // The dot's cell: a workspace row's lone glyph with its padding (`RowBadgeView`).
         if dot { width += RowBadgeView.glyphSide + 4 + Metrics.space2 }
         if activity { width += SidebarStyle.indicatorSize + Metrics.space2 }
-        if chipWidths.count > 512 { chipWidths.removeAll() }
+        // A cap of 512 emptied the cache inside each layout of a longer inline section, which measured every label each pass.
+        if chipWidths.count > 16_384 { chipWidths.removeAll() }
         chipWidths[key] = width
         return width
     }

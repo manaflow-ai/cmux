@@ -24,4 +24,53 @@ extension SidebarRegionView {
     func edit(_ view: SidebarItemRowView, _ id: LayoutItemID) {
         view.isEditing = isEditing && !id.isTransient && id != SidebarListBlocks.gapID
     }
+
+    /// A band in its capped scroll view: only the items `scroll` shows and the list's overscan past each edge get views
+    /// (as a list block's do), and a scroll or a resize of the band realizes the items it brings in and lets the far
+    /// ones go. A band of 10,000 pinned items makes the screenful it shows, not 10,000. Call before the region is the
+    /// scroll view's document: the band's clip view (`SidebarBandClipView`) reports each move.
+    func realizesItems(in scroll: NSScrollView) {
+        let clip = SidebarBandClipView()
+        clip.onMove = { [weak self] in self?.realizeItems() }
+        scroll.contentView = clip
+        itemWindow = { [weak self, weak clip] in
+            guard let self, let clip else { return nil }
+            // Before the band has its height (a new window's first update): the first screenful, where a band starts.
+            let visible = clip.bounds.height > 0 ? convert(clip.bounds, from: clip)
+                : NSRect(x: 0, y: 0, width: bounds.width, height: window?.frame.height ?? NSScreen.main?.frame.height ?? 1_000)
+            return NSRect(x: -1e6, y: visible.minY - SidebarStyle.overscan, width: 2e6, height: visible.height + SidebarStyle.overscan * 2)
+        }
+    }
+
+    /// Gives the first or the last item a view wherever the band is scrolled: the arrow walk's step from the list
+    /// into the band focuses it, and the focus scrolls to it.
+    func realizeEdgeItem(last: Bool) {
+        guard let content else { return }
+        let rows = layoutResult.rows, shown = displayed(content)
+        for index in stride(from: last ? rows.count - 1 : 0, through: last ? 0 : rows.count - 1, by: last ? -1 : 1) {
+            switch rows[index].kind {
+            case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
+                guard itemViews[id] == nil, let section = shown.sections.first(where: { $0.id == sectionID }) else { return }
+                _ = showItem(rows[index], id, section, shown)
+                return
+            default: continue
+            }
+        }
+    }
+}
+
+/// A band's clip view: it reports each move of what the band shows (a wheel, a scroller drag, a programmatic scroll, a
+/// resize), so the band's items realize with it (`SidebarRegionView.realizesItems(in:)`).
+final class SidebarBandClipView: NSClipView {
+    var onMove: (() -> Void)?
+
+    override func setBoundsOrigin(_ newOrigin: NSPoint) {
+        super.setBoundsOrigin(newOrigin)
+        onMove?()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        onMove?()
+    }
 }
