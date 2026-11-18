@@ -85,7 +85,7 @@ pub fn select(app_socket: Option<String>, app_token: Option<String>) -> Option<S
 /// session this process runs in (`_acpmux/computer_use_endpoint`). `Ok(None)`: no endpoint
 /// is published (Computer Use runs the helper v2, or is off by policy).
 pub async fn current() -> anyhow::Result<Option<Socket>> {
-    let client = crate::deliver::connect().await?;
+    let client = crate::daemon::connect(false).await?;
     let answer = client
         .request(crate::rpc::method::MUX_COMPUTER_USE_ENDPOINT, serde_json::json!({}))
         .await?;

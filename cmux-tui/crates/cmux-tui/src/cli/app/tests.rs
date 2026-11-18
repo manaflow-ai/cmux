@@ -344,6 +344,21 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
 }
 
+/// `cmux app mac-screens` reads the app's release Mac Screen state, all tabs or
+/// one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn mac_screens_reads_the_release_mac_screen_state() {
+    let (method, params) = call(parse(&args(&["app", "mac-screens"])).unwrap().unwrap());
+    assert_eq!(method, "mac_screen.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "mac-screens", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, MAC_SCREENS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "mac-screens", "connect"])).is_err());
+    assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
+}
+
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
 /// `machine.list` and `device.join_line`, never `app call` (debug builds only)
 /// and never an `action.run`.
@@ -1744,6 +1759,35 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
         Some(json!({ "agent_session": "turn-1" }))
     );
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
+/// An agent names the workspace its session runs in (`CMUX_WORKSPACE_ID`), so
+/// the app places it there when no tab shows its chat (a closed chat tab, a
+/// Chief subagent told again later), never in the focused workspace, Home
+/// (user, 2026-11-18).
+#[test]
+fn an_agent_names_its_own_workspace_in_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "a1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "agent_session": "a1", "workspace": "W-1" }))
+    );
+    // A terminal caller is found by its terminal; it names no workspace.
+    assert_eq!(
+        caller_from(env(&[("CMUX_TUI_TERMINAL_ID", "t1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "terminal_id": "t1" }))
+    );
+}
+
+/// `cmux open --link` (the `BROWSER` and `open` shims every agent runs) names
+/// its caller, so an agent's link opens beside its own chat, not beside the
+/// focused pane in Home (user, 2026-11-18).
+#[test]
+fn open_link_sends_the_caller() {
+    assert!(takes_caller("browser.open_link"));
+    assert!(takes_caller("file.open"), "an agent's `cmux open FILE` opens in its own workspace");
 }
 
 /// Every page verb sends its caller: the app runs a verb without a tab on the

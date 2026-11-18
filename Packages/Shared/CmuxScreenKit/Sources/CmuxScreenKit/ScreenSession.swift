@@ -123,6 +123,15 @@ public final class ScreenSession {
     }
 
     public private(set) var imagePaste = ImagePaste.idle
+
+    /// What the stream's Mac says its screen shows: live, or black because it
+    /// is locked or its display asleep (``ScreenSourceState``). Live for an
+    /// older Mac that never says, and again on each connect.
+    public private(set) var sourceState = ScreenSourceState.live
+    /// The Mac's source state, from the running stream's viewer (a demo may set it too).
+    public func receiveSourceState(_ state: ScreenSourceState) {
+        if sourceState != state { sourceState = state }
+    }
     /// The image ``imagePaste`` is about (another image's answer never settles it).
     @ObservationIgnored private var imagePasteID: String?
 
@@ -178,7 +187,28 @@ public final class ScreenSession {
         if imagePaste != .sending { imagePaste = .idle }
     }
     /// The stream dropped and is coming back on its own.
-    public private(set) var isReconnecting = false
+    public private(set) var isReconnecting = false {
+        didSet { if isReconnecting != oldValue { armReconnectNotice() } }
+    }
+    /// A reconnect has run for ``reconnectNoticeDelay`` without a picture: only now does the
+    /// view say "Reconnecting". Under it the last frame stays and nothing is said (a blip
+    /// the session recovers from by itself is not the person's problem).
+    public private(set) var reconnectNoticeDue = false
+    /// How long a reconnect stays silent: about the time after which a frozen picture
+    /// stops reading as a hiccup. A reattach lands well under it on a short drop.
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
+    @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
+    /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
+    /// session stays reconnecting over its last frame instead of showing the failed card first.
+    /// Not taken (false): the failed card, as without an owner.
+    @ObservationIgnored public var onDropped: (@MainActor () -> Bool)?
+    /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
+    /// the screen does not jump while it comes back.
+    public var keepsLiveLayout: Bool {
+        if case .connected = phase { return true }
+        return isReconnecting
+    }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
     public private(set) var isStalled = false
@@ -349,6 +379,13 @@ public final class ScreenSession {
         isStalled = false
         stats.targetFps = nil
         hostCapabilities = []
+        receiveSourceState(.live)
+        viewer.onSourceState = { [weak self, weak viewer] state in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveSourceState(state)
+            }
+        }
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -447,6 +484,12 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            if let onDropped {
+                // The owner reattaches with a new ticket: still reconnecting, never the failed card.
+                isReconnecting = true
+                phase = .connecting
+                if onDropped() { return }
+            }
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -460,6 +503,20 @@ public final class ScreenSession {
             try? await Task.sleep(for: .seconds(delay)) // reconnect backoff
             guard !Task.isCancelled, let self, isReconnecting else { return }
             connect()
+        }
+    }
+
+    /// Starts (or stops) the clock after which a reconnect is said out loud.
+    private func armReconnectNotice() {
+        reconnectNoticeTask?.cancel()
+        reconnectNoticeTask = nil
+        if reconnectNoticeDue { reconnectNoticeDue = false }
+        guard isReconnecting else { return }
+        reconnectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
+            try? await Task.sleep(for: Self.reconnectNoticeDelay)
+            guard !Task.isCancelled, let self, isReconnecting else { return }
+            reconnectNoticeDue = true
         }
     }
 

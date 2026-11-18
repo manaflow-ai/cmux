@@ -33,13 +33,17 @@ extension UpdaterService {
     /// one: it knows ``StagedUpdatePrewarm/argument`` because the running build does, so an older
     /// staged build (a switch back) never gets an argument it would not stop on. Returns why nothing
     /// was started, or nil when a pre-warm of the staged build runs or ran.
+    ///
+    /// Every outcome goes to the update log at once: `launch pre-warm of <build>: started (<trigger>)`, then a
+    /// line after the scan and after each run, or `launch pre-warm: skipped (<why>)` once per build
+    /// and reason. A pre-warm that never ran can no longer be silent (Leo's NIGHTLY had no line at all).
     @discardableResult
     func prewarmStagedUpdate(trigger: String = "staged") -> String? {
-        guard let build = stagedBuild(), !build.isEmpty else { return "no staged build" }
+        guard let build = stagedBuild(), !build.isEmpty else { return skipPrewarm(of: nil, "no staged build") }
         if prewarmRun?.build == build { return nil }
-        guard let bundleIdentifier = identity.bundleIdentifier else { return "no bundle id" }
+        guard let bundleIdentifier = identity.bundleIdentifier else { return skipPrewarm(of: build, "no bundle id") }
         guard AppcastSelector.isOlder(identity.build, than: build) else {
-            return "staged build \(build) is not newer than running build \(identity.build)"
+            return skipPrewarm(of: build, "staged build \(build) is not newer than running build \(identity.build)")
         }
         let urgency = StagedUpdatePrewarm.Urgency()
         prewarmRun = StagedPrewarmRun(build: build, started: ContinuousClock.now, urgency: urgency)
@@ -52,11 +56,12 @@ extension UpdaterService {
         let marker = UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
             ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
-        // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its
-        // folder scan runs on a files lane, its processes through AsyncProcess.
+        // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
+        // scan runs on a files lane slot of its own
+        // (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``), its processes through AsyncProcess.
         Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let line: String
-            if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency) }
+            if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, progress: { log.append($0) }) }
             log.append(line)
             await self?.prewarmEnded(urgency, line: line)
         }
@@ -108,5 +113,14 @@ extension UpdaterService {
         UpdateHarness.mark(done ? "prewarm_wait_end.done" : "prewarm_wait_end.partial")
         #endif
         waiting.install()
+    }
+
+    /// Logs why the staged build's pre-warm did not start, once per build and reason, and returns the reason.
+    private func skipPrewarm(of build: String?, _ reason: String) -> String {
+        let key = "\(build ?? "")|\(reason)"
+        guard prewarmSkipLogged != key else { return reason }
+        prewarmSkipLogged = key
+        log.append("launch pre-warm: skipped (\(reason))")
+        return reason
     }
 }
