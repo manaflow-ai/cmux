@@ -67,12 +67,12 @@ fn job() -> Job {
         edit: env("CMUX_TIER_BENCH_EDIT", "src/click/utils.py"),
         paths: env(
             "CMUX_TIER_BENCH_PATHS",
-            "src/click,tests/conftest.py,tests/test_utils.py,pyproject.toml",
+            "src/click,tests/conftest.py,tests/test_utils,pyproject.toml",
         )
         .split(',')
         .map(str::to_owned)
         .collect(),
-        test: env("CMUX_TIER_BENCH_TEST", "-m pytest -q -p no:cacheprovider tests/test_utils.py")
+        test: env("CMUX_TIER_BENCH_TEST", "-m pytest -q -p no:cacheprovider tests/test_utils")
             .split_whitespace()
             .map(str::to_owned)
             .collect(),
