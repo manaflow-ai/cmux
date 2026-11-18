@@ -241,13 +241,31 @@ test("ready: the repositories are listed, and a pick is the folder github:owner/
     expect(api.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
     expect(api.querySelector(".acpmux-location-lock")?.textContent).toBe("Private");
     expect(option("acme/web")!.querySelector(".acpmux-location-lock")).toBeNull();
-    // All repositories: no Choose more repositories….
-    expect(option("Choose more repositories…")).toBeUndefined();
+    // Connected: the way to the installation's page on GitHub shows whatever the scope.
+    expect(option("Choose more repositories…")).toBeDefined();
     await press(api);
     expect(picked).toEqual(["github:acme/api"]);
     // The chip names the repository, not a path.
     expect(face()).toContain("acme/api");
     expect(face()).not.toContain("github:");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("ready with no repository granted: GitHub still shows, with the way to choose repositories", async () => {
+  const gh = host({
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": { repos: [], truncated: false },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const more = option("Choose more repositories…")!;
+    expect(more.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
+    await press(more);
+    expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
   } finally {
     await act(async () => root.unmount());
   }
@@ -457,12 +475,48 @@ test("a host that refuses github.status reads as unreachable", async () => {
   }
 });
 
-test("a local chat shows nothing new and asks nothing", async () => {
+test("with This Mac picked, a chat that can run on Cloud still offers GitHub, and a repository's pick moves it to Cloud", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { repos: REPOS, truncated: false },
   });
+  const modes: string[] = [];
+  const { root, picked } = await renderTray(
+    { runMode: { mode: "persistent", onMode: (mode: string) => modes.push(mode) } },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    expect(gh.calls[0]).toEqual(["github.status", {}]);
+    // A folder of this Mac leaves the chat where it is.
+    await press(option("notes")!);
+    expect(modes).toEqual([]);
+    await openFolderMenu();
+    await press(option("acme/api")!);
+    expect(picked).toEqual(["/Users/me/notes", "github:acme/api"]);
+    expect(modes).toEqual(["cloud"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("with This Mac picked and GitHub not connected, the Connect to GitHub row is there", async () => {
+  const gh = host({ "github.status": { state: "not_connected" } });
   const { root } = await renderTray({ runMode: { mode: "persistent", onMode: () => {} } }, gh.store);
+  try {
+    await openFolderMenu();
+    expect(option(CONNECT)).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a chat that cannot run on Cloud shows nothing new and asks nothing", async () => {
+  const gh = host({
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": { repos: REPOS, truncated: false },
+  });
+  const { root } = await renderTray({ runMode: undefined }, gh.store);
   try {
     await openFolderMenu();
     expect(doc().querySelector("[data-github]")).toBeNull();
