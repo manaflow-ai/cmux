@@ -52,6 +52,19 @@ struct OmniboxPendingLearnsTests {
         #expect(registered == ["ex", "example.com"])
     }
 
+    @Test func anEditTheTabMayNotPreloadIsDroppedUntaught() throws {
+        var pending = OmniboxPendingLearns()
+        let desktop = try learn("m1", "https://m1.cloud-desktop.localhost/")
+        let page = try learn("example.com", "https://example.com/")
+        pending.ended(desktop) { _ in 0 }
+        pending.ended(page) { _ in 0 }
+        var registered: [String] = []
+        pending.replay(allowed: { CEFTab.preloads(under: .exceptCloudDesktop, opening: $0.opened) },
+                       register: { registered.append($0.text) }, open: { _ in 1 })
+        #expect(registered == ["example.com"])
+        #expect(pending.learns.isEmpty)
+    }
+
     @Test func atMostCapacityWaitAndTheOldestGoFirst() throws {
         var pending = OmniboxPendingLearns()
         for index in 0...OmniboxPendingLearns.capacity {

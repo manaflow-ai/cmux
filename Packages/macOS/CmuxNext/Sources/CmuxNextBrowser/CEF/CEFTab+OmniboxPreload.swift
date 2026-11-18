@@ -12,11 +12,17 @@ extension CEFTab: BrowserOmniboxPreloading {
     public func omniboxPreload(text: String, matches: [OmniboxPreloadMatch]) -> OmniboxPreloadAction {
         guard let browserID, let shim = runtime.shim, preloads, let first = matches.first,
               Self.preloads(under: navigationGuard, opening: first.url) else { return .unavailable }
-        if omniboxRegistrations.isEmpty {
-            // A new edit: first the edits the predictor could not learn while its database loaded.
+        if omniboxRegistrations.isEmpty, runtime.omniboxPendingLearns[profileID]?.learns.isEmpty == false {
+            // A new edit: first the edits the predictor could not learn while its database loaded. The
+            // replay only teaches: prerendering is off meanwhile (the fork gives a preconnect at most for
+            // an old text), and a URL this tab's guard refuses is dropped, never shown to the predictor.
+            let guardRule = navigationGuard
+            shim.setOmniboxPrerender(0)
             runtime.omniboxPendingLearns[profileID]?.replay(
+                allowed: { Self.preloads(under: guardRule, opening: $0.opened) },
                 register: { _ = Self.textChanged(shim, browserID, $0.text, $0.matches) },
                 open: { shim.omniboxPreloadOpened(browserID, $0.opened.absoluteString, 1) })
+            shim.setOmniboxPrerender(1)
         }
         omniboxRegistrations.append(.init(text: text, matches: matches))
         let raw = Self.textChanged(shim, browserID, text, matches)
@@ -32,7 +38,8 @@ extension CEFTab: BrowserOmniboxPreloading {
         omniboxRegistrations = []
         guard let browserID, let shim = runtime.shim,
               runtime.forkAPIVersion >= CEFTab.omniboxPreloadForkAPI else { return }
-        guard learn, let opened, !registrations.isEmpty else {
+        // An incognito store's edits are never kept (in memory past its window), nor a derived store's.
+        guard learn, let opened, !registrations.isEmpty, !host.key.offTheRecord, host.key.machineKey == nil else {
             _ = shim.omniboxPreloadOpened(browserID, opened?.absoluteString, learn ? 1 : 0)
             return
         }

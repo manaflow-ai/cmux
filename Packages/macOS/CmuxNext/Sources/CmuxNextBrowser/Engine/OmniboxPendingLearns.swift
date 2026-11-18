@@ -53,9 +53,12 @@ public nonisolated struct OmniboxPendingLearns: Sendable {
         if learns.count > Self.capacity { learns.removeFirst(learns.count - Self.capacity) }
     }
 
-    /// Before a new edit: teaches the kept edits in order. `register` shows one text's matches to the
-    /// predictor (`OnTextChanged`), `open` ends the edit with its URL (`OnOmniboxOpenedUrl`).
-    public mutating func replay(register: (Registration) -> Void, open: (Learn) -> Int32) {
+    /// Before a new edit: teaches the kept edits in order. An edit `allowed` refuses is dropped untaught;
+    /// `register` shows one text's matches to the predictor (`OnTextChanged`), `open` ends the edit with its
+    /// URL (`OnOmniboxOpenedUrl`).
+    public mutating func replay(allowed: (Learn) -> Bool = { _ in true }, register: (Registration) -> Void,
+                                open: (Learn) -> Int32) {
+        learns.removeAll { !allowed($0) }
         while let learn = learns.first {
             learn.registrations.forEach(register)
             // 0: still loading (the fork forgot the matches just registered); the rest wait, in order.
