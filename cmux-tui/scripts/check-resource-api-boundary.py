@@ -131,6 +131,36 @@ TERMINAL_IDENTITY_ENV_TABLE_RE = re.compile(
 )
 
 
+# A2UI (https://a2ui.org), the agent-to-UI protocol behind `labs.agentUiSurfaces`, names its
+# rendered unit a "surface": its wire messages are `createSurface` and `deleteSurface`, keyed by
+# `surfaceId`. The cmux MCP tool that takes those messages is `ui_surface` and returns the
+# `surfaces` it drew. These are another protocol's fixed wire words, not resource-v2 vocabulary
+# (no terminal or browser is named by them), so the `surface` rule skips exactly these
+# identifiers in exactly these files; any other spelling there, and every other file, still fails.
+A2UI_PROTOCOL_WORDS: Mapping[str, frozenset[str]] = {
+    "crates/cmux-tui/src/cli/mcp/ui_surface_tool.rs": frozenset(
+        {
+            "agentUiSurfaces",
+            "createSurface",
+            "deleteSurface",
+            "surface",
+            "surfaceId",
+            "surfaces",
+            "ui_surface",
+        }
+    ),
+}
+
+
+def a2ui_protocol_words(path: Path, tui: Path) -> frozenset[str]:
+    """The A2UI wire words `path` may use, from A2UI_PROTOCOL_WORDS; none for any other file."""
+    try:
+        relative = path.relative_to(tui).as_posix()
+    except ValueError:
+        return frozenset()
+    return A2UI_PROTOCOL_WORDS.get(relative, frozenset())
+
+
 def terminal_identity_env_names(tui: Path) -> frozenset[str]:
     """The `CMUX_*` names in terminal_env.rs `EXCLUDED_KEYS`, or none if it is absent."""
     try:
@@ -3568,6 +3598,7 @@ def _scan_region(
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
     terminal_env_names: frozenset[str] = frozenset(),
+    protocol_words: frozenset[str] = frozenset(),
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3590,6 +3621,9 @@ def _scan_region(
             # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
             # process-environment key the terminal carries, not vocabulary.
             if match.group(0) in terminal_env_names:
+                continue
+            # An A2UI wire word in a file that speaks A2UI (A2UI_PROTOCOL_WORDS).
+            if match.group(0) in protocol_words:
                 continue
             offset = start + match.start()
             message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
@@ -3700,6 +3734,7 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         end,
                         rule.private_identity_exceptions,
                         terminal_env_names,
+                        a2ui_protocol_words(path, tui),
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

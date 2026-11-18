@@ -368,19 +368,20 @@ impl Hub {
                             let hub = Arc::downgrade(&tap_hub);
                             let session = Arc::downgrade(&tap_session);
                             let spawn_hub = hub.clone();
-                            crate::ui_surfaces::Host {
-                                deliver: Arc::new(move |msg| {
-                                    if let (Some(hub), Some(session)) =
+                            let (late, mut late_rx) = tokio::sync::mpsc::unbounded_channel();
+                            // Ends when the registry drops the sender, or the hub's scope closes.
+                            drop(tap_hub.scope.spawn_named("ui-surface-late", async move {
+                                while let Some(msg) = late_rx.recv().await {
+                                    let (Some(hub), Some(session)) =
                                         (hub.upgrade(), session.upgrade())
-                                    {
-                                        hub.append(
-                                            &session,
-                                            "mux",
-                                            crate::ui_surfaces::LATE_KIND,
-                                            msg,
-                                        );
-                                    }
-                                }),
+                                    else {
+                                        return;
+                                    };
+                                    hub.append(&session, "mux", crate::ui_surfaces::LATE_KIND, msg);
+                                }
+                            }));
+                            crate::ui_surfaces::Host {
+                                late,
                                 spawn: Arc::new(move |fetch| {
                                     if let Some(hub) = spawn_hub.upgrade() {
                                         drop(hub.scope.spawn_named("ui-surface-fetch", fetch));

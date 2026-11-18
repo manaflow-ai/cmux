@@ -32,7 +32,7 @@ fn meta() -> (String, PathBuf) {
 
 /// A host that logs nothing and runs no fetch.
 fn host() -> Host {
-    Host { deliver: std::sync::Arc::new(|_| {}), spawn: std::sync::Arc::new(|_| {}) }
+    Host { late: tokio::sync::mpsc::unbounded_channel().0, spawn: std::sync::Arc::new(|_| {}) }
 }
 
 #[test]
@@ -244,14 +244,9 @@ async fn an_mcp_app_draws_on_its_first_call_when_its_view_comes_after_the_result
         .lock()
         .unwrap()
         .push(("quickstart-late".into(), mcp_http::ServerConf { url, headers: Vec::new() }));
-    let sent = std::sync::Arc::new(Mutex::new(Vec::<Value>::new()));
-    let host = {
-        let sent = sent.clone();
-        move || Host {
-            deliver: std::sync::Arc::new(move |m| sent.lock().unwrap().push(m)),
-            spawn: std::sync::Arc::new(|f| drop(tokio::spawn(f))),
-        }
-    };
+    let (late, mut sent) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let host =
+        move || Host { late: late.clone(), spawn: std::sync::Arc::new(|f| drop(tokio::spawn(f))) };
     let name = "mcp__quickstart-late__get-time";
     let mut start = json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "status": "pending",
         "title": name, "kind": "other", "rawInput": {}, "_meta": {"claude": {"toolName": name, "tool": name}}});
@@ -259,14 +254,12 @@ async fn an_mcp_app_draws_on_its_first_call_when_its_view_comes_after_the_result
     let mut done = json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
         "content": [{"type": "content", "content": {"type": "text", "text": "2026-11-18T12:00:00Z"}}]});
     assert!(!annotate("sess-late", &mut done, meta, host.clone()), "the result came first");
-    assert!(sent.lock().unwrap().is_empty());
+    assert!(sent.try_recv().is_err());
     gate.notify_one();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while sent.lock().unwrap().is_empty() {
-        assert!(std::time::Instant::now() < deadline, "no late surface");
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-    let msg = sent.lock().unwrap()[0].clone();
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(10), sent.recv())
+        .await
+        .expect("no late surface")
+        .unwrap();
     assert_eq!(msg["toolCallId"], "t1");
     assert_eq!(msg["status"], "completed");
     assert_eq!(msg["kind"], "other");
@@ -283,5 +276,5 @@ async fn an_mcp_app_draws_on_its_first_call_when_its_view_comes_after_the_result
     let mut again = json!({"sessionUpdate": "tool_call", "toolCallId": "t2", "status": "pending",
         "title": name, "_meta": {"claude": {"toolName": name}}});
     assert!(annotate("sess-late", &mut again, meta, host.clone()));
-    assert_eq!(sent.lock().unwrap().len(), 1, "one late record");
+    assert!(sent.try_recv().is_err(), "one late record");
 }

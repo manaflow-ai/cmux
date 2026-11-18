@@ -138,14 +138,17 @@ impl RowParts {
 /// The most bytes of one tool row part kept for a late surface.
 const MAX_PART_BYTES: usize = 256 * 1024;
 
-/// What a chat's tap lends its surfaces: `deliver` appends a mux record to the chat's log and
-/// `spawn` runs a fetch on the hub's task scope (its owner, which closes it). Both hold the hub
-/// and chat weakly, so the surfaces registry keeps neither alive.
-#[derive(Clone)]
+/// What a chat's tap lends its surfaces when a fetch starts: `late` sends a late surface to a task
+/// on the hub's scope that appends it to the chat's log as a mux record, and `spawn` runs a fetch
+/// on that scope (its owner, which closes it). Only `late` is kept, a channel and no closure: the
+/// receiving task holds the hub and chat weakly and ends when the registry drops the sender.
 pub struct Host {
-    pub deliver: std::sync::Arc<dyn Fn(Value) + Send + Sync>,
+    pub late: LateSender,
     pub spawn: Spawn,
 }
+
+/// Where a chat's late surfaces go (`Host::late`).
+pub type LateSender = tokio::sync::mpsc::UnboundedSender<Value>;
 
 /// Runs a fetch on its owner's scope (`hub.scope`); a gone owner drops it.
 pub type Spawn = std::sync::Arc<
@@ -163,8 +166,8 @@ struct SessionSurfaces {
     coalescer: Coalescer<String>,
     harness: String,
     cwd: PathBuf,
-    /// Logs a late surface into the session (set by the tap on its first MCP App call).
-    host: Option<Host>,
+    /// Where a late surface goes: the tap's channel to its chat (set when a fetch starts).
+    late: Option<LateSender>,
 }
 
 impl SessionSurfaces {
@@ -298,11 +301,11 @@ pub(crate) fn late_views() {
     if !enabled() {
         return;
     }
-    let mut sends: Vec<(Host, Value)> = Vec::new();
+    let mut sends: Vec<(LateSender, Value)> = Vec::new();
     {
         let mut guard = registry().lock().unwrap_or_else(|e| e.into_inner());
         for s in guard.0.values_mut() {
-            let Some(host) = s.host.clone() else { continue };
+            let Some(late) = s.late.clone() else { continue };
             let waiting: Vec<(String, String, String)> = s
                 .calls
                 .iter()
@@ -344,12 +347,13 @@ pub(crate) fn late_views() {
                         msg[k] = v.clone();
                     }
                 }
-                sends.push((host.clone(), msg));
+                sends.push((late.clone(), msg));
             }
         }
     }
-    for (host, msg) in sends {
-        (host.deliver)(msg);
+    for (late, msg) in sends {
+        // A chat whose task ended (its hub closed) gets nothing.
+        let _ = late.send(msg);
     }
 }
 
@@ -435,7 +439,10 @@ pub fn annotate(
                 // Not fetched yet: the fetch starts now, at the call's first update, and a view it
                 // brings after this call's row settled is logged as a late surface.
                 s.call(&call_id).waiting = Some((server.clone(), tool));
-                let spawn = s.host.get_or_insert_with(host).spawn.clone();
+                let Host { late, spawn } = host();
+                if s.late.as_ref().is_none_or(LateSender::is_closed) {
+                    s.late = Some(late);
+                }
                 mcp_http::prefetch(&s.harness, &s.cwd, &server, &spawn);
             }
         }
