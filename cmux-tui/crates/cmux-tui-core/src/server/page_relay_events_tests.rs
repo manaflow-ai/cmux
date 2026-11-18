@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::tests::Client;
+use crate::panic_free::RecoverPoison as _;
 use crate::server::*;
 
 fn mux(label: &str) -> Arc<Mux> {
