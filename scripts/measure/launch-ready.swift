@@ -230,7 +230,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "shell_requested": rel(shellRequested),

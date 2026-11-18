@@ -215,6 +215,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.commandAvailability":
     case "pane.clientReady":
     case "pane.renderRate":
+    case "pane.launchSettle":
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":

@@ -199,26 +199,6 @@ for side in dict.fromkeys(r["side"] for r in rows):
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
     print("LR-USABLE", side, med["usable"], flush=True)
-    # The settle (LaunchLayoutSettle's layout.* marks, the chat page's web.layout.*): when the last thing on screen
-    # moved after the first frame, and how far the largest move was, in points, with the view that made it most often.
-    # Leo, 2026-11-18: "well did you guys have more solution ideas tho for getting faster draws and settles?"
-    def pick(prefix):
-        named = Counter(k[len(prefix):] for r in done for k in r["marks"] if k.startswith(prefix))
-        return ",".join(f"{k}:{v}" for k, v in named.most_common(3)) or "none"
-    def stat(key, q=None):
-        vals = sorted(r["marks"][key] for r in done if key in r["marks"])
-        if not vals:
-            return None
-        return round(statistics.median(vals) if q is None else vals[min(len(vals) - 1, int(q * len(vals)))], 1)
-    settled = [r for r in done if "layout.settle" in r["marks"]]
-    layout = {"n": f"{len(settled)}/{len(done)}", "first_frame_ms": stat("layout.first_frame"), "settle_ms": stat("layout.settle"),
-              "settle_p90_ms": stat("layout.settle", 0.9), "max_move_pt": stat("layout.max_move"),
-              "max_move_pt_max": stat("layout.max_move", 1.0), "changed_frames": stat("layout.changed_frames"),
-              "moved": pick("layout.max_move."), "last": pick("layout.last."),
-              "capped": sum("layout.capped" in r["marks"] for r in done), "cost_ms": stat("layout.cost_ms"),
-              "web_settle_ms": stat("web.layout.settle"), "web_max_move_px": stat("web.layout.max_move"),
-              "web_moved": pick("web.layout.max_move.")}
-    print("LR-LAYOUT", side, " ".join(f"{k}={'' if v is None else v}" for k, v in layout.items()), flush=True)
 PY
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
