@@ -430,7 +430,8 @@ public final class AgentTurnStateStore {
     /// closes, when a chat with no state may still be working.
     public var watching = false
     /// A session's running turn ended (working to anything else; the watch closing is not an
-    /// end), this Mac's or an acpmux peer's row of it (that row's working to anything else). The app rings the chat's pane until the person goes into it, as a terminal agent's
+    /// end), this Mac's or an acpmux peer's row of it (that row's working to anything else). The
+    /// app rings the chat's pane until the person goes into it, as a terminal agent's
     /// notification does: acpmux reads a turn that ends in a shown chat at once (cx-n8ou).
     @ObservationIgnored public var onTurnEnded: ((String) -> Void)?
     /// Also told when a session's running turn ends, with its folder (`cwd`, when known): the diff
@@ -563,7 +564,6 @@ public final class AgentTurnStateStore {
             if !record.peers.isEmpty { record.peers = [:] }
         }
     }
-
 
     // MARK: Reads
 
