@@ -97,6 +97,7 @@ mod tests {
                 "cmux-live",
                 "cmux-rich-output",
                 "acpmux",
+                "cmux-quota",
                 "cmux-sudo"
             ]
         );
@@ -108,7 +109,14 @@ mod tests {
         let bare = AgentTools { servers: vec![server("cmux")], ..full.clone() };
         assert_eq!(
             names(&bare),
-            ["cmux-browser", "cmux-customization", "cmux-live", "cmux-rich-output", "acpmux"],
+            [
+                "cmux-browser",
+                "cmux-customization",
+                "cmux-live",
+                "cmux-rich-output",
+                "acpmux",
+                "cmux-quota"
+            ],
             "no computer use or secrets server, no cmux-cua or cmux-sudo"
         );
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());
