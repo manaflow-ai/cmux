@@ -10,9 +10,8 @@ import type { Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { startVisibleLists, type VisibleListsServer } from "./support/visibleLists";
 
-const ROWS = ["ListboxRow", "ListboxInlineRow"];
-
 await requireBrowserLane("visible-lists-listbox-callbacks.browser.test.ts", async () => {
+  const ROWS = ["ListboxRow", "ListboxInlineRow"];
   setDefaultTimeout(240_000);
   let server: VisibleListsServer;
   beforeAll(async () => {
