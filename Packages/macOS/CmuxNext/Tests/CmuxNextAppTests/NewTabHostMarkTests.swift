@@ -20,6 +20,8 @@ import Testing
 /// - The start of a scroll over the page sets the mark, and so does a tick of a wheel with no phases. A scroll
 ///   beside the page, and an event of a scroll that is under way, set none.
 /// - A paste and a file drop that the page's web view reports set the mark.
+/// - A letter that the key router queues for a page whose field is not ready sets the mark, and the store then has
+///   no idle page for a pane that leaves that tab.
 ///
 /// The app and its setup are those of `NewTabHoldMovesItsPageTests`: each row starts with one New Tab key, so the
 /// pane shows a New Tab tab with a page view that got no input. A key or a mouse event goes to the page's view
@@ -30,8 +32,8 @@ import Testing
 /// Limits. The package's tests have no Chromium host, so each page view is a WebKit one. The rows do not prove that
 /// AppKit calls the monitors before a page gets an event. A paste and a file drop set the mark in the reports of the
 /// page's web view: their row calls those reports, and sends no paste and no drag. The app's dictation sets the mark
-/// in the page view's own hook; no row sends one. A key that the key router queues for a page that is not ready sets
-/// the mark too: the rows of `LetterBetweenTwoNewTabKeysTests` hold it (a letter stays with the tab of its page).
+/// in the page view's own hook; no row sends one. The row of a queued letter calls the key router's queue step for
+/// the letter; `LetterBetweenTwoNewTabKeysTests` has the whole way of a letter between 2 New Tab keys.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabHostMarkTests {
@@ -165,6 +167,28 @@ struct NewTabHostMarkTests {
             print("NewTabHostMarkTests: a \(input) that the page's web view reported: \(Self.state(page))")
             #expect(page.model.hostTouch.marked && page.model.hostTouch.by == input, "a \(input) that the page's web view reported set no mark of a \(input): \(Self.state(page))")
             #expect(page.model.userTouched, "a page with the host's mark of a \(input) does not count as a touched one")
+        }
+    }
+
+    /// The key router queues a letter for the shown page, whose field is not ready (`KeyRouter.typesAhead`, the step
+    /// that the router runs for a letter that no key hold takes). The queue owes its text to the page's view. Want:
+    /// the page has the host's mark, and the store has no idle page for a pane that leaves the tab, so the next
+    /// New Tab tab does not take the view with the letter.
+    @Test func aLetterThatTheRouterQueuesForThePageMarksIt() async throws {
+        try await Rows.row("cn-host-mark-type-ahead") { services, pane, _, _ in
+            let (page, window) = try Self.shownPage(services, pane)
+            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab")
+            let tabs = services.agentTabs, router = services.keyRouter
+            try #require(tabs.idlePage(leaving: shown) === page, "setup: the store has no idle page for a pane that leaves the untouched tab: the row then proves nothing")
+            let queued = router.typesAhead(try Rows.keyDown("a", code: 0, command: false, in: window), in: window)
+            defer { router.dropTypeAhead() }
+            let focus = services.windowController(showing: pane).map { String(describing: $0.focus.state.resolved) } ?? "no window controller"
+            try #require(queued && router.typeAhead.text == "a",
+                         "setup: the key router did not queue the letter for the page. The page's field is ready: \(page.inputReadiness.isReady); the focus: \(focus)")
+            let idle = tabs.idlePage(leaving: shown)
+            print("NewTabHostMarkTests: a letter in the key router's queue for the shown page: \(Self.state(page)); the store has an idle page for a pane that leaves the tab: \(idle != nil)")
+            #expect(page.model.hostTouch.marked && page.model.hostTouch.by == "type-ahead", "a letter that the key router queued for the page set no mark of the queue: \(Self.state(page))")
+            #expect(idle == nil, "the store gives the page view with a queued letter to the next tab: the letter would be typed into another tab")
         }
     }
 }
