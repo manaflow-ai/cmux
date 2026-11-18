@@ -51,7 +51,8 @@ pub(super) fn start(
     conn: Arc<Conn>,
     mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) -> tokio::task::JoinHandle<()> {
-    let mut rx = hub.subscribe();
+    // Only the events routed to this connection (`interest.rs`), in broadcast order.
+    let rx = conn.interest.inbox.clone();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();

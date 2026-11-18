@@ -1713,6 +1713,12 @@ impl Hub {
         self.events.subscribe()
     }
 
+    /// Which connections each event wakes (`server/interest.rs`): a connection's fan-out reads
+    /// its own inbox, not [`Hub::subscribe`].
+    pub(crate) fn fanout_router(&self) -> &Arc<crate::server::interest::Router> {
+        self.events.router()
+    }
+
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
     }

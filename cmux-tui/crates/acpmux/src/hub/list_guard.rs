@@ -42,11 +42,15 @@ pub(crate) struct Events {
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
     tee: std::sync::OnceLock<Arc<TeeHandle>>,
+    /// Which connections' fan-outs each event wakes (`server/interest.rs`): every send is routed
+    /// as it is broadcast, under the router's lock, so each connection's events keep their order.
+    router: Arc<crate::server::interest::Router>,
 }
 
 impl Events {
     pub(super) fn new(capacity: usize) -> Self {
         Self {
+            router: Arc::new(crate::server::interest::Router::new(capacity)),
             tx: broadcast::channel(capacity).0,
             summary_generation: Arc::new(AtomicU64::new(0)),
             rows: Default::default(),
@@ -97,11 +101,22 @@ impl Events {
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
-            return self.tx.send(event);
+            return self.broadcast(event);
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
-        self.tx.send(event)
+        self.broadcast(event)
+    }
+
+    /// Broadcasts `event` and routes it to the connections that want it (`server/interest.rs`).
+    /// Every send goes through here.
+    fn broadcast(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.router.send(event, |event| self.tx.send(event))
+    }
+
+    /// The connections' routing table (`server/interest.rs`).
+    pub(crate) fn router(&self) -> &Arc<crate::server::interest::Router> {
+        &self.router
     }
 
     /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
@@ -183,7 +198,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.stamp_own(&event.session_id);
-        self.tx.send(event)
+        self.broadcast(event)
     }
 
     /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
