@@ -80,6 +80,8 @@ class Daemon {
   down = false;
   /// The machine answers an attach but not the read of the records after it.
   readsDown = false;
+  /// The read of the records after a seq answers only the record at that seq, and says there are more.
+  pagesBehind = false;
   /// Attaches wait here until let go, while the row changes under them.
   heldAttaches?: (() => void)[];
   /// Reads of the records after a seq wait here, each answered or failed when let go.
@@ -217,6 +219,10 @@ class Daemon {
             error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
           }),
         });
+      if (this.pagesBehind) {
+        const events = this.log.filter((event) => event.seq === Number(p.afterSeq ?? 0));
+        return result({ events, hasMore: true, lastSeq: last });
+      }
       const events = this.log.filter((event) => event.seq > Number(p.afterSeq ?? 0));
       return result({ events, hasMore: false, lastSeq: last });
     }
@@ -408,6 +414,19 @@ test("a seq gap reads the records after the pane's newest, not the whole log", a
   expect(reads.map((message) => message.params?.afterSeq)).toEqual([16]);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("later ");
   expect(frames(chat.drawn, chat.from, chat.shown).rebuilt).toEqual([]);
+});
+
+test("a seq gap whose page says more but holds nothing past the cursor reads once, not again and again", async () => {
+  const chat = await openChat();
+  const asked = chat.daemon().asked.length;
+  chat.daemon().pagesBehind = true;
+  chat.daemon().notify("_acpmux/lagged", { sessionIds: [SESSION], dropped: 2 });
+  await flush();
+  const reads = chat
+    .daemon()
+    .asked.slice(asked)
+    .filter((message) => message.method === "_acpmux/events" && message.params?.beforeSeq === undefined);
+  expect(reads.map((message) => message.params?.afterSeq)).toEqual([16]);
 });
 
 test("a session the machine recreated is another transcript: one full replace is counted", async () => {

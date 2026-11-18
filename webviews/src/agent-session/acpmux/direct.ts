@@ -4066,6 +4066,7 @@ export class AcpmuxDirectClient {
   /// Every recorded transcript event of a session, oldest first, for session replay.
   async recordedEvents(sessionId: string): Promise<EventRecord[]> {
     const events: EventRecord[] = [];
+    // ends: `after` moves to the page's newest seq each pass; it returns on no more, an empty page or no move
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,
@@ -5816,6 +5817,8 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
+    // ends: `cursor` moves to the page's newest seq each pass; it breaks on no more, an empty page or a page
+    // that moved it nothing
     for (let cursor = afterSeq; ;) {
       this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
@@ -5830,7 +5833,10 @@ export class AcpmuxDirectClient {
       // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined, cursor + 1);
       if (result?.hasMore !== true || missed.length === 0) break;
-      cursor = Math.max(cursor, ...missed.map((event) => event.seq));
+      const next = Math.max(...missed.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor would read the same page again.
+      if (next <= cursor) break;
+      cursor = next;
     }
     // Read through: this read's hole is filled, and so is any older failed read's that starts at
     // or past this one's start (everything after `afterSeq` is in now).
@@ -6480,6 +6486,8 @@ export class AcpmuxDirectClient {
     let listed = false;
     const read = new Set<string>();
     let cursor: string | undefined;
+    // ends: `pages` grows by one each pass and throws at PROCESS_LIST_MAX_PAGES; it returns on a page with no
+    // next cursor
     for (let pages = 1; ; pages += 1) {
       const page = (await this.request("_acpmux/process/list", {
         sessionId,
