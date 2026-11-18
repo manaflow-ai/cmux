@@ -240,6 +240,9 @@ body:has(#sections:not([hidden])) #home { display: none; }
 /* Note rows: the read date where an RFD has its number, the source where it has authors, tags where its date is. */
 .row.note .num { letter-spacing: -0.02em; }
 .row .tagline { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A: the title gets the row; tags are the chips above the list. */
+body[data-variant="directory"] .row.note:not(:has(.kind)) { grid-template-areas: "num title state" "num authors authors"; }
+body[data-variant="directory"] .row.note:not(:has(.kind)) .tagline { display: none; }
 #rows .group { list-style: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); padding: 12px 8px 4px; }
 #rows .group:first-child { padding-top: 2px; }
 .row .kind { display: none; }
@@ -272,3 +275,6 @@ body[data-variant="directory"] .row:has(.kind) { grid-template-columns: 3.2em 3.
 #row-dialog { width: min(640px, 92vw); }
 #note-form .actions, .rowform .actions { display: flex; justify-content: flex-end; gap: 8px; }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* B: note rows get a wider source column and a tags column of their own. */
+body[data-variant="index"] .row.note { grid-template-columns: 4em minmax(0, 1fr) 7em 15em 13em 4em; }
+body[data-variant="index"] .row.note .tagline { justify-self: start; max-width: 100%; }

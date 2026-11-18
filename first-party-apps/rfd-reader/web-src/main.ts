@@ -222,8 +222,11 @@ function renderNoteFilters() {
     ),
   )
   // Tags narrow the list together: a note shows when it carries every tag picked.
+  // The most used tags show; the rest behind "+N", so the list keeps its room.
+  const all = tagCounts(notes)
+  const shown = allTags ? all : all.filter(([t], i) => i < TAGS_SHOWN || tagFilter.has(t))
   $("tags").replaceChildren(
-    ...tagCounts(notes).map(([t, c]) =>
+    ...shown.map(([t, c]) =>
       el("button", {
         type: "button",
         class: `chip tag ${tagFilter.has(t) ? "on" : ""}`,
@@ -232,8 +235,14 @@ function renderNoteFilters() {
         onclick: () => toggleTag(t),
       }),
     ),
+    ...(all.length > shown.length || allTags
+      ? [el("button", { type: "button", class: "chip tag more", textContent: allTags ? "fewer" : `+${all.length - shown.length}`, onclick: () => ((allTags = !allTags), renderList()) })]
+      : []),
   )
 }
+
+const TAGS_SHOWN = 8
+let allTags = false
 
 function toggleTag(t: string) {
   tagFilter.has(t) ? tagFilter.delete(t) : tagFilter.add(t)
