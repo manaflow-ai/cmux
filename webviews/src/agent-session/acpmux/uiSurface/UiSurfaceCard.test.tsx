@@ -277,11 +277,12 @@ test("the MCP App bridge forwards everything and posts host notifications only a
   );
 });
 
-test("a confirmed link opens only an https URL acpmux returned", async () => {
-  for (const [openUrl, opened] of [
-    ["https://example.com/book", true],
-    ["javascript:alert(1)", false],
-  ] as const) {
+// One render per test: each installs its own DOM, restored in afterEach.
+for (const [openUrl, opened] of [
+  ["https://example.com/book", true],
+  ["javascript:alert(1)", false],
+] as const) {
+  test(`a confirmed link opens only an https URL acpmux returned (${openUrl})`, async () => {
     const calls: Call[] = [];
     const container = await render(
       <UiSurfaceCard surface={approvalFull} client={recordingClient(calls, { sent: "link", openUrl })} />,
@@ -289,8 +290,8 @@ test("a confirmed link opens only an https URL acpmux returned", async () => {
     await click(button(container, "Approve"));
     await click(container.querySelector("[data-uis-confirm]")!);
     expect(calls.filter(([kind]) => kind === "open")).toEqual(opened ? [["open", { url: openUrl }]] : []);
-  }
-});
+  });
+}
 
 test("the bridge hands a view's Pending and draft to the card, never sending them itself", async () => {
   const pendings: unknown[] = [];

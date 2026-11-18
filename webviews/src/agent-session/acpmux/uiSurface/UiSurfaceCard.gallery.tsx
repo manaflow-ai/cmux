@@ -153,6 +153,8 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/uiSurface/UiSurfaceCard.tsx#UiSurfaceCard",
     "agent-session/acpmux/uiSurface/nodes.tsx",
+    // The tool row draws the same card per surface, behind Labs (agentUiSurfaces.ts).
+    "agent-session/acpmux/uiSurface/ToolUiSurfaces.tsx#ToolUiSurfaces",
   ],
   load: async () => Stage,
   styles: () =>

@@ -45,6 +45,8 @@ export type UiFieldNode = Base & {
   min?: number;
   max?: number;
   bind?: string;
+  /// A text field whose value is hidden as typed (Rust `secure`).
+  secure?: boolean;
 };
 export type UiApprovalNode = Base & {
   type: "approval";
@@ -65,6 +67,8 @@ export type UiReviewNode = Base & {
   submit?: UiSurfaceAction;
   /// The field values key the review's pick is sent under; the review's own id when absent.
   bind?: string;
+  /// The options picked already (Rust `selected`).
+  selected?: string[];
 };
 export type UiTableColumn = { key: string; label: string; align?: "left" | "center" | "right" };
 export type UiTableNode = Base & { type: "table"; columns: UiTableColumn[]; rows: string[][]; truncated?: boolean };

@@ -212,7 +212,7 @@
 .uis-checkbox:focus-visible,
 .uis-slider:focus-visible,
 .uis-select:focus-visible {
-  outline: 1.5px solid var(--agent-accent);
+  outline: var(--cmux-focus-ring-width) solid var(--agent-accent);
   outline-offset: 1px;
 }
 .uis-select {
@@ -261,7 +261,7 @@
 }
 .uis-chip:focus-visible,
 .uis-option:focus-visible {
-  outline: 1.5px solid var(--agent-accent);
+  outline: var(--cmux-focus-ring-width) solid var(--agent-accent);
   outline-offset: 1px;
 }
 .uis-chip[aria-disabled="true"],
@@ -401,7 +401,7 @@
   justify-content: center;
   inline-size: 16px;
   block-size: 16px;
-  margin-block-start: 2px;
+  margin-block-start: var(--grid-half-step);
   border-radius: 999px; /* radius-allow: a radio's circle */
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 30%, transparent);
   color: var(--agent-accent-text, #fff);
