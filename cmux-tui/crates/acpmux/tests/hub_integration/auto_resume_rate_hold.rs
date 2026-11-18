@@ -238,6 +238,106 @@ async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
     assert!(row.get("rateLimitedUntil").is_none(), "{row}");
 }
 
+/// A Claude chat (the fake agent as `family = "claude"`, so it can compact) whose transcript
+/// under its CLAUDE_CONFIG_DIR says its last call held `context` tokens, cut by a 429 that names
+/// a reset 2 s on, with a message from another agent queued while it holds. Its home is the
+/// returned temp dir; the reset is the hold's `until`.
+async fn held_claude_chat(context: u64) -> (Arc<Hub>, TestClient, String, u64, tempfile::TempDir) {
+    let home = tempfile::tempdir().unwrap();
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    {
+        let mut config = hub.config.write().await;
+        config.auto_resume_delays_ms = Some(vec![25]);
+        let fake = config.harnesses.get_mut("fake").unwrap();
+        fake.family = Some("claude".into());
+        fake.env.insert("CLAUDE_CONFIG_DIR".into(), home.path().display().to_string());
+    }
+    let id = new_session(&mut c, "coord").await;
+    // The transcript Claude Code would have written: one call, as fake_claude.py's reply with
+    // FAKE_CLAUDE_TRANSCRIPT_USAGE=1 (3 input, 1000 cache write, the rest cache read).
+    let sid = hub.resolve(&id).unwrap().meta().agent_session_id.unwrap();
+    let projects = home.path().join("projects/p");
+    std::fs::create_dir_all(&projects).unwrap();
+    let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let usage = json!({"input_tokens": 3, "cache_creation_input_tokens": 1000,
+        "cache_read_input_tokens": context - 1003, "output_tokens": 50});
+    let call = json!({"type": "assistant", "sessionId": sid, "timestamp": at, "message": {
+        "id": "msg_1", "model": "claude-opus-5-5", "role": "assistant", "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "ok"}], "usage": usage}});
+    std::fs::write(projects.join(format!("{sid}.jsonl")), format!("{call}\n")).unwrap();
+
+    let r = c.request(method::SESSION_PROMPT, json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": format!("recover-once: {LIMIT}; Retry-After: 2")}],
+        "_meta": {"acpmux": {"promptId": "p-cut"}}
+    })).await;
+    assert!(r.unwrap_err().contains("429"));
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let held = of_kind(&hub, &id, "rate_limit_held");
+    let reset =
+        held.last().unwrap_or_else(|| panic!("no hold: {k:?}")).msg["until"].as_u64().unwrap();
+    // The cut turn's end reads the transcript (off its path): the hub knows the context the
+    // reset would resend.
+    let mut stats = Value::Null;
+    for _ in 0..50 {
+        let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        stats = info["usageStats"].clone();
+        if stats["contextTokens"] == context {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(stats["contextTokens"], context, "{stats}");
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-held", "lane", "held report")).await;
+    // The message waits out the hold: no turn starts before the reset.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(acpmux::store::now_ms() < reset, "the test reached the reset before it looked");
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
+    (hub, c, id, reset, home)
+}
+
+/// Leo, 2026-11-18: "the gui coordinators keep saying stuff is rate limited and 429 and stuff
+/// :(". A coordinator carries 300K+ of context; resending it at the reset spends the new window
+/// at once. A held chat past 200K compacts first, then its one turn carries the continuation's
+/// words and what the hold queued.
+#[tokio::test]
+async fn a_held_chat_past_200k_compacts_before_it_resumes() {
+    let (hub, _c, id, reset, _home) = held_claude_chat(201_003).await;
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 3).await;
+    // Give a fourth turn the time to start if one were coming.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let started = of_kind(&hub, &id, "turn_started");
+    assert_eq!(started.len(), 3, "the compaction, then one turn: {k:?}");
+    assert!(started[1].at >= reset, "it compacted at the reset: {} < {reset}", started[1].at);
+    let messages = user_messages(&hub, &id);
+    assert_eq!(messages.len(), 3, "{messages:?}");
+    assert_eq!(messages[0]["promptId"], "p-cut", "{messages:?}");
+    assert_eq!(messages[1]["text"], "/compact", "{messages:?}");
+    assert_eq!(messages[1]["promptId"], "p-cut~compact-1", "{messages:?}");
+    assert_eq!(messages[1]["_meta"]["provenance"]["step"], "compact", "{messages:?}");
+    let last = messages[2].to_string();
+    assert!(last.contains("held report"), "the queued message missing from {last}");
+    assert!(last.contains("rate limit"), "the turn carries the continuation's words: {last}");
+    assert_eq!(of_kind(&hub, &id, "rate_limit_lifted").len(), 1, "{:?}", kinds(&hub, &id));
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row.get("rateLimitedUntil").is_none(), "{row}");
+}
+
+/// Under the line the reset sends the context as it is: no `/compact`, one turn.
+#[tokio::test]
+async fn a_held_chat_under_200k_resumes_without_a_compaction() {
+    let (hub, _c, id, reset, _home) = held_claude_chat(151_003).await;
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let started = of_kind(&hub, &id, "turn_started");
+    assert_eq!(started.len(), 2, "exactly one turn after the reset: {k:?}");
+    assert!(started[1].at >= reset, "it started at the reset: {} < {reset}", started[1].at);
+    let messages = user_messages(&hub, &id);
+    assert!(!messages.iter().any(|m| m["text"] == "/compact"), "{messages:?}");
+    let last = messages.last().unwrap().to_string();
+    assert!(last.contains("held report") && last.contains("rate limit"), "{last}");
+}
+
 /// A turn that ends well clears the strikes: the next 429 waits the first backoff again.
 #[tokio::test]
 async fn a_turn_that_ends_well_clears_the_strikes() {
