@@ -53,6 +53,8 @@ struct Script {
 struct Seen {
     places: Vec<Value>,
     news: Vec<Value>,
+    /// The session `second` made, which `_acpmux/info` answers with.
+    made: Option<Value>,
 }
 
 /// A daemon on `dir`'s socket with two peers, `first` (the pick, whose remote chain refuses
@@ -78,6 +80,8 @@ fn fixture(dir: &Path, script: Script) -> (tokio::task::JoinHandle<()>, Arc<Mute
                         match msg["method"].as_str().unwrap_or_default() {
                             "initialize" => Ok(json!({})),
                             "_acpmux/sessions" => Ok(json!({"sessions": [], "nextCursor": null})),
+                            // `--json new` prints the session as the daemon reads it back.
+                            "_acpmux/info" => Ok(seen.made.clone().unwrap_or_else(|| json!({}))),
                             "_acpmux/place" => {
                                 seen.places.push(params.clone());
                                 let skip = params["skip"].as_array().cloned().unwrap_or_default();
@@ -99,7 +103,7 @@ fn fixture(dir: &Path, script: Script) -> (tokio::task::JoinHandle<()>, Arc<Mute
                                         "data": {"reason": script.reason, "host": "first"}}))
                                 } else {
                                     let name = params["_meta"]["acpmux"]["name"].clone();
-                                    Ok(json!({
+                                    let made = json!({
                                         "sessionId": "00000001-0000-7000-8000-000000000000",
                                         "peer": peer,
                                         "name": name,
@@ -107,7 +111,9 @@ fn fixture(dir: &Path, script: Script) -> (tokio::task::JoinHandle<()>, Arc<Mute
                                         "cwd": params["cwd"],
                                         "turnCount": 0,
                                         "_meta": {"acpmux": {"name": name, "parent": null}},
-                                    }))
+                                    });
+                                    seen.made = Some(made.clone());
+                                    Ok(made)
                                 }
                             }
                             _ => Ok(json!({})),
