@@ -10,8 +10,9 @@
 # again and S. BASE `-` measures this checkout only. Every run's environment passes on to the bench (MODE, ROUNDS,
 # ROWS, PAGES, LATENCY ...). The order of the sides turns every repeat, so a runner warming or tiring over the run
 # lands on every side alike. Per side it prints the median over repeats of each run's older-page ask-to-drawn p50,
-# p95 and max, frame p95 and loading frames, with the median's 95% interval (a seeded bootstrap) and min..max; and the
-# p50/p95 of every older page of every repeat, pooled. Each run's log goes to OUT (default $FAST_CHECKS_OUT).
+# p95 and max, frame p95, blank frames and loading frames, with the median's 95% interval (a seeded bootstrap) and
+# min..max; and the p50/p95 of every older page of every repeat, pooled. Each run's log goes to OUT (default
+# $FAST_CHECKS_OUT).
 set -euo pipefail
 base="${1:?usage: transcript-scroll-up-ab.sh BASE [repeats] [SHA...]}"
 repeats="${2:-8}"
@@ -69,7 +70,7 @@ run() {
     tail -n 30 "$log" >&2
     exit 1
   fi
-  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' '
+  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|blankFrames|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' '
   echo
 }
 n=${#sides[@]}
@@ -101,7 +102,7 @@ def pct(values, p):
     return s[min(len(s) - 1, max(0, round(p / 100 * (len(s) - 1))))] if s else float("nan")
 runs = {s: [summary(f"{out}/{s}-{r}.log") for r in range(1, repeats + 1)] for s in sides}
 print(f"transcript-scroll-up-ab: {repeats} repeats; per side the median over repeats, its 95% interval, min..max")
-for key in ("askToDrawnP50", "askToDrawnP95", "askToDrawnMax", "frameP95", "loadingFrames", "undrawnAsks"):
+for key in ("askToDrawnP50", "askToDrawnP95", "askToDrawnMax", "frameP95", "blankFrames", "loadingFrames", "undrawnAsks"):
     print(f"{key}:")
     for s in sides:
         values = [run[key] for run in runs[s] if isinstance(run.get(key), (int, float))]
