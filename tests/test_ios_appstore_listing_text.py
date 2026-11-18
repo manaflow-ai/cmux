@@ -45,6 +45,8 @@ APP_SOURCE_DIRS = (
     APP / "NotificationService",
     # The conversation screen and composer come from this package.
     ROOT / "Packages/iOS/CmuxConversation/Sources",
+    # Settings > Plan and the plans screen (App Store subscriptions).
+    ROOT / "Packages/iOS/CmuxMobileBilling/Sources",
 )
 
 # Paths under APP_SOURCE_DIRS whose strings a release build never shows.
