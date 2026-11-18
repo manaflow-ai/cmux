@@ -22,13 +22,15 @@ extension NotificationCenterService {
     /// Settings, the App Store) covers the workspace, whose focus model still names the pane
     /// underneath. Every "viewed" and "typed into" rule reads this, never the raw focus model.
     static func shownFocus(_ c: WindowController) -> FocusState.Resolved? { c.shownTopPage == nil ? c.focus.state.resolved : nil }
+    /// The tab `c` shows in its focused pane: its content's, or a loading pane's shown tab (an agent chat whose page is not up yet, cmux#42210).
+    func viewedTab(_ c: WindowController) -> String? { guard let r = Self.shownFocus(c) else { return nil }; if case let .emptyPane(p) = r { return c.content?.paneModel(key: p).flatMap(shownTab(of:)) }; return Self.contentTab(r) }
 
     /// The content tab of the window whose focus owns `window` (a Chromium
     /// page window resolves to its cmux window).
     func focusedTab(in window: NSWindow?) -> String? {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window) else { return nil }
         let controller = services.windows.controllers.first { $0.window === window }
-        return controller.flatMap(Self.shownFocus).flatMap(Self.contentTab)
+        return controller.flatMap(viewedTab)
     }
 
     /// `window`'s focus is a terminal (not a page, address bar, or find bar).
@@ -42,7 +44,7 @@ extension NotificationCenterService {
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, services.appActiveSource() else { return false }
-        return services.windows.controllers.contains { ownsKey($0) && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
+        return services.windows.controllers.contains { ownsKey($0) && viewedTab($0) == tabID }
     }
     /// `c`'s window is key, or a window it owns is: a Chromium page (an agent chat) takes the key from it (cmux#42210).
     func ownsKey(_ c: WindowController) -> Bool { _ = viewedRevision; return c.focus.state.windowKey || services?.keyWindowSource().flatMap { services?.windows.owner(of: $0) } === c }
@@ -269,12 +271,20 @@ extension NotificationCenterService {
                             session: daemon?.identity?.session, id: tab.id)
     }
 
-    /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings
-    /// until a newer notification arrives or a tab is marked unread again.
-    /// The tabs stay unread (the tab dot, the row badge and the Dock badge
-    /// keep them).
+    /// Dismiss Highlight (cx-epgo): reads `workspace` as classic's dismiss did (cmux#42210): every
+    /// unread notification, manual mark and agent request goes, so the tab dot, the row dot and the
+    /// Dock badge clear with the ring, and each ring blinks out. The hide below keeps a ring hidden
+    /// where a daemon cannot take the read, until a newer notification or mark comes.
     func dismissHighlight(_ workspace: WorkspaceModel) {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        for tab in tabs where tab.showsUnread || agentFinished[tab.id] != nil {
+            if DesignSettings.shared.attention.flashesOnRead { entryReads.insert(tab.id) }
+            guard let daemon = owner(of: tab) ?? services?.daemon else { continue }
+            if tab.hasUnread, daemon.isLocal || daemon.supports(DaemonCapability.notificationAck.rawValue) { acknowledge(tab, owner: daemon) }
+            if tab.markedUnread { try? TabUnreadMark.set(false, tab: tab, daemon: daemon) }
+            if tab.attention != nil { try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon) }
+        }
+        if workspace.markedUnread, let services { WorkspaceUnreadMark.set(false, on: [workspace], machines: services.machines) }
         let newest = tabs.filter(\.hasUnread).map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
         let key = highlightKey(for: workspace)
         // A restarted daemon has new notification IDs; discard only that machine's old session.
