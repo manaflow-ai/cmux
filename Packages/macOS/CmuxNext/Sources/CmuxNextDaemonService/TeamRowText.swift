@@ -48,7 +48,8 @@ import CmuxNextCompat
         return auth.activeTeam.rows.map { AgentPaneCloudMachines.Team(id: $0.id, name: $0.title, personal: $0.kind == .personal) }
     }
 
-    /// The active team as the Machines section's Cloud header names it (`MachineSectionPageProvider` `cloudTeam`).
+    /// The active team for the Machines section's snapshot (`MachineSectionPageProvider` `cloudTeam`); its Cloud
+    /// header says only Cloud for now (cmux issue 45695).
     public static func machinesTeam(_ auth: CloudAuth) -> (name: String, personal: Bool)? {
         paneTeam(auth).map { ($0.name, $0.personal) }
     }

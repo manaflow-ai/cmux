@@ -3,10 +3,10 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// A Cloud chat's machine is sized for its folder: the size asked holds half again what the copy sends (and at least it
-/// and the 12 GiB the machine keeps), while every refusal keeps the floor (the folder and the 12 GiB), the same rules as
-/// cmux-tui's preflight (`needed_disk`, `floor_disk`, `planned_size`, `grown_disk_gib`). Only a folder past the largest
-/// disk is refused as too big, never copied in part and shown as complete.
+/// A Cloud chat's machine is sized for its folder: the size asked and every refusal keep the floor (the folder and the
+/// 12 GiB the machine keeps); with the plan known, the size's disk grows toward half again what the copy sends. The same
+/// rules as cmux-tui's preflight (`needed_disk`, `floor_disk`, `planned_size`, `grown_disk_gib`). A folder too big is
+/// refused, never copied in part and shown as complete.
 @Suite struct CloudChatSizeTests {
     let gib: Int64 = 1_073_741_824
 
@@ -24,75 +24,86 @@ import Testing
         #expect(CloudChatSize.neededDiskBytes(.max) == nil)
     }
 
-    /// With no plan known: the smallest size whose disk holds the needed disk, else the smallest the floor holds, else
-    /// `xl` grown. Every folder that went on before the half-again rule (up to 116 GiB on `xl`) still goes on; only a
-    /// folder past 256 GiB of floor is too big.
-    @Test func theNeededSizeNeverRefusesWhatTheFloorHolds() {
+    /// With no plan known, a start asks what it did before the half-again target: the smallest size whose own disk holds
+    /// the folder and the reserve, none past `xl`'s 116 GiB (cmux-tui `needed_size`, the same cases).
+    @Test func theNeededSizeIsTheSmallestWhoseDiskHoldsTheFloor() {
         #expect(CloudChatSize.needed(bytes: 0) == .sm)
         #expect(CloudChatSize.needed(bytes: 4 * gib) == .sm)
         #expect(CloudChatSize.needed(bytes: 4 * gib + 1) == .md)
         #expect(CloudChatSize.needed(bytes: 20 * gib) == .md)
         #expect(CloudChatSize.needed(bytes: 20 * gib + 1) == .lg)
-        #expect(CloudChatSize.needed(bytes: 42 * gib) == .lg)
-        // 52 GiB went on `lg` by the floor; it now asks `xl`, whose disk holds its 78 GiB.
-        #expect(CloudChatSize.needed(bytes: 52 * gib) == .xl)
-        #expect(CloudChatSize.needed(bytes: 85 * gib) == .xl)
+        #expect(CloudChatSize.needed(bytes: 48 * gib) == .lg)
+        #expect(CloudChatSize.needed(bytes: 52 * gib) == .lg)
+        #expect(CloudChatSize.needed(bytes: 52 * gib + 1) == .xl)
         #expect(CloudChatSize.needed(bytes: 100 * gib) == .xl)
         #expect(CloudChatSize.needed(bytes: 116 * gib) == .xl)
-        #expect(CloudChatSize.needed(bytes: 116 * gib + 1) == .xl)
-        #expect(CloudChatSize.needed(bytes: 244 * gib) == .xl)
-        #expect(CloudChatSize.needed(bytes: 244 * gib + 1) == nil)
+        #expect(CloudChatSize.needed(bytes: 116 * gib + 1) == nil)
         #expect(CloudChatSize.needed(bytes: .max) == nil)
         // The chat size goes as no size, so an older server is unaffected.
         #expect(CloudChatSize.sm.requested == nil && CloudChatSize.lg.requested == "lg")
     }
 
-    /// Under a plan known by its largest size: the needed disk's size within the plan; else the smallest within it the
-    /// floor holds; else its largest grown while the plan's disk holds the floor; else the size past the plan, which the
-    /// server refuses with its upgrade (cmux-tui `planned_size`, the same cases).
-    @Test func aPlanCapsTheSizeAskedAndNeverRefusesWhatTheFloorHolds() {
-        func planned(_ bytes: Int64, _ planMax: CloudChatSize?) -> CloudChatSize? { CloudChatSize.planned(bytes: bytes, planMax: planMax) }
-        #expect(CloudChatSize.largestDiskBytes(planMax: .lg) == 128 * gib && CloudChatSize.largestDiskBytes(planMax: .xxl) == 256 * gib)
-        #expect(CloudChatSize.largestDiskBytes(planMax: .md) == 32 * gib)
-        #expect(planned(10 * gib, .lg) == .md && planned(60 * gib, .xxl) == .xl)
-        // cmux NEXT Pro (`lg`): 45 GiB needs 68 GiB, past `lg`'s 64, whose disk holds its 57 GiB floor: `lg`.
-        #expect(planned(45 * gib, .lg) == .lg)
-        // A 72 GiB floor, past `lg`'s own disk but within Pro's 128: `lg` grown.
-        #expect(planned(60 * gib, .lg) == .lg && planned(116 * gib, .lg) == .lg)
-        // Past Pro's 128 by the floor: `2xl`, the size the plan refuses with its upgrade.
-        #expect(planned(117 * gib, .lg) == .xxl)
-        // cmux NEXT Max (`2xl`): 90 GiB needs 135, past every size's disk; `xl` holds its 102 GiB floor: `xl`, not `2xl`.
-        #expect(planned(90 * gib, .xxl) == .xl)
-        #expect(planned(117 * gib, .xxl) == .xxl && planned(244 * gib, .xxl) == .xxl)
-        #expect(planned(244 * gib + 1, .xxl) == nil && planned(244 * gib + 1, .lg) == nil)
-        // A plan whose largest is `md` grows nothing: past its floor, the size the plan refuses.
-        #expect(planned(20 * gib, .md) == .md && planned(30 * gib, .md) == .lg)
-        #expect(planned(100 * gib, nil) == .xl)
+    /// No plan known: the needed size, its own disk, exactly as before.
+    @Test func aStartWithNoPlanKnownAsksTheNeededSizeAndGrowsNothing() {
+        #expect(CloudChatSize.planned(bytes: 48 * gib, planMax: nil) == .lg)
+        #expect(CloudChatSize.grownDiskMb(.lg, bytes: 48 * gib, planMax: nil) == nil)
+        #expect(CloudChatSize.planned(bytes: 100 * gib, planMax: nil) == .xl)
+        #expect(CloudChatSize.grownDiskMb(.xl, bytes: 100 * gib, planMax: nil) == nil)
+        #expect(CloudChatSize.planned(bytes: 117 * gib, planMax: nil) == nil)
     }
 
-    /// A size whose own disk is below the folder's needed disk asks it grown, rounded up to 4 GiB and at most the plan's
-    /// largest disk (256 GiB when not known); the same disks as cmux-tui's `disk_gib`, in MiB.
-    @Test func aFolderPastItsSizesDiskAsksTheDiskGrownToFourGiB() {
+    /// Under a plan known by its largest size: the needed size when the plan gives it, its disk grown toward half again
+    /// the folder within the plan's disk; else the plan's largest size grown when the plan's disk holds the floor; else
+    /// the size past the plan, which the server refuses with its upgrade (cmux-tui `planned_size` and `grown_disk_gib`,
+    /// the same cases).
+    @Test func aPlanKnownAsksTheNeededSizeOrItsLargestGrown() {
+        struct Ask: Equatable {
+            var size: CloudChatSize?
+            var diskGib: Int?
+        }
+        func ask(_ bytes: Int64, _ planMax: CloudChatSize) -> Ask {
+            let size = CloudChatSize.planned(bytes: bytes, planMax: planMax)
+            return Ask(size: size, diskGib: CloudChatSize.grownDiskMb(size, bytes: bytes, planMax: planMax).map { $0 / 1_024 })
+        }
+        #expect(CloudChatSize.largestDiskBytes(planMax: .lg) == 128 * gib && CloudChatSize.largestDiskBytes(planMax: .xxl) == 256 * gib)
+        #expect(CloudChatSize.largestDiskBytes(planMax: .md) == 32 * gib)
+        // cmux NEXT Pro (`lg`, 128 GiB at most): 48 GiB is `lg` (60 GiB of floor), grown to 72.
+        #expect(ask(48 * gib, .lg) == Ask(size: .lg, diskGib: 72))
+        // 60 GiB needs `xl` by the floor, past the plan: `lg` grown to 92 (90 rounded up).
+        #expect(ask(60 * gib, .lg) == Ask(size: .lg, diskGib: 92))
+        // 100 GiB: a 112 GiB floor within Pro's 128; half again is 150, capped at 128.
+        #expect(ask(100 * gib, .lg) == Ask(size: .lg, diskGib: 128))
+        // 120 GiB: a 132 GiB floor past Pro's 128: the size past the plan, refused with its upgrade.
+        #expect(ask(120 * gib, .lg) == Ask(size: .xxl, diskGib: nil))
+        // cmux NEXT Max (`2xl`, 256 GiB at most): 90 GiB is `xl` (102 of floor), grown to 136.
+        #expect(ask(90 * gib, .xxl) == Ask(size: .xl, diskGib: 136))
+        // 200 GiB: a 212 GiB floor past every size's own disk: `2xl` grown to 256 (300 capped).
+        #expect(ask(200 * gib, .xxl) == Ask(size: .xxl, diskGib: 256))
+        #expect(ask(244 * gib + 1, .xxl) == Ask(size: nil, diskGib: nil) && CloudChatSize.planned(bytes: 244 * gib + 1, planMax: .lg) == nil)
+        // Within the plan, small: the needed size, its own disk enough.
+        #expect(ask(10 * gib, .lg) == Ask(size: .md, diskGib: nil))
+        // A plan whose largest is `md` grows nothing: past its floor, the size the plan refuses.
+        #expect(ask(20 * gib, .md) == Ask(size: .md, diskGib: nil) && ask(30 * gib, .md) == Ask(size: .lg, diskGib: nil))
+    }
+
+    /// A grown disk is rounded up to 4 GiB, at most the plan's largest; no plan, no size or unknown bytes grow nothing.
+    @Test func aGrownDiskRoundsUpToFourGiBWithinThePlan() {
         func grown(_ size: CloudChatSize?, _ bytes: Int64?, _ planMax: CloudChatSize?) -> Int? {
             CloudChatSize.grownDiskMb(size, bytes: bytes, planMax: planMax)
         }
-        #expect(grown(.lg, 50 * gib, nil) == 76 * 1_024)
         #expect(grown(.lg, 45 * gib, .lg) == 68 * 1_024)
-        #expect(grown(.lg, 100 * gib, .lg) == 128 * 1_024)
-        #expect(grown(.xl, 90 * gib, .xxl) == 136 * 1_024)
-        #expect(grown(.xl, 100 * gib, nil) == 152 * 1_024 && grown(.xl, 244 * gib, nil) == 256 * 1_024)
         #expect(grown(.xxl, 100 * gib, .xxl) == 152 * 1_024)
         #expect(grown(.lg, 50 * gib, .md) == nil && grown(.xxl, 120 * gib, .lg) == nil)
-        #expect(grown(.xl, 80 * gib, nil) == nil && grown(.lg, 40 * gib, nil) == nil)
-        #expect(grown(nil, 50 * gib, nil) == nil && grown(.lg, nil, nil) == nil)
+        #expect(grown(.xl, 80 * gib, .xxl) == nil && grown(.lg, 50 * gib, nil) == nil)
+        #expect(grown(nil, 50 * gib, .lg) == nil && grown(.lg, nil, .lg) == nil)
     }
 
     @Test func aRepositoryIsSizedFromItsListedSize() {
         #expect(CloudChatSize.forRepository(sizeKb: nil) == .sm)
         #expect(CloudChatSize.forRepository(sizeKb: 1_000) == .sm)
         #expect(CloudChatSize.forRepository(sizeKb: 10 * 1_048_576) == .md)
-        #expect(CloudChatSize.forRepository(sizeKb: 200 * 1_048_576) == .xl)
-        #expect(CloudChatSize.forRepository(sizeKb: 245 * 1_048_576) == nil)
+        #expect(CloudChatSize.forRepository(sizeKb: 100 * 1_048_576) == .xl)
+        #expect(CloudChatSize.forRepository(sizeKb: 117 * 1_048_576) == nil)
     }
 
     @Test func thePreflightAnswersTheSizeOrRefuses() throws {
