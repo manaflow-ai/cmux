@@ -12,6 +12,8 @@ import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
+import { currentCloudPlan } from "./cloudMachines";
+import type { CloudSize } from "./cloudPlans";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -40,6 +42,9 @@ export type CloudStart = {
   /** This tab's empty local chat, which the start replaces: the host accepts a start from a tab whose
    *  chat is this one, and closes the tab with it once the Cloud chat opens (AgentPaneHandOff). */
   replacesChat?: string;
+  /** The largest size the account's plan gives; none: the plan the page last read (`cloudMachine.list`), when active.
+   *  The host asks it, its disk grown, for a folder past it that the plan's disk holds (AgentPaneCloudStart `planMax`). */
+  planMax?: CloudSize;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -149,6 +154,42 @@ export function grantedCloudStart(
 ): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
   return oneCloudStart((method, params) =>
     grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
+  );
+}
+
+/// How long a Cloud start waits for the local start a pick on its page began (``pickedChatCloudCall``).
+/// Bounded well under the Send gesture's 30 s life: past it the start goes as it is.
+export const PICK_SESSION_WAIT_MS = 8000;
+
+/// A Cloud start from a new chat that holds an agent or model pick (GPT-6.1 Sol picked on a Claude
+/// page): that pick started a local session the page never showed, and the host counts it as a chat
+/// opened in this tab. The start waits for that session (`pickSession`, bounded) and names it as the
+/// chat it replaces, so the host lets the Cloud start go instead of refusing it as "A chat is already
+/// starting in this tab" (cmux#45946). A start that already names one, or a page with no pick, goes as is.
+export function pickedChatCloudCall(
+  call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  pickSession: (timeoutMs: number) => Promise<string | undefined>,
+): (method: string, params?: Record<string, unknown>) => Promise<unknown> {
+  return async (method, params = {}) => {
+    if (method !== "cloud.startChat" || typeof params.replacesChat === "string") return call(method, params);
+    const picked = await pickSession(PICK_SESSION_WAIT_MS);
+    return call(method, picked ? { ...params, replacesChat: picked } : params);
+  };
+}
+
+/// A new chat whose only start is the person's agent or model pick (a harness switch on a page with no
+/// chat yet): Cloud is still where it runs. The pick goes with the Cloud start (`heldPick`) and the
+/// local session it began is the one the start replaces (``pickedChatCloudCall``).
+export function pickOnlyNewChat(page: {
+  fresh: boolean;
+  sessionId?: string;
+  summarySessionId?: string;
+  switching: boolean;
+  selectionPending: boolean;
+  quick: boolean;
+}): boolean {
+  return (
+    page.fresh && !page.sessionId && !page.summarySessionId && page.switching && !page.selectionPending && !page.quick
   );
 }
 
@@ -292,6 +333,9 @@ export async function startCloudChat(
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
   if (start.replacesChat) params.replacesChat = start.replacesChat;
+  const plan = currentCloudPlan();
+  const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
+  if (planMax) params.planMax = planMax;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

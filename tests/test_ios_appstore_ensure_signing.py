@@ -195,7 +195,7 @@ class EnsureSigningTests(unittest.TestCase):
         self.assertEqual(self.run_ensure(), 0)
         identifiers = sorted(b["identifier"] for b in self.fake.bundles.values())
         self.assertEqual(identifiers, ["com.cmux.app", "com.cmux.app.notification-content", "com.cmux.app.notification-service"])
-        self.assertEqual(self.fake.capabilities[app], {"PUSH_NOTIFICATIONS", "APPLE_ID_AUTH"})
+        self.assertEqual(self.fake.capabilities[app], {"PUSH_NOTIFICATIONS", "USERNOTIFICATIONS_TIMESENSITIVE", "APPLE_ID_AUTH"})
         names = sorted(p["name"] for p in self.fake.profiles.values())
         self.assertEqual(names, ["cmux App Store CI", "cmux App Store CI Notification Content", "cmux App Store CI Notification Service"])
         for profile in self.fake.profiles.values():
@@ -212,7 +212,7 @@ class EnsureSigningTests(unittest.TestCase):
         self.assertEqual(self.written("app"), first)
 
     def test_stale_or_foreign_profiles_of_its_names_are_replaced_and_others_kept(self) -> None:
-        app = self.fake.add_bundle("com.cmux.app", {"PUSH_NOTIFICATIONS", "APPLE_ID_AUTH"})
+        app = self.fake.add_bundle("com.cmux.app", {"PUSH_NOTIFICATIONS", "USERNOTIFICATIONS_TIMESENSITIVE", "APPLE_ID_AUTH"})
         invalid = self.fake.add_profile(app, "cmux App Store CI", state="INVALID")
         content = self.fake.add_bundle("com.cmux.app.notification-content")
         foreign = self.fake.add_profile(content, "cmux App Store CI Notification Content", certs=("cert-other",))

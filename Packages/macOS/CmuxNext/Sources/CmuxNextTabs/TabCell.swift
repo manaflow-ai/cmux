@@ -167,6 +167,8 @@ final class TabCell {
     var closeGlyphLayer: CAShapeLayer?
     /// The machine badge, created while the item names a remote machine.
     var machineLayer: ChromeTextLayer?
+    /// The machine badge as a glyph (`TabItem.machineBadgeIcon`), in place of `machineLayer`.
+    var machineIconLayer: CALayer?
     var themeBadgeLayer: CALayer?
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
@@ -250,7 +252,7 @@ final class TabCell {
             updateSpinner()
         }
         if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
-        if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
+        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
@@ -367,6 +369,7 @@ final class TabCell {
             hibernationRingLayer?.strokeColor = Self.hibernationRingColor.cgColor
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = item.machineBadgeColor.cgColor
+            applyMachineIcon()
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
@@ -592,9 +595,7 @@ final class TabCell {
             // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
-                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
-                         width: m.closeButtonSize, height: m.closeButtonSize)
-                : nil
+                ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
             let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
                                                  animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
@@ -629,7 +630,7 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
             if onPath {
                 pathTitle = nil
             } else {
