@@ -1,6 +1,66 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.newWorkspace.atMachineCap": {
+      "comment": "The reason in the New Workspace toast when the person's cap on running Cloud machines (Settings > Machines) is reached.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your running Cloud machines are at the cap you set in Settings > Machines."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine laufenden Cloud-Maschinen haben das Limit erreicht, das du unter Einstellungen > Maschinen festgelegt hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos machines Cloud actives ont atteint la limite définie dans Réglages > Machines."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغت أجهزة Cloud العاملة لديك الحد الذي عيّنته في الإعدادات > الأجهزة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus máquinas de Cloud en ejecución alcanzaron el límite que fijaste en Ajustes > Máquinas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 Cloud 機器已達你在「設定 > 機器」中設定的上限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的 Cloud 机器已达到你在“设置 > 机器”中设置的上限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 Cloud 머신이 설정 > 머신에서 정한 한도에 도달했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の Cloud マシンが「設定 > マシン」で設定した上限に達しています。"
+          }
+        }
+      }
+    },
     "cloud.error.keychainTimedOut": {
       "comment": "A Cloud call waited on one of cmux's own Keychain items past its deadline; %1$@ is the item's name (service), %2$@ its account, %3$lld the seconds waited.",
       "extractionState": "manual",

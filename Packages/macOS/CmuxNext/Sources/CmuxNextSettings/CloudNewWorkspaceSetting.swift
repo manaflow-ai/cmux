@@ -23,6 +23,18 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// `cloud.workspacePins`: each pinned folder and where its new workspaces run (`thisMac`, `cloud`,
+    /// `machine:<id>`); entries that are not text are left out. Rust reads the values (`moves::placement`).
+    public func pins(in root: JSONValue) -> [String: String] {
+        (root.value(at: Self.pinsPath)?.objectValue ?? [:]).compactMapValues(\.stringValue)
+    }
+
+    /// `cloud.autoMachineCap`: the most Cloud machines running before a new workspace opens here
+    /// instead; 0 (the default, or a missing or negative value) leaves only the plan's limit.
+    public func machineCap(in root: JSONValue) -> Int {
+        max(0, root.value(at: Self.machineCapPath)?.intValue ?? Int(Self.machineCapDefault))
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault

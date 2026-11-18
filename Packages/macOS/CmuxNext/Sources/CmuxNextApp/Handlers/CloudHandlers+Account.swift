@@ -326,16 +326,15 @@ extension CloudHandlers {
     /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
     static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
+        let names = invocation["machine"] != nil || invocation["command"] != nil, running = services.machines.cloud.filter { $0.effectiveStatus == .running }.count
+        // Pins, the toggle, Cloud's own refusals and the cap (Rust's `moves::placement`), from what the app knows now: no read on Cmd-N's turn.
+        let placement = CloudNewWorkspacePlacement.decide(.init(newWorkspacesInCloud: setting.inCloud(in: root), workspacePins: setting.pins(in: root), autoMachineCap: setting.machineCap(in: root)),
+            .init(byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names, cwd: cwd, runningMachines: running, unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil))
+        if let here = placement.outcome(signInFirst: CloudStrings.signInFirst, noWindow: CloudStrings.newWorkspaceNoWindow, atMachineCap: CloudStrings.newWorkspaceAtMachineCap,
+                                        openedHere: CloudStrings.newWorkspaceOpenedHere) { return here }
         // The app server's create copies no folder: the workspace opens in the machine's empty folder.
-        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: false, cwd: cwd,
-                                               byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
+        guard let plan = CloudNewWorkspacePlan(inCloud: true, inheritsFolder: false, cwd: cwd, byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names)
         else { return .thisMac(notice: nil) }
-        switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {
-        case .cloud: break
-        case .thisMac(.unavailable(let reason)): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(reason))
-        case .thisMac(.signedOut): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.signInFirst))
-        case .thisMac(.noWindow): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.newWorkspaceNoWindow))
-        }
         // A second press while this window's machine is still on its way shows that one again: one paid machine per wait.
         if let window, let pending = pendingNewWorkspaceCreation(in: cloud.creations, window: window.id) {
             window.page = nil

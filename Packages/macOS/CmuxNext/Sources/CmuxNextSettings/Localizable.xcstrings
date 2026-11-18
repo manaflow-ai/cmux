@@ -1,6 +1,246 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.cloud.workspacePins": {
+      "comment": "Settings > Machines: title of the map of folders to where their new workspaces run.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where Folders Run"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo Ordner laufen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où s’exécutent les dossiers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أين تعمل المجلدات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se ejecutan las carpetas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾的執行位置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹的运行位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 실행 위치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの実行場所"
+          }
+        }
+      }
+    },
+    "settings.cloud.workspacePins.help": {
+      "comment": "Settings > Machines: help for Where Folders Run. \"thisMac\", \"cloud\" and \"machine:<id>\" are literal values the person types; keep them untranslated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A folder and where its new workspaces run: \"thisMac\", \"cloud\" or \"machine:<id>\". Overrides Run New Workspaces in Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Ordner und wo seine neuen Arbeitsbereiche laufen: \"thisMac\", \"cloud\" oder \"machine:<id>\". Hat Vorrang vor „Neue Arbeitsbereiche in Cloud ausführen“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dossier et l’endroit où s’exécutent ses nouveaux espaces de travail : \"thisMac\", \"cloud\" ou \"machine:<id>\". Prime sur « Exécuter les nouveaux espaces de travail dans Cloud »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد والمكان الذي تعمل فيه مساحات العمل الجديدة الخاصة به: \"thisMac\" أو \"cloud\" أو \"machine:<id>\". يتقدّم على تشغيل مساحات العمل الجديدة في Cloud."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una carpeta y dónde se ejecutan sus nuevos espacios de trabajo: \"thisMac\", \"cloud\" o \"machine:<id>\". Tiene prioridad sobre Ejecutar nuevos espacios de trabajo en Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾及其新工作區的執行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。優先於「在 Cloud 中執行新工作區」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹及其新工作区的运行位置：\"thisMac\"、\"cloud\" 或 \"machine:<id>\"。优先于“在 Cloud 中运行新工作区”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더와 그 폴더의 새 작업 공간이 실행될 위치: \"thisMac\", \"cloud\" 또는 \"machine:<id>\". Cloud에서 새 작업 공간 실행보다 우선합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダと、その新しいワークスペースを実行する場所：\"thisMac\"、\"cloud\"、または \"machine:<id>\"。「新しいワークスペースを Cloud で実行」より優先されます。"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoMachineCap": {
+      "comment": "Settings > Machines: title of the cap on running Cloud machines before new workspaces stay on this Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most Cloud Machines Running"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höchstens laufende Cloud-Maschinen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines Cloud actives au maximum"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحد الأقصى لأجهزة Cloud العاملة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máximo de máquinas de Cloud en ejecución"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 Cloud 機器上限"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的 Cloud 机器上限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 Cloud 머신 최대 수"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の Cloud マシンの上限"
+          }
+        }
+      }
+    },
+    "settings.cloud.autoMachineCap.help": {
+      "comment": "Settings > Machines: help for Most Cloud Machines Running.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At this many running, new workspaces open on this Mac instead. 0 uses your plan's limit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufen so viele, öffnen neue Arbeitsbereiche stattdessen auf diesem Mac. 0 nutzt das Limit deines Tarifs."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À partir de ce nombre de machines actives, les nouveaux espaces de travail s’ouvrent sur ce Mac. 0 utilise la limite de votre forfait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تشغيل هذا العدد، تُفتح مساحات العمل الجديدة على جهاز Mac هذا بدلاً من ذلك. القيمة 0 تستخدم حد خطتك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con estas en ejecución, los nuevos espacios de trabajo se abren en este Mac. 0 usa el límite de tu plan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的機器達到此數量時，新工作區改在這台 Mac 上開啟。0 表示使用方案的上限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中的机器达到此数量时，新工作区改在这台 Mac 上打开。0 表示使用套餐的上限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이만큼 실행 중이면 새 작업 공간이 대신 이 Mac에서 열립니다. 0이면 요금제 한도를 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この数が実行中になると、新しいワークスペースは代わりにこの Mac で開きます。0 はプランの上限を使います。"
+          }
+        }
+      }
+    },
     "settings.choice.fontSmoothingAuto": {
       "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
       "extractionState": "manual",

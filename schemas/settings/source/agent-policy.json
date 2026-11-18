@@ -915,7 +915,9 @@
       "why": "The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.",
       "keys": [
         "cloud.newWorkspacesInCloud",
-        "cloud.newWorkspaceFolder"
+        "cloud.newWorkspaceFolder",
+        "cloud.workspacePins",
+        "cloud.autoMachineCap"
       ]
     },
     {

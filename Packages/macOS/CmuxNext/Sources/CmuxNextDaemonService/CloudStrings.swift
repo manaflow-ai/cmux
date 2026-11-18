@@ -22,6 +22,8 @@ public enum CloudStrings {
     public static func newWorkspaceOpenedHere(_ reason: String) -> String {
         String(format: String(localized: "cloud.newWorkspace.openedHere", defaultValue: "This workspace opened on this Mac, not in Cloud. %@", table: "Cloud", bundle: .module), reason)
     }
+    /// Why: as many Cloud machines run as the person's cap for new workspaces allows (`cloud.autoMachineCap`).
+    public static var newWorkspaceAtMachineCap: String { String(localized: "cloud.newWorkspace.atMachineCap", defaultValue: "Your running Cloud machines are at the cap you set in Settings > Machines.", table: "Cloud", bundle: .module) }
     /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).
     public static var newWorkspaceNoWindow: String { String(localized: "cloud.newWorkspace.noWindow", defaultValue: "New workspaces start in Cloud from an open window, where the new machine's progress shows.", table: "Cloud", bundle: .module) }
     /// Under a signed-out Cloud action in the command palette and context menus: running it signs in first, then the action runs.

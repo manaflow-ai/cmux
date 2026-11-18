@@ -81,6 +81,18 @@ struct CloudNewWorkspaceEntryTests {
         #expect(services.cloud.creations.all.isEmpty)
     }
 
+    /// A pinned folder (`cloud.workspacePins`) decides over the toggle and never asks Cloud: pinned to this Mac it
+    /// opens here with no notice, pinned to a machine it opens there; a folder no pin covers still follows the toggle.
+    @Test func aPinnedFolderOpensWhereItIsPinnedWhateverTheToggleSays() async throws {
+        let services = try await Self.services(settings: #"{"cloud":{"newWorkspacesInCloud":true,"workspacePins":{"/w/app":"thisMac","/w/big":"machine:m_9"}}}"#)
+        let route = { (cwd: String) in CloudHandlers.startNewWorkspaceInCloud(ActionInvocation(origin: .user), cwd: cwd, window: nil, services) }
+        #expect(route("/w/app/src") == .thisMac(notice: nil))
+        #expect(route("/w/big") == .machine("m_9"))
+        guard case .thisMac(let notice) = route("/w/other") else { Issue.record("an unpinned folder started a creation"); return }
+        #expect(notice?.isEmpty == false, "the toggle still applies, and no window means it opened here and says why")
+        #expect(services.cloud.creations.all.isEmpty)
+    }
+
     @Test(arguments: ["socket", "app", "agent", "terminal"])
     func attributedUserOriginsKeepTheirRequestedWorkspaceRoute(caller: String) async throws {
         let services = try await Self.services(settings: #"{"cloud":{"newWorkspacesInCloud":true}}"#)

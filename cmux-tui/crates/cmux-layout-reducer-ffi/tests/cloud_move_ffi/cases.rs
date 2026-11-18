@@ -196,6 +196,27 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
         ok(c"cloud_move_new_workspace_machine", json!({"byPerson": false})),
         json!({"kind": "new"})
     );
+    let cloud = json!({"newWorkspacesInCloud": true, "autoMachineCap": 2,
+        "workspacePins": {"/w/app": "thisMac", "/w/big": "machine:m_9"}});
+    let place = |cwd: &str, running: u32| {
+        ok(
+            c"cloud_move_new_workspace_placement",
+            json!({"cloud": cloud, "byPerson": true, "cwd": cwd, "runningMachines": running,
+                "signedIn": true, "hasWindow": true}),
+        )
+    };
+    assert_eq!(place("/w/other", 0)["target"], json!({"kind": "newCloudMachine"}));
+    assert_eq!(place("/w/app/src", 0)["target"], json!({"kind": "thisMac"}));
+    assert_eq!(place("/w/big", 9)["target"], json!({"kind": "machine", "id": "m_9"}));
+    assert_eq!(
+        place("/w/other", 2)["refusal"],
+        json!({"kind": "machineCap", "running": 2, "cap": 2})
+    );
+    assert_eq!(
+        ok(c"cloud_move_new_workspace_placement", json!({"byPerson": true}))["target"],
+        json!({"kind": "thisMac"}),
+        "no cloud options: the toggle's default, this Mac"
+    );
     assert_eq!(
         ok(
             c"cloud_move_copy_step",
