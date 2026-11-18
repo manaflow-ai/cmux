@@ -3488,7 +3488,11 @@ function TranscriptView({
     // Only a send still waiting for its prompt row has anything to match. With none waiting, this
     // window was built and walked on every commit of a streaming chat for a result it could not use.
     if (pending > 0) {
-      const previous = sendRowsSnapshot;
+      // The pass that observes the send is the pass that stores the snapshot above, so the state
+      // read here is still the released one (`NO_ROWS`): every index would miss and the first
+      // ordinary user row in the window would eat the send's slot. The send's own "before" is this
+      // pass's rows, which is exactly what was just stored, so read those.
+      const previous = sends !== sendsAt ? rows : sendRowsSnapshot;
       const first = Math.max(0, previous.length - ARRIVAL_TAIL);
       const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
       const indexes = new Set<number>();
