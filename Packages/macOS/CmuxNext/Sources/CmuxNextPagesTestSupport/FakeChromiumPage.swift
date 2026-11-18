@@ -127,21 +127,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var hasKeys = false
     /// Does nothing.
     public func setVisible(_ visible: Bool) { visibility.append(visible) }
-    /// The renderer the page reports (``PageChromiumPage/rendererClientID``).
-    public var rendererClientID: Int32?
-    /// That renderer's pid (``PageChromiumPage/rendererProcessID``).
-    public var rendererProcessID: Int32?
-    /// Whether a debugger holds the page (``PageChromiumPage/isBeingDebugged``).
-    public var isBeingDebugged = false
-    /// How often the host ended the renderer.
-    public private(set) var rendererEnds = 0
-    /// What ``endRenderer()`` answers (the pid ended; nil: nothing ended).
-    public var endedRendererPID: Int32? = 1
-    /// Counts the end in ``rendererEnds``.
-    public func endRenderer() -> Int32? {
-        rendererEnds += 1
-        return endedRendererPID
-    }
+    /// The renderer process the page reports (``PageChromiumPage/rendererProcess``); nil: none.
+    public var rendererProcess: (any PageRendererProcess)?
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

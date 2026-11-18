@@ -27,7 +27,7 @@ import os
 ///   its pages answers it, and once they all rest the model asks for a `ping` (one `Runtime.evaluate`
 ///   of `0`, which needs that main thread) every 15 s. Two unanswered over 30 s, visible and awake,
 ///   end that renderer (``endRenderer(_:pages:)``); every page in it reloads and says so. Hidden
-///   renderers have no deadline, and a sleep, a wake or a debugger voids the pings out.
+///   renderers have no deadline, and a sleep since the first ping or a debugger voids the pings out.
 @MainActor
 final class AppHealthPageFeed: PageHealthFeed {
     private let health: AppHealth
@@ -48,10 +48,9 @@ final class AppHealthPageFeed: PageHealthFeed {
     private var livenessOf: [ObjectIdentifier: String] = [:]
     /// The visibility each liveness part was last reported with.
     private var livenessShown: [String: Bool] = [:]
-    /// The renderer's usage when its first unanswered ping went out (the log's CPU share over the hang).
-    private var usageAtFirstPing: [String: ProcessUsage] = [:]
-    /// The sleep and wake observers (the feed lives as long as the app).
-    private var powerObservers: [NSObjectProtocol] = []
+    /// Each liveness part's first unanswered ping: the renderer's usage then (the log's CPU share
+    /// over the hang) and the Mac's slept time then (a sleep since voids the pings).
+    private var firstPing: [String: FirstPing] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.health")
     /// How long one ping waits for its answer: past the model's second ping, so a slow answer still
     /// counts, and bounded, so a hung renderer's call ends.
@@ -62,13 +61,6 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.setRepair(.page) { action in await Self.repair(action) }
         health.setRepair(.renderer) { action in await Self.repair(action) }
         health.setRepair(.liveness) { [weak self] action in await self?.liveness(action) ?? false }
-        // A ping sent before the Mac slept says nothing about the renderer after it wakes.
-        let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification] {
-            powerObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.voidLiveness() }
-            })
-        }
         let hang: AppHealth.Injector = { id, fault in await Self.inject(id, fault: fault) }
         health.setInjector(.page, hang)
         health.setInjector(.renderer, hang)
@@ -88,7 +80,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.beat(id, rest: resting)
         // Any beat, a rest beat too, says its renderer's main thread ran.
         if let part = joinLiveness(page) {
-            usageAtFirstPing[part] = nil
+            firstPing[part] = nil
             health.beat(part)
         }
         // A beat answers the input sent since the last one: the page's thread ran after it. Its count cannot
@@ -201,7 +193,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         guard livenessPages[part]?.isEmpty != false else { return refreshLiveness(part) }
         livenessPages[part] = nil
         livenessShown[part] = nil
-        usageAtFirstPing[part] = nil
+        firstPing[part] = nil
         health.unregister(part)
     }
 
@@ -216,16 +208,28 @@ final class AppHealthPageFeed: PageHealthFeed {
         let visible = pages(in: part).contains { timedVisible($0) }
         guard livenessShown[part] != visible else { return }
         livenessShown[part] = visible
-        usageAtFirstPing[part] = nil
+        firstPing[part] = nil
         health.visibility(part, visible: visible)
     }
 
-    /// The Mac sleeps or woke: every ping out is void.
-    private func voidLiveness() {
-        for part in livenessPages.keys {
-            usageAtFirstPing[part] = nil
-            health.event(part, .void)
-        }
+    /// Nanoseconds the Mac has slept since boot: the continuous clock counts sleep, uptime does
+    /// not. A ping sent before a sleep says nothing about the renderer after the wake, so a growth
+    /// since the first ping voids the pings, with no sleep observer to keep.
+    static func sleptNanos() -> UInt64 {
+        clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) &- clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+    }
+
+    /// The pings out for `part` are void (a sleep, a debugger): the model starts its count again.
+    private func voidPings(_ part: String) -> Bool {
+        firstPing[part] = nil
+        health.event(part, .void)
+        return true
+    }
+
+    /// Whether the Mac slept since `part`'s first unanswered ping (more than a second).
+    private func sleptSinceFirstPing(_ part: String) -> Bool {
+        guard let first = firstPing[part] else { return false }
+        return Self.sleptNanos() &- first.slept > 1_000_000_000
     }
 
     /// The model's `ping` and `endRenderer` for one renderer of agent chats.
@@ -234,19 +238,18 @@ final class AppHealthPageFeed: PageHealthFeed {
         let pid = members.first?.rendererProcessID
         // A debugger stops a main thread on purpose (DevTools on one of its pages, a debugger on the
         // app or on the renderer): that time never counts.
-        if members.contains(where: \.isBeingDebugged) || ProcessUsage.isTraced(getpid()) || pid.map(ProcessUsage.isTraced) == true {
-            usageAtFirstPing[action.id] = nil
-            health.event(action.id, .void)
-            return true
+        if members.contains(where: \.isBeingDebugged) || ProcessUsage.isTraced(getpid()) || pid.map(ProcessUsage.isTraced) == true
+            || sleptSinceFirstPing(action.id) {
+            return voidPings(action.id)
         }
         switch action.action {
         case .ping:
             guard let page = members.first(where: { timedVisible($0) }) else { return false }
-            if usageAtFirstPing[action.id] == nil, let pid {
-                usageAtFirstPing[action.id] = ProcessUsage.sample(pid)
+            if firstPing[action.id] == nil {
+                firstPing[action.id] = FirstPing(usage: pid.flatMap(ProcessUsage.sample), slept: Self.sleptNanos())
             }
             guard await page.pingMainThread(timeout: Self.pingTimeout), livenessOf[ObjectIdentifier(page)] == action.id else { return true }
-            usageAtFirstPing[action.id] = nil
+            firstPing[action.id] = nil
             health.beat(action.id)
             return true
         case .endRenderer:
@@ -264,7 +267,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         let pid = target.rendererProcessID
         let usage = pid.flatMap(ProcessUsage.sample)
         let hung = Double(action.hungMs ?? 0) / 1000
-        let cpu = usage.flatMap { now in usageAtFirstPing[action.id].map { String(format: "%.0f%%", now.cpuShare(since: $0) * 100) } } ?? "unknown"
+        let cpu = usage.flatMap { now in firstPing[action.id]?.usage.map { String(format: "%.0f%%", now.cpuShare(since: $0) * 100) } } ?? "unknown"
         let footprint = usage.map { ByteCountFormatter.string(fromByteCount: Int64(clamping: $0.physFootprint), countStyle: .memory) } ?? "unknown"
         let cpuTotal = usage.map { String(format: "%.0f s", Double($0.cpuNanos) / 1e9) } ?? "unknown"
         let now = ProcessInfo.processInfo.systemUptime
@@ -289,7 +292,7 @@ final class AppHealthPageFeed: PageHealthFeed {
             logger.error("agent chat renderer \(action.id, privacy: .public) could not be ended (no single renderer process)")
             return false
         }
-        usageAtFirstPing[action.id] = nil
+        firstPing[action.id] = nil
         return true
     }
 
@@ -341,4 +344,10 @@ final class AppHealthPageFeed: PageHealthFeed {
         guard fault == "hang", let page = page(forPart: id) else { return false }
         return await page.injectHealthHang()
     }
+}
+
+/// A liveness part's first unanswered ping (``AppHealthPageFeed``).
+private struct FirstPing {
+    var usage: ProcessUsage?
+    var slept: UInt64
 }

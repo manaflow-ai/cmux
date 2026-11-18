@@ -10,13 +10,13 @@ extension PageWebView {
     public var isTimedForLiveness: Bool { descriptor.isAgentPage && chromiumPage != nil && !isClosed }
 
     /// The one renderer hosting the page (Chromium's client id); nil when unknown.
-    public var rendererClientID: Int32? { chromiumPage?.rendererClientID }
+    public var rendererClientID: Int32? { chromiumPage?.rendererProcess?.rendererClientID }
 
     /// That renderer's pid; nil when unknown.
-    public var rendererProcessID: Int32? { chromiumPage?.rendererProcessID }
+    public var rendererProcessID: Int32? { chromiumPage?.rendererProcess?.rendererProcessID }
 
     /// Whether the page's DevTools are open (a breakpoint may hold its main thread on purpose).
-    public var isBeingDebugged: Bool { chromiumPage?.isBeingDebugged ?? false }
+    public var isBeingDebugged: Bool { chromiumPage?.rendererProcess?.isBeingDebugged ?? false }
 
     /// The page-to-host messages its bridge took (the page's last message is the latest of them),
     /// with the last one's name and uptime; zero before any.
@@ -56,6 +56,6 @@ extension PageWebView {
     /// ends too. Returns the pid ended (0: ended, pid unknown), nil when nothing was ended.
     public func endHungRenderer() -> Int32? {
         guard !isClosed else { return nil }
-        return chromiumPage?.endRenderer()
+        return chromiumPage?.rendererProcess?.endRenderer()
     }
 }
