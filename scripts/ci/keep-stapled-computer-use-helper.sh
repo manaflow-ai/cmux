@@ -15,6 +15,14 @@ if [[ "${1:-}" == --finish ]]; then
   shift 2
 fi
 helper="$1/Contents/Library/cmux Computer Use.app"
+# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+# it, was notarized and stapled in the same submission and is kept the same way.
+for share in "$1/Contents/Library/"*" Screen Sharing.app"; do
+  if [[ -d "$share" ]] && ! xcrun stapler validate "$share"; then
+    echo "Screen Sharing helper has no valid stapled ticket; the DMG ticket must cover it" >&2
+    exit 75
+  fi
+done
 if xcrun stapler validate "$helper"; then
   echo "Computer Use helper keeps its own stapled ticket"
   exit 0
