@@ -28,6 +28,8 @@ public final class CloudAuth {
     /// absent. Existing token readers are joined before deletion.
     @ObservationIgnored private var captureCleanupActive = false
     @ObservationIgnored private var activeTokenReads = 0
+    /// The GitHub installs this sign-in finished this launch (``CloudGitHubCompletion/handle(_:auth:)``, #46018).
+    @ObservationIgnored public let gitHubChanges = CloudGitHubChanges()
     @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }

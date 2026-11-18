@@ -967,6 +967,138 @@ class GlaedaKeptLog(unittest.TestCase):
                                                       "affected_tests_replay.py"})
 
 
+FAKE_GLAEDA_CACHE = """#!/usr/bin/env python3
+import json, os, sys, time
+args = sys.argv[1:]
+with open(os.environ["FAKE_GLAEDA_CALLS"], "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+held = json.loads(open(os.environ["FAKE_GLAEDA_HELD"]).read())
+if args == ["read"]:
+    keys = [item["key"] for item in json.load(sys.stdin)["keys"]]
+    at = time.time() - held.get("age", 0)
+    print(json.dumps({"entries": {key: {"data": held["runs"][key], "fetchedAt": at, "dataAt": at, "error": None}
+                                  if key in held["runs"] else None for key in keys}}))
+    sys.exit(0)
+if args[:2] == ["log", "job"] and args[3] in held["logs"]:
+    sys.stdout.write(held["logs"][args[3]])
+    sys.exit(0)
+sys.stderr.write("glaeda-gh: not kept\\n")
+sys.exit(7)
+"""
+
+
+class SettledEvidenceGitHub(excuse.GitHub):
+    """The real client (its settled reads included) over FakeGitHub's data; every `gh` call it makes is a live REST
+    read, counted in LIVE. Each run is a full REST record: completed, attempt 1, with its workflow."""
+
+    UPDATED = "2026-11-17T08:21:03Z"
+
+    def __init__(self):
+        self.data = FakeGitHub()
+        for run in self.data.base_runs:
+            run.update(workflow_id=7, run_attempt=1, updated_at=self.UPDATED, path=".github/workflows/next.yml")
+        self.records = {10: {"id": 10, "workflow_id": 7, "path": ".github/workflows/next.yml", "event": "pull_request",
+                             "head_sha": HEAD, "status": "completed", "conclusion": "failure", "run_attempt": 1,
+                             "updated_at": self.UPDATED}}
+        self.live: list[str] = []
+
+    def run(self, args):
+        assert args[0] == "api", args
+        route = args[1]
+        self.live.append(route)
+        path, _, query = route.partition("?")
+        params = dict(part.split("=", 1) for part in query.split("&") if part)
+        if path.endswith("/jobs"):
+            if params.get("page", "1") != "1":
+                return json.dumps({"total_count": 0, "jobs": []})
+            jobs = self.data.json(f"{path}?filter={params['filter']}&per_page=100", paginate=True)[0]["jobs"]
+            return json.dumps({"total_count": len(jobs), "jobs": jobs})
+        if re.fullmatch(rf"repos/{REPO}/actions/runs/\d+", route) and int(path.rsplit("/", 1)[1]) in self.records:
+            return json.dumps(self.records[int(path.rsplit("/", 1)[1])])
+        return json.dumps(self.data.json(route))
+
+
+class SettledEvidence(unittest.TestCase):
+    """A base red judged again (a merge check retried after a quota refusal) reads what this host already holds: a
+    finished run's record and job lists, and a finished job, are read live once, then served from the settled store
+    while the run is the same completed attempt GitHub serves now (this judgement's live reads, or glaeda-gh's fresh
+    copy); logs come from glaeda-gh. cmux#45097 at 6aa5d9938d5f was refused five times "[quota: not judged, retry]"
+    re-reading them over the shared login's REST."""
+
+    BASE_LIST = f"repos/{REPO}/actions/workflows/7/runs?branch=feat-cmux-next&per_page={excuse.BASE_RUNS_PAGE}"
+    HEAD_JOBS = f"repos/{REPO}/actions/runs/10/jobs?filter=all&per_page=30&page=1"
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        glaeda = Path(self.dir.name) / "glaeda-gh"
+        glaeda.write_text(FAKE_GLAEDA_CACHE)
+        glaeda.chmod(0o755)
+        self.calls, self.held = Path(self.dir.name) / "glaeda-calls", Path(self.dir.name) / "held.json"
+        self.calls.write_text("")
+        data = FakeGitHub()
+        self.state = {"status": "completed", "conclusion": "failure", "run_attempt": 1,
+                      "updated_at": SettledEvidenceGitHub.UPDATED}
+        self.glaeda = {"age": 0,
+                       "runs": {f"run:{REPO}/10": dict(self.state, id=10), f"run:{REPO}/20": dict(self.state, id=20)},
+                       "logs": {str(job_id): frame_legacy(job, data.logs[job_id]) for job_id, job in data.jobs.items()}}
+        self.hold()
+        patch = unittest.mock.patch.dict(os.environ, {
+            "CMUX_GLAEDA_GH": str(glaeda), "FAKE_GLAEDA_CALLS": str(self.calls), "FAKE_GLAEDA_HELD": str(self.held),
+            excuse.JOBS_CACHE_ENV: str(Path(self.dir.name) / "kept")})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def hold(self):
+        self.held.write_text(json.dumps(self.glaeda))
+
+    def judge(self):
+        gh = SettledEvidenceGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
+        self.assertRegex("\n".join(lines), r"excused 'cmux-next swift test': .*feat-cmux-next run 20")
+        return gh.live
+
+    def test_a_retried_judgement_reads_no_finished_run_again(self):
+        first = self.judge()
+        self.assertIn(self.HEAD_JOBS, first)
+        self.assertNotIn(f"repos/{REPO}/actions/runs/20", first)  # the base list read just now names it whole
+        self.assertNotIn("logs", "\n".join(first))  # glaeda-gh keeps both logs
+        # Judged again: the head run, its jobs, the base run's jobs and both logs come from what the host holds. Only
+        # the base's window of runs, an answer about now, is read live.
+        self.assertEqual(self.judge(), [self.BASE_LIST])
+
+    def test_a_run_re_run_since_is_read_live_again(self):
+        self.judge()
+        self.glaeda["runs"][f"run:{REPO}/10"].update(run_attempt=2, updated_at="2026-11-17T09:00:00Z")
+        self.hold()
+        again = self.judge()
+        self.assertIn(self.HEAD_JOBS, again)
+        self.assertIn(f"repos/{REPO}/actions/runs/10", again)
+
+    def test_a_run_in_progress_or_a_stale_glaeda_copy_is_read_live(self):
+        self.judge()
+        for change in ({"status": "in_progress"}, None):
+            with self.subTest(change=change):
+                self.glaeda["runs"][f"run:{REPO}/10"] = dict(self.state, id=10, **(change or {}))
+                self.glaeda["age"] = 0 if change else excuse.GLAEDA_RUN_FRESH_SECONDS + 60
+                self.hold()
+                again = self.judge()
+                self.assertIn(self.HEAD_JOBS, again)
+                self.assertIn(f"repos/{REPO}/actions/runs/10", again)
+
+    def test_nothing_is_kept_with_the_store_off(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: "off"}):
+            first = self.judge()
+            self.assertEqual(self.judge(), first)
+
+    def test_an_unfinished_job_is_never_served_from_the_store(self):
+        route = f"repos/{REPO}/actions/jobs/5"
+        excuse.settled_put(route, {"id": 5, "status": "in_progress"})
+        self.assertIs(excuse.settled_answer(route), excuse.NOT_KEPT)
+        excuse.settled_put(route, {"id": 5, "status": "completed", "conclusion": "failure"})
+        self.assertEqual(excuse.settled_answer(route)["conclusion"], "failure")
+
+
 class PortableGhLog(unittest.TestCase):
 
     def setUp(self):

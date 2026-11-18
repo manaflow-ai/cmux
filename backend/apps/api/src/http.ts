@@ -17,8 +17,9 @@ import {
   providerReadOpNames,
   Unauthenticated,
   type Connection,
-  type CurrentPrincipalShape
-} from "@cmux/protocol"
+  type CurrentPrincipalShape,
+  isIntegrationCompleteReturnTo,
+} from "@cmux/protocol";
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
@@ -174,7 +175,8 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
         }
         frame = { ...frame, params: { ...(frame.params as Record<string, unknown>), installation_id: String(st.installation) } }
       }
-      returnTo = st.return_to && !(requestEnv().ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
+      // The app's completion link is how this completion arrived (the app itself): nothing to return to.
+      returnTo = st.return_to && !isIntegrationCompleteReturnTo(st.return_to) && !(requestEnv().ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
       verified = st
     }
     const stub = requestEnv().CONNECTION_DO.get(requestEnv().CONNECTION_DO.idFromName(principal.team!))
@@ -192,8 +194,9 @@ const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
   const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
   return {
     ...(typeof p.repo === "string" ? { repo: p.repo } : {}),
-    // cmux-dev links are for development builds: dropped on production.
-    ...(isConnectReturnTo(p.return_to) && !(requestEnv().ENVIRONMENT === "production" && isDevReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
+    // cmux-dev links are for development builds: dropped on production, except the app's own completion link, which
+    // shows nothing and only hands the redirect to the app holding the person's session (the state still binds it).
+    ...(isConnectReturnTo(p.return_to) && !(requestEnv().ENVIRONMENT === "production" && isDevReturnTo(p.return_to) && !isIntegrationCompleteReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
   }
 }
 
