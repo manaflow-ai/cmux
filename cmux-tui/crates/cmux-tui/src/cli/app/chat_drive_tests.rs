@@ -306,3 +306,29 @@ fn app_chat_drive_summary_tells_cut_off_typing_from_done() {
     let text = human(&done, &english().app_control);
     assert!(text.contains("Typed 6 characters; they stay in the draft\n"), "{text}");
 }
+
+/// A run measured nothing (a hidden window, a throttled display) still says what it typed and why it
+/// stopped: typing goes on with no frames to measure.
+#[test]
+fn app_chat_drive_unmeasured_summary_still_tells_the_typing() {
+    let mut cut = report();
+    cut["page"]["measured"] = json!(false);
+    cut["page"]["unmeasured_reason"] = json!("hidden");
+    cut["page"]["typed"] = json!(2);
+    cut["page"]["type_asked"] = json!(6);
+    cut["page"]["type_stopped"] = json!("time_up");
+    let text = human(&cut, &english().app_control);
+    assert!(text.contains("Measured nothing: hidden."), "{text}");
+    assert!(!text.contains("Frames:"), "{text}");
+    assert!(
+        text.contains(
+            "Typed 2 of 6 characters, then stopped (time_up); what was typed stays in the draft\n"
+        ),
+        "{text}"
+    );
+    cut["page"]["typed"] = json!(6);
+    cut["page"]["type_asked"] = json!(6);
+    cut["page"]["type_stopped"] = json!(null);
+    let text = human(&cut, &english().app_control);
+    assert!(text.contains("Typed 6 characters; they stay in the draft\n"), "{text}");
+}

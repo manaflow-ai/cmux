@@ -413,10 +413,10 @@ private struct DriveRun {
         hover["x"] = .number(x)
         hover["y"] = .number(y)
         // Armed (above) before the move: a release that runs while the move is in flight still gives the
-        // hover back. One that already started (the person, a trigger) means no hover is made at all.
+        // hover back. One that already started (the person, a trigger, the backstop) means no hover is made at all.
         guard release.mayHover else {
             hover["reason"] = "released"
-            interrupted = release.triggered ?? "person"
+            interrupted = release.interruption ?? "person"
             return
         }
         guard await input.move(to: point) else {
@@ -617,8 +617,15 @@ final class DriveRelease {
     var isDone: Bool { released }
 
     /// Whether the run may still make its hover: no release has started or finished (the person's pointer,
-    /// a trigger from outside the run). A hover made after one would have no release left to end it.
-    var mayHover: Bool { !released && triggered == nil }
+    /// a trigger from outside the run, the backstop). A hover made after one would have no release left to end it.
+    var mayHover: Bool { !released && triggered == nil && startedBy == nil }
+
+    /// The path that started the first release (`timer`, `person`, a trigger, `end`), set before that
+    /// release awaits anything; nil until one did.
+    private(set) var startedBy: String?
+
+    /// What stopped a run that made no hover: the trigger from outside it, else the path whose release started.
+    var interruption: String? { triggered ?? startedBy }
 
     /// Arms the main-queue deadline `delay` from now. It holds this release until it fires or a release went in.
     func armBackstop(after delay: Duration) {
@@ -678,6 +685,8 @@ final class DriveRelease {
     /// trigger in ``fresh``), a round already running that ends without the release is followed by a new one.
     func release(_ reason: String, fresh: Bool = false) async {
         guard !released else { return }
+        // Before any await: the run reads it (``mayHover``) while this release's round is still on its way.
+        if startedBy == nil { startedBy = reason }
         if let round {
             await round.value
             // That round's sends came before this event; one after it can now go in.

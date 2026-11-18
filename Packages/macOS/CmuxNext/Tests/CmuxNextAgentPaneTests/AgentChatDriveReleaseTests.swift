@@ -417,4 +417,21 @@ struct AgentChatDriveReleaseTests {
         #expect(release.released && release.triggered == "person")
         #expect(sends.count == 1, "an armed release sends its pointer-leave rather than counting nothing as released")
     }
+
+    /// The backstop fires while the run is still starting (a slow `startEngineCounters`): a release has
+    /// started, so the run makes no hover whether that round went in or failed, and it names the timer,
+    /// not the person.
+    @Test(arguments: [true, false])
+    func aBackstopDuringStartupLeavesNoHoverAndNamesTheTimer(wentIn: Bool) async throws {
+        let sends = Sends(wentIn ? [] : Array(repeating: .failed, count: Self.round))
+        let release = sends.release(armed: true)
+        #expect(release.mayHover && release.interruption == nil)
+        release.armBackstop(after: .milliseconds(10))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while sends.count < (wentIn ? 1 : Self.round), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(release.released == wentIn)
+        #expect(!release.mayHover, "the run would hover after the backstop started the release")
+        #expect(release.interruption == "timer", "the run would say the person interrupted it")
+        #expect(release.triggered == nil, "the timer is no trigger from outside the run")
+    }
 }
