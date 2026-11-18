@@ -2,6 +2,7 @@
 // bridge; in a browser (`/group-editor/?mock`) the in-memory mock host stands in.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountGroupEditor, type MountedGroupEditor } from "./mount";
 import { MockGroupEditorHost } from "./mockHost";

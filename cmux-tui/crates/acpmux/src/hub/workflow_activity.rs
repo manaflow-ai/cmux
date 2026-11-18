@@ -361,14 +361,22 @@ impl Hub {
                             // Join its exact prompt outcome without submitting another effect.
                             let mut changes = self.subscribe();
                             while !self.knows_prompt(&session, &waiting_id, true) {
-                                self.workflow_runs
-                                    .store()
-                                    .authorize(&run.id, generation, &run.owner_session_id)
-                                    .map_err(workflow_error)?;
-                                match changes.recv().await {
-                                    Ok(_)
-                                    | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                                    Err(error) => return Err(workflow_error(error)),
+                                // Asked again on this chat's records only: the admission that
+                                // takes the prompt writes one. Every chat's event read the
+                                // chat's log again (each `knows_prompt` a keyed scan of it).
+                                loop {
+                                    self.workflow_runs
+                                        .store()
+                                        .authorize(&run.id, generation, &run.owner_session_id)
+                                        .map_err(workflow_error)?;
+                                    match changes.recv().await {
+                                        Ok(event) if event.session_id != session.id => {}
+                                        Ok(_)
+                                        | Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                                            _,
+                                        )) => break,
+                                        Err(error) => return Err(workflow_error(error)),
+                                    }
                                 }
                             }
                             let outcome = self.prompt_outcome(&session, &waiting_id);
