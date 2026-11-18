@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8. */
+/* cmux-tui mux protocol 12, IR d54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8" as const;
+export const SDK_IR_SHA256 = "d54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1653,7 +1653,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "notification-ack-v1",
-    "fields": {},
+    "fields": {
+      "since": {
+        "since": 12,
+        "capability": "notification-ledger-delta-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -23155,6 +23160,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "since": {
+          "capability": "notification-ledger-delta-v1",
+          "constraints": [
+            "The version of the whole-ledger reply the client holds; the reply then holds only the rows changed since it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },

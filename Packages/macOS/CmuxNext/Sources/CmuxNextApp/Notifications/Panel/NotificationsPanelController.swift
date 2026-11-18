@@ -32,9 +32,9 @@ final class NotificationsPanelController {
         return card
     }
     private(set) var cardView: NotificationsPanelView?
-    private(set) var rows: [NotificationsPanelRow] = []
-    /// Whether the open panel has its first ledger reply.
-    private var loaded = false
+    private var list: NotificationsPanelList { card.list }
+    /// Whether the open panel has its first ledger reply, and its version: a reload reads only what changed since.
+    private var loaded = false, version: String?
     private var selection = NotificationsPanelSelection()
     private var watch: Task<Void, Never>?
     /// Bumped per reload, so a slow reply never replaces a newer one.
@@ -52,7 +52,7 @@ final class NotificationsPanelController {
     /// panel no longer lists is refused rather than read as "latest unread".
     func row(_ invocation: ActionInvocation) throws -> NotificationsPanelRow? {
         guard let id = invocation[Self.argument]?.stringValue else { return nil }
-        guard let row = rows.first(where: { $0.id == id }) else { throw ActionFailure(message: NotificationsPanelStrings.notificationGone) }
+        guard isShown, let row = cardView?.list.row(id: id) else { throw ActionFailure(message: NotificationsPanelStrings.notificationGone) }
         return row
     }
 
@@ -63,7 +63,8 @@ final class NotificationsPanelController {
         let panel = panel ?? makePanel()
         self.panel = panel
         selection = NotificationsPanelSelection()
-        loaded = false
+        (loaded, version) = (false, nil)
+        list.show([], width: NotificationsPanelView.listWidth, now: Date())
         render()
         // The panel draws in the window's theme scope, like the window under it.
         window.themeScope.adopt(panel)
@@ -86,7 +87,6 @@ final class NotificationsPanelController {
     func close(restoringKey: Bool = true) {
         watch?.cancel()
         watch = nil
-        rows = []
         guard let panel, isShown else { return }
         panel.onResignKey = nil
         if restoringKey, panel.isKeyWindow, let parent = panel.parent, parent.isVisible { parent.makeKey() }
@@ -134,16 +134,16 @@ final class NotificationsPanelController {
     func reload() {
         guard isShown else { return }
         guard context.daemon.connection != nil else {
-            rows = []
-            loaded = true
+            (version, loaded) = (nil, true)
+            list.show([], width: NotificationsPanelView.listWidth, now: Date())
             return render()
         }
         generation += 1
-        let generation = generation
+        let (generation, since) = (generation, version)
         context.daemon.send("list-notifications") { [weak self] connection in
             do {
-                let entries = try await connection.notificationLedger()
-                await MainActor.run { self?.apply(entries, generation: generation) }
+                let reply = try await connection.notificationLedger(since: since)
+                await MainActor.run { self?.apply(reply, since: since, generation: generation) }
             } catch {
                 await MainActor.run { self?.failed(generation: generation) }
                 throw error
@@ -151,14 +151,17 @@ final class NotificationsPanelController {
         }
     }
 
-    private func apply(_ entries: [ListNotificationsRequest.Entry], generation: Int) {
+    /// Shows a ledger reply: the whole ledger, or (`delta`) the rows changed since `version`: one per notification.
+    private func apply(_ reply: ListNotificationsRequest.Response, since: String?, generation: Int) {
         guard generation == self.generation, isShown else { return }
+        guard reply.delta != true || (since != nil && since == version) else { version = nil; return reload() }
         let store = context.daemon.store
         let notifications = context.services.notifications
-        let fresh = NotificationsPanelRow.make(entries) { notifications.locate(surface: $0, in: store)?.workspace.displayName }
-        selection.reconcile(old: rows, new: fresh)
-        rows = fresh
-        loaded = true
+        let fresh = NotificationsPanelRow.make(reply.notifications) { notifications.locate(surface: $0, in: store)?.workspace.displayName }
+        let selected = selection.index(in: list)
+        list.show(fresh, removed: reply.delta == true ? reply.removed ?? [] : nil, width: NotificationsPanelView.listWidth, now: Date())
+        (version, loaded) = (reply.version, true)
+        selection.reconcile(oldIndex: selected, in: list)
         render()
     }
 
@@ -172,7 +175,7 @@ final class NotificationsPanelController {
 
     /// Shows the rows: the list keeps the views of rows that did not change.
     private func render() {
-        let height = card.show(rows, loaded: loaded, now: Date())
+        let height = card.show(loaded: loaded, now: Date())
         card.select(selection.id)
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
@@ -213,14 +216,14 @@ final class NotificationsPanelController {
     private func handleKey(_ event: NSEvent) -> Bool {
         // A closing panel that kept the keys (no visible window to hand them to) takes none.
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        if isShown, modifiers == .command, [51, 117].contains(event.keyCode), !rows.isEmpty { perform("clearAllNotifications", nil); return true }
+        if isShown, modifiers == .command, [51, 117].contains(event.keyCode), list.count > 0 { perform("clearAllNotifications", nil); return true }
         guard isShown, modifiers.isEmpty else { return false }
-        let selected = selection.index(in: rows).map { rows[$0] }
+        let selected = selection.index(in: list).map(list.row(at:))
         switch event.keyCode {
         case 53:
             close()
         case 125, 126:
-            selection.move(by: event.keyCode == 125 ? 1 : -1, in: rows)
+            selection.move(by: event.keyCode == 125 ? 1 : -1, in: list)
             card.select(selection.id)
         case 36, 76:
             guard let selected else { return false }
