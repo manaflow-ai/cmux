@@ -169,6 +169,21 @@ mod tests {
     }
 
     #[test]
+    fn every_paired_phone_keeps_its_push_key_however_many() {
+        // Past the old cap of 64, the key set longest ago was dropped and that
+        // phone got the generic banner instead of its sealed content.
+        let keys = PushKeys::memory();
+        let phones: Vec<String> = (0..200).map(|i| format!("p{i:03}")).collect();
+        for phone in &phones {
+            keys.set(phone, "id", &format!("push-{phone}"));
+        }
+        let paired: Vec<(&str, &str)> = phones.iter().map(|p| (p.as_str(), "id")).collect();
+        let sealed = keys.for_paired(&trust(&paired));
+        assert_eq!(sealed.len(), 200);
+        assert_eq!(sealed[0], ("p000".to_owned(), "push-p000".to_owned()));
+    }
+
+    #[test]
     fn the_file_is_private_and_survives_a_restart() {
         use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir().unwrap();

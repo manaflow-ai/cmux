@@ -826,6 +826,122 @@ mod tests {
         assert!(timeout(Duration::from_millis(200), listener.accept()).await.is_ok());
     }
 
+    /// Answers every request on `listener` with `answer`, and sends each request's JSON body.
+    fn notify_backend(listener: TcpListener, answer: Value) -> tokio::sync::mpsc::UnboundedReceiver<Value> {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let (tx, answer) = (tx.clone(), answer.to_string());
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 8192];
+                    loop {
+                        let Ok(n) = socket.read(&mut chunk).await else { return };
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                        let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                        let length = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if buf.len() < end + 4 + length {
+                            continue;
+                        }
+                        let _ = tx.send(
+                            serde_json::from_slice(&buf[end + 4..end + 4 + length]).unwrap_or_default(),
+                        );
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                            answer.len()
+                        );
+                        let _ = socket.write_all(response.as_bytes()).await;
+                        return;
+                    }
+                });
+            }
+        });
+        rx
+    }
+
+    /// A reporter whose sealer has `count` paired phones, each with a push key.
+    fn sealing_reporter(base_url: String, count: usize) -> (Reporter, Vec<String>) {
+        use crate::pairing::{DeviceTrust, MacIdentity, TrustedDevice};
+        let push = crate::seal::random_secret().unwrap();
+        let push_key = crate::seal::point_hex(&push.public_key());
+        let phones: Vec<String> = (0..count).map(|i| format!("00000000-0000-4000-8000-{i:012}")).collect();
+        let keys = crate::push_keys::PushKeys::memory();
+        for phone in &phones {
+            keys.set(phone, "identity", &push_key);
+        }
+        let trust = DeviceTrust {
+            devices: phones
+                .iter()
+                .map(|id| TrustedDevice {
+                    id: id.clone(),
+                    identity_key: "identity".into(),
+                    ..Default::default()
+                })
+                .collect(),
+            denied: vec![],
+        };
+        let sealer = crate::sealed_notify::Sealer {
+            mac: "mac-1".into(),
+            identity: watch::channel(Some(MacIdentity::generate().unwrap())).1,
+            trust: watch::channel(Some(trust)).1,
+            push_keys: Arc::new(keys),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:9".into(), token: None },
+        };
+        let (token_tx, token_rx) = watch::channel(Some("access-token".to_owned()));
+        // The token stays supplied for the test's life.
+        std::mem::forget(token_tx);
+        let tokens = Arc::new(Tokens::new(TokenSource::Supplied(token_rx)));
+        (Reporter::new(base_url, "mac-1".into(), tokens).with_sealer(Some(Arc::new(sealer))), phones)
+    }
+
+    #[tokio::test]
+    async fn twenty_five_paired_phones_all_get_their_sealed_push() {
+        // Before batching, one request carried all 25 boxes and the backend
+        // refused it (at most 20 per request): no phone got the push.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 1, "failed": 0, "dropped": 0, "wants": ["completed"], "batches": true}),
+        );
+        let (reporter, phones) = sealing_reporter(base_url, 25);
+        reporter.send(NotifyEvent {
+            event_id: "e25".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let mut bodies = Vec::new();
+        for _ in 0..2 {
+            bodies.push(timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap());
+        }
+        assert!(
+            timeout(Duration::from_millis(200), posted.recv()).await.is_err(),
+            "only a lead and one batch"
+        );
+        for body in &bodies {
+            assert!(
+                body["sealed"].as_object().unwrap().len() <= 20,
+                "the backend refuses more boxes in one request"
+            );
+            assert_eq!(body["eventId"], "e25");
+        }
+        assert!(bodies[0].get("batch").is_none());
+        assert_eq!(bodies[1]["batch"], 1);
+        let mut reached: Vec<String> =
+            bodies.iter().flat_map(|b| b["sealed"].as_object().unwrap().keys().cloned()).collect();
+        reached.sort();
+        assert_eq!(reached, phones, "every phone has exactly one box");
+    }
+
     #[test]
     fn questions_permissions_and_turns_carry_what_the_person_acts_on() {
         let mut c = Classifier::default();
