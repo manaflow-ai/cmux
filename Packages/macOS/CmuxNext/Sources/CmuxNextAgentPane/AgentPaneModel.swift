@@ -562,6 +562,8 @@ public final class AgentPaneModel {
         // kept every subagent, side chat and sender open off the prewarmed page ("touched by
         // featureTips"), each one making a cold page instead.
         case .featureTips(.read): break
+        // The waiting line asks what the host sees of the daemon every few seconds by itself.
+        case .agentServiceWait: break
         // A claim is the page's own question (may this install see the tip now), sent with no input of the
         // person, and the X of a tip keeps one record. Both change the app's records
         // (``AgentPaneFeatureTipRecords``) and nothing a page keeps past its next adoption (cloudChatHintModel.ts

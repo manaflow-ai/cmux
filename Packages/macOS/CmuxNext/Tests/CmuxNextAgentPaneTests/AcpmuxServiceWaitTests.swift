@@ -96,3 +96,12 @@ struct AcpmuxServiceWaitTests {
         return descriptor
     }
 }
+
+extension AcpmuxServiceWaitTests {
+    /// The line asks by itself every few seconds: no touch, so the page stays a spare one.
+    @Test func askingIsNotATouch() async {
+        let model = AgentPaneModel(host: WaitHost())
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "acpmux.serviceWait", "params": ["waitedMs": 30_000]]))
+        #expect(!model.userTouched)
+    }
+}
