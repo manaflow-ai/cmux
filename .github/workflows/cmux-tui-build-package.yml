@@ -367,9 +367,7 @@ jobs:
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+        run: scripts/ci/install-linux-build-deps.sh
 
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
