@@ -270,7 +270,7 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("ffi_baseline", planned)
         self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
 
-    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_still_needs_a_build(self):
+    def test_a_repin_the_app_lacks_with_rust_the_swift_build_reads_goes_onto_the_app(self):
         # Review of cmux#46195: the fork's release brings the library up, not what the Swift build reads itself;
         # hot-apply leaves that, then holds the daemon back, so the look would end in exit 3 again.
         self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
@@ -282,8 +282,8 @@ class PlanTest(unittest.TestCase):
         with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]), \
                 unittest.mock.patch.object(h, "swift_read_rust", return_value=["cmux-tui/include/cmux.h"]):
             planned = self.plan(head)
-        self.assertTrue(planned["needs_build"], planned)
-        self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
+        # Since cmuxterm-hq#13435 the change's own commits go onto the app's commit instead: its header and pin.
+        self.assert_onto_app(planned, self.fx.base, {hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)})
         self.assertNotIn("ffi_baseline", planned)
 
     def test_a_repin_of_the_same_release_is_no_release_change(self):
@@ -299,7 +299,7 @@ class PlanTest(unittest.TestCase):
         self.assertFalse(planned["needs_build"], planned["build"])
         self.assertNotIn("ffi_baseline", planned)
 
-    def test_a_change_branched_before_an_app_a_repin_ahead_needs_a_build(self):
+    def test_a_change_branched_before_an_app_a_repin_ahead_goes_onto_the_app(self):
         # cmux#44876's look: the change forked before the NIGHTLY, which pinned a newer release; hot-apply holds the
         # daemon back (an older release does not go in), so the plan must not say `rust`.
         self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
@@ -310,9 +310,8 @@ class PlanTest(unittest.TestCase):
         app = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)}, "repin", parent=self.fx.base)
         with unittest.mock.patch.object(hv.hot().ffi_part, "additive", return_value=["drops ffi_new()"]):
             planned = self.plan(head, base=app)
-        self.assertTrue(planned["needs_build"], planned)
-        self.assertIn("Rust the app links (FFI): the app's release is not the change's", planned["build"])
-        self.assertNotIn("rust", planned["layers"])
+        # Since cmuxterm-hq#13435 the change's own commits go onto the app's commit: the app's newer release.
+        self.assert_onto_app(planned, app, {hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
 
     def test_a_checkout_without_the_xcode_project_reads_the_rules_root(self):
         # The 2026-11-18 swap-vs-dev-build sample planned from such a checkout: with no project file every cmux-tui
