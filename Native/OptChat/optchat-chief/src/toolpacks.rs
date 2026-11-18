@@ -1175,7 +1175,7 @@ fn write_pending(
 fn login(home: &Path, pack: &Pack) -> Result<Value, String> {
     let c = request_code(pack)?;
     let started_at = now_ms();
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = crate::self_exe::path().map_err(|e| e.to_string())?;
     let _ = std::fs::create_dir_all(home.join("optchat"));
     let log = std::fs::OpenOptions::new()
         .create(true)

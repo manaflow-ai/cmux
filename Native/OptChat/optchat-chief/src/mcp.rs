@@ -204,7 +204,7 @@ pub use chief_kernel::tools::{MOVE_DESCRIPTION, move_tool};
 /// Runs the move tool for the Chief of `home` with this binary.
 pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
     let action = args["action"].as_str().unwrap_or("move");
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = crate::self_exe::path().map_err(|e| e.to_string())?;
     let mut argv: Vec<String> = vec!["move".into()];
     match action {
         "status" => {

@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 
@@ -73,11 +74,19 @@ public nonisolated enum ChiefHostStop {
         _ = await AcpmuxQuit.endAgents(environment, keep: endSessionsKeep)
     }
 
-    /// Whether `pid` runs an `optchat-chief` executable.
+    /// Whether `pid` runs an `optchat-chief` executable, or the multicall `cmux` started through
+    /// its `optchat-chief` link (CMUX-570): `proc_pidpath` resolves the link to `bin/cmux`, so
+    /// argv[0] names it then. argv[0] is read only for a process whose executable is `cmux`.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
         let path = executablePath(pid)
-        return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+        let name = path == nil ? processName(pid) : nil
+        let multicall = path.map { URL(fileURLWithPath: $0).lastPathComponent == multicallName } ?? (name == multicallName)
+        return isChiefHost(path: path, processName: name,
+                           argv0: multicall ? ProcessUsage.arguments(of: pid).first : nil)
     }
+
+    /// The multicall binary that runs the Chief by argv[0] (`bin/cmux`).
+    static let multicallName = "cmux"
 
     /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or
     /// its executable's file is gone.
@@ -92,9 +101,18 @@ public nonisolated enum ChiefHostStop {
     /// home's lock and runs the old acpmux, so it must stay stoppable (the Chief acpmux handoff
     /// after an update); its process name is then the only fact left. Only a pid the held lock
     /// names reaches this check, and only one of this user's processes (`processName`).
-    static func isChiefHost(path: String?, processName: String?) -> Bool {
-        if let path { return path.hasSuffix("/" + HomeBrainHost.bundledChiefName) }
-        return processName == HomeBrainHost.bundledChiefName
+    /// `argv0`: the process's argv[0] when its executable (or, file gone, its name) is the
+    /// multicall `cmux`; a Chief then has the `optchat-chief` link's name there, and any other
+    /// `cmux` (the CLI, acpmux, the daemon) has not.
+    static func isChiefHost(path: String?, processName: String?, argv0: String? = nil) -> Bool {
+        let chief = HomeBrainHost.bundledChiefName
+        let startedAsChief = argv0.map { URL(fileURLWithPath: $0).lastPathComponent == chief } ?? false
+        if let path {
+            if path.hasSuffix("/" + chief) { return true }
+            return path.hasSuffix("/" + multicallName) && startedAsChief
+        }
+        if processName == chief { return true }
+        return processName == multicallName && startedAsChief
     }
 
     /// The kernel's name of `pid` (`pbi_name`, else `pbi_comm`) when it is one of this user's

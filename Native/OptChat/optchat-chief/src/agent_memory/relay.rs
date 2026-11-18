@@ -72,7 +72,7 @@ pub fn owner_argv(owner_command: &[String]) -> Vec<String> {
 /// `Contents/Resources/bin`), else `cmux` or `cmux-tui` (the name a Linux
 /// install and a remote sidecar use) on PATH.
 pub fn cmux_cli() -> PathBuf {
-    let sibling = std::env::current_exe()
+    let sibling = crate::self_exe::path()
         .ok()
         .and_then(|exe| exe.parent().map(|d| d.join("cmux")))
         .filter(|p| p.is_file());

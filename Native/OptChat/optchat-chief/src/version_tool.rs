@@ -26,7 +26,7 @@ pub fn report(cmux: &dyn Fn() -> Result<Value, String>, home: &Path) -> Value {
         "cmux": cmux,
         "chief": {
             "version": env!("CARGO_PKG_VERSION"),
-            "path": std::env::current_exe().ok().map(|path| path.display().to_string()),
+            "path": crate::self_exe::path().ok().map(|path| path.display().to_string()),
             "engine": engine,
         },
     })

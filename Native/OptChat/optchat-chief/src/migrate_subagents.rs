@@ -32,7 +32,7 @@ fn bin() -> PathBuf {
     {
         return p.into();
     }
-    std::env::current_exe()
+    crate::self_exe::path()
         .ok()
         .and_then(|e| e.parent().map(|d| d.join("acpmux")))
         .filter(|p| p.is_file())
