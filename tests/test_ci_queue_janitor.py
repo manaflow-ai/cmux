@@ -11,6 +11,7 @@ import http.client
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -2273,6 +2274,122 @@ class RateLimitTests(unittest.TestCase):
             self.assertIn("core 900 of 15000 left, 14100 used", summary.read_text())
 
 
+class ReadTokenSplitTests(unittest.TestCase):
+    """The sweep's reads spent the cmux-bot installation's hourly budget, which every reconciler and CI bot shares:
+    a backed-up queue (about 2,000 runs queued on 2026-11-16) made each sweep list that many runs' jobs on it. The
+    workflow now passes the glaeda-route App's token as READ_TOKEN beside cmux-bot's: GET reads go on it, while
+    writes, GraphQL and app_only requests stay on cmux-bot's."""
+
+    class Response(io.BytesIO):
+        def __init__(self, body, headers=None):
+            super().__init__(body)
+            self.headers = headers if headers is not None else email.message.Message()
+
+    @staticmethod
+    def budget(remaining):
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = remaining
+        headers["X-RateLimit-Resource"] = "core"
+        return headers
+
+    def test_reads_go_on_the_read_token_and_everything_else_on_the_sweep_token(self):
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token = request.get_header("Authorization")
+            sent.append((request.get_method(), token))
+            return self.Response(b"{}", self.budget("900" if token == "Bearer reader" else "7000"))
+
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs?status=queued")
+            github.jobs(1)
+            github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
+            github.request("POST", "/graphql", {"query": "{}"})
+            github.request("GET", "/repos/manaflow-ai/cmux/pulls/1", app_only=True)
+        self.assertEqual(sent, [("GET", "Bearer reader"), ("GET", "Bearer reader"), ("POST", "Bearer bot"),
+                                ("POST", "Bearer bot"), ("GET", "Bearer bot")])
+        # The summary's `core` is still the sweep token's budget; the read App's is beside it.
+        self.assertEqual(github.rate_limits["core"]["remaining"], 7000)
+        self.assertEqual(github.rate_limits["core (read token)"]["remaining"], 900)
+        self.assertTrue(github.app_token)
+
+    def test_a_refused_read_token_moves_that_read_and_the_rest_back_to_the_sweep_token(self):
+        for code, headers in ((403, self.budget("0")), (429, self.budget("0")), (401, email.message.Message())):
+            with self.subTest(code=code):
+                github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+                github.use_read_token("reader")
+                sent = []
+
+                def urlopen(request, timeout=30, code=code, headers=headers):
+                    token = request.get_header("Authorization")
+                    sent.append(token)
+                    if token == "Bearer reader":
+                        raise urllib.error.HTTPError(request.full_url, code, "refused", headers, io.BytesIO(b"{}"))
+                    return self.Response(b'{"jobs": []}')
+
+                with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"):
+                    self.assertEqual(github.jobs(1), [])
+                    github.jobs(2)
+                self.assertEqual(sent, ["Bearer reader", "Bearer bot", "Bearer bot"])
+                # The read App's spent budget is not the sweep's: it neither ends the sweep nor drops cmux-bot.
+                self.assertEqual(github.rate_limited, "")
+                self.assertTrue(github.app_token)
+
+    def test_job_listings_on_several_threads_all_fall_back(self):
+        import threading
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        all_sent = threading.Barrier(4, timeout=5)
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token = request.get_header("Authorization")
+            sent.append(token)
+            if token == "Bearer reader":
+                all_sent.wait()  # all four are in flight on the read token before any is refused
+                raise urllib.error.HTTPError(request.full_url, 403, "rate limited", self.budget("0"),
+                                             io.BytesIO(b"{}"))
+            return self.Response(b'{"jobs": []}')
+
+        runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in range(1, 5)]
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), mock.patch("builtins.print"):
+            jobs, unread, _ = janitor.read_run_jobs(github, runs, frozenset(), NOW, workers=4)
+        self.assertEqual(unread, set())
+        self.assertEqual(set(jobs), {run["id"] for run in runs})
+        self.assertEqual(sorted(sent), ["Bearer bot"] * 4 + ["Bearer reader"] * 4)
+
+    def test_no_read_token_or_one_of_the_sweeps_own_changes_nothing(self):
+        for read in ("", "bot", "workflow"):
+            github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+            github.use_read_token(read)
+            self.assertEqual(github.read_token, "")
+
+    def test_the_sweep_takes_the_read_token_from_the_environment(self):
+        for env, want in (({"GH_TOKEN": "bot", "READ_TOKEN": "reader"}, ["reader"]), ({"GH_TOKEN": "bot"}, [])):
+            fake = FakeGitHub({})
+            taken = []
+            fake.use_read_token = taken.append
+            with tempfile.TemporaryDirectory() as temp:
+                argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--workflows-dir", str(Path(temp) / "none")]
+                with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                        mock.patch.dict("os.environ", env), \
+                        mock.patch.object(janitor, "utc_now", lambda: NOW), mock.patch("builtins.print"):
+                    if "READ_TOKEN" not in env:
+                        os.environ.pop("READ_TOKEN", None)
+                    self.assertEqual(janitor.main(argv), 0)
+            self.assertEqual(taken, want)
+
+    def test_the_workflow_passes_glaeda_route_as_the_read_token_only_beside_cmux_bot(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["sweep"]["steps"] if s.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(step["env"]["READ_TOKEN"],
+                         "${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || "
+                                                  "steps.glaeda-token.outputs.token || github.token }}")
+
+
 RealGitHub = janitor.GitHub  # the client itself, for tests that patch janitor.GitHub with a factory
 
 
@@ -3872,6 +3989,17 @@ class UnclaimedLegPlanTests(unittest.TestCase):
         decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
         self.assertEqual(decision.action, "skip")
         self.assertIn("owned", decision.note)
+
+    def test_cmux_next_s_last_owned_attempt_is_left_alone_while_the_blacksmith_switch_is_off(self):
+        # With vars.CI_BLACKSMITH_MACOS unset, cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER on every attempt,
+        # so a re-run of a leg queued there only rejoins its queue at the back (2026-11-17). Switch `on`: it leaves.
+        attempt = janitor.rescue.REFUSAL_RESCUE_ATTEMPT
+        for switch, action in (("", "skip"), ("on", "cancel")):
+            with self.subTest(switch=switch), mock.patch.dict(os.environ, {"STALL_BLACKSMITH_MACOS": switch,
+                                                                           "SIDE_LANE_RUNNER": SIDE}):
+                run, jobs = unclaimed_world(age=50, path=".github/workflows/cmux-next.yml", attempt=attempt)
+                decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}), run)
+                self.assertEqual(decision.action, action, decision.note)
 
     def test_bot_re_runs_failed_runs_and_newer_runs_are_never_re_run(self):
         run, jobs = unclaimed_world(age=50, attempt=2, actor="github-actions[bot]")

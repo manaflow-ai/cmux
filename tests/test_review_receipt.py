@@ -362,10 +362,31 @@ class NewestIndependentVerdictWins(unittest.TestCase):
             with self.subTest(line=line):
                 self.refused([self.ship(self.A, 1), comment(line, at=self.at(5)), self.carried(self.C, self.A, 9)])
 
-    def test_a_clean_carry_with_no_block_passes(self):
-        self.assertIn("carried", self.passes([self.ship(self.A, 1), self.carried(self.C, self.A, 9)]))
-        self.passes([self.box("SHIP", self.A, 1), self.carried(self.C, self.A, 9)])
-        self.passes([self.carried(self.C, self.A, 9)], [review("APPROVED", at=self.at(1), oid=self.A)])
+    def test_a_clean_carry_with_no_block_refuses(self):
+        """cmux#36322 (2026-11-05): SHIP at A (71d93871), a clean base merge made B (8e3e59a4), and the SHIP carried to
+        B landed it; the exact-head review of B then came back BLOCK. A carry is never a receipt, at any risk tier."""
+        for why in (self.refused([self.ship(self.A, 1)], head=self.B),
+                    self.refused([self.ship(self.A, 1), self.carried(self.B, self.A, 9)], head=self.B),
+                    self.refused([self.box("SHIP", self.A, 1), self.carried(self.B, self.A, 9)], head=self.B),
+                    self.refused([self.carried(self.B, self.A, 9)], [review("APPROVED", at=self.at(1), oid=self.A)],
+                                 head=self.B)):
+            self.assertIn(f"no SHIP review receipt on {self.B}", why)
+        why = self.refused([self.ship(self.A, 1), self.carried(self.B, self.A, 9)], head=self.B)
+        self.assertIn("a carried SHIP is not a review of this head", why)
+        # the merge commit's own SHIP lands it; its own BLOCK holds
+        self.passes([self.ship(self.A, 1), self.carried(self.B, self.A, 5), self.ship(self.B, 9)], head=self.B)
+        self.refused([self.ship(self.A, 1), self.box("BLOCK", self.B, 9)], head=self.B)
+
+    def test_the_command_refuses_a_carry_across_a_clean_base_merge(self):
+        payload = pr([self.ship(self.A, 1), self.carried(self.B, self.A, 9)], head=self.B)
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                status = receipt.main(["manaflow-ai/cmux", "36322", self.B, "--pr-file", handle.name])
+        self.assertEqual(status, 1)
+        self.assertIn("a carried SHIP never counts", err.getvalue())
 
     def test_a_ship_whose_text_says_carries_is_a_review(self):
         """cmux#27632 (2026-10-29): "Review (independent review subagent): SHIP at <head>. ... the warning carries the
@@ -401,9 +422,9 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         self.passes([*base, self.box("SHIP", self.C, 9)])
         # its BLOCK holds
         self.refused([*base, self.box("BLOCK", self.C, 9)])
-        # an independent SHIP newer than the BLOCK (the owner's fix, re-reviewed at A, then merged) carries again
-        self.passes([self.ship(self.A, 1), *block, self.ship(self.A, 7), self.carried(self.C, self.A, 9)])
-        # but a carried SHIP is never the newest independent verdict, so it never clears the BLOCK itself
+        # an independent SHIP newer than the BLOCK at A does not carry to C either
+        self.refused([self.ship(self.A, 1), *block, self.ship(self.A, 7), self.carried(self.C, self.A, 9)])
+        # and a carried SHIP is never the newest independent verdict, so it never clears the BLOCK itself
         self.refused([self.ship(self.A, 1), *block, self.carried(self.A, self.A, 7), self.carried(self.C, self.A, 9)])
 
     def test_a_ship_on_another_head_cannot_hide_a_newer_block_of_the_heads_ship(self):
@@ -437,7 +458,7 @@ class NewestIndependentVerdictWins(unittest.TestCase):
 
 class RiskHighExactHead(unittest.TestCase):
     """cmux-ad, 2026-10-30, decision 788: a risk:high pull request needs a receipt on the exact head; no carried SHIP
-    (a lane's or next-review's carry across a base merge) counts for it. risk:normal and risk:low keep the carry."""
+    (a lane's or next-review's carry across a base merge) counts for it. Since cmux#36322 that holds at every tier."""
     REVIEWED = "ab" * 20
 
     def carried(self, line):
@@ -447,14 +468,12 @@ class RiskHighExactHead(unittest.TestCase):
     def test_a_carried_ship_never_clears_risk_high(self):
         for line in (f"Review (next-review patch-id; carried): SHIP at {HEAD}",
                      f"Review (subagent): SHIP at {HEAD} (carried from {self.REVIEWED[:12]})"):
-            for labels, passes in ((("risk:high",), False), (("RISK:HIGH", "ready-to-land"), False),
-                                   (("risk:normal",), True), (("risk:low",), True), ((), True)):
+            for labels in (("risk:high",), ("RISK:HIGH", "ready-to-land"), ("risk:normal",), ("risk:low",), ()):
                 with self.subTest(line=line, labels=labels):
                     self.labels = labels
                     who, why = receipt.decide(self.carried(line), HEAD)
-                    self.assertEqual(bool(who), passes, why)
-                    if not passes:
-                        self.assertIn("risk:high needs an independent review of this exact head", why)
+                    self.assertEqual(who, "", why)
+                    self.assertIn("a carried SHIP is not a review of this head", why)
 
     def test_an_own_ship_on_the_exact_head_clears_risk_high(self):
         who, why = receipt.decide(pr([comment(SHIP)], labels=("risk:high",)), HEAD)

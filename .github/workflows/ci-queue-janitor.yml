@@ -221,6 +221,11 @@ jobs:
           # The same cmux-bot token again, so the janitor knows GH_TOKEN is cmux-bot's: only then does
           # category e cancel a lost job at an open PR's head and re-run it as cmux-bot (open_head_lost()).
           CMUX_BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          # The sweep's GET reads (run pages, every in-flight run's job listing) go on the glaeda-route App's own
+          # budget while cmux-bot's token is GH_TOKEN; writes, GraphQL and the cmux-bot re-run stay on GH_TOKEN, and a
+          # refused read moves back to it (queue_janitor.GitHub.use_read_token()). A backed-up queue made each sweep
+          # list ~1,000-2,000 runs' jobs on the cmux-bot installation every reconciler shares.
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
           GH_REPO: ${{ github.repository }}
           # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
           BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows
@@ -250,6 +255,11 @@ jobs:
           # runner-state variable; the janitor never lists runners or runs for this.
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           CI_HOSTED_LIGHT_CANDIDATES_DISABLED: ${{ vars.CI_HOSTED_LIGHT_CANDIDATES_DISABLED }}
+          # Not `on`: cmux-next.yml's Mac fallbacks take CI_SIDE_LANE_RUNNER on every attempt, so the unclaimed-leg
+          # rule never cancels a cmux-next run for a re-run that would rejoin that queue at its back
+          # (owned_pool_rescue.rerun_side_label(), bot_rerun_leaves_owned()).
+          STALL_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
+          SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
