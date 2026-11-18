@@ -251,21 +251,19 @@ class Evidence(unittest.TestCase):
         dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
 
-    def test_a_busy_blacksmith_mac_that_starts_jobs_is_not_dead(self) -> None:
-        # 2026-11-08: blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z, one
-        # still running, yet RUNNER_POOLS marked it dead at 17:34:13Z: other jobs had queued there over 10
-        # minutes. A long queue on a label that starts jobs is load, not death; only a label that runs
-        # nothing and started nothing while its oldest job waited is dead.
+    def test_a_starved_member_is_dead_even_when_an_older_job_runs(self) -> None:
+        # A member can have an older job still running while no newly queued job starts. That is the
+        # starved-but-alive gap: the running job must not keep the member selected forever.
         stalled = copy.deepcopy(RECORDED)
         stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=6, running=0, oldest_queued_minutes=25)
         stalled["label_started"] = {}
         # A start it shows is evidence it serves: that clears a mark the old rule wrote, at once.
         # No label_started map is no evidence either way.
-        label = {"blacksmith-6vcpu-macos-26"}
+        label = "blacksmith-6vcpu-macos-26"
         for name, change, served in [
-            ("a job runs there", {"running": 1}, label),
+            ("an older job runs there", {"running": 1}, set()),
             ("a job started after the oldest began to wait",
-             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, label),
+             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, {label}),
             ("no start evidence in the snapshot", {"no_label_started": True}, set()),
         ]:
             with self.subTest(name):
@@ -277,11 +275,40 @@ class Evidence(unittest.TestCase):
                 if change.get("no_label_started"):
                     del snapshot["label_started"]
                 dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
-                self.assertEqual(dead, set())
+                self.assertEqual(dead, {label} if name == "an older job runs there" else set())
                 self.assertEqual(started, served)
         # The control: nothing runs, and the last start is older than the oldest wait.
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+
+    def test_today_starvation_replay_moves_within_ten_minutes(self) -> None:
+        # Today's 4 vCPU queue first appeared at 17:02Z. At 17:12Z its oldest queued job had
+        # crossed the 10-minute cutoff while an older job was still running; the move must happen
+        # in that first qualifying snapshot instead of waiting for the 21:08Z four-hour mark.
+        pools = runner_pools.load_pools()
+        label = pools["linux"]["members"][0]
+        first_queued = dt.datetime(2026, 11, 18, 17, 2, tzinfo=dt.timezone.utc)
+        old_start = first_queued - dt.timedelta(minutes=1)
+        moved_at = None
+        for minutes in (9, 10):
+            generated = first_queued + dt.timedelta(minutes=minutes)
+            snapshot = {
+                "generated_at": runner_pools.iso(generated),
+                "pools": {label: {"queued": 41, "running": 1, "oldest_queued_minutes": minutes}},
+                "label_started": {label: runner_pools.iso(old_start)},
+            }
+            dead, started, _ = runner_pools.label_evidence(None, snapshot, now=generated)
+            current = {"linux": label}
+            value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started,
+                                               now=generated, covered={label})
+            if minutes == 9:
+                self.assertEqual(dead, set())
+                self.assertEqual(value["linux"], label)
+            else:
+                self.assertEqual(dead, {label})
+                self.assertNotEqual(value["linux"], label)
+                moved_at = generated
+        self.assertEqual(moved_at - first_queued, dt.timedelta(minutes=10))
 
     def test_dead_label_entries_split_on_comma_and_plus(self) -> None:
         # cmux#27114's DeadLabel.as_json(): label sets joined with ",", live members listed.
