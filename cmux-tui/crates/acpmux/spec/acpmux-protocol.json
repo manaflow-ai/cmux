@@ -217,6 +217,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/perf",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true

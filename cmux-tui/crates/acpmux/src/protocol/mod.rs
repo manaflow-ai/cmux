@@ -197,6 +197,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
+        // The live perf commentator (perf_watch.rs).
+        untyped(method::MUX_PERF, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the

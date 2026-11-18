@@ -39,7 +39,7 @@ use tokio::sync::{Notify, watch};
 pub(super) const BULK_WINDOW: usize = 256 << 10;
 
 /// Whether the answer to `method` goes in the read lane ([module docs](self)).
-pub(super) fn is_cheap_read(method: &str) -> bool {
+pub(crate) fn is_cheap_read(method: &str) -> bool {
     use crate::rpc::method;
     matches!(
         method,
