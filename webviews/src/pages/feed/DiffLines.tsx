@@ -7,9 +7,10 @@
 // sizes all the others.
 //
 // Copy: the browser copies only mounted text, so a selection across lines that are not mounted copies
-// what the diff says instead, one line each as the browser copies these rows. The lines a selection
-// starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the arrows),
-// so a scroll keeps both of its ends.
+// what the diff says instead, one line each as the browser copies these rows; select-all, whose end
+// lands in the block standing in for the lines below the window, copies the whole diff. The lines a
+// selection starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the
+// arrows), so a scroll keeps both of its ends.
 import {
   memo,
   useCallback,
@@ -45,6 +46,8 @@ export function copiedText(lines: readonly string[], start: LinePoint, end: Line
 }
 
 const NONE: readonly number[] = [];
+/** The key of the block below the lines: one element, mounted however far the lines scroll. */
+const END = "gap:end";
 const sameLines = (a: readonly number[], b: readonly number[]) =>
   a.length === b.length && a.every((at, index) => at === b[index]);
 
@@ -184,13 +187,16 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
   }, [lines, virtualizer]);
 
   // A block of the lines' height stands in for each run of lines not mounted: `data-gap` is its first
-  // line. Each is keyed by the line before it, so the top one stays the same element as lines scroll.
+  // line. Each is keyed by the line before it, so the top one stays the same element as lines scroll;
+  // the bottom one is keyed as the end and stays mounted, at no height once the last line is, so a
+  // select-all ending in it keeps its end there through any scroll (a new element, or none, would
+  // move that end out, to the last line mounted then).
   const children: ReactNode[] = [];
   let reached = scrollMargin;
   let previous = -1;
-  const gap = (height: number) => {
-    if (height > 0)
-      children.push(<span key={`gap:${previous}`} aria-hidden="true" data-gap={previous + 1} style={{ height }} />);
+  const gap = (height: number, key = `gap:${previous}`) => {
+    if (height > 0 || key === END)
+      children.push(<span key={key} aria-hidden="true" data-gap={previous + 1} style={{ height }} />);
   };
   for (const { index, start, end } of virtualizer.getVirtualItems()) {
     gap(start - reached);
@@ -201,7 +207,7 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
       <DiffRow key={index} index={index} line={line} tone={tone(line)} count={lines.length} measure={measure} />,
     );
   }
-  gap(virtualizer.getTotalSize() + scrollMargin - reached);
+  gap(Math.max(0, virtualizer.getTotalSize() + scrollMargin - reached), END);
 
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not a ul: blocks standing in for unmounted lines sit between the rows
@@ -229,8 +235,11 @@ function pointOf(root: HTMLElement, node: Node, offset: number, edge: "start" | 
   const container = node === root ? root : (element?.closest<HTMLElement>("[data-gap]") ?? undefined);
   if (!container) return undefined;
   if (container !== root) {
-    const from = Number(container.dataset.gap);
-    return edge === "start" ? { line: from, char: 0 } : { line: Math.max(0, from - 1), char: Number.POSITIVE_INFINITY };
+    // Inside a block standing in for lines: the selection holds them all. Select-all ends here, in
+    // the block below the window, in Chromium and WebKit.
+    if (edge === "start") return { line: Number(container.dataset.gap), char: 0 };
+    const next = (container.nextElementSibling as HTMLElement | null)?.dataset.index;
+    return next === undefined ? lastLine() : { line: Number(next) - 1, char: Number.POSITIVE_INFINITY };
   }
   const next = root.childNodes[offset] as HTMLElement | undefined;
   const at = next?.dataset?.index ?? next?.dataset?.gap;
