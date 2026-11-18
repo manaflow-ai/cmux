@@ -465,6 +465,7 @@
         "Probe the cmux NEXT App ID and profile (read-only)": {"nightly_only": "reads App Store Connect API"},
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
+        "Fetch the published Chromium framework": {"nightly_only": "downloads the Developer ID signed Chromium framework from the DMG the nightly feed serves now, for sign-cef.sh to reuse at codesign; a pull request has no signed release app to compare it with (best effort, always exits 0)"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Delete signing keychain before runtime checks": {"nightly_only": "deletes the signing keychain"},
         "Start the signed-app checks (they run during notarization)": {"nightly_only": "otool load-command, notices and minos checks over every binary of the Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},

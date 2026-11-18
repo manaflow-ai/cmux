@@ -548,6 +548,10 @@ pub struct SubRecord {
     /// person in its chat). Cleared when the run ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reopened: bool,
+    /// This run's session closed under it and the host sent the prompt that
+    /// resumes it (`resume_closed`): a second close ends the run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed_resumed: bool,
 }
 
 /// How many tell keys a subagent keeps for dedupe.
