@@ -81,6 +81,8 @@ enum DebugNewTab {
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
+            // How many times the app made the JSON text of a New Tab context's shared part since its launch.
+            "context_encodes": .number(Double(services.agentTabs.paneShared.newTabText.encodes)),
             // What a New Tab page opened now would suggest: its open tabs and other workspaces.
             "omnibar_tabs": .array(omnibar.tabs.map { .object(["title": .string($0.title), "workspace": $0.workspace.map(JSONValue.string) ?? .null]) }),
             "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
