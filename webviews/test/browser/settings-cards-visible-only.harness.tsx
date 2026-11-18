@@ -30,7 +30,8 @@ declare global {
 }
 
 const params = new URLSearchParams(location.hash.slice(1));
-const card = (["keys", "library"] as const).find((name) => name === params.get("card")) ?? "shares";
+// `card=search`: no list, the General page, for the search bench (its rows are the result slots).
+const card = (["keys", "library", "search"] as const).find((name) => name === params.get("card")) ?? "shares";
 const n = Number(params.get("n") ?? 1000);
 const NOW = Date.now();
 
@@ -42,12 +43,18 @@ if (card === "keys") provider.keys = manyKeys(n, NOW);
 else if (card === "library") provider.library = mockLongLibrary(n);
 else provider.shares = manyShares(n, NOW);
 // The route the page reads: the card's section.
-location.hash = { keys: "#/settings/keys", library: "#/settings/personalization", shares: "#/settings/privacy" }[card];
+location.hash = {
+  keys: "#/settings/keys",
+  library: "#/settings/personalization",
+  search: "#/settings/general",
+  shares: "#/settings/privacy",
+}[card];
 const store = new SettingsStore(client);
 createRoot(document.getElementById("root")!).render(<SettingsPage store={store} />);
 window.benchRowSelector = {
   keys: '[data-card="keys"] [data-key]',
   library: '[data-card="customizeLibrary"] [data-library-entry]',
+  search: "[data-search-results] .rows > .collapse",
   shares: '[data-card="sharedLinks"] [data-shared-link]',
 }[card];
 window.benchRowRenders = rowPropsRenders(() => document.querySelectorAll(window.benchRowSelector));
