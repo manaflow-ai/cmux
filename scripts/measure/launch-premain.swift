@@ -10,6 +10,8 @@
 //                                                   it run once the file HOLD exists (a sampler attaches meanwhile)
 //   launch-premain stub FILE LABEL                  exec FILE --version and time it to exit (killed at 5 s)
 //   launch-premain resident FILE                    print FILE's resident fraction and page counts
+//   launch-premain spawn FILE LABEL                 posix_spawn FILE started suspended, time the call (the kernel's
+//                                                   exec of the image, its policy check included), then kill it
 //
 // Each launch prints one `LP-RUN <json>` line. main_start is the app's own mark, in ms from its process start
 // (sysctl p_starttime). At the mark (in exec mode with the process stopped there; in open mode as the mark arrives,
@@ -181,6 +183,20 @@ switch args[1] {
 case "resident":
     guard let r = resident(args[2]) else { print("LP-RESIDENT none"); exit(1) }
     print("LP-RESIDENT \(round1(r.fraction * 1000) / 1000) \(r.resident) \(r.pages)")
+
+case "spawn":
+    guard args.count >= 4 else { usage() }
+    var pid: pid_t = 0, attr: posix_spawnattr_t? = nil
+    posix_spawnattr_init(&attr)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_START_SUSPENDED))
+    let argv: [UnsafeMutablePointer<CChar>?] = [strdup(args[2]), nil]
+    let started = now()
+    let rc = posix_spawn(&pid, args[2], nil, &attr, argv, environ)
+    let spawnMs = now() - started
+    if rc == 0 { kill(pid, SIGKILL); kill(pid, SIGCONT); var status: Int32 = 0; waitpid(pid, &status, 0) }
+    var spawned: [String: Any] = ["label": args[3], "mode": "spawn", "file": (args[2] as NSString).lastPathComponent, "spawn_ms": round1(spawnMs)]
+    if rc != 0 { spawned["error"] = "spawn \(rc)" }
+    emit(spawned)
 
 case "stub":
     guard args.count >= 4 else { usage() }
