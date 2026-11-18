@@ -50,7 +50,7 @@ public import Testing
             return try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
         }
         var measured: [Measurement] = []
-        try await withKnownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known.why)"), sourceLocation: sourceLocation) {
+        await withKnownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known.why)"), sourceLocation: sourceLocation) {
             measured = try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
         } matching: { issue in
             known.only.map { only in issue.comments.contains { $0.rawValue.contains(only) } } ?? true
