@@ -410,11 +410,11 @@ jobs:
     # the 16 vCPU shards of the same days took 14% longer at p50 (1107 s against
     # 972 s, pull requests) for half the per-minute price, the longest 2139 s, under
     # the 40 min timeout. Fork pull requests run the same suite on the hosted runner.
-    # A same-repository run takes blacksmith-4vcpu-ubuntu-2404 by name, not RUNNER_POOLS.linux_16: on
-    # 2026-11-18 the pool writer marked 8, 16 and 32 vCPU dead and linux_16 held 2 vCPU, where these
-    # shards and react-apps-base-early queued over an hour (run 44304196887 attempt 2) while 4 vCPU
-    # started them. The widths and minutes below fit the runner the job gets.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A same-repository run reads the 4 vCPU pool (RUNNER_POOLS.linux_4), not linux_16: on 2026-11-18 the
+    # pool writer marked 8, 16 and 32 vCPU dead and linux_16 held 2 vCPU, where these shards and
+    # react-apps-base-early queued over an hour (run 44304196887 attempt 2) while 4 vCPU started them.
+    # The widths and minutes below fit whatever size the pool holds.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -435,11 +435,13 @@ jobs:
     # shard at 12, for about 9% more runner minutes (12 x 820 s against 8 x 1133 s).
     # The widths in Test webviews are declared for 16 vCPU (CMUX_WEB_TEST_SIZED_FOR_VCPU); a runner
     # with fewer cores runs its files at that share of them, so a shard on 4 vCPU runs 2 at a time,
-    # about 4x the 690 s of tests plus a slower setup. 40 min is the 16 vCPU arm's (a fork pull
-    # request); the 4 vCPU arms get 90. At 40, every shard of run 44249075431 (attempt 2) and shards
-    # 1, 4, 6 and 8 of run 44258208231 hit the limit on small runners, still testing. The anchor hands
-    # these minutes to Test webviews, whose retry deadline is measured from them.
-    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 40 || 90 }}
+    # about 4x the 690 s of tests plus a slower setup, and on 2 vCPU 1 at a time, about 8x. 40 min is
+    # the 16 vCPU arm's (a fork pull request); the 4 vCPU arms get 90, and 150 while the linux_4 pool
+    # holds 2 vCPU. At 40, every shard of run 44249075431 (attempt 2) and shards 1, 4, 6 and 8 of run
+    # 44258208231 hit the limit on small runners, still testing. A fork's run reads no variables, so
+    # its arms come first. The anchor hands these minutes to Test webviews, whose retry deadline is
+    # measured from them.
+    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 40 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -813,7 +815,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     continue-on-error: true
     # Under the head shards' 40: a stuck early shard must not hold the base check past what its own replay costs.
     timeout-minutes: 25
@@ -959,7 +961,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55

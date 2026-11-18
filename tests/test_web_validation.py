@@ -219,8 +219,8 @@ class WebValidationTests(unittest.TestCase):
         (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324, running as many
         files at once as a 16 vCPU runner. On 2026-11-18 RUNNER_POOLS.linux_16 held 2 vCPU after its
         writer marked the large sizes dead: shards ran 8 files at once there into the 40 min limit
-        (run 44249075431) or queued over an hour (run 44304196887). The shards now take the 4 vCPU
-        label by name, run the declared 16 vCPU widths at the share of cores the runner has
+        (run 44249075431) or queued over an hour (run 44304196887). The shards now read the 4 vCPU
+        pool (linux_4), run the declared 16 vCPU widths at the share of cores the runner has
         (CMUX_WEB_TEST_SIZED_FOR_VCPU, run-webviews-tests.sh), and get the minutes that takes
         (tests/test_webviews_test_history.py ShardSize evaluates each arm)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
@@ -230,11 +230,12 @@ class WebValidationTests(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertNotIn("RUNNER_POOLS", runs_on)
-        self.assertTrue(runs_on.endswith("|| 'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("linux_16", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
-        for vcpu in re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'", runs_on):
-            self.assertLessEqual(int(vcpu), sized_for, "the widths only narrow to fit a runner, never widen")
+        sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
+        for vcpu in (int(a or b) for a, b in sizes):
+            self.assertLessEqual(vcpu, sized_for, "the widths only narrow to fit a runner, never widen")
         self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", block)
 
     def test_webviews_tests_shard_on_wide_runners(self):
@@ -255,7 +256,7 @@ class WebValidationTests(unittest.TestCase):
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
         self.assertEqual(len(shards), 12)
-        self.assertIn("'blacksmith-4vcpu-ubuntu-2404' }}", block)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
