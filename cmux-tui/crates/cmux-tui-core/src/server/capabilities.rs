@@ -104,6 +104,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
+        capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -294,6 +296,7 @@ pub(super) fn advertised_capabilities(
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
         SIZE_LEASE_CAPABILITY,
+        SIZE_LEASE_V2_CAPABILITY,
         crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
         HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,
