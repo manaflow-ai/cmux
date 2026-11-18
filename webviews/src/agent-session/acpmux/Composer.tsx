@@ -683,6 +683,10 @@ function ComposerFrame({
     },
     [prompt],
   );
+  // Focus leaving the queued prompts goes back to the prompt. One function for the composer's life:
+  // ComposerFrame renders on every key (its text is its state), and the queue is memoised, so a new
+  // function here drew the queue and laid out its rows on each key.
+  const leaveQueue = useCallback(() => field.current?.focus(), []);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
@@ -2815,7 +2819,7 @@ function ComposerFrame({
         onSideChat={onQueueSideChat}
         readImage={queueImage}
         commands={commands}
-        onLeave={() => field.current?.focus()}
+        onLeave={leaveQueue}
       />
       {context}
       {dropHost && (

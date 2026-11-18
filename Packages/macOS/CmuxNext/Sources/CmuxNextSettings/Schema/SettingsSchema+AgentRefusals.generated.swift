@@ -149,6 +149,8 @@ extension SettingsSchema {
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,
+        // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
+        "agents.mcpServers.enabled": .network,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Settling moves the person's chats off their lists: whether and when is their call, not an agent's.
