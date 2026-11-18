@@ -3,7 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
@@ -245,22 +245,53 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
         <>
           <h3 className="group-title">{devices.activity_title}</h3>
           <div className="rows" data-device-activity="">
-            {devices.activity.map((entry, index) => (
-              <div className="row" key={`${entry.time}-${index}`}>
-                <div className="row-label">
-                  <div className="row-title">
-                    {entry.what} {entry.subject}
-                  </div>
-                  <div className="row-help">{new Date(entry.time).toLocaleString()}</div>
-                </div>
-              </div>
-            ))}
+            {activityKeys(devices.activity).map((key, index) => {
+              const entry = devices.activity[index]!;
+              return <ActivityRow key={key} time={entry.time} what={entry.what} subject={entry.subject} />;
+            })}
           </div>
         </>
       )}
     </section>
   );
 }
+
+/**
+ * Each activity line's key: what it says, with a count for a repeat. The host sends the last 8 lines
+ * (DeviceDirectory's `device audit --limit 8`), so a new line drops the oldest and shifts the
+ * others' indexes; a key from the content keeps the lines already drawn mounted.
+ */
+function activityKeys(activity: DevicesHostState["activity"]): string[] {
+  const seen = new Map<string, number>();
+  return activity.map((entry) => {
+    const base = `${entry.time}\u0000${entry.what}\u0000${entry.subject}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}\u0000${count}`;
+  });
+}
+
+/** One activity line. Its props are strings, so a host change or a device row's gesture skips it. */
+const ActivityRow = memo(function ActivityRow({
+  time,
+  what,
+  subject,
+}: {
+  time: string;
+  what: string;
+  subject: string;
+}) {
+  return (
+    <div className="row">
+      <div className="row-label">
+        <div className="row-title">
+          {what} {subject}
+        </div>
+        <div className="row-help">{new Date(time).toLocaleString()}</div>
+      </div>
+    </div>
+  );
+});
 
 /**
  * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
