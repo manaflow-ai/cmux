@@ -830,8 +830,9 @@ struct SessionScrollbackCheckpointPersisterTests {
         gate.signal()
         // A caller that timed out may still be finishing on the queue; join it
         // before the fixture teardown rather than race it, and fail loudly if
-        // even the open gate couldn't flush it out.
-        let callerJoined = returned.wait(timeout: .now() + 5) == .success
+        // even the open gate couldn't flush it out. Skip the second wait when
+        // the first already consumed the signal — it would just burn 5 s.
+        let callerJoined = finishedWithoutBlocking || returned.wait(timeout: .now() + 5) == .success
         queue.sync {}
         #expect(finishedWithoutBlocking)
         #expect(callerJoined)
@@ -858,16 +859,21 @@ struct SessionScrollbackCheckpointPersisterTests {
             persistReturned.signal()
         }
         let returnedWhileQueued = persistReturned.wait(timeout: .now() + 5) == .success
-        let invalidatedBeforeDrain = try !FileManager.default.fileExists(
-            atPath: store.fileURL(panelId: removed).path
-        ) && !asideNames(store, panelId: removed).isEmpty
+        // Read the pre-drain state inside a Result: a listing failure must not
+        // skip the gate release and leave the queue parked under teardown.
+        let invalidatedBeforeDrain = Result {
+            try !FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path)
+                && !asideNames(store, panelId: removed).isEmpty
+        }
         gate.signal()
-        let callerJoined = persistReturned.wait(timeout: .now() + 5) == .success
+        // Join only a caller that hadn't returned — an already-consumed signal
+        // has nothing left to wait on and would just burn the timeout.
+        let callerJoined = returnedWhileQueued || persistReturned.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
         #expect(returnedWhileQueued)
         #expect(callerJoined)
-        #expect(invalidatedBeforeDrain)
+        #expect(try invalidatedBeforeDrain.get())
         #expect(store.loadRecords(panelIds: [removed]).isEmpty)
         #expect(try asideNames(store, panelId: removed).isEmpty)
     }
@@ -893,6 +899,9 @@ struct SessionScrollbackCheckpointPersisterTests {
         let other = UUID()
         store.apply(.init(captures: [capture(panel), capture(other)], removals: [], livePanelIds: nil))
         #expect(store.invalidate(panelId: panel))
+        // Prune must have a real aside to sweep or the final assertions are
+        // vacuous — an invalidate that only unlinked would pass them too.
+        #expect(try asideNames(store, panelId: panel).count == 1)
 
         store.apply(.init(captures: [], removals: [], livePanelIds: [panel, other]))
 
@@ -936,7 +945,8 @@ struct SessionScrollbackCheckpointPersisterTests {
         }
         let removalReturnedWhileQueued = removalReturned.wait(timeout: .now() + 5) == .success
         gate.signal()
-        let removalCallerJoined = removalReturned.wait(timeout: .now() + 5) == .success
+        let removalCallerJoined = removalReturnedWhileQueued
+            || removalReturned.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
         #expect(removalReturnedWhileQueued)
