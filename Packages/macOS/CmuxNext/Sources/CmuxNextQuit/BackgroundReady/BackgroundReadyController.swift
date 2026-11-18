@@ -65,8 +65,9 @@ public final class BackgroundReadyController: BackgroundStay {
     /// Hidden by this feature (Keep Windows' windows still have their controllers).
     public var isHidden: Bool { hidden != nil }
 
-    /// Quit Completely is offered (the app menu's Option-alternate, the menu bar items) while the setting is on.
-    public var offersQuitCompletely: Bool { mode != .off }
+    /// Quit Completely is offered (the app menu's Option-alternate, the menu bar items) while the setting keeps a
+    /// hidden copy (After Quit, After Quit and at Login; not Off, not Warm at Login, which keeps nothing running).
+    public var offersQuitCompletely: Bool { BackgroundReadyRules.offersQuitCompletely(mode) }
 
     // MARK: BackgroundStay
 
@@ -270,7 +271,8 @@ public final class BackgroundReadyController: BackgroundStay {
 
     /// Each time the setting changes (and at the first load): Quit Completely joins the app menu (Quit's
     /// Option-alternate) and the menu bar item's menu while it is on, and the login item is registered while
-    /// the library says so (`registersLoginItem` false, an agent-launched build, leaves login items alone).
+    /// the library says so, and so is the login-time pre-read agent (Warm at Login) (`registersLoginItem` false,
+    /// an agent-launched build, leaves login items and the agent alone).
     public func follow(_ settings: SettingsController, registersLoginItem: Bool) {
         settingFollow?.cancel()
         // task-owner: replaced by the next follow; ends with the app's services.
@@ -280,10 +282,25 @@ public final class BackgroundReadyController: BackgroundStay {
             for await value in ObservationStream({ BackgroundReadySetting.value(in: settings.snapshot.root) }) {
                 let mode = BackgroundReadyRules.mode(value)
                 guard let self, let host = self.host else { return }
-                BackgroundReadyMenu.place(registry: host.registry, shown: mode != .off)
-                host.menuBarExtra.offersQuitCompletely = mode != .off
-                if registersLoginItem { BackgroundReadyLoginItem.apply(registers: BackgroundReadyRules.registersLoginItem(mode)) }
+                let offers = BackgroundReadyRules.offersQuitCompletely(mode)
+                BackgroundReadyMenu.place(registry: host.registry, shown: offers)
+                host.menuBarExtra.offersQuitCompletely = offers
+                if registersLoginItem {
+                    BackgroundReadyLoginItem.apply(registers: BackgroundReadyRules.registersLoginItem(mode))
+                    self.applyPrereadAgent(BackgroundReadyRules.registersPrereadAgent(mode))
+                }
             }
+        }
+    }
+
+    /// Registers or unregisters the login-time pre-read agent (``BackgroundReadyPrereadAgent``) and logs what changed.
+    private func applyPrereadAgent(_ registers: Bool) {
+        let outcome = BackgroundReadyPrereadAgent.app().apply(registers: registers)
+        switch outcome {
+        case .unchanged: break
+        case .failed(let reason):
+            logger.error("pre-read agent \(registers ? "register" : "unregister", privacy: .public) failed: \(reason, privacy: .public)")
+        default: logger.notice("pre-read agent: \(String(describing: outcome), privacy: .public)")
         }
     }
 }

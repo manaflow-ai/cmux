@@ -69,15 +69,16 @@ extension GeneralSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.app.backgroundReady", "Stay Ready in the Background"),
-                help: SettingsText.keyed("settings.app.backgroundReady.help", "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory."),
+                help: SettingsText.keyed("settings.app.backgroundReady.help", "After Quit, cmux keeps running hidden, so it opens instantly. Uses more memory. Warm at Login keeps nothing running: at login, a small reader loads cmux’s code into memory and exits, so the first open after a restart is faster."),
                 summary: SettingsText.keyed("settings.app.backgroundReady.summary", "Runs hidden after Quit to open instantly, at a memory cost"),
                 kind: .choice([
                     SettingChoice("off", SettingsText.keyed("settings.choice.backgroundReadyOff", "Off")),
+                    SettingChoice("warmAtLogin", SettingsText.keyed("settings.choice.backgroundReadyWarmAtLogin", "Warm at Login")),
                     SettingChoice("afterQuit", SettingsText.keyed("settings.choice.backgroundReadyAfterQuit", "After Quit")),
                     SettingChoice("afterQuitAndLogin", SettingsText.keyed("settings.choice.backgroundReadyAfterQuitAndLogin", "After Quit and at Login")),
                 ]),
                 default: .string(BackgroundReadySetting.fallback),
-                keywords: ["background", "ready", "instant", "fast", "launch", "startup", "quit", "hidden", "login", "memory"]
+                keywords: ["background", "ready", "instant", "fast", "launch", "startup", "quit", "hidden", "login", "memory", "warm", "preload", "restart"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.showMenuBarIconPath,
