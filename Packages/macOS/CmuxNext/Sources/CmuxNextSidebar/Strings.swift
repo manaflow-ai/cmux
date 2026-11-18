@@ -16,6 +16,7 @@ enum Strings {
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     /// This Mac's machine header button: its tooltip and VoiceOver label.
     static var shareScreen: String { String(localized: "sidebar.machine.shareScreen", defaultValue: "Share screen", bundle: .module) }
+    static var sharingScreen: String { String(localized: "sidebar.machine.sharingScreen", defaultValue: "Sharing screen", bundle: .module) }
     /// A Cloud machine or authenticated Mac header's button: its tooltip and VoiceOver label.
     static var viewScreen: String { String(localized: "sidebar.machine.viewScreen", defaultValue: "View screen", bundle: .module) }
     /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).

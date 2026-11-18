@@ -3,10 +3,11 @@
 // (NewTabSparePool) and dispatches the real one at the key (AgentPaneView.adoptNewTab). WebKit runs
 // that script before any key the user types after Cmd-T, so the screen (kept, or remounted for
 // another context) gets every key.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
+import { lacksSharedPart, wholeNewTab } from "./sharedPart";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { keepHandedTail } from "../tailCache";
 
@@ -156,7 +157,8 @@ export function withHandshakeNewTab(
 ): NewTabHost | undefined {
   if (!current) return current;
   const cwd = !current.cwd && typeof handshake.cwd === "string" && handshake.cwd ? handshake.cwd : undefined;
-  const newTab = handshake.newTab;
+  // The handshake's own part joined with the shared part: the actions are in the shared part (sharedPart.ts).
+  const newTab = wholeNewTab(handshake.newTab);
   const omnibar = typeof newTab === "object" && newTab !== null ? (newTab as { omnibar?: unknown }).omnibar : undefined;
   const actions =
     !current.omnibar?.actions?.length && typeof omnibar === "object" && omnibar !== null
@@ -168,6 +170,51 @@ export function withHandshakeNewTab(
     ...(cwd ? { cwd } : {}),
     ...(actions?.length ? { omnibar: { ...(current.omnibar ?? EMPTY_OMNIBAR), actions } } : {}),
   };
+}
+
+/// `current` with the shared part of `whole` (the kinds' chords, the project folders, the design and the
+/// bar's lists but its open tabs): what a context that came as the page's own part alone lacked. The page's
+/// own part stays as it is.
+export function withSharedPart(current: NewTabHost | undefined, whole: NewTabHost): NewTabHost | undefined {
+  if (!current) return current;
+  const { projects, omnibar } = whole;
+  return {
+    ...current,
+    hotkeys: whole.hotkeys,
+    layout: whole.layout,
+    ...(projects ? { projects } : {}),
+    ...(omnibar ? { omnibar: { ...omnibar, tabs: current.omnibar?.tabs ?? omnibar.tabs } } : {}),
+  };
+}
+
+/// A context that came as the page's own part, while the document has no shared part for it (`lacksSharedPart`:
+/// the host's mark and the document differ, a lost state): the page asks for its context again, and
+/// `newTab.context`'s answer always carries the shared part. `update` takes it into the shown page in place
+/// (`withSharedPart`). Each adopt event is checked here; the returned check is for a context that a reply
+/// carried (the handshake).
+export function useLostSharedPart(
+  callNative: (method: string) => Promise<unknown>,
+  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
+): (newTab: unknown) => void {
+  const check = useCallback(
+    (newTab: unknown) => {
+      if (!lacksSharedPart(newTab)) return;
+      void callNative("newTab.context").then(
+        (reply) => {
+          const whole = newTabHost({ newTab: (reply as { newTab?: unknown } | null)?.newTab });
+          if (whole) update((host) => withSharedPart(host, whole));
+        },
+        () => {},
+      );
+    },
+    [callNative, update],
+  );
+  useEffect(() => {
+    const handle = (event: Event) => check((event as CustomEvent).detail);
+    window.addEventListener(NEW_TAB_ADOPT_EVENT, handle);
+    return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);
+  }, [check]);
+  return check;
 }
 
 /// The screen two contexts draw is the same: they differ at most in the input token (each Cmd-T has

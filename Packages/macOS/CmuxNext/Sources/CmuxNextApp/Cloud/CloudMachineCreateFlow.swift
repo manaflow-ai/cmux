@@ -77,6 +77,7 @@ struct CloudMachineCreateFlow {
     var pause: @MainActor (_ attempt: Int) async throws -> Void
     /// Rust checks the selected backend's capabilities before an option-bearing create is sent.
     var validateOptions: @MainActor (_ params: JSONValue) async throws -> Void = { _ in }
+    var beside: @MainActor () async -> Void = {} // runs beside the first call (a create's `user.ensure`), awaited before an approval is answered and before an answer returns, so nothing the approved op runs goes ahead of it
     var newKey: () -> String = { UUID().uuidString }
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
@@ -151,10 +152,11 @@ struct CloudMachineCreateFlow {
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?
-        var attempt = 0
+        var attempt = 0; let ensure = self.beside
+        async let besideDone: Void = ensure()
         for _ in 0...max(retries, 0) {
             do {
-                return try await run(op, args, key, .user)
+                let answer = try await run(op, args, key, .user); await besideDone; return answer
             } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
                 guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
                 if approved == nil, request == earlier { approved = request }
@@ -171,7 +173,7 @@ struct CloudMachineCreateFlow {
                 }
                 onAnswering(request)
                 do {
-                    try await approve(request, op, args)
+                    await besideDone; try await approve(request, op, args)
                 } catch let failure as CloudApprovalAnswer.Failure
                             where failure.alreadyAnswered(request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the

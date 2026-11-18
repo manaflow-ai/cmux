@@ -23,6 +23,8 @@ mod clone_wait;
 mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "send_wait_tests.rs"]
+mod send_wait;
 
 /// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
 /// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
