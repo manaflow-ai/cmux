@@ -5,6 +5,8 @@
 // one block per change, and a click goes back as a call the host checks against the person's own
 // gesture and the rows it sent. The page only draws and reports.
 
+import { parseVisibleSlice, sliceBand, strideRange, type VisibleSlice } from "../../ui/visibleSlice";
+
 export const SidebarChatsOps = {
   /** Stream: the block to draw, with a new `revision` on every change. */
   block: "cmux.sidebarChats.block",
@@ -106,39 +108,22 @@ export function rowLabel(row: SidebarChatRow): string {
   return [row.title, row.harness, row.meta].filter((part): part is string => !!part).join(", ");
 }
 
-/** The visible part of the block's page, in CSS px from its top (`SidebarChatsOps.slice`). */
-export interface SidebarChatsSlice {
-  revision: number;
-  top: number;
-  height: number;
-}
+/** The visible part of the block's page, in CSS px from its top (`SidebarChatsOps.slice`): the shared
+ * visible slice (ui/visibleSlice.ts). */
+export type SidebarChatsSlice = VisibleSlice;
 
 /** The rows a slice mounts, `[start, end)` over `block.rows`: those that meet `[top - height, top + 2 * height]`
  * (one slice height of overscan each side). Each row takes `row + spacing` under the header, as `blockHeight`
  * counts it. A slice of height 0 (scrolled out) mounts none. */
 export function sliceRange(block: SidebarChatsBlock, slice: SidebarChatsSlice): { start: number; end: number } {
   const count = block.folded ? 0 : block.rows.length;
-  if (slice.height <= 0 || count === 0) return { start: 0, end: 0 };
-  const { header, row, spacing } = block.metrics;
-  const stride = row + spacing;
-  if (!(stride > 0)) return { start: 0, end: count };
-  const low = slice.top - slice.height - header;
-  const high = slice.top + 2 * slice.height - header;
-  // Row i spans [i * stride, (i + 1) * stride); it meets [low, high] when it starts before high and ends after low.
-  const start = Math.min(count, Math.max(0, Math.floor(low / stride)));
-  const end = Math.min(count, Math.max(start, Math.ceil(high / stride)));
-  return { start, end };
+  const band = sliceBand(slice, block.metrics.header);
+  if (!band || count === 0) return { start: 0, end: 0 };
+  return strideRange(count, block.metrics.row + block.metrics.spacing, band);
 }
 
-/** A slice event from the host, checked: anything that is not one (a missing or non-finite field, a negative
- * height) is dropped. */
-export function parseSlice(data: unknown): SidebarChatsSlice | null {
-  if (!data || typeof data !== "object") return null;
-  const { revision, top, height } = data as Record<string, unknown>;
-  const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-  if (!finite(revision) || !finite(top) || !finite(height) || height < 0) return null;
-  return { revision, top, height };
-}
+/** A slice event from the host, checked (`parseVisibleSlice`). */
+export const parseSlice: (data: unknown) => SidebarChatsSlice | null = parseVisibleSlice;
 
 /** A block event from the host, checked: anything that is not one is dropped. */
 export function parseBlock(data: unknown): SidebarChatsBlock | null {

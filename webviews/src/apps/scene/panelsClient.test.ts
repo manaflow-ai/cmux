@@ -52,6 +52,8 @@ class Host implements PageClient {
       this.changed = () => callback(undefined as E, 1);
       return this.changedReady;
     }
+    // A host from before the slice stream.
+    if (stream === "cmux.apps.panels.slice") throw pageError("cmux.protocol.unknown_op", stream);
     expect(filter).toEqual({ mount_id: "mount-a" });
     this.scene = callback as (event: SceneEvent, seq: number) => void;
     return this.sceneReady;

@@ -1,4 +1,5 @@
-import type { PageClient } from "../../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../../pages/shared/pageClient";
+import { parseVisibleSlice, type VisibleSlice } from "../../ui/visibleSlice";
 import type { SceneAssetResolver } from "./SceneRenderer";
 import { SceneStore, type SceneOp } from "./store";
 
@@ -11,6 +12,34 @@ export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInf
 export type SceneEvent =
   | { mount_id: string; ops: SceneOp[]; reset?: boolean }
   | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+/** Stream, host to page, filtered by `{mount_id}`: `{mount_id, revision, top, height}` in CSS px, the part of
+ * the mount's scene in sight (`height` 0: scrolled out) while the host scrolls the panel outside the page
+ * (ui/visibleSlice.ts). `revision` only grows. A LazyVStack over its whole-draw cap then mounts only the
+ * children near it; before the first, or against a host without the stream, the scene draws whole. */
+export const APP_PANELS_SLICE = "cmux.apps.panels.slice";
+
+/** The host's last visible slice of one mount (null before the first), for `useSyncExternalStore`. */
+export class VisibleSliceInput {
+  private slice: VisibleSlice | null = null;
+  private readonly listeners = new Set<() => void>();
+  get = (): VisibleSlice | null => this.slice;
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+  /** Takes a slice event; drops one that is not a slice, is older than the last, or changes nothing. */
+  show(data: unknown): void {
+    const next = parseVisibleSlice(data);
+    const last = this.slice;
+    if (!next || (last && next.revision < last.revision)) return;
+    if (last && last.revision === next.revision && last.top === next.top && last.height === next.height) return;
+    this.slice = next;
+    for (const listener of this.listeners) listener();
+  }
+}
+
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
   panel: AppPanel;
@@ -22,8 +51,11 @@ export type MountedPanel = {
   layout: (height: number) => void;
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
+  /** The part of the scene the host shows (`APP_PANELS_SLICE`); null until the host sends one. */
+  visibleSlice?: VisibleSliceInput;
 };
 type Entry = MountedPanel & {
+  visibleSlice: VisibleSliceInput;
   cancelled: boolean;
   failed: boolean;
   mountId?: string;
@@ -32,6 +64,7 @@ type Entry = MountedPanel & {
   height?: number;
   sentHeight?: number;
   unsubscribe?: () => void;
+  unsubscribeSlice?: () => void;
 };
 
 /** A bundle-relative path (already checked by the renderer) under the host's asset base, each
@@ -180,6 +213,7 @@ export class AppPanelsClient {
             this.sendLayout(created);
           },
           resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
+          visibleSlice: new VisibleSliceInput(),
         };
         entry = created;
         this.entries.set(id, entry);
@@ -195,6 +229,7 @@ export class AppPanelsClient {
         reload: entry.reload,
         layout: entry.layout,
         resolveAsset: entry.resolveAsset,
+        visibleSlice: entry.visibleSlice,
       };
     });
     if (
@@ -242,6 +277,7 @@ export class AppPanelsClient {
       else {
         entry.unsubscribe = stop;
         this.sendLayout(entry);
+        this.watchSlice(entry, mountId);
       }
     } catch (error) {
       entry.failed = true;
@@ -249,6 +285,24 @@ export class AppPanelsClient {
       if (!entry.cancelled) entry.store.setStatus("failed", error instanceof Error ? error.message : String(error));
       this.unmount(entry); // A failed scene subscription must not leave a daemon mount alive.
     }
+  }
+
+  /** The host's slice stream for this mount, when it has one; without it the scene draws whole. */
+  private watchSlice(entry: Entry, mountId: string): void {
+    void this.client
+      ?.subscribe<unknown>(
+        APP_PANELS_SLICE,
+        (event) => {
+          if (!entry.cancelled && (event as { mount_id?: unknown } | null)?.mount_id === mountId)
+            entry.visibleSlice.show(event);
+        },
+        { mount_id: mountId },
+      )
+      .then((stop) => (entry.cancelled ? stop() : (entry.unsubscribeSlice = stop)))
+      .catch((error: unknown) => {
+        if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
+        console.error("app panels: no slice stream", error);
+      });
   }
 
   private sendLayout(entry: Entry): void {
@@ -269,6 +323,8 @@ export class AppPanelsClient {
     entry.cancelled = true;
     entry.unsubscribe?.();
     entry.unsubscribe = undefined;
+    entry.unsubscribeSlice?.();
+    entry.unsubscribeSlice = undefined;
     this.unmount(entry);
   }
 }

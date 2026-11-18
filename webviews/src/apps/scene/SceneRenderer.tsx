@@ -4,14 +4,19 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
+  type RefObject,
 } from "react";
+import { useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
+import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
 import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
@@ -22,9 +27,33 @@ export type SceneDispatch = (node: string, event: string, payload?: unknown) => 
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
  * App-supplied URLs are never passed directly to an image. */
 export type SceneAssetResolver = (bundlePath: string) => string | undefined;
-type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
+type NodeProps = {
+  id: string;
+  store: SceneStore;
+  dispatch: SceneDispatch;
+  /** A windowed LazyVStack's child: its place in the stack (`data-index`) and the stack's measure. */
+  index?: number;
+  measure?: (element: HTMLElement | null) => void;
+};
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+
+/** How the scene scrolls. `host: false`: the page owns a scroller around it (New Tab's `.nt-app-page`).
+ * `host: true`: the scene is as tall as its content and the host scrolls it outside the page (an app panel,
+ * whose height `layout` reports); `slice` is the part the host shows, null until it sends one. */
+type SceneScroll = { host: false } | { host: true; slice: VisibleSlice | null };
+const PAGE_SCROLL: SceneScroll = { host: false };
+const ScrollContext = createContext<SceneScroll>(PAGE_SCROLL);
+/** The scene's top: a host's slice is in CSS px from it. */
+const OriginContext = createContext<RefObject<HTMLDivElement | null> | null>(null);
+
+/** Children a LazyVStack draws whole where the host scrolls the scene and has sent no slice (or the stack is
+ * no longer than this): past it, with a slice, only the children near the slice mount. */
+export const LAZY_STACK_WHOLE_CAP = 100;
+/** The height a child of a type the stack has not measured yet takes (px). */
+const LAZY_CHILD_ESTIMATE = 28;
+/** Scenes that logged a LazyVStack over the cap drawn whole: each logs once. */
+const loggedOverCap = new WeakSet<SceneStore>();
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -343,15 +372,353 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
   }
 }
 
-const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeProps): ReactNode {
+/** A Group or ForEach that only places its children inline (`display: contents`, and no style, menu, tap,
+ * help or disabled of its own that its children would inherit): a windowed LazyVStack lays its children out
+ * as its own, so `LazyVStack(ForEach(...))` windows the rows. */
+function isInline(node: SceneNode | undefined): boolean {
+  return (
+    !!node &&
+    (node.type === "Group" || node.type === "ForEach") &&
+    !(Array.isArray(node.props.menu) && node.props.menu.length > 0) &&
+    node.props.onTap !== true &&
+    node.props.disabled !== true &&
+    !sceneText(node.props.help) &&
+    Object.values(sceneStyle(node.props)).every((value) => value === undefined)
+  );
+}
+
+/** A LazyVStack's children with its inline Groups and ForEaches opened, kept as one array until they
+ * change (once per children change, never per scroll). It watches the Groups and ForEaches it met. */
+class StackItems {
+  private children: readonly string[] = [];
+  private items: readonly string[] = [];
+  private stale = true;
+  private containers = new Set<string>();
+  private readonly watched = new Map<string, () => void>();
+  private listener: (() => void) | undefined;
+
+  constructor(private readonly store: SceneStore) {}
+
+  setChildren(children: readonly string[]): void {
+    if (children === this.children) return;
+    this.children = children;
+    this.stale = true;
+  }
+
+  get = (): readonly string[] => {
+    if (this.stale) this.compute();
+    return this.items;
+  };
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listener = listener;
+    this.watch();
+    return () => {
+      this.listener = undefined;
+      for (const stop of this.watched.values()) stop();
+      this.watched.clear();
+    };
+  };
+
+  private compute(): void {
+    this.stale = false;
+    const containers = new Set<string>();
+    const flat: string[] = [];
+    let opened = false;
+    const walk = (ids: readonly string[], depth: number) => {
+      for (const id of ids) {
+        const node = this.store.getNode(id);
+        if (node && (node.type === "Group" || node.type === "ForEach")) containers.add(id);
+        if (depth < 64 && isInline(node)) {
+          opened = true;
+          walk(node!.children, depth + 1);
+        } else flat.push(id);
+      }
+    };
+    walk(this.children, 0);
+    const next = opened ? flat : this.children;
+    const same = next.length === this.items.length && next.every((id, at) => id === this.items[at]);
+    if (!same) this.items = next;
+    this.containers = containers;
+    if (this.listener) this.watch();
+  }
+
+  private watch(): void {
+    for (const [id, stop] of this.watched)
+      if (!this.containers.has(id)) {
+        stop();
+        this.watched.delete(id);
+      }
+    for (const id of this.containers)
+      if (!this.watched.has(id))
+        this.watched.set(
+          id,
+          this.store.subscribeNode(id, () => {
+            this.stale = true;
+            this.listener?.();
+          }),
+        );
+  }
+}
+
+function useStackItems(store: SceneStore, children: readonly string[]): readonly string[] {
+  const source = useMemo(() => new StackItems(store), [store]);
+  source.setChildren(children);
+  return useSyncExternalStore(source.subscribe, source.get, source.get);
+}
+
+function scrollParent(element: HTMLElement | null): HTMLElement | null {
+  const view = element?.ownerDocument.defaultView;
+  if (!element || !view) return null;
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const overflow = view.getComputedStyle(parent).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") return parent;
+  }
+  return null;
+}
+
+// While the host scrolls the scene, the stack's range comes from the slice (`rangeExtractor`); TanStack only
+// needs a viewport to ask for one, and never scrolls anything.
+const hostRect = (_instance: unknown, cb: (rect: { width: number; height: number }) => void) => {
+  cb({ width: 1, height: 1 });
+};
+const hostOffset = (_instance: unknown, cb: (offset: number, isScrolling: boolean) => void) => {
+  cb(0, false);
+};
+const noScroll = () => {};
+
+/** Holds the place of unmounted children (their heights and the gaps between them). */
+function LazySpacer({ height }: { height: number }) {
+  return <div className="cmux-app-scene-lazy-spacer" aria-hidden="true" style={{ height: Math.max(0, height) }} />;
+}
+
+/** A LazyVStack's children. Inside a scroller the page owns, only the children that meet the band one
+ * viewport above and below the scroller's view mount; where the host scrolls the scene, every child draws
+ * until the stack passes `LAZY_STACK_WHOLE_CAP` and the host's slice arrives, then only those near the
+ * slice (`sliceBand`). Spacers keep each unmounted child's height and gap, so the scene's height (and the
+ * panel's `layout`) does not change. A child's height is measured once mounted; one never mounted takes
+ * the first measured height of its type. The focused child stays mounted. */
+function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: SceneStore; dispatch: SceneDispatch }) {
+  // The stack's own element, through a hidden probe in it (no flex item, so no gap): the probe's ref is set
+  // before this component's layout effects run, the stack's own only after them.
+  const probe = useRef<HTMLSpanElement | null>(null);
+  const stack = useMemo(
+    () => ({
+      get current() {
+        return probe.current?.parentElement ?? null;
+      },
+    }),
+    [],
+  );
+  const items = useStackItems(store, node.children);
+  const scroll = useContext(ScrollContext);
+  const origin = useContext(OriginContext);
+  const gap = Math.max(0, sceneNumber(node.props.spacing) ?? 0);
+  const count = items.length;
+  const slice = scroll.host ? scroll.slice : null;
+  const overCap = count > LAZY_STACK_WHOLE_CAP;
+  // The page's scroller, found once the stack is in the document (undefined until then: nothing mounts).
+  const [scroller, setScroller] = useState<HTMLElement | null | undefined>(scroll.host ? null : undefined);
+  useLayoutEffect(() => {
+    if (!scroll.host) setScroller(scrollParent(stack.current));
+  }, [scroll.host, stack]);
+  // Heights by child id, read from the whole drawing once when the first slice arrives, so the windowed
+  // stack is exactly as tall; and the first measured height of each child type.
+  const sizes = useRef(new Map<string, number>());
+  const learned = useRef(new Map<string, number>());
+  const [seeded, setSeeded] = useState(false);
+  const mode: "pending" | "whole" | "window" = scroll.host
+    ? overCap && slice && seeded
+      ? "window"
+      : "whole"
+    : scroller === undefined
+      ? "pending"
+      : scroller
+        ? "window"
+        : "whole";
+  const windowed = mode === "window";
+
+  // Once, when the first slice reaches a stack drawn whole: never again per slice or per scroll.
+  useLayoutEffect(() => {
+    if (!scroll.host || !overCap || !slice || seeded || !stack.current) return;
+    const wanted = new Set(items);
+    for (const element of stack.current.querySelectorAll<HTMLElement>("[data-app-node]")) {
+      const id = element.dataset.appNode!;
+      if (wanted.delete(id)) sizes.current.set(id, element.offsetHeight);
+    }
+    setSeeded(true);
+  }, [scroll.host, overCap, slice, seeded, stack, items]);
+
+  const drawnWholeOverCap = overCap && mode === "whole" && !(scroll.host && slice);
+  useEffect(() => {
+    if (!drawnWholeOverCap || loggedOverCap.has(store)) return;
+    loggedOverCap.add(store);
+    console.warn(
+      `app scene: a LazyVStack draws all ${count} children (over its cap of ${LAZY_STACK_WHOLE_CAP}): ` +
+        "the host sends no visible slice for this scene",
+    );
+  }, [drawnWholeOverCap, store, count]);
+
+  // Where the stack starts: in the scroller's content (the page's scroll) or under the scene's top (a slice).
+  const [margin, setMargin] = useState(0);
+  const frame = useCallback(
+    () => (scroll.host ? (origin?.current ?? null) : (scroller ?? null)),
+    [scroll.host, origin, scroller],
+  );
+  const measureMargin = useCallback(() => {
+    const element = stack.current;
+    const viewport = frame();
+    if (!windowed || !element || !viewport) return;
+    const next = scroll.host
+      ? element.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+      : element.getBoundingClientRect().top -
+        viewport.getBoundingClientRect().top +
+        viewport.scrollTop -
+        viewport.clientTop;
+    setMargin((previous) => (previous === next ? previous : next));
+  }, [windowed, stack, frame, scroll.host]);
+  useLayoutEffect(measureMargin);
+  // Content above the stack can move it: watch each box from the stack up to the frame (no per-child observer).
+  useLayoutEffect(() => {
+    const viewport = frame();
+    if (!windowed || !viewport || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureMargin);
+    for (let element: HTMLElement | null = stack.current; element; element = element.parentElement) {
+      observer.observe(element);
+      if (element === viewport) break;
+    }
+    return () => observer.disconnect();
+  }, [windowed, frame, measureMargin, stack]);
+
+  const indexOf = useMemo(() => new Map(items.map((id, index) => [id, index])), [items]);
+  const focused = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const element = stack.current;
+    if (!windowed || !element) return;
+    const childOf = (target: EventTarget | null) => {
+      let child: HTMLElement | undefined;
+      for (let at = target as HTMLElement | null; at && at !== element; at = at.parentElement)
+        if (at.dataset.index !== undefined) child = at;
+      return child?.dataset.appNode;
+    };
+    const focusIn = (event: FocusEvent) => {
+      focused.current = childOf(event.target);
+    };
+    const focusOut = (event: FocusEvent) => {
+      if (!element.contains(event.relatedTarget as Node | null)) focused.current = undefined;
+    };
+    element.addEventListener("focusin", focusIn);
+    element.addEventListener("focusout", focusOut);
+    return () => {
+      element.removeEventListener("focusin", focusIn);
+      element.removeEventListener("focusout", focusOut);
+    };
+  }, [windowed, stack]);
+
+  const itemKey = useCallback((index: number) => items[index]!, [items]);
+  const instance = useRef<Virtualizer<HTMLElement, HTMLElement> | null>(null);
+  const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
+    count,
+    enabled: windowed,
+    getScrollElement: () => (scroll.host ? stack.current : (scroller ?? null)),
+    estimateSize: (index) => {
+      const id = items[index]!;
+      return sizes.current.get(id) ?? learned.current.get(store.getNode(id)?.type ?? "") ?? LAZY_CHILD_ESTIMATE;
+    },
+    getItemKey: itemKey,
+    gap,
+    scrollMargin: margin,
+    overscan: 0,
+    ...(scroll.host && { observeElementRect: hostRect, observeElementOffset: hostOffset, scrollToFn: noScroll }),
+    rangeExtractor: (range: Range) => {
+      const self = instance.current;
+      const measured = self?.measurementsCache;
+      let band: { low: number; high: number } | null;
+      if (scroll.host) band = slice ? sliceBand(slice) : null;
+      else {
+        const height = self?.scrollRect?.height ?? 0;
+        const offset = self?.scrollOffset ?? 0;
+        band = height > 0 ? { low: offset - height, high: offset + 2 * height } : null;
+      }
+      const indexes: number[] = [];
+      if (band && measured && measured.length === range.count) {
+        const { start, end } = offsetRange(
+          range.count,
+          (index) => measured[index]!.start,
+          (index) => measured[index]!.end,
+          band,
+        );
+        for (let index = start; index < end; index++) indexes.push(index);
+      }
+      const kept = focused.current === undefined ? undefined : indexOf.get(focused.current);
+      if (kept !== undefined && kept < range.count && !indexes.includes(kept)) {
+        indexes.push(kept);
+        indexes.sort((a, b) => a - b);
+      }
+      return indexes;
+    },
+  });
+  instance.current = virtualizer;
+  const measure = useCallback(
+    (element: HTMLElement | null) => {
+      const type = element?.dataset.appType;
+      if (element && type && !learned.current.has(type)) {
+        const height = element.offsetHeight;
+        if (height > 0) learned.current.set(type, height);
+      }
+      virtualizer.measureElement(element);
+    },
+    [virtualizer],
+  );
+
+  const drawn: ReactNode[] = [<span key="probe" ref={probe} hidden />];
+  if (mode === "pending") return drawn;
+  if (!windowed) {
+    // Drawn whole as a VStack draws, its Groups and ForEaches kept.
+    for (const id of node.children) drawn.push(<SceneNodeView key={id} id={id} store={store} dispatch={dispatch} />);
+    return drawn;
+  }
+  const virtual = virtualizer.getVirtualItems();
+  const total = virtualizer.getTotalSize();
+  if (!virtual.length) {
+    if (count) drawn.push(<LazySpacer key="lead" height={total} />);
+    return drawn;
+  }
+  let previous: (typeof virtual)[number] | undefined;
+  for (const item of virtual) {
+    if (!previous && item.index > 0) drawn.push(<LazySpacer key="lead" height={item.start - margin - gap} />);
+    else if (previous && item.index > previous.index + 1)
+      drawn.push(<LazySpacer key={`before:${item.key}`} height={item.start - previous.end - 2 * gap} />);
+    drawn.push(
+      <SceneNodeView
+        key={item.key}
+        id={items[item.index]!}
+        index={item.index}
+        measure={measure}
+        store={store}
+        dispatch={dispatch}
+      />,
+    );
+    previous = item;
+  }
+  if (previous && previous.index < count - 1)
+    drawn.push(<LazySpacer key="tail" height={margin + total - previous.end - gap} />);
+  return drawn;
+}
+
+const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, index, measure }: NodeProps): ReactNode {
   const node = useSceneNode(store, id);
   const inheritedDisabled = useContext(DisabledContext);
+  const ref = useCallback((element: HTMLElement | null) => measure?.(element), [measure]);
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true;
-  const children = node.children.map((child) => (
-    <SceneNodeView key={child} id={child} store={store} dispatch={dispatch} />
-  ));
+  const children =
+    node.type === "LazyVStack" ? (
+      <LazyStackChildren node={node} store={store} dispatch={dispatch} />
+    ) : (
+      node.children.map((child) => <SceneNodeView key={child} id={child} store={store} dispatch={dispatch} />)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
   const style: CSSProperties = sceneStyle(props);
@@ -376,6 +743,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
     if (!disabled) dispatch(node.id, "tap");
   };
   const shared = {
+    ref,
+    "data-index": index,
     "data-app-node": node.id,
     "data-app-type": node.type,
     "data-selected": props.selected === true ? "" : undefined,
@@ -445,19 +814,34 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  hostScrolled = false,
+  visibleSlice = null,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** The host scrolls the scene outside the page (an app panel): see `SceneScroll`. */
+  hostScrolled?: boolean;
+  /** With `hostScrolled`, the part of the scene the host shows (CSS px from its top); null: none yet. */
+  visibleSlice?: VisibleSlice | null;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
+  const origin = useRef<HTMLDivElement | null>(null);
+  const scroll = useMemo<SceneScroll>(
+    () => (hostScrolled ? { host: true, slice: visibleSlice } : PAGE_SCROLL),
+    [hostScrolled, visibleSlice],
+  );
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneNodeView id={root} store={store} dispatch={dispatch} />
-        </div>
-      ) : null}
+      <ScrollContext.Provider value={scroll}>
+        <OriginContext.Provider value={origin}>
+          {root ? (
+            <div ref={origin} className="cmux-app-scene-root">
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </div>
+          ) : null}
+        </OriginContext.Provider>
+      </ScrollContext.Provider>
     </AssetContext.Provider>
   );
 }

@@ -16,6 +16,10 @@
   flex-direction: column;
   gap: 0;
 }
+/* Holds the place of a LazyVStack's unmounted children (SceneRenderer.tsx LazySpacer). */
+.cmux-app-scene-lazy-spacer {
+  flex: none;
+}
 .cmux-app-scene-hstack {
   display: flex;
   flex-direction: row;
