@@ -250,6 +250,8 @@ struct NewTabIdlePageBySelectionTests {
             try await PasswordManagerRouteTests.until({ controller.content.map { $0 !== left && $0.focusedPane != nil } == true },
                                                       within: .seconds(5), report: { "setup: the window shows no focused pane of the key's workspace" })
             await NewTabPageAtItsFrameTests.frame(services)
+            // The run loop can pass the key, the swap and both frames with no rest: the row waits for one commit at least.
+            _ = try? await PasswordManagerRouteTests.until({ commits.all > 0 }, within: .seconds(5), report: { "no commit of the run loop" })
             commits.counts = false
             let took = Self.showsPage(page, controller, services)
             let built = Self.pages(services).filter { view in !before.contains { $0 === view } }.count
@@ -263,7 +265,7 @@ struct NewTabIdlePageBySelectionTests {
                 pane was empty when the key's call returned: \(inTheKeysCall); commits of the run loop from the key on: \
                 \(commits.all), of them with the left workspace in the window and its pane empty: \(commits.withAnEmptyPane)
                 """)
-            try #require(commits.all > 0, "the row saw no commit of the run loop after the key")
+            #expect(commits.all > 0, "the row saw no commit of the run loop in 5 s after the key")
             #expect(!stillShown || keptAtTheReturn, "when the New Workspace key's call returned, the window still showed the left workspace, and the tab that its pane has selected had lost its page view")
             #expect(!inTheKeysCall, "the New Workspace key took the page view out of the pane that it leaves before the window's swap")
             #expect(commits.withAnEmptyPane == 0, "\(commits.withAnEmptyPane) of \(commits.all) commits after the key had the left workspace in the window with an empty pane")
