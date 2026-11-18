@@ -62,11 +62,8 @@ class KernelFreeMacRouteTests(unittest.TestCase):
             self.assertIn("github.repository == 'manaflow-ai/cmux'", jobs[name]["if"])
 
     def test_the_mac_job_runs_on_the_owned_side_light_pool(self) -> None:
-        runs_on = str(document()["jobs"][MAC_JOB]["runs-on"])
-        self.assertIn(f"'{MAC_LABEL}'", runs_on)
-        # No caller-chosen label and no paid label reaches the Mac job.
-        self.assertNotIn("inputs.", runs_on)
-        self.assertNotIn("blacksmith-", runs_on)
+        # The one owned label: no caller-chosen label, variable or paid label reaches the Mac job.
+        self.assertEqual(document()["jobs"][MAC_JOB]["runs-on"], MAC_LABEL)
 
     def test_the_mac_job_holds_no_secret_or_write_token(self) -> None:
         job = document()["jobs"][MAC_JOB]
