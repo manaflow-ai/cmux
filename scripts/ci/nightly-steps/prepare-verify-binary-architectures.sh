@@ -31,9 +31,10 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
       [ "$archs" = "$NIGHTLY_VARIANT" ]
     fi
   done
-  # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
-  helpers=("$APP/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
-  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Screen Sharing.app" >&2; exit 1; }
+  # And the screen sharing executable, inside the Computer Use helper (one permission identity:
+  # scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use).
+  helpers=("$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing")
+  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing" >&2; exit 1; }
   for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
