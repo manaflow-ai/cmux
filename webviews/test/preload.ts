@@ -108,6 +108,11 @@ if (!("Element" in scope)) {
   const { chromium, firefox, webkit } = await import("playwright");
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
+  // The perf budgets that count (element children under one element, live intervals) in every page
+  // a browser test opens, failing the file above test/perf-budget-baseline.tsv
+  // (support/perfBudgetGate.ts). A file that opens no browser never sees it.
+  const { installPerfBudgetGate } = await import("./support/perfBudgetGate");
+  installPerfBudgetGate([chromium, webkit, firefox]);
 }
 
 // Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind

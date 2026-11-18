@@ -32,6 +32,10 @@
 // shift of it is not reported). `stop()` disconnects every observer, puts the timers back and
 // detaches from the hook; `pagehide` stops it too. Nothing here runs in a production bundle: the
 // dev server injects perfBudgets.dev.ts into the pages it serves (dev-server/plugins.ts).
+//
+// In the browser tests the classes that measure the same on every machine (`dom-breadth`,
+// `live-intervals`) also fail the test file: test/support/perfBudgetGate.ts starts them in every page
+// Playwright opens and checks each hit against test/perf-budget-baseline.tsv, which only shrinks.
 
 export type PerfBudgetMode = "warn" | "collect" | "throw" | "off";
 export type PerfBudgetClass =
@@ -115,6 +119,11 @@ export type PerfBudgetsOptions = {
   report?: (message: string) => void;
   /** How long a load or hot update is not budgeted (ms); tests shorten it. */
   settleMs?: number;
+  /** Only these classes start (every class otherwise): the browser test gate runs the ones that are
+   *  the same on every machine (test/support/perfBudgetGate.ts) and nothing else. */
+  classes?: readonly PerfBudgetClass[];
+  /** Called with each violation as it is found, in every mode (the gate streams them out of the page). */
+  onViolation?: (violation: PerfBudgetViolation) => void;
 };
 
 export type PerfBudgetsHandle = {
@@ -186,6 +195,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
   const doc = win.document;
   const now = () => win.performance.now();
   const settleMs = options.settleMs ?? SETTLE_MS;
+  const enabled = (kind: PerfBudgetClass) => !options.classes || options.classes.includes(kind);
   const reported = new Set<string>();
   const stops: (() => void)[] = [];
   /** Each check that waits (an observer's queue, the breadth batch), run now by flush(). */
@@ -203,6 +213,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
     const message = `${PERF_BUDGET_PREFIX} ${kind}: ${round(measured)}${unit} over the budget of ${round(budget)}${unit} at ${site}. Fix: ${FIX[kind]}.`;
     const violation = { kind, site, measured, budget, unit, fix: FIX[kind], message };
     violations.push(violation);
+    options.onViolation?.(violation);
     if (mode === "warn") report(message);
     else if (mode === "throw") throw new Error(message);
   };
@@ -218,7 +229,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
   }
 
   // live-intervals: count handles by the call site that made them.
-  {
+  if (enabled("live-intervals")) {
     const ownSet = win.setInterval;
     const ownClear = win.clearInterval;
     const ownClearTimeout = win.clearTimeout;
@@ -297,11 +308,11 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
     stillChanged,
   );
   function watchStill(element: Element) {
-    if (stillSeen.has(element)) return;
+    if (!enabled("still-surface") || stillSeen.has(element)) return;
     stillSeen.add(element);
     stillObserver.observe(element, { subtree: true, childList: true, attributes: true, characterData: true });
   }
-  {
+  if (enabled("still-surface")) {
     const input = () => {
       lastInput = now();
     };
@@ -315,7 +326,9 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
   }
 
   // dom-breadth: added subtrees and grown parents, checked in one batch a quarter second after a change.
-  {
+  // It also finds the still surfaces as they are added, so it runs for either class.
+  if (enabled("dom-breadth") || enabled("still-surface")) {
+    const breadth = enabled("dom-breadth");
     const pending = new Set<Element>();
     let overflow = false;
     let timer: number | undefined;
@@ -331,7 +344,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
         if (element.hasAttribute(PERF_BUDGET_ALLOW)) continue;
         if (element.hasAttribute(PERF_BUDGET_STILL)) watchStill(element);
         const count = element.childElementCount;
-        if (count > budgets.domChildren)
+        if (breadth && count > budgets.domChildren)
           violate("dom-breadth", describeNode(element), count, budgets.domChildren, " children");
         for (let child = element.firstElementChild; child; child = child.nextElementSibling) stack.push(child);
       }
@@ -345,14 +358,15 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
         }
         const target = record.target as Element;
         // The parent's own count, then each added subtree.
-        if (target.nodeType === 1 && target.childElementCount > budgets.domChildren && !allowed(target))
+        if (breadth && target.nodeType === 1 && target.childElementCount > budgets.domChildren && !allowed(target))
           violate("dom-breadth", describeNode(target), target.childElementCount, budgets.domChildren, " children");
         for (const node of record.addedNodes) if (node.nodeType === 1) pending.add(node as Element);
       }
       if (records.length > 0) timer ??= setTimer(check, BREADTH_DELAY_MS);
     };
     const observer = new (win as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver(changed);
-    observer.observe(doc.documentElement, { childList: true, subtree: true });
+    // The document itself, not its root element: an init script starts before there is one.
+    observer.observe(doc, { childList: true, subtree: true });
     flushes.push(() => {
       changed(observer.takeRecords());
       if (timer === undefined) return;
@@ -370,7 +384,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
   // layout-shift and long-frame: Chromium's entries, where the engine has them.
   const PO = (win as unknown as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver;
   const types = PO?.supportedEntryTypes ?? [];
-  if (PO && types.includes("layout-shift")) {
+  if (PO && types.includes("layout-shift") && enabled("layout-shift")) {
     let windowStart = 0;
     let windowSum = 0;
     const shifted = (entries: ShiftEntry[]) => {
@@ -410,7 +424,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
       // An engine that lists the type and refuses it: no shift budget.
     }
   }
-  if (PO && types.includes("long-animation-frame")) {
+  if (PO && types.includes("long-animation-frame") && enabled("long-frame")) {
     const framed = (entries: LoafEntry[]) => {
       if (doc.visibilityState !== "visible") return;
       for (const entry of entries) {
@@ -433,7 +447,7 @@ export function startPerfBudgets(win: Window = window, options: PerfBudgetsOptio
   }
 
   // react-commit: every root, through React's devtools hook (Fast Refresh keeps one in development).
-  {
+  if (enabled("react-commit")) {
     const scope = win as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__?: ReactHook };
     let hook = scope.__REACT_DEVTOOLS_GLOBAL_HOOK__;
     if (!hook) {
