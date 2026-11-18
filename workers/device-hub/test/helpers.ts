@@ -249,6 +249,8 @@ export class Device {
   signingKey!: string;
   agreementKey!: string;
   user: Peer | null = null;
+  /** The Mac it runs on, as the app sends it at registration (`machine`); unset sends none. */
+  machine: string | undefined;
 
   private constructor(
     readonly account: { userId: string; session: string },
@@ -294,6 +296,7 @@ export class Device {
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...(this.machine === undefined ? {} : { machine: this.machine }),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;

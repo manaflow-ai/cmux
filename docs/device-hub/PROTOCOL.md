@@ -83,7 +83,8 @@ devices(id TEXT PK, name, platform 'macos'|'ios'|'linux'|'windows', signing_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
         name_pinned INT 0/1, owner_kind, owner_id,
         mac_screen_chosen INT 0/1,              -- 1 once the switch was set on purpose
-        screen_share JSON NULL)                 -- the host's own cmux.screen-share.status/1
+        screen_share JSON NULL,                 -- the host's own cmux.screen-share.status/1
+        machine NULL)                           -- never listed
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
         PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
@@ -127,7 +128,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, shareByJoin?}` | `{device}` | Registers or updates this device. `shareByJoin: true` from a `machine` session (a machine the person joined, registering from its own sign-in) turns a Mac or Linux host's sharing on, unless the switch was ever set on purpose (`mac_screen_chosen`): joining is the consent, and a person's explicit off always wins, for every later join or update. From any other session it changes nothing. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machine?, shareByJoin?}` | `{device}` | Registers or updates this device. `shareByJoin: true` from a `machine` session (a machine the person joined, registering from its own sign-in) turns a Mac or Linux host's sharing on, unless the switch was ever set on purpose (`mac_screen_chosen`): joining is the consent, and a person's explicit off always wins, for every later join or update. From any other session it changes nothing. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machine` (64 lowercase hex digits, else 400) names the Mac the device runs on: the app sends the HMAC-SHA256 of `cmux.device-hub.machine\n` and the Mac's hardware UUID, keyed by 32 random bytes the first cmux app on the Mac writes to `~/Library/Application Support/cmux-device-hub/machine.key` (0600), so every build of the app and cmux Remote send the same value and no device elsewhere can compute it from the public hardware UUID. The first `machine` a device names stays; the hub never lists it. See "Permissions are per Mac". |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets and `screenShare` (the host's last report, or null). |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
@@ -191,6 +192,20 @@ signing key. Pushes reach only connected devices; there is no backlog, so a
 device refetches state after it reconnects: its devices, relays, its own
 permission list, and every other device's permission list it shows (its access
 to each host), so a change made while it was away never leaves an old value.
+
+## Permissions are per Mac
+
+A Mac gets a new device id for each tagged build of the app (its own bundle id, so its own
+Keychain items) and whenever its identity renews (`device_removed`, `device_key_mismatch`). The
+host's answer is about the Mac, so permission(host, viewer) reads the newest permission row
+(`updated_at`, which a store keeps strictly increasing) between any live device of the host's
+Mac and any live device of the viewer's Mac: the devices with the same `machine` and platform.
+A device that named no `machine` is its own Mac. A store (an `always` decision or `PUT
+/v1/permissions`) writes the scope for every pair of live devices of the two Macs, so removing
+one device, which deletes every row that names it, never brings back an older answer held by a
+sibling. Lowering a permission ends the sessions above it between any devices of the two Macs,
+and `permissions.changed` goes out for every device of the host's Mac. A Mac whose every device
+that held the answer is gone is back to `ask`.
 
 ## Session flow
 

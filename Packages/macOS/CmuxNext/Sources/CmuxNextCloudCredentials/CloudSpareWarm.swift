@@ -12,13 +12,17 @@ public import Foundation
         self.auth = auth; self.cli = cli; self.platform = platform; self.installIdentity = installIdentity
     }
 
-    /// Fires the warm; the caller never awaits it. Rust decides the team and the throttle.
-    public func start() {
+    /// Fires the warm; the caller never awaits it. Rust decides the team and the throttle. `warmed` gets the person's own
+    /// spare the warm named, with its team (``CloudSpareReadiness/prime(_:team:)`` keys and links it ahead of its claim).
+    public func start(warmed: @escaping @MainActor (_ machine: String, _ team: String?) -> Void = { _, _ in }) {
         guard let userID = auth.user?.id else { return }
         // task-owner: none; one bounded warm, its calls' own timeouts end it, and Rust's lock and throttle answer repeats.
-        Task { @MainActor [self] in
+        Task { [self] in
             guard let token = try? await auth.tokens().access, let install = try? await installIdentity.installToken(),
-                  let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
+                  let spare = await cli.startChatWarmedSpare(platform: platform, account: userID, access: token, install: install) else { return }
+            // The same account still signed in: a warm answered after a switch makes nothing ready.
+            if auth.user?.id == userID { warmed(spare.machineID, spare.team) }
+            guard let copy = spare.copy else { return }
             _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: .finished(copy.machineID))
         }
     }
