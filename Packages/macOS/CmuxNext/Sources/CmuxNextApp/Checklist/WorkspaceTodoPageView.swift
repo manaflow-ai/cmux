@@ -25,7 +25,6 @@ struct WorkspaceTodoPageView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(items) { item in
                                 WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: rowActions, work: model.listWork)
-                                    .equatable()
                             }
                         }
                         .thinScrollers()

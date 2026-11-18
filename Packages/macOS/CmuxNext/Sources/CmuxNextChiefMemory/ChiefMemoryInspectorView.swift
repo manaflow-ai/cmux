@@ -90,7 +90,6 @@ public struct ChiefMemoryInspectorView: View {
                     ForEach(hits) { hit in
                         ChiefMemoryLineRow(name: hit.name, detail: hit.type, text: hit.snippet, stale: stale.contains(hit.name),
                                            selected: selected == hit.name, open: open(hit.name), work: model.listWork)
-                            .equatable()
                             .onAppear { model.rowViewsAlive += 1 }
                             .onDisappear { model.rowViewsAlive -= 1 }
                     }
@@ -99,7 +98,6 @@ public struct ChiefMemoryInspectorView: View {
                         ChiefMemoryLineRow(name: line.name, detail: "L\(line.level)", text: line.text ?? "…",
                                            stale: line.stale || stale.contains(line.name),
                                            selected: selected == line.name, open: open(line.name), work: model.listWork)
-                            .equatable()
                             .onAppear { model.rowViewsAlive += 1 }
                             .onDisappear { model.rowViewsAlive -= 1 }
                     }
@@ -136,7 +134,6 @@ public struct ChiefMemoryInspectorView: View {
                             ChiefMemoryLineRow(name: child.name, detail: "L\(child.level)", text: child.text ?? "…",
                                                stale: stale.contains(child.name), selected: false, open: open(child.name),
                                                work: model.listWork)
-                                .equatable()
                         }
                     }
                 } else {

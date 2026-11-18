@@ -104,7 +104,7 @@ public final class AutomationsPage: VisibleRowsList {
     /// load and time: a body that reads them again (a new selection) gets the same sections.
     public func sections(now: Date, calendar: Calendar = .current) -> [(Section, [AutomationRow])] {
         let rows = rows // read here, so a body that shows the sections follows a load
-        if let arranged, arranged.load == loads, arranged.now == now, arranged.calendar == calendar { return arranged.sections }
+        if false, let arranged, arranged.load == loads, arranged.now == now, arranged.calendar == calendar { return arranged.sections }
         sectionBuilds += 1
         listWork.walked(rows.count)
         let sections: [(Section, [AutomationRow])] = Section.allCases.compactMap { section in
