@@ -36,9 +36,12 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
-               source guard, fleet host names in gallery fixtures (also on Packages/ changes)
+               source guard, fleet host names in gallery fixtures (also on Packages/ changes), lists draw
+               only visible rows (check-visible-only.py: the visible-only-* ast-grep rules, counted per file
+               against visible-only-baseline.tsv; also on Packages/Shared, Packages/iOS and cmux-next-ios changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
-               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
+               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match); not the
+               visible-only-* rules, which the visible-only scanner ratchets per file
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
                local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
@@ -205,6 +208,9 @@ DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
 SCRIPTS = "scripts/cmux-next"
 SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
+# The paths the trees hold: SCOPES and the Swift outside the macOS package some scanners judge (the visible-only
+# ratchet's Packages/Shared, Packages/iOS and cmux-next-ios; the App Store rules' cmux-next-ios).
+CHANGED_SCOPES = SCOPES + ("Packages/Shared/", "Packages/iOS/", "cmux-next-ios/")
 SWIFT_SCOPE = PKG + "/"
 # Files a scanner reads besides the changed ones: present in both trees, so they never differ.
 CONTEXT = (
@@ -227,6 +233,10 @@ DATA_SUFFIXES = (".tsv", ".json")
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
+VISIBLE_ONLY_CHECK = "Lists draw only visible rows (check-visible-only.py, visible-only-baseline.tsv)"
+# The ast-grep rules whose hits that scanner counts per file against its baseline: the ast-grep layer leaves them out,
+# so a hit is judged once, by count (an edit to a listed line is not a new hit).
+RATCHETED_RULE_PREFIX = "visible-only-"
 SURFACE_MATERIALS_CHECK = "Each surface's material is one its kind allows (design/surface-materials.md)"
 # The check reads its manifest and every file it judges, not only the changed ones: it gets each side's whole set.
 SURFACE_MATERIALS_DATA = "schemas/surface-materials/"
@@ -241,8 +251,9 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # keeps this list in step with the workflow.
 # The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
 # is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py,
-# check-no-raw-spawn.py and check-no-raw-flock.py (a bad baseline row); any other code, or a signal, is no verdict
-# either. A scanner whose verdicts use other codes names them here.
+# check-no-raw-spawn.py, check-no-raw-flock.py and check-visible-only.py (a bad baseline row; for the last also an
+# ast-grep failure); any other code, or a signal, is no verdict either. A scanner whose verdicts use other codes
+# names them here.
 SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
 DEFAULT_VERDICT_CODES = (0, 1)
 
@@ -298,6 +309,10 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
     ("No fleet host names in gallery fixtures",
      ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
+    # Leo 2026-11-18: "we draw the visible area, right? ... there are so many places where I'm pretty sure we're just
+    # drawing the whole list. And we need to be able to guard against that."
+    (VISIBLE_ONLY_CHECK, ["python3", "-I", "{s}/check-visible-only.py", "{root}"],
+     (PKG + "/Sources/", "Packages/Shared/", "Packages/iOS/", "cmux-next-ios/", "scripts/cmux-next/visible-only-baseline.tsv")),
     # A target's new import of another local target must be declared (2026-10-29: a63986a4 and e875485c each pushed
     # an undeclared test import straight to feat-cmux-next and turned this CI step red on every pull request).
     # Pure Python, no build: it reads the manifest and the pushed Swift files.
@@ -456,6 +471,7 @@ RATCHET_BASELINES = {
     "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
+    "visible-only-baseline.tsv": ((0, 1), 2),
 }
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
@@ -638,7 +654,7 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
+    return sorted(n for n in names.split("\0") if n and n.startswith(CHANGED_SCOPES))
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
@@ -650,7 +666,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
-    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
+    return sorted(p for p in files if p.startswith(CHANGED_SCOPES) and blob_at(repo, base, p) is not None
                   and blob_at(repo, head, p) is not None)
 
 
@@ -1138,7 +1154,7 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
-        if escaped(tree, rel, index, m["ruleId"]):
+        if m["ruleId"].startswith(RATCHETED_RULE_PREFIX) or escaped(tree, rel, index, m["ruleId"]):
             continue
         lines.append(f"{rel}:{index + 1}: [{m['ruleId']}] {m['message']}")
     return "\n".join(sorted(lines))
@@ -2944,6 +2960,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
             if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
+        if VISIBLE_ONLY_CHECK in jobs and lock.is_file():
+            # The scanner runs the pinned ast-grep the layer below runs (downloaded once, sha256 checked).
+            os.environ["CMUX_AST_GREP"] = str(ensure_tool(lock, "ast-grep"))
         if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
