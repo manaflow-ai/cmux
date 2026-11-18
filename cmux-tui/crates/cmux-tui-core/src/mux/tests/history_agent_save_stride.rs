@@ -31,6 +31,14 @@ const NOTE_EACH_SAVE: &str = "
         BEGIN INSERT INTO history_saves VALUES (1); END;";
 const SAVES: &str = "SELECT cast(count(*) AS TEXT) FROM history_saves";
 
+/// Fails each first write of the saved fold's row on the registry's
+/// connection, until the trigger is dropped.
+const FAIL_EACH_SAVE: &str = "
+    CREATE TEMP TRIGGER fail_history_insert BEFORE INSERT ON meta
+        WHEN new.key = 'journal_reducer.history.agent_sessions'
+        BEGIN SELECT RAISE(ABORT, 'this row fails the save'); END;";
+const SAVES_WORK_AGAIN: &str = "DROP TRIGGER fail_history_insert";
+
 /// A daemon on a registry file, with one running terminal.
 struct Daemon {
     session: &'static str,
@@ -270,6 +278,50 @@ fn a_stride_of_sequences_after_the_journal_head_saves_the_fold_one_time() {
         (first + STRIDE..=head).contains(&saved),
         "the save is the fold a stride or more past the old saved cursor ({first}): {saved} (the \
          journal's head is {head})"
+    );
+}
+
+/// A save that fails in the first fold does not start the stride: the fold
+/// counts as at the journal's head only after a save that worked. So the next
+/// list makes the save, with the journal less than a stride long, and the
+/// stride holds from that save on.
+#[test]
+fn a_save_that_fails_in_the_first_list_is_made_by_the_next_list_below_the_stride() {
+    let daemon = Daemon::start("history-save-stride-failed-save");
+    let sql = |text: &str| {
+        daemon.mux.workspace_registry.lock().unwrap().execute_sql_for_test(text).unwrap();
+    };
+    sql(FAIL_EACH_SAVE);
+    daemon.hook(FIRST, "SessionStart", serde_json::json!({}));
+    // The first history read folds to the head; each save of it fails.
+    let listed_while_failing = daemon.entries().len();
+    let saves_while_failing = daemon.saves();
+    let saved_while_failing = saved_agent_fold(&daemon.mux);
+    sql(SAVES_WORK_AGAIN);
+    let listed = daemon.entries().len();
+    let saves_of_the_next_list = daemon.saves();
+    let saved = saved_agent_fold(&daemon.mux).map_or(0, |(cursor, _)| cursor);
+    daemon.turns(8);
+    let _ = daemon.entries();
+    let saves_after_the_turns = daemon.saves();
+    let head = daemon.mux.session_journal_head().unwrap();
+    daemon.close();
+
+    assert_eq!((listed_while_failing, listed), (1, 1), "setup: each list has the session");
+    assert!(head < STRIDE, "setup: the whole journal is less than a stride long (head {head})");
+    assert_eq!(
+        (saves_while_failing.as_str(), saved_while_failing),
+        ("0", None),
+        "setup: no save of the first list worked"
+    );
+    assert_eq!(
+        saves_of_the_next_list, "1",
+        "the next list makes the save that failed, below the stride (the journal's head is {head})"
+    );
+    assert!(saved > 0 && saved <= head, "the save is the fold at a cursor of the journal: {saved}");
+    assert_eq!(
+        saves_after_the_turns, "1",
+        "after the save that worked, the turn ends below the stride save nothing"
     );
 }
 
