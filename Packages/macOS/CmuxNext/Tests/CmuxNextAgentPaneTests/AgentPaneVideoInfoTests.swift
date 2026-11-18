@@ -363,7 +363,8 @@ struct AgentPaneVideoInfoTests {
             #expect(Self.errorCode(reply) == nil, "\(reply)")
             let value = try #require(reply["value"] as? [String: Any])
             #expect(value["width"] as? Int == 320 && value["height"] as? Int == 180)
-            #expect((value["frames"] as? [[String: Any]])?.count == 4)
+            // The poster first; its key frames follow from `video.probes`.
+            #expect(value["more"] as? Bool == true)
         }
 
         // Not a video by its name, on the deny list, outside home and the folders, missing, or a
@@ -442,6 +443,10 @@ struct AgentPaneVideoInfoTests {
     @Test func theRequestsTakeOnlyTheirSource() {
         #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov"]) == .videoInfo("/a.mov"))
         #expect(AgentPaneReplyRequest(method: "video.quickLook", params: ["src": "/a.mov"]) == .quickLookVideo("/a.mov"))
+        #expect(AgentPaneReplyRequest(method: "video.probes", params: ["src": "/a.mov"]) == .videoProbes("/a.mov"))
+        #expect(AgentPaneReplyRequest(method: "video.probes", params: ["src": "/a.mov", "times": [0]]) == nil)
+        #expect(AgentPaneReplyRequest.videoProbes("/a.mov").isPassive)
+        #expect(AgentPageOps.method(for: "cmux.agent.video.probes") == "video.probes")
         #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov", "frames": 9]) == nil)
         #expect(AgentPaneReplyRequest(method: "video.info", params: [:]) == nil)
         #expect(AgentPaneReplyRequest.videoInfo("/a.mov").isPassive)
