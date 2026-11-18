@@ -19,8 +19,10 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         URL(string: "cmux://tab/tab_" + String(format: "%032x", number))!
     }
 
-    static let claude = (workspace: "ws-term-claude", link: tabLink(16))
-    static let codex = (workspace: "ws-term-codex", link: tabLink(32))
+    static let claude = (workspace: "ws-term-claude", link: tabLink(16), title: "claude")
+    static let codex = (workspace: "ws-term-codex", link: tabLink(32), title: "codex")
+    /// The open tab's title: a terminal's bottom pill is its title, and a tap on it opens the page menu.
+    var title = ""
 
     @MainActor
     func launch() -> XCUIApplication {
@@ -37,20 +39,32 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     }
 
     @MainActor
-    func open(_ app: XCUIApplication, _ target: (workspace: String, link: URL)) {
+    func open(_ app: XCUIApplication, _ target: (workspace: String, link: URL, title: String)) {
+        title = target.title
         app.open(target.link)
         let page = app.descendants(matching: .any)["workspace.\(target.workspace)"]
         XCTAssertTrue(page.waitForExistence(timeout: 15), "workspace \(target.workspace)\n\(app.debugDescription)")
     }
 
-    /// The page menu's Show Chat / Show Terminal row; the menu stays open.
+    /// The page menu's Show Chat / Show Terminal row; the menu stays open. A terminal's bottom pill
+    /// shows only its title (no page-menu glyph): a tap on the title opens the menu.
     @MainActor
     func faceRow(_ app: XCUIApplication) -> XCUIElement? {
-        let menu = app.buttons["Page Menu"].firstMatch
-        guard menu.waitForExistence(timeout: 10), menu.isHittable else { return nil }
-        menu.tap()
-        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Show Chat' OR label BEGINSWITH 'Show Terminal'")).firstMatch
-        return row.waitForExistence(timeout: 5) ? row : nil
+        let glyph = app.buttons["Page Menu"].firstMatch
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title), ")).firstMatch
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Show Chat' OR label BEGINSWITH 'Show Terminal'")).firstMatch
+        // A collapsed pill takes its first tap to expand.
+        for _ in 0..<2 {
+            if pill.waitForExistence(timeout: 10), pill.isHittable {
+                pill.tap()
+            } else if glyph.exists, glyph.isHittable {
+                glyph.tap()
+            }
+            if row.waitForExistence(timeout: 5) { return row }
+        }
+        attach(app, "no-face-row-\(title)")
+        return nil
     }
 
     /// The face the open tab shows ("chat" or "terminal"), read from the page menu, which closes again.
@@ -80,8 +94,8 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     @MainActor
     func show(_ app: XCUIApplication, _ face: String) {
         let row = faceRow(app)
-        let title = face == "chat" ? "Show Chat" : "Show Terminal"
-        XCTAssertEqual(row?.label.hasPrefix(title), true, "no \(title) row\n\(app.debugDescription)")
+        let rowTitle = face == "chat" ? "Show Chat" : "Show Terminal"
+        XCTAssertEqual(row?.label.hasPrefix(rowTitle), true, "no \(rowTitle) row\n\(app.debugDescription)")
         row?.tap()
     }
 
