@@ -58,6 +58,8 @@ export type Listing = ListingKey & {
   downloads?: number;
   /** Minimum cmux version (manifest `engines.cmux`), shown as "Requires cmux X or later". */
   requiresCmux?: string;
+  /** reviewed: listed by a pull request to the registry repo. community: indexed or linked by its owner, not reviewed. */
+  status?: "reviewed" | "community";
   readme: string;
   /** What a setup installs, by kind of item (theme, sidebar, keymap, widgets, extensions...). */
   contents: SetupItem[];
@@ -227,6 +229,7 @@ export function parseListing(json: unknown, kind: ListingKind = "extension"): Li
     installs: count(record.installs),
     downloads: count(record.downloads) ?? count(record.installs),
     requiresCmux: requiredVersion(record),
+    status: record.status === "reviewed" || record.status === "community" ? record.status : undefined,
   };
   for (const [field, value] of Object.entries(optional)) {
     if (value !== undefined) (listing as Record<string, unknown>)[field] = value;
