@@ -142,6 +142,45 @@ test("Subagents section: fresh snapshots draw no row; one rename draws one", asy
   await list.unmount();
 });
 
+test("Subagents section: fresh sub-session snapshots draw no row; one rename draws one (1,000 rows)", async () => {
+  const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
+  type Row = import("../src/agent-session/acpmux/subagents/subsessions").SubsessionRow;
+  const M = 1_000;
+  const rows = (): Row[] =>
+    Array.from({ length: M }, (_, i) => ({
+      sessionId: `sub-${i}`,
+      harness: "claude",
+      name: `Sub ${i}`,
+      state: i < 3 ? "working" : "done",
+      ...(i < 3 ? { doing: `Step ${i}` } : {}),
+      depth: i % 2,
+      lastMessage: "first",
+      model: "sonnet",
+    }));
+  // Every object new, and the fields this row never reads moved on (its last message, its model).
+  const next = (list: Row[], step: number): Row[] =>
+    structuredClone(list).map((row) => ({ ...row, lastMessage: `message ${step}`, model: `model ${step}` }));
+  const element = (subsessions: Row[]) => (
+    <SubagentStatusList agents={[]} waiting={WAITING} subsessions={subsessions} onOpenSession={open} />
+  );
+  const list = await mount(rows(), element);
+  expect(list.host.querySelectorAll(".acpmux-summary-subsession").length).toBe(M);
+  let current = rows();
+  rowRenders.reset();
+  for (let step = 1; step <= 3; step++) await list.show((current = next(current, step)));
+  const fresh = rowRenders.count("SubsessionStatusRow");
+  rowRenders.reset();
+  await list.show(
+    next(current, 4).map((row) => (row.sessionId === "sub-7" ? { ...row, name: "Sub 7, renamed" } : row)),
+  );
+  const change = rowRenders.count("SubsessionStatusRow");
+  console.log(`FRESH subsessions ${JSON.stringify({ fresh, change })} (rows: ${M}, 3 fresh snapshots)`);
+  expect(fresh).toBe(0);
+  expect(change).toBe(1);
+  expect(list.host.textContent).toContain("Sub 7, renamed");
+  await list.unmount();
+});
+
 test("agents pill: fresh snapshots draw no row; one rename draws one", async () => {
   const { AgentsPill } = await import("../src/agent-session/acpmux/subagents/AgentsPill");
   const tones: ReadonlyMap<string, number> = new Map();

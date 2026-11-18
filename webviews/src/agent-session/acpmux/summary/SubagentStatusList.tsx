@@ -17,6 +17,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 import { sameAgentRowProps } from "../subagents/subagentLook";
+import { sameValue } from "../session-info/sameValue";
 
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
@@ -214,8 +215,54 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
 
 const NO_WAITING: ReadonlySet<string> = new Set();
 
+type Same<T> = (a: T, b: T) => boolean;
+
+/// Each field of a sub-session's row, as SubsessionStatusRow compares it: the ones it draws or reads
+/// (its name, line, unread dot, queue count, state, retry, indent, opener) by value, and null for one
+/// it never reads. Every snapshot is new objects (subagents/subsessions.ts `subsessionRows`), so a
+/// row compared by reference drew again each time; a new field fails to compile here until it is
+/// classed.
+const SUBSESSION_LOOK: { [K in keyof SubsessionRow]-?: Same<SubsessionRow[K]> | null } = {
+  sessionId: Object.is,
+  harness: Object.is,
+  name: Object.is,
+  state: Object.is,
+  unread: Object.is,
+  queued: Object.is,
+  doing: Object.is,
+  waiting: sameValue,
+  retry: sameValue,
+  // sessionRetry reads it (a settling retry); compared so the row follows it.
+  retryDeciding: Object.is,
+  depth: Object.is,
+  // The task line's, Session Info's and Resume's; this row draws none of them.
+  title: null,
+  slot: null,
+  model: null,
+  effort: null,
+  parent: null,
+  lastMessage: null,
+  error: null,
+  stoppedAt: null,
+};
+const SUBSESSION_FIELDS = Object.entries(SUBSESSION_LOOK).filter(
+  (entry): entry is [keyof SubsessionRow, Same<unknown>] => entry[1] !== null,
+);
+
+/// The row's props: its session by SUBSESSION_LOOK, its opener (the list's) by identity.
+function sameSubsessionProps(
+  a: { session: SubsessionRow; onOpen?: (sessionId: string) => void },
+  b: { session: SubsessionRow; onOpen?: (sessionId: string) => void },
+): boolean {
+  return (
+    a.onOpen === b.onOpen &&
+    (a.session === b.session || SUBSESSION_FIELDS.every(([key, same]) => same(a.session[key], b.session[key])))
+  );
+}
+
 /// A sub-session's row: its name (and what it does now while it works, or what it waits on the
-/// person for), its unread dot, how many messages wait for it, and its state.
+/// person for), its unread dot, how many messages wait for it, and its state. Memoized on the fields
+/// it reads (SUBSESSION_LOOK), so a snapshot that only brings new objects draws no row.
 const SubsessionStatusRow = memo(function SubsessionStatusRow({
   session,
   onOpen,
@@ -262,4 +309,4 @@ const SubsessionStatusRow = memo(function SubsessionStatusRow({
       </span>
     </button>
   );
-});
+}, sameSubsessionProps);
