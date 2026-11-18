@@ -12,6 +12,7 @@ import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from ".
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
+import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 
 export function AccountsSection() {
   const store = useStore();
@@ -72,6 +73,7 @@ function AccountsBody() {
       </section>
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
+      <TeamAgentKeysCard />
       <GitHubAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>

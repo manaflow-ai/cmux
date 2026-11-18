@@ -179,6 +179,8 @@ pub(super) struct Mount {
     pub reset: bool,
     /// Its op-batch rate and coalescing (`budget.rs`).
     pub budget: super::budget::MountBudget,
+    /// A widget mount's clock and meter (`widgets.rs`); `None` for every other interface.
+    pub widget: Option<super::widgets::WidgetMount>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,6 +278,17 @@ pub(super) struct Inner {
     pub failed: HashMap<String, String>,
     /// The local apps' folder fingerprints the catalog was last read with.
     pub local_prints: HashMap<String, u64>,
+    /// The watched folders the catalog refused at the last reload pass that
+    /// logged, with why: a refusal is logged when it is new or its reason
+    /// changed, not again on every other app's save.
+    pub local_rejected_logged: HashMap<PathBuf, String>,
+    /// The watched folders' fingerprints `catalog` was read with: a reload
+    /// pass reuses the read of each folder whose fingerprint is unchanged.
+    pub local_dir_prints: HashMap<PathBuf, u64>,
+    /// The watched folders' fingerprints at the last reload pass, whether it
+    /// applied anything or not: a pass that reads only the folders a save
+    /// names (`local_reload::Scope::Folders`) keeps these for the others.
+    pub local_seen: HashMap<PathBuf, u64>,
     /// Each local app's last good copy (`rollback.rs`), and the fingerprint
     /// last tried, so one version is copied once.
     pub last_good: HashMap<String, super::rollback::Good>,
@@ -283,6 +296,11 @@ pub(super) struct Inner {
     /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
     /// is paused. Absent: Normal with nothing counted.
     pub ladders: HashMap<String, super::budget::AppLadder>,
+    /// Open web panes' bridges and their calls waiting for a provider
+    /// (`page_calls.rs`).
+    pub pages: super::page_calls::Pages,
+    /// The widget layout and its replayed edits (`widgets.rs`).
+    pub widgets: super::widgets::WidgetState,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -318,6 +336,14 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
+    /// `integration.request` for provider `github`, answered here
+    /// (`github_gateway.rs`). Unset, the call goes to the provider.
+    pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// `net.fetch {cache: "shared"}`: one cache per URL for every app
+    /// (`http_cache.rs`, the `http.json` signal source).
+    pub(super) http_cache: super::http_cache::HttpCache,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
@@ -366,6 +392,7 @@ impl Supervisor {
         let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
+        let local_dir_prints = local_before.dirs().clone();
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let safe_mode =
             super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
@@ -391,6 +418,9 @@ impl Supervisor {
         }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
+            // A refused package is missing from the App Store: say so in the
+            // daemon log too, not only in the apps log nobody opens.
+            eprintln!("cmux-tui: app package {} refused: {issue}", dir.display());
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
                 level: "warn".into(),
                 message: format!("{}: {issue}", dir.display()),
@@ -455,13 +485,21 @@ impl Supervisor {
                 launches,
                 failed: HashMap::new(),
                 local_prints,
+                local_rejected_logged: HashMap::new(),
+                local_seen: local_dir_prints.clone(),
+                local_dir_prints,
                 last_good,
                 good_tried: HashMap::new(),
                 ladders: HashMap::new(),
+                pages: Default::default(),
+                widgets: Default::default(),
             }),
             config,
             router,
             fetcher,
+            github: OnceLock::new(),
+            http_cache: super::http_cache::HttpCache::default(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
@@ -505,6 +543,7 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
+            inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
@@ -620,7 +659,7 @@ impl Supervisor {
     }
 
     /// Applies a commit already written to disk.
-    fn apply_commit_locked(
+    pub(super) fn apply_commit_locked(
         &self,
         inner: &mut Inner,
         outcome: mirror::Outcome,
@@ -1013,5 +1052,18 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(Package::palette_commands).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
+        // The web panes the client may host (`render: web`): each page's
+        // file root inside `bundle_dir` and its entry file, as the manifest
+        // rules accepted them (cmux_app_manifest::web_pages).
+        "web_pages": package.map(|p| web_pages_json(&p.manifest)).unwrap_or_default(),
     })
+}
+
+fn web_pages_json(manifest: &Value) -> Vec<Value> {
+    cmux_app_manifest::web_pages(manifest)
+        .into_iter()
+        .map(|page| {
+            json!({ "interface": page.interface, "root": page.root, "entry": page.entry, "symbol": page.symbol })
+        })
+        .collect()
 }

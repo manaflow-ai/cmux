@@ -20,7 +20,9 @@ public nonisolated struct PaletteRankSettings: Sendable, Equatable {
 
 extension PaletteRankSettings {
     /// These settings with the catalog's built-in aliases (`ActionDescriptor.paletteAliases`)
-    /// added after the user's own words for the same action.
+    /// added after the user's own words for the same action. The ranker also reads them from each
+    /// catalog row (`PaletteItem.aliases`); this merge serves app FFI pins older than that ranker,
+    /// and goes once the pin carries it.
     public func addingBuiltInAliases() -> PaletteRankSettings {
         var merged = self
         for (id, words) in ActionDescriptor.paletteAliases {

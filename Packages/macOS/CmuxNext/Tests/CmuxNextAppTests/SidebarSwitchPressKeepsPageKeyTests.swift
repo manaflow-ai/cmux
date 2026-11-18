@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextFocus
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// SPACE SWITCH 4 (hold l1, aws-m4pro-8, 120 Hz, twin 646125b19f9b, gated for the host clock): a workspace switch by
@@ -26,7 +27,7 @@ import Testing
 /// Test windows are never key, so the app's key state comes in through the window's press router
 /// (`WindowPressRouter.appKeyState`), its key requests are counted (`makeKey`), and the focus model's reports of the
 /// list as the first responder are counted from its observer. No assertion holds a time.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSwitchPressKeepsPageKeyTests {
     @MainActor final class Rig {
         let bench: SpaceSwitchBench

@@ -43,6 +43,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
+            "$crates/cmux-app-ffi/include/cmux_launch_record.h:CCmuxLaunchRecordFFI"
             "$crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h:CCmuxAgentPanePolicyFFI"
             "$crates/cmux-action-catalog/include/cmux_action_catalog.h:CCmuxActionCatalogFFI"
             "$crates/cmux-cookie-sync/include/cmux_cookie_sync.h:CCmuxCookieSyncFFI"
@@ -55,7 +56,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
 # Also available on Linux so the header/export contract needs no macOS build.
 list_exports() {
   for entry in "${headers_in[@]}"; do
-    grep -oE '\b(cmux_|acpmux_client_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
+    grep -oE '\b(cmux_|acpmux_client_|acpmux_page_driver_)[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u
 }
 if [[ "${1:-}" == --list-exports ]]; then

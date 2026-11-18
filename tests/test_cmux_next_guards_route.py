@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """feat-cmux-next pull requests and pushes run the release-notary guard group.
 
-Pushes run it in nightly-guards (judged at the tip); pull requests run it in the CI guard group,
-compared with their base.
+Pushes run it in nightly-guards (judged at the tip) and in the CI guard group (so the merge gate has a
+base verdict for each of its steps); pull requests run it in the CI guard group, compared with their base.
 
 ci.yml skips its guards for feat-cmux-next and has no push trigger, so the
 nightly, notarization and nightly-next publication tests ran nowhere on the
@@ -65,23 +65,43 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         group = jobs["ci-guard-group"]
         self.assertEqual(group["if"], "${{ !cancelled() }}")
         steps = {step.get("name"): step for step in group["steps"]}
-        run = steps["Run the ci guard group and the routed groups"]
-        self.assertEqual(run["env"]["EVENT_NAME"], "${{ github.event_name }}")
-        script = run["run"]
+        script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line]
-        self.assertEqual(len(calls), 3, calls)
+        self.assertEqual(len(calls), 2, calls)
         # A pull request routes release-notary by its paths (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS):
         # no --group, so the ci group plus every group classify_feat picks, release-notary among them.
         self.assertIn("--feat-routes", calls[0])
         self.assertNotIn("--group", calls[0])
-        self.assertNotIn("--skip-group", calls[0])
-        # A push leaves it to nightly-guards, judged at the tip, on the head and on the base.
-        self.assertIn('else\n  groups=(--skip-group release-notary)', script)
-        self.assertIn("--feat-routes", calls[1])
-        self.assertIn("--skip-group release-notary", calls[1])
-        self.assertIn('"${groups[@]}"', calls[2])
+        self.assertIn("--root .guard-base", calls[1])
         self.assertIn('python3 scripts/ci/guards_new_reds.py "$RUNNER_TEMP/guards-head.json" "$RUNNER_TEMP/guards-base.json"',
                       script)
+
+    def test_a_push_runs_every_guard_group_a_pull_request_can_run(self):
+        # The merge gate excuses a pull request's guard group red only by the base's newest push run of the same job
+        # (base_red_excuse.py GUARD_GROUP_JOB). A push that left release-notary out gave its steps no base verdict,
+        # so their reds on a pull request were never excused (cmux#45374 against base run 44110521024).
+        import sys  # noqa: PLC0415
+
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import detect_linux_guard_changes  # noqa: PLC0415
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
+        group = workflow["jobs"]["ci-guard-group"]
+        steps = {step.get("name"): step for step in group["steps"]}
+        changes = steps["Changed files"]["run"]
+        # A push drops its changed-files list, so --feat-routes reads none and routes every group.
+        self.assertIn('if [[ "$EVENT_NAME" != pull_request ]]; then', changes)
+        self.assertIn('rm -f "$RUNNER_TEMP/changed-files.txt"', changes.split('!= pull_request ]]; then', 1)[1])
+        every = set(detect_linux_guard_changes.classify_feat([]))
+        self.assertIn("release-notary", every)
+        for path in ("scripts/ci/run_ci_guards.py", ".github/workflows/nightly.yml", "Packages/macOS/x.swift",
+                     "tests/test_x.py", "webviews/src/x.ts"):
+            with self.subTest(path=path):
+                self.assertLessEqual(set(detect_linux_guard_changes.classify_feat([path])), every)
+        # The same head call for a pull request and a push, and no group left out of either pass.
+        script = steps["Run the ci guard group and the routed groups"]["run"]
+        self.assertNotIn("--skip-group", script)
+        self.assertNotIn("EVENT_NAME", script)
 
     def test_release_notary_has_ghostty_next_for_the_toolchain_notices(self):
         # toolchain_notices.py fails on a missing ghostty-next/build.zig.zon by

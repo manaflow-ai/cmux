@@ -27,7 +27,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.outsideRoots", "Files Outside the Project"),
-                help: SettingsText.keyed("settings.agentPane.outsideRoots.help", "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."),
+                help: SettingsText.keyed("settings.agentPane.outsideRoots.help", "What a link to a file outside the chat's folders does. Keys and .env files never open."),
                 summary: SettingsText.keyed("settings.agentPane.outsideRoots.summary", "File links outside the chat's folders"),
                 kind: .choice([
                     SettingChoice(AgentPaneReplySetting.OutsideRoots.confirm.rawValue, SettingsText.keyed("settings.choice.agentPaneConfirm", "Ask First")),
@@ -57,7 +57,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.needsYou", "Needs You"),
-                help: SettingsText.keyed("settings.agentPane.needsYou.help", "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs."),
+                help: SettingsText.keyed("settings.agentPane.needsYou.help", "A badge in the chat header counts what your agents wait on."),
                 kind: .toggle,
                 default: .bool(AgentPaneNeedsYouSetting.enabledDefault),
                 keywords: ["agent", "chat", "needs you", "inbox", "asks", "approvals", "badge"]

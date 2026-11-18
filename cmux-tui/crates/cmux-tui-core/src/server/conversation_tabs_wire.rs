@@ -29,6 +29,7 @@ use super::{
 };
 use crate::Actor;
 use crate::mux::TabSplit;
+use crate::mux::tab_strip::tab_place::{CreateRequest, TabPlaceRequest};
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CLOSED_CONVERSATION_TABS_CAPABILITY, CONVERSATION_KIND,
@@ -77,6 +78,12 @@ pub(super) struct NewConversationTabParams {
     /// (`conversation-tab-split-v1`).
     #[serde(default)]
     split: Option<ConversationTabSplitParams>,
+    /// `tab-create-place-v1`: where the tab goes in the strip of `pane`.
+    /// `transaction` then also names this creation for a later request of
+    /// the connection (`place.after_creation`). Refused with `workspace` or
+    /// `split`.
+    #[serde(default)]
+    place: Option<TabPlaceRequest>,
 }
 
 impl NewConversationTabParams {
@@ -361,8 +368,13 @@ pub(super) fn create(
         rows,
         transaction,
         split,
+        place,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
+    anyhow::ensure!(
+        place.is_none() || (workspace.is_none() && split.is_none()),
+        "bad request: place goes with pane, not with workspace or split"
+    );
     let target = match (pane, workspace, split) {
         (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
@@ -378,6 +390,11 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
+    // Not carried: the `tab-added` of a conversation tab gets `transaction`
+    // from the field of its own capability (`conversation-tab-transaction-v1`).
+    let request =
+        CreateRequest { client, pane, place: place.as_ref(), transaction: transaction.as_deref() };
+    let placing = mux.place_tab_creation(request, None, false)?;
     // The creation's own `tab-added` carries `transaction`: one delta per
     // tab. A replay emits nothing and echoes it in the result only.
     let outcome = mux.new_conversation_tab_as(
@@ -388,6 +405,8 @@ pub(super) fn create(
         size,
         transaction.as_deref(),
     )?;
+    // A replay made no tab: its creation names the tab that was there.
+    placing.made(outcome.surface.id);
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
@@ -890,6 +909,10 @@ mod page_tabs_tests;
 #[cfg(test)]
 #[path = "conversation_tab_split_tests.rs"]
 mod conversation_tab_split_tests;
+
+#[cfg(test)]
+#[path = "conversation_tab_chat_only_tests.rs"]
+mod conversation_tab_chat_only_tests;
 
 #[cfg(test)]
 #[path = "closed_conversation_tabs_tests.rs"]

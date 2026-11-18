@@ -62,7 +62,7 @@ enum BrowserToolbarHandlers {
 
     /// Wires a new browser page's buttons (`TabContentCache.onBrowserEntryCreated`).
     static func install(on entry: BrowserEntry, services: AppServices) {
-        let key = tabKey(entry)
+        let key = entry.key
         entry.state.onToolbarPress = { [weak services, weak entry] button in
             guard let services, let entry else { return }
             press(button, entry: entry, registry: services.registry)
@@ -118,14 +118,7 @@ enum BrowserToolbarHandlers {
     }
 
     private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
-        ActionTargetRef(kind: .tab, id: tabKey(entry))
-    }
-
-    /// The tab id the App keys `entry` by (`TabContentCache`): the address
-    /// bar's, which an adopted page (a popup or link opened into a new tab)
-    /// keeps although its own page id differs.
-    private static func tabKey(_ entry: BrowserEntry) -> String {
-        entry.state.tabKey ?? entry.tab.id.rawValue
+        ActionTargetRef(kind: .tab, id: entry.key)
     }
 
     /// System, Light and Dark, each running `browserTheme`; the
@@ -143,7 +136,7 @@ enum BrowserToolbarHandlers {
     /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        let key = tabKey(entry)
+        let key = entry.key
         return services.registry.makeBrowserProfileMenu(
             tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
             profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },

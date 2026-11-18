@@ -5,13 +5,11 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod beads;
-pub(crate) mod bounded_child;
+pub(crate) use crate::bounded_child;
 pub mod bridge;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
-#[cfg(unix)]
-pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod command_new;
@@ -48,10 +46,11 @@ pub(crate) mod last_reply;
 pub mod ledger;
 pub(crate) mod list_read;
 pub mod ls_table;
-pub(crate) mod machine_consent;
+pub mod machine_auth;
+pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;
-pub mod mesh_node_key;
+pub use crate::mesh_node_key;
 pub mod orchestrate;
 pub mod output;
 pub mod pairing;
@@ -78,10 +77,11 @@ pub mod session_queue;
 pub mod session_search;
 pub mod session_turn_cap;
 pub mod shutdown;
-pub(crate) mod slow_notice;
+pub(crate) use crate::slow_notice;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
+pub(crate) mod tools_mcp;
 pub mod trigger_chat;
 pub mod uniichat_agent;
 pub(crate) mod unknown_command;
