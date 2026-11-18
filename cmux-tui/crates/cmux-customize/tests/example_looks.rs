@@ -112,6 +112,14 @@ fn every_look_is_a_whole_look_on_public_surfaces() {
             "{name}: the contrast guard raised {:?}",
             file.corrected
         );
+        // The window is the look too: without this, a person's own App Theme keeps the window,
+        // sidebar and pages in its colors (a dark look in a light window).
+        let text = cmux_config::jsonc::parse(&files[&theme]).unwrap();
+        assert_eq!(
+            text["appearance.appTheme"],
+            json!("followTerminal"),
+            "{name}: {theme} leaves the window on the person's App Theme"
+        );
     }
 }
 
