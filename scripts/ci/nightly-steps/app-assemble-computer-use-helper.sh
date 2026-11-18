@@ -65,8 +65,16 @@ install_prebuilt() {
   rm -rf "$work"
 }
 
+# One permission identity for screen sharing and computer use: the Screen Sharing executable that
+# "Bundle the OptChat Chief and the iPhone host" bundled moves into this helper, so the app carries
+# no separate "<app> Screen Sharing.app" (bundle-screen-sharing-helper.sh). A track without it: a note.
+# Both paths below run it after the helper is in place and before the layout check. The prebuilt zip
+# never carries it: the helper's input key names no screen sharing input.
+move_screen_sharing_in() { ./scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use "$app"; }
+
 zip="$(prebuilt_zip)"
 if [[ -n "$zip" ]] && install_prebuilt "$zip"; then
+  move_screen_sharing_in
   ./scripts/ci/verify-computer-use-helper.sh layout "$app"
   note "Computer Use helper: prebuilt $(pin_field "$helper_pin" sha256) for key $key in $((SECONDS - started)) s"
   exit 0
@@ -88,10 +96,9 @@ RUSTUP_TOOLCHAIN="$toolchain" ./scripts/build-cmux-cua.sh \
   --output "$app/Contents/Resources/bin/cmux-cua" --helper-app --archs "$archs"
 # The helper app is what ships; build-cmux-cua.sh's bin copy is scratch.
 rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-cua-LICENSE.md"
-./scripts/ci/verify-computer-use-helper.sh layout "$app"
-note "Computer Use helper: built from source for key $key in $((SECONDS - started)) s"
 
-# Keep the unsigned helper (ad-hoc signed, before Codesign apps) and its key for the upload step.
+# Keep the unsigned helper (ad-hoc signed, before Codesign apps) and its key for the upload step,
+# before the Screen Sharing executable moves in: a later build reusing it moves its own in.
 if [[ -n "${RUNNER_TEMP:-}" ]]; then
   out="$RUNNER_TEMP/cmux-cua-helper-prebuilt"
   rm -rf "$out" && mkdir -p "$out"
@@ -104,3 +111,7 @@ if [[ -n "${RUNNER_TEMP:-}" ]]; then
     ./scripts/cmux-cua-helper-key.sh --archs "$archs" --fields
   } > "$out/key.txt"
 fi
+
+move_screen_sharing_in
+./scripts/ci/verify-computer-use-helper.sh layout "$app"
+note "Computer Use helper: built from source for key $key in $((SECONDS - started)) s"
