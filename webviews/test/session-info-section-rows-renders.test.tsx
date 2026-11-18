@@ -6,7 +6,7 @@
 // move. Counted from React's commits (support/rowRenders.ts) by a component each row draws once (its
 // icon, its line, its clock), so base and head count the same thing.
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -45,9 +45,12 @@ beforeAll(() => {
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The whole file on one fake clock (the page's clocks among them), so its time only moves forward.
+  jest.useFakeTimers();
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -67,8 +70,12 @@ async function mount<D>(first: D, element: (data: D) => ReactElement) {
   };
 }
 
-/// One tick of the page's second clock, waited out.
-const tick = () => act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+/// One tick of the page's second clock, on fake timers: the tick is the behaviour counted, so its time
+/// is advanced, not waited out.
+const tick = () =>
+  act(async () => {
+    jest.advanceTimersByTime(1_100);
+  });
 
 /// Counts `name`'s renders for: one item changed, the same data again (fresh objects), and a tick.
 async function count<D>(
