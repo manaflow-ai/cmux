@@ -1503,6 +1503,7 @@ fn viewport_screen() -> RegistryScreen {
                 ),
             ],
         },
+        floating: Vec::new(),
     }
 }
 
@@ -1603,6 +1604,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 zoomed_pane: None,
                 auto_layout: None,
                 viewport: RegistryViewport::default(),
+                floating: Vec::new(),
             }),
             ResourceChange::UpsertPane(RegistryPane {
                 public_id: pane.clone(),
@@ -1694,6 +1696,7 @@ fn commit_browser_topology(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -2938,6 +2941,7 @@ fn commit_browser_topology_unchecked(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3035,6 +3039,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3103,6 +3108,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::TombstonePane { pane_id: second_pane },
                 ],

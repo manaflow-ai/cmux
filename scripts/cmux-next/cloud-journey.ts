@@ -49,12 +49,15 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
- * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
- * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
- * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
- * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
- * token the step is skipped and the reply fails "Not logged in".
+ * Pass Claude login gives the journey's machine a login of its own (cmux-platform#587): a `claude setup-token`
+ * login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials; a made-up one with --model stub) goes
+ * from the client straight to the machine over the machine routes, never kept by the platform. The app itself
+ * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
+ * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
+ * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
+ * With --model stub and Claude the login is instead what a Cloud chat runs on since cmux#40159: the person's model
+ * connection, given to the agent at its start (`session/new` `_meta.acpmux.credentials`, as the app's
+ * `agent-session-start` relays it), never written onto the machine.
  *
  * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
  * the machine's loopback
@@ -62,6 +65,10 @@
  * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
  * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
  * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
+ *
+ * --seed none|auto sets the create's seed (none: boot from the image even when the person has a machine to copy;
+ * auto, the default, the server's choice). The summary and the probe row carry ready_ms, create machine to agent
+ * running (create, running, first exec, login copy, start agent), when every one of those passed.
  *
  * --gateway CMUX_BIN: the chat machine holds no login at all (Leo, 2026-11-07: "VMs stop holding tokens"). A second
  * machine becomes the team's inference gateway: the person's own subscription proxy runs on it (--gateway-upstream URL,
@@ -107,6 +114,7 @@
  *
  * Secrets are read from the environment or files, sent only in headers or request bodies, and never printed.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -115,6 +123,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -202,13 +211,34 @@ export function scrub(text: string, secrets: string[] = []): string {
   return out;
 }
 
+/** The steps from asking for a machine to its agent running, in order (cmux#36050). */
+export const READY_STEPS: readonly ((step: string) => boolean)[] = [
+  (s) => s === "create machine",
+  (s) => s === "running (status)",
+  (s) => s === "first exec",
+  (s) => s === "pass Claude login" || s === "pass Codex login",
+  (s) => s.startsWith("start agent ("),
+];
+
+/** Create machine to agent running, in ms: the sum of the READY_STEPS, or null unless each one ran and passed. */
+export function readyMs(steps: Step[]): number | null {
+  let total = 0;
+  for (const is of READY_STEPS) {
+    const s = steps.find((x) => is(x.step));
+    if (s?.status !== "pass") return null;
+    total += s.ms;
+  }
+  return total;
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
 export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
-  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s`;
+  const ready = readyMs(steps);
+  const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
   return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
@@ -234,12 +264,15 @@ export class Journey {
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
+    // Notes the API client adds while this step runs (a retried answer), so a retry stays visible in the step's detail.
+    const notes: string[] = [];
+    const withNotes = (detail: string) => (notes.length ? `${detail}; ${[...new Set(notes)].join("; ")}` : detail);
     try {
-      const { value, detail } = await fn();
-      this.record({ step: name, status: "pass", ms: Date.now() - t0, detail });
+      const { value, detail } = await stepNotes.run(notes, fn);
+      this.record({ step: name, status: "pass", ms: Date.now() - t0, detail: withNotes(detail) });
       return value;
     } catch (error) {
-      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: String((error as Error)?.message ?? error).slice(0, 1000) });
+      this.record({ step: name, status: "fail", ms: Date.now() - t0, detail: withNotes(String((error as Error)?.message ?? error)).slice(0, 1000) });
       throw error;
     }
   }
@@ -265,13 +298,45 @@ export class Journey {
 
 type Answer = { status: number; body: any };
 
-async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000): Promise<Answer> {
-  const res = await fetch(url, {
-    method,
-    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+/**
+ * The request died on its socket before any answer came back: the peer reset or closed it (Bun: ECONNRESET "The
+ * socket connection was closed unexpectedly", or ConnectionClosed; Node: UND_ERR_SOCKET, EPIPE). A timeout is not one:
+ * the server may still be working on it.
+ */
+export function socketDropped(error: unknown): boolean {
+  for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
+    if (["ECONNRESET", "ConnectionClosed", "UND_ERR_SOCKET", "EPIPE", "ECONNABORTED"].includes(String(e.code ?? ""))) return true;
+    if (/socket connection was closed unexpectedly/i.test(String(e.message ?? ""))) return true;
+  }
+  return false;
+}
+
+/**
+ * One HTTP request. With `repeatable` (a read, a GET, or an op under an idempotency key) a request whose socket
+ * drops before any answer is sent once more on a fresh connection (keepalive off), so one stale pooled socket can't
+ * fail a step: run 43927514723's connect_info read died 40 ms in with ECONNRESET on the first request after a
+ * 122 s idle step, a socket the edge had closed while it sat in the pool.
+ */
+export async function http(method: string, url: string, body: unknown, headers: Record<string, string>, timeoutMs = 30_000, repeatable = method === "GET" || method === "HEAD"): Promise<Answer> {
+  const send = (fresh: boolean) =>
+    fetch(url, {
+      method,
+      headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+      ...(fresh ? { keepalive: false } : {}),
+    });
+  let res: Response;
+  try {
+    res = await send(false);
+  } catch (error) {
+    if (!repeatable || !socketDropped(error)) throw error;
+    try {
+      res = await send(true);
+    } catch (again) {
+      throw new Error(`${(again as Error)?.message ?? again} (sent once more on a fresh connection after: ${(error as Error)?.message ?? error})`);
+    }
+  }
   const text = await res.text();
   let parsed: any;
   try {
@@ -309,18 +374,41 @@ const OP_ATTEMPTS = 3;
 const DELETE_BUDGET_MS = 180_000;
 /** The ops API says a provider call was cut off and the same idempotency key may be sent again. */
 export const opRetryable = (body: any): boolean => body?.ok !== true && body?.error?.code === "mutation.indeterminate" && body?.error?.retryable === true;
+/**
+ * The platform says the request's owner was reset or cut off mid-call (owner.unreachable, retryable), for example
+ * HTTP 503 `{"code":"owner.unreachable","message":"Error: Network connection lost.","retryable":true}` or a
+ * CallTimedOut. A real client sends the same request once more. The error sits under `error` or at the top.
+ */
+export const ownerUnreachable = (body: any): boolean => {
+  if (body?.ok === true) return false;
+  const e = body?.error && typeof body.error === "object" ? body.error : body;
+  return e?.code === "owner.unreachable" && e?.retryable === true;
+};
+/** The pause before that one retry. */
+const OWNER_RETRY_MS = 1000;
+const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
+/** The running Journey step's notes; the API client adds a note here when it retries. */
+const stepNotes = new AsyncLocalStorage<string[]>();
 
-class Api {
+export class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   async op(op: string, params: unknown, key?: string): Promise<any> {
+    let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, this.headers(), 60_000, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
+      // An owner reset: once more, under the same key so the op cannot apply twice.
+      if (key && !ownerRetried && ownerUnreachable(r.body)) {
+        ownerRetried = true;
+        stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+        await sleep(OWNER_RETRY_MS);
+        continue;
+      }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -333,14 +421,20 @@ class Api {
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    const r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs);
+    let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    // A read changes nothing, so an owner reset is read once more.
+    if (ownerUnreachable(r.body)) {
+      stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
+      await sleep(OWNER_RETRY_MS);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
@@ -978,10 +1072,247 @@ export function markRanOnGuest(runs: ExecProbeRun[], nonces: string | null): Exe
 }
 
 /**
+ * The acpmux daemon a first ensure would reach: each acpmux or cmux-tui process with its parent and start, and its PATH,
+ * HOME, ACPMUX_* and CMUX_* (never a token, key or secret); the login-env cache; the binary `$c` runs; `acp status`;
+ * where `claude` is; and the store's bin directories.
+ */
+export const ensureBenchDaemonFacts = (): string => `${GUEST}` +
+  `for d in /proc/[0-9]*; do case "$(cat "$d/comm" 2>/dev/null)" in acpmux*|cmux-tui*) ;; *) continue;; esac; p=\${d#/proc/}; echo "== pid $p"; ps -o pid=,ppid=,lstart=,user=,args= -p "$p" 2>/dev/null | cut -c1-300; ` +
+  `pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$pp" ] && ps -o pid=,args= -p "$pp" 2>/dev/null | cut -c1-200; ` +
+  `tr '\\0' '\\n' < "/proc/$p/environ" 2>/dev/null | grep -E '^(PATH|HOME|USER|ACPMUX_[A-Z_]+|CMUX_[A-Z_]+)=' | grep -viE 'TOKEN|KEY|SECRET|PASS' | cut -c1-300; done; ` +
+  `echo "== login-env"; ls -la "$HOME/.acpmux/login-env.json" 2>&1; echo "== binary"; readlink -f "$(command -v "$c")" 2>&1; "$c" --version 2>&1 | head -2; ` +
+  `echo "== status"; timeout 20 "$c" acp status --json 2>&1 | head -c 2000; echo; echo "== claude"; command -v claude 2>&1; ls -d /opt/cmux/store/*/bin 2>&1 | head -5; ` +
+  `systemctl list-units 'cmux*' --no-pager --plain 2>&1 | head -10; true`;
+
+/**
  * --ensure-bench N: one fresh machine created as a cold claim is, its Claude login installed as a cold claim's is, then N
  * timed ensures right after it runs (first-boot work still going), N once boot settles (systemctl is-system-running
  * --wait), and N with both cores busy. Public table to the out dir; outputs and slow-run journals to the private rows.
  */
+/** The VM API origin a backend's platform creates its machines through (cmux-platform wrangler CLOUD_VM_API_ORIGIN). */
+export function vmApiOrigin(backend: string): string | null {
+  return backend === "staging" ? "https://vm-staging.cmux.dev" : backend === "prod" ? "https://vm.cmux.dev" : null;
+}
+
+/** The VM API tenant for a Stack session: the user's Stack teams and selected team, as a Stack client reads them. */
+async function stackVmTenant(stack: { project: string; clientKey: string }, accessToken: string): Promise<ReturnType<typeof pickVmApiTenant>> {
+  const headers = {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+    "x-stack-access-token": accessToken,
+  };
+  const teams = await http("GET", `${STACK_API}/api/v1/teams?user_id=me`, undefined, headers, 15_000);
+  if (teams.status !== 200) return { team: null, why: `Stack GET /api/v1/teams?user_id=me: HTTP ${teams.status} ${String(teams.body?.code ?? "")}` };
+  const me = await http("GET", `${STACK_API}/api/v1/users/me`, undefined, headers, 15_000).catch(() => null);
+  return pickVmApiTenant(teams.body, me?.status === 200 ? me.body?.selected_team_id ?? me.body?.selected_team?.id : null);
+}
+
+/**
+ * --start-bench N (with --preclaim): create-to-first-command, phase by phase, N samples on each start path
+ * (cloud-start-bench.ts says which paths and phases). Every machine, VM and snapshot it makes is deleted by exact id.
+ */
+export async function runStartBench(args: {
+  api: Api;
+  journey: Journey;
+  backend: string;
+  tag: string;
+  n: number;
+  cmux: string;
+  install: { id: string; token: string; team?: string };
+  account: string;
+  accountTeam: string;
+  /** The Stack project the session belongs to: the VM API's tenant is one of the user's Stack teams there. */
+  stack: { project: string; clientKey: string };
+  login: string;
+  outDir: string | null;
+  privateRowsPath?: string;
+}): Promise<StartSample[]> {
+  const samples: StartSample[] = [];
+  const notes: string[] = [];
+  const size = { cpu: 2, memory_mb: 4096, disk_mb: 16384 };
+  const write = () => {
+    const md = `${startBenchMarkdown(samples, `Start bench (${args.backend}, N=${args.n})`)}${notes.length ? `\n${notes.map((n) => `- ${n}`).join("\n")}\n` : ""}`;
+    if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "start-bench.md"), md); }
+    if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: summarize(samples), notes }, rows: samples.map((s) => ({ ...s, error: s.error === null ? null : scrub(s.error, args.journey.secrets) })) }, null, 2)}\n`);
+  };
+  const machineOf = (answer: any): string => {
+    const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
+    if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+    return machine;
+  };
+  const platformRunning = async (machine: string) => {
+    const m = await args.api.read("cloud.machine.get", { machine }, 15_000);
+    if (m?.status === "failed") throw new MachineFailed("machine failed");
+    return m?.status === "running" && Boolean(m?.host);
+  };
+  const platformRemove = (machine: string) => args.api.deleteMachine(machine, `${args.tag}-start-delete-${machine}`).then(() => undefined);
+  const platformExec = (machine: string) => directExec(args.api, machine, args.journey);
+
+  // The warm pool: the warm the app sends names a ready spare (as runPreclaimBurst's), no login copy. At most 180 s:
+  // twice the refill p50 (hq#12332); run 43951741299's warm named no spare in 300 s while its claims took one, so the
+  // claim answer, not the warm, says whether a sample took a spare.
+  const stateDir = mkdtempSync(path.join(tmpdir(), "cmux-start-bench-"));
+  const platform = clientPlatformOrigin((await args.api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+  const scope = { platform, team: args.accountTeam, install: args.install.id, credential: createHash("sha256").update(args.login).digest("hex") };
+  const request = { platform, account: args.account, scope, currentScope: scope };
+  // The platform's kept create trace, read after the timed phases (cmux-platform GET /v1/machines/{id}?include=trace).
+  const platformTrace = async (machine: string) => {
+    const r = await http("GET", `${platform}/v1/machines/${encodeURIComponent(machine)}?include=trace`, undefined, { authorization: `Bearer ${args.api.bearer}`, ...(args.api.team ? { "x-cmux-team": args.api.team } : {}) }, 15_000);
+    if (r.status !== 200) return `HTTP ${r.status}`;
+    return traceFacts(r.body) ?? "no createTrace";
+  };
+  const readySpare = async (): Promise<Record<string, unknown>> => {
+    const { prepared, wait } = await waitForReadySpare(async () => {
+      const warm = await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, request);
+      const spare = typeof warm.machine === "string" ? warm.machine : null;
+      if (spare) {
+        await waitForCloudSpareReady({ ...args.api, team: args.accountTeam || args.api.team }, spare);
+        await runWarmSpare(args.cmux, args.api, stateDir, args.install.token, { ...request, ready: spare });
+      }
+      return { spare };
+    }, 180_000);
+    return { spare_named: prepared.spare !== null, spare_wait_ms: wait?.waited_ms ?? null, cold_after_wait: wait?.cold_after_wait ?? null };
+  };
+  const platformCreate = (asked: "spare" | "cold") => async (run: number) => {
+    const answer = await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} ${asked} ${run}`, size }, `${args.tag}-start-${asked}-${run}`);
+    const timings = answerTimings(answer);
+    return { machine: machineOf(answer), path: answeredPath(answer) ?? asked, facts: { ...spareFields(answer), ...(timings ? { timings } : {}) } };
+  };
+
+  // The VM API, as an agent spawning VMs calls it: the account's session and one of its Stack teams. The VM API takes a
+  // session only with X-Cmux-Team-Id naming a Stack team the user is in (workers/cmux-vm/src/auth/middleware.ts
+  // fromSession); the platform's personal_team (accountTeam, team_<hex>) is none, so it answered 403 to every create.
+  let vmOrigin = vmApiOrigin(args.backend);
+  let vmTeam = "";
+  if (vmOrigin) {
+    const tenant = await stackVmTenant(args.stack, args.api.bearer).catch((e: unknown) => ({ team: null, why: `Stack team list failed: ${String((e as Error)?.message ?? e).slice(0, 200)}` }));
+    if (tenant.team === null) {
+      notes.push(`VM API paths skipped: ${tenant.why}`);
+      vmOrigin = null;
+    } else {
+      vmTeam = tenant.team;
+      notes.push(`VM API team: ${tenant.via}`);
+    }
+  }
+  const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
+  const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
+  const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
+    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
+    if (r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`POST /v1/vms: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+    const id = r.body?.id ?? r.body?.vm?.id;
+    if (typeof id !== "string") throw new Error(`POST /v1/vms answered no id: ${short(r.body)}`);
+    return { machine: id, facts: { state_at_answer: String(r.body?.state ?? r.body?.vm?.state ?? "") } };
+  };
+  const vmRunning = async (id: string) => (await vm("GET", `/v1/vms/${id}`, undefined, 30_000)).body?.state === "running";
+  const vmExec = (id: string) => async (command: string, timeoutMs = 30_000) => {
+    const r = await vm("POST", `/v1/vms/${id}/exec`, { command, timeoutMs }, timeoutMs + 30_000);
+    if (r.status !== 200) throw new Error(`exec: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+    return { code: Number(r.body?.exitCode ?? 1), stdout: String(r.body?.stdout ?? ""), stderr: String(r.body?.stderr ?? "") };
+  };
+  // http() answers a refusal instead of throwing: a delete that is neither 204 nor 404 is said, never silent.
+  const vmDeleted = async (route: string) => {
+    const r = await vm("DELETE", route, undefined, 60_000);
+    if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw new Error(`DELETE ${route.split("/").slice(0, 3).join("/")}: HTTP ${r.status}`);
+  };
+  const vmRemove = (id: string) => vmDeleted(`/v1/vms/${id}`);
+
+  let platformSnapshot: string | null = null;
+  let vmSnapshot: string | null = null;
+  try {
+    // The snapshots, once, before any sample: a machine that ran its first boot, captured with its memory.
+    try {
+      const source = machineOf(await args.api.op("cloud.machine.create", { name: `cloud start bench ${args.tag} source`, size }, `${args.tag}-start-source`));
+      try {
+        await waitMachine(args.api, source, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
+        const exec = platformExec(source);
+        for (let i = 0; i < 120; i++) { if ((await exec(DAEMON_CHECK, 30_000).catch(() => ({ stdout: "" }))).stdout.includes("daemon-ok")) break; await sleep(2_000); }
+        const snap = await args.api.op("cloud.snapshot.create", { machine: source, name: `start bench ${args.tag}` }, `${args.tag}-start-snapshot`);
+        const id = snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id;
+        if (typeof id !== "string") throw new Error(`snapshot.create answered no id: ${short(snap)}`);
+        platformSnapshot = id;
+        let ready = false;
+        for (let i = 0; i < 180 && !ready; i++) {
+          const list = await args.api.read("cloud.snapshot.list", {}).catch(() => null);
+          const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
+          const row = rows.find((s) => s?.id === id);
+          if (row?.status === "failed") throw new Error("snapshot failed");
+          ready = row?.status === "ready";
+          if (!ready) await sleep(2_000);
+        }
+        // A capture still running when the source goes would make every restore wait on it: no snapshot path then.
+        if (!ready) throw new Error("snapshot not ready within 6 minutes");
+      } finally {
+        await platformRemove(source).catch(() => undefined);
+      }
+    } catch (error) {
+      notes.push(`platform snapshot not taken: ${scrub(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 300)}`);
+    }
+    if (vmOrigin) {
+      try {
+        const { machine: source } = await vmCreate(null, "vm-api-cold")(-1);
+        try {
+          for (let i = 0; i < 300 && !(await vmRunning(source).catch(() => false)); i++) await sleep(1_000);
+          await vmExec(source)("echo ok");
+          // ttlSeconds: a run killed before its own delete leaves no snapshot behind for good.
+          const s = await vm("POST", `/v1/vms/${source}/snapshots`, { displayName: `start bench ${args.tag}`, ttlSeconds: 3600 }, 300_000);
+          const id = s.body?.id ?? s.body?.snapshot?.id;
+          if (typeof id !== "string") throw new Error(`snapshot: HTTP ${s.status} ${short(s.body?.error ?? s.body)}`);
+          vmSnapshot = id;
+        } finally {
+          await vmRemove(source).catch(() => undefined);
+        }
+      } catch (error) {
+        notes.push(`VM API snapshot not taken: ${scrub(String((error as Error)?.message ?? error), args.journey.secrets).slice(0, 300)}`);
+      }
+    }
+    const targets: StartTarget[] = [
+      { path: "spare", prepare: () => readySpare(), create: platformCreate("spare"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
+      // Right after the claim the one-spare pool is empty, so this create takes none (its answer says so).
+      { path: "cold", create: platformCreate("cold"), running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove },
+      ...(platformSnapshot ? [{ path: "snapshot" as const, create: async (run: number) => {
+        const answer = await args.api.op("cloud.snapshot.restore", { snapshot: platformSnapshot, name: `cloud start bench ${args.tag} snapshot ${run}` }, `${args.tag}-start-restore-${run}`);
+        const timings = answerTimings(answer);
+        return { machine: machineOf(answer), ...(timings ? { facts: { timings } } : {}) };
+      }, running: platformRunning, exec: platformExec, daemon: true, trace: platformTrace, remove: platformRemove }] : []),
+      ...(vmOrigin ? [{ path: "vm-api-cold" as const, create: vmCreate(null, "vm-api-cold"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
+      ...(vmSnapshot ? [{ path: "vm-api-snapshot" as const, create: vmCreate(vmSnapshot, "vm-api-snapshot"), running: vmRunning, exec: vmExec, remove: vmRemove }] : []),
+    ];
+    // The matrix step stops at 80 minutes and a killed run deletes nothing: no new round starts past 55.
+    const until = Date.now() + 55 * 60_000;
+    for (let run = 0; run < args.n; run++) {
+      if (Date.now() > until) {
+        notes.push(`stopped after ${run} rounds: past 55 minutes`);
+        break;
+      }
+      for (const target of targets) {
+        const sample = await timeStart(target, run);
+        // The table is public (the job summary): an error is scrubbed before it is kept.
+        if (sample.error !== null) sample.error = scrub(sample.error, args.journey.secrets);
+        samples.push(sample);
+        console.log(`start bench ${sample.path}${sample.asked !== sample.path ? ` (asked ${sample.asked})` : ""} #${run}: ${sample.ok ? "ok" : "FAIL"} ${JSON.stringify(sample.ms)}${sample.error ? ` ${scrub(sample.error, args.journey.secrets)}` : ""}`);
+        write();
+      }
+    }
+  } finally {
+    write();
+    // A snapshot whose capture still runs answers busy: the same keyed delete again, for up to two minutes.
+    if (platformSnapshot) {
+      const snapshot = platformSnapshot;
+      for (let attempt = 1; ; attempt++) {
+        const error = await args.api.op("cloud.snapshot.delete", { snapshot }, `${args.tag}-start-snapshot-delete-${attempt}`).then(() => null, (e: unknown) => String((e as Error)?.message ?? e));
+        if (error === null || /not_found/.test(error)) break;
+        if (attempt >= 12) { notes.push(`platform snapshot delete failed: ${scrub(error, args.journey.secrets).slice(0, 200)}`); break; }
+        await sleep(10_000);
+      }
+    }
+    if (vmSnapshot) await vmDeleted(`/v1/snapshots/${vmSnapshot}`).catch((e) => notes.push(`VM API snapshot delete failed (its ttl ends it within the hour): ${String((e as Error)?.message ?? e)}`));
+    rmSync(stateDir, { recursive: true, force: true });
+    write();
+  }
+  return samples;
+}
+
 export async function runEnsureBench(args: { api: Api; journey: Journey; backend: string; tag: string; n: number; login: string; programs: ReturnType<typeof loginPrograms>; ownerScope: string; outDir: string | null; privateRowsPath?: string }): Promise<EnsureBenchRun[]> {
   const runs: EnsureBenchRun[] = [];
   let probes: ExecProbeRun[] = [];
@@ -989,6 +1320,8 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
+  boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
@@ -1013,6 +1346,9 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     await sweep("boot");
     boot.jobs_at_running = (await exec("systemctl list-jobs --no-pager 2>&1 | head -20; systemctl is-system-running 2>&1", 60_000)).stdout;
     await installPreclaimLogin(args.api, machine, exec, args.programs, args.login, 0, args.ownerScope);
+    // Run 43931369542: every ensure answered `unknown harness "claude"; families: chief, unii` in ~13 ms from a daemon
+    // already up, while the run before cold-started its own. Which daemon serves the first ensure, and with what PATH.
+    boot.daemon_before_ensure = (await exec(ensureBenchDaemonFacts(), 60_000).catch((e) => ({ stdout: `read failed: ${String((e as Error)?.message ?? e)}` }))).stdout;
     const timed = async (condition: EnsureBenchCondition) => {
       for (let i = 0; i < args.n; i++) {
         const result = await exec(ensureBenchCommand(`bench-${args.tag}-${condition}-${i}`, condition === "loaded"), 300_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error)?.message ?? e) }));
@@ -1989,9 +2325,10 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
+  const ready = readyMs(steps);
   const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields, ...spare };
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
@@ -2008,7 +2345,7 @@ export type ProbeExtra = {
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
-  login_path?: "receipt" | "copy";
+  login_path?: "receipt" | "copy" | "launch";
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -2261,19 +2598,21 @@ export const JOURNEY_STUB_SCRIPT = {
   turns: [countingTurnScript(), feltTurnScript()],
 };
 
-/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
-export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
-
-/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
 /**
- * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
- * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
+ * reach models through the Cloud service's model route), so these programs are the journey's, not the app's.
+ */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("./cloud-journey-login-installer.txt", import.meta.url));
+
+/**
+ * The journey's login programs: the guest check and the installer. `creatorTeamGuest` also allows a team guest, for a
+ * run on a team machine the journey itself created.
  */
 export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   return loginPrograms(installerSwift, "claude", creatorTeamGuest);
 }
 
-/** The same programs for either provider CloudCredentialTransfer copies (claude or codex). */
+/** The same programs for either provider (claude or codex). */
 export function loginPrograms(installerSwift: string, provider: "claude" | "codex", creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
@@ -2308,7 +2647,7 @@ export async function waitPreflight(exec: Exec, program: string, kinds: string, 
   }
 }
 
-/** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
+/** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
   if (provider === "claude") return /^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(value);
@@ -2382,6 +2721,109 @@ print('stub-ready')`;
 /** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
 export function loginBearer(provider: "claude" | "codex", value: string): string {
   return provider === "codex" ? (JSON.parse(value).tokens.access_token as string) : value;
+}
+
+/** The public placeholder a Cloud machine's model route sends (acpmux cloud_model_plane.rs PLACEHOLDER). */
+export const MODEL_PLANE_PLACEHOLDER = "cmux-vm-edge-placeholder";
+
+/**
+ * What each stub-logged model request carried, by credential SHA-256: the journey's login, the machine's model-route
+ * placeholder, none, or something else. So a red names the credential that outranked the login.
+ */
+export function credentialSeen(rows: { cred_sha256?: string }[], want: string): string {
+  const placeholder = createHash("sha256").update(MODEL_PLANE_PLACEHOLDER).digest("hex");
+  const counts = new Map<string, number>();
+  for (const x of rows) {
+    const what = x.cred_sha256 === want ? "the login" : x.cred_sha256 === placeholder ? "the model-route placeholder" : !x.cred_sha256 ? "no credential" : "another credential";
+    counts.set(what, (counts.get(what) ?? 0) + 1);
+  }
+  const odd = rows.filter((x) => x.cred_sha256 !== want).map((x: any) =>
+    `${x.path} model=${x.model ?? "-"} stream=${Boolean(x.stream)} tools=${(x.tools ?? []).length}${x.side ? " side" : ""} step=${x.step ?? "-"}`);
+  return [...counts].map(([what, n]) => `${n} with ${what}`).join(", ") + (odd.length ? `; not the login: ${odd.slice(0, 4).join("; ")}` : "");
+}
+
+/**
+ * The stub step's credential rule. With a login written onto the machine (`launch` false) every model request carries
+ * it. With the agent's launch credential (cmux#40159) the credential is the chat agent's alone: every request that
+ * offers tools (the chat's turns) must carry it, and a side request with no tools (a chat title: acpmux's
+ * `_acpmux/complete` runs its own `claude -p`, which holds no session credential) carries it or the machine's
+ * model-route placeholder, never anything else.
+ */
+export function judgeStubCredentials(rows: { cred_sha256?: string; tools?: string[]; side?: boolean }[], want: string, launch: boolean): { error?: string; detail: string } {
+  const all = `${rows.length} model requests`;
+  if (!launch) {
+    return rows.every((x) => x.cred_sha256 === want)
+      ? { detail: `${all}, each with the forwarded login (SHA-256 match)` }
+      : { error: "a model request did not carry the login the journey passed", detail: "" };
+  }
+  const placeholder = createHash("sha256").update(MODEL_PLANE_PLACEHOLDER).digest("hex");
+  const chat = rows.filter((x) => (x.tools ?? []).length > 0 && !x.side);
+  const side = rows.filter((x) => !((x.tools ?? []).length > 0 && !x.side));
+  if (!chat.length) return { error: "no chat turn offered tools", detail: "" };
+  if (!chat.every((x) => x.cred_sha256 === want)) return { error: "a chat turn did not carry the login the journey passed", detail: "" };
+  if (!side.every((x) => x.cred_sha256 === want || x.cred_sha256 === placeholder)) return { error: "a side request carried neither the login nor the machine's model route", detail: "" };
+  const routed = side.filter((x) => x.cred_sha256 === placeholder).length;
+  return { detail: `${all}: ${chat.length} chat turns, each with the launch credential (SHA-256 match)${side.length ? `; ${side.length} side requests, ${routed} of them on the machine's model route` : ""}` };
+}
+
+/**
+ * Which Claude processes on the machine could send a credential: each one's command (cut short) and which provider
+ * names its env sets (names only, never a value).
+ */
+export const CREDENTIAL_PROCESSES_PROGRAM =
+  `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
+  `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-100); ` +
+  `printf '%s\\n' "$c" | grep -qE '(^|/)claude( |$)|claude-(agent|code)' || continue; ` +
+  `echo "pid \${d#/proc/}: $c :: $(tr '\\0' '\\n' < "$d/environ" 2>/dev/null | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN)=' | tr -d = | tr '\\n' ' ')"; ` +
+  `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
+
+/**
+ * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
+ * holds no login; acpmux agent_credentials.rs): `session/new` on the machine's acpmux socket with
+ * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
+ * owner's app. acpmux takes a credential only from its own unix socket with no caller token, which a program run
+ * through the machine's exec is. The value goes on stdin (the heredoc), never on a command line.
+ */
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string): string {
+  const slash = agent.indexOf("/");
+  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
+  if (slash >= 0) meta.model = agent.slice(slash + 1);
+  const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
+  return `python3 -I - <<'CMUX_JOURNEY_START'
+import json, os, socket, sys
+params = json.loads(${JSON.stringify(params)})
+params['cwd'] = os.environ.get('HOME') or '/home/cmux'
+home = params['cwd']
+paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
+def call(f, s, i, method, p):
+    s.sendall((json.dumps({'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}) + '\\n').encode())
+    while True:
+        line = f.readline()
+        if not line:
+            raise RuntimeError(method + ': the daemon closed the connection')
+        m = json.loads(line)
+        if m.get('id') == i:
+            if m.get('error'):
+                raise RuntimeError(method + ': ' + json.dumps(m['error'])[:400])
+            return m.get('result')
+errors = []
+for path in paths:
+    if not os.path.exists(path):
+        continue
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(110)
+        s.connect(path)
+        f = s.makefile('r')
+        call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+        r = call(f, s, 2, 'session/new', params)
+        print('@@session ' + str((r or {}).get('sessionId')))
+        sys.exit(0)
+    except Exception as e:
+        errors.append(path + ': ' + str(e))
+print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
+sys.exit(1)
+CMUX_JOURNEY_START`;
 }
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
@@ -2474,7 +2916,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name);
+    // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -3072,6 +3515,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
   // PRECLAIM_ENSURE_BENCH=N does the same, so the dispatch sets it from its env without changing the burst's command line.
   const ensureBench = argValue("--ensure-bench", argv) ?? (process.env.PRECLAIM_ENSURE_BENCH || undefined);
+  // --start-bench N (with --preclaim): create-to-first-command per start path (runStartBench, cloud-start-bench.ts) instead
+  // of the burst; PRECLAIM_START_BENCH=N does the same from the dispatch's env.
+  const startBench = argValue("--start-bench", argv) ?? (process.env.PRECLAIM_START_BENCH || undefined);
   // --spare-wait SECONDS (0..900): each preclaim claim first waits, at most this long, for the warm to name a ready spare.
   const preclaimSpareWait = Number(argValue("--spare-wait", argv) ?? 0);
   if (!Number.isInteger(preclaimSpareWait) || preclaimSpareWait < 0 || preclaimSpareWait > 900) throw new Error("--spare-wait must be 0..900 seconds");
@@ -3085,6 +3531,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
+  const seed = argValue("--seed", argv) ?? "auto";
+  if (seed !== "none" && seed !== "auto") throw new Error(`--seed ${seed}: none or auto`);
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
@@ -3120,7 +3568,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const tag = `jr-${Date.now().toString(36)}`;
+  // --model stub with Claude: the login goes with the agent's start as its launch credential (cmux#40159), never onto
+  // the machine. Codex keeps the machine login and the stub's own provider (CODEX_STUB_CONFIG), which a launch
+  // credential would replace with api.openai.com.
+  const launchCredential = modelStub && provider === "claude" && Boolean(login) && !gatewayAny && startVia === "acp";
+  const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
@@ -3381,6 +3833,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const accountTeam = team ?? String(user?.personal_team ?? user?.team ?? "");
       const account = `${userId}/${accountTeam}`;
       if (!userId) throw new Error("preclaim: user.ensure returned no user id");
+      if (startBench !== undefined) {
+        const n = Number(startBench);
+        if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--start-bench must be 1..10");
+        if (!cmux) throw new Error("--start-bench needs --cmux PATH for the warm the app sends (the spare path)");
+        return await J.step("start bench", async () => {
+          const samples = await runStartBench({ api, journey: J, backend: backend.name, tag, n, cmux, install, account, accountTeam, stack, login: claudeLogin, outDir, privateRowsPath: process.env.PRECLAIM_PRIVATE_ROWS });
+          const failed = samples.filter((s) => !s.ok).length;
+          return { value: 0, detail: `${samples.length} starts, ${failed} failed; table in start-bench.md` };
+        });
+      }
       if (ensureBench !== undefined) {
         const n = Number(ensureBench);
         if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("--ensure-bench must be 1..10");
@@ -3487,7 +3949,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -3526,11 +3988,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("listed", async () => {
         const v = await api.read("cloud.machine.list", {});
         const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
-        return { value: null, detail: `${rows.length} machines` };
+        const row = rows.find((r) => r.id === created.id);
+        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        // The size the platform recorded: the one the VM read back at create, not the one asked for.
+        const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
+        return { value: null, detail: `${rows.length} machines${size}` };
       });
       await J.step("first exec", async () => {
-        const r = await exec("echo journey-ok; uname -m");
+        // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
+        // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).
+        const r = await exec("echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)");
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
@@ -3762,9 +4229,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${provider} login`);
         return { value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher picks it" };
       });
+    } else if (launchCredential) {
+      // cmux#40159: a Cloud chat runs on the person's model connection, given to that chat's agent when it starts; the
+      // machine holds no login. The login goes with the agent's start below (launchCredentialStartProgram). A login
+      // written onto the machine is outranked there by the machine's model route (acpmux cloud_model_plane.rs fills
+      // ANTHROPIC_API_KEY with its placeholder for every spawn), so the stub step could not prove which one Claude used.
+      probeExtra.login_path = "launch";
+      await J.step(loginStep, async () => {
+        if (!validLogin(provider, login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
+        const held = own.stdout.includes("own-login") ? "the machine also holds a Claude login of its own" : "the machine holds none";
+        return { value: null, detail: `the person's model connection, given to the agent at its start (cmux#40159); ${held}` };
+      });
     } else {
       probeExtra.login_path = "copy";
-      // CloudCredentialTransfer.perform on a Worker machines client: preflight (which also makes and checks the staging
+      // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
       // folder as the work user), stage (fs/write as root puts the file in 0644), install, each through the routes the app uses.
       await J.step(loginStep, async () => {
         if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
@@ -3927,6 +4406,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else {
       J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
+        if (launchCredential) {
+          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
+          const id = /@@session (\S+)/.exec(r.stdout)?.[1];
+          if (r.code !== 0 || !id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          J.firstText.mark("session_ready");
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential)` };
+        }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
@@ -4009,9 +4495,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith(route));
           const want = createHash("sha256").update(loginBearer(provider, login)).digest("hex");
           if (!turns.some((x: any) => x.stream && !x.side)) throw new Error(`${agent} sent the stub no streamed ${route} turn`);
-          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent})`);
+          const judged = judgeStubCredentials(turns, want, launchCredential);
+          if (judged.error) {
+            const procs = (await exec(CREDENTIAL_PROCESSES_PROGRAM).catch(() => null))?.stdout.replace(/\n/g, "; ").slice(0, 900) ?? "unread";
+            throw new Error(`${judged.error} (the forwarded credential did not reach ${agent}): ${credentialSeen(turns, want)} (processes: ${procs})`);
+          }
           if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
-          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
+          return { value: null, detail: `${judged.detail}; the shell call ran and its output came back` };
         });
       }
       if (gwExec || gatewayLocal) {

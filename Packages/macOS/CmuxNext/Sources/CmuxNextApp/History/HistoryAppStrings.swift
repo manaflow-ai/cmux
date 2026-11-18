@@ -28,10 +28,6 @@ enum HistoryAppStrings {
                days)
     }
 
-    static func undoClosesPanes(_ count: Int) -> String {
-        String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
-    }
-
     static func screenTitle(_ number: Int) -> String {
         String(format: t("history.closed.screenTitle", "Screen %lld"), number)
     }

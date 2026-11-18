@@ -163,6 +163,7 @@
 				CE7A00000000000000000020 /* Bundle acpmux */,
 				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000044 /* Bundle cmux-mobile-host */,
+				CE7A00000000000000000045 /* Bundle Screen Sharing helper */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
@@ -551,6 +552,47 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-mobile-host.sh\"\n";
+		};
+		CE7A00000000000000000045 /* Bundle Screen Sharing helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+
+			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-screen-sharing-helper.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-screen-sharing-helper.sh",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-host",
+				"$(SRCROOT)/cmux-tui/crates/cmux-codecs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-encode",
+				"$(SRCROOT)/cmux-tui/crates/cmux-hub-host",
+				"$(SRCROOT)/cmux-tui/crates/cmux-process",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-core",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-engine",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-link",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-proto",
+				"$(SRCROOT)/cmux-tui/crates/cmux-transport",
+				"$(SRCROOT)/cmux-tui/vendor",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(CMUX_NEXT_SCREEN_HELPER_BIN)",
+				"$(CMUX_NEXT_REQUIRE_SCREEN_HELPER)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
+				"$(CMUX_NEXT_SCREEN_HELPER_CACHE)",
+				"$(CMUX_NEXT_SCREEN_HELPER_ARCHS)",
+			);
+			name = "Bundle Screen Sharing helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_TEMP_DIR)/bundle-screen-sharing-helper.stamp",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-screen-sharing-helper.sh\"\n";
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;
