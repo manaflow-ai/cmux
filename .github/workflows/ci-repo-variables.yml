@@ -79,6 +79,7 @@ jobs:
             CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            CMUX_TUI_GATE_RUNNER=${{ vars.CMUX_TUI_GATE_RUNNER }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
