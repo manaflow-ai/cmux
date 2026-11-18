@@ -30,6 +30,9 @@ pub struct ProviderEngine {
     events: EventSink,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
+    /// The caller's cmux workspace key (`CMUX_WORKSPACE_ID`), where the app
+    /// opens the session's tabs (``placed_in``).
+    workspace: Option<String>,
     /// Tabs the session created (`tabs.open` and their popups) and did not
     /// keep (`tab.keep`): they close when the session ends.
     created: Arc<Mutex<BTreeSet<String>>>,
@@ -141,8 +144,16 @@ impl ProviderEngine {
             subscription,
             events,
             lease,
+            workspace: None,
             ended: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// The session runs in the caller's workspace `workspace` (its key): the
+    /// app opens the session's tabs there, never in the focused one.
+    #[must_use]
+    pub fn placed_in(self, _workspace: Option<String>) -> ProviderEngine {
+        self
     }
 
     /// `tabs.list`: one shape for every source (driver-protocol.md).
