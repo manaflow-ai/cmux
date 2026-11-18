@@ -368,6 +368,25 @@ class Replay(unittest.TestCase):
         unit = {"kind": "native", "why": "cmux-next-ios/rust/Cargo.toml", "argv": []}
         self.assertEqual(self.replay.selected({"all": True, "units": [unit]})["native"], {"cmux-next-ios/rust/Cargo.toml"})
 
+    def test_a_tap_regression_is_a_pass_then_two_fails_and_names_its_candidates(self):
+        order = ["c0", "c1", "c2", "c3", "c4", "c5"]
+        ev = lambda **o: {sha: {"outcome": out} for sha, out in o.items()}  # noqa: E731
+        rows = [
+            {"workflow": "w", "job": "j", "test": "red", "events": ev(c0="pass", c3="fail", c4="fail")},
+            {"workflow": "w", "job": "j", "test": "flake", "events": ev(c0="pass", c1="fail", c2="pass")},
+            {"workflow": "w", "job": "j", "test": "unconfirmed", "events": ev(c0="pass", c5="fail")},
+            {"workflow": "w", "job": "j", "test": "off-base", "events": ev(x="pass", c1="fail", c2="fail")},
+        ]
+        found = self.replay.tap_regressions(rows, order)
+        self.assertEqual([(r["test"], r["candidates"]) for r in found], [("red", ["c1", "c2", "c3"])])
+
+    def test_tap_rows_map_to_replay_kinds(self):
+        kind = self.replay.tap_kind
+        self.assertEqual(kind("cmux-next web", "react-apps-check", "test/a.test.ts > it works"), ("web", "test/a.test.ts"))
+        self.assertEqual(kind("cmux-next web", "Web tests", "tests/b.test.ts > x"), ("web-app", "web/tests/b.test.ts"))
+        self.assertEqual(kind("rust workspaces", "cmux-next-ios/rust", "t"), ("rust", "t"))
+        self.assertEqual(kind("cmux-next guards", "tooling-tests", "test_x (__main__.C.test_x)"), ("python-name", "test_x"))
+
     def test_an_open_window_lists_runs_from_since(self):
         # `created=SINCE..9999` (the --until default) made GitHub answer total_count 0 for every
         # workflow; `>=SINCE` lists them (ci.yml: 0 vs 256 failed runs since 2026-11-17).
