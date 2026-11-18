@@ -428,12 +428,26 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
 /// What the vault env a spawn gets depends on, as metadata (never a value):
 /// the state file's identity, the hold, and a digest of the machine
 /// credential and its revoked flag. `None` outside a daemon. The agent pool
-/// keys on it (`login_env::machine_stamp`).
+/// keys on it ([`machine_stamp`]).
 pub fn stamp() -> Option<String> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return None;
     }
     Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
+pub fn machine_stamp() -> Option<String> {
+    let vault = stamp();
+    match (crate::login_env::machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {

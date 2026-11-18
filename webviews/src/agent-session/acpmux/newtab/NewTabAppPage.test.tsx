@@ -72,11 +72,13 @@ async function render(host: Host) {
   return { container, root, gone, ready };
 }
 
-test("the handshake names the picked app only when it is an app id", () => {
-  expect(newTabHost({ newTab: { app: "local/launcher" } })?.app).toBe("local/launcher");
+test("the handshake names the app the host picked", () => {
+  // The app sends `tabs.newTabApp` only when it is an app id by the manifest's pattern
+  // (Swift NewTabAppSetting.isValidID, NewTabAppSettingTests).
+  for (const good of ["local/launcher", "local/web-pane", "manaflow-ai/launcher"])
+    expect(newTabHost({ newTab: { app: good } })?.app).toBe(good);
   expect(newTabHost({ newTab: {} })?.app).toBeUndefined();
-  for (const bad of ["launcher", "a/b/c", "a b/c", 7])
-    expect(newTabHost({ newTab: { app: bad } })?.app).toBeUndefined();
+  for (const bad of ["", 7, null]) expect(newTabHost({ newTab: { app: bad } })?.app).toBeUndefined();
 });
 
 test("a visit whose app could not show draws cmux's own; the next Cmd-T adopt tries the app again", () => {

@@ -21,19 +21,21 @@ type Step = PapercutStep;
 
 /// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
 /// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
-/// queue, say).
+/// queue, say). `answer` writes turn n's reply (it should start `Answer n:`, which the lanes wait for).
 export function papercutEvents({
   turns,
   running,
   extra = [],
   lead = [],
   session: fields = {},
+  answer = (n) => `Answer ${n}: the checks on the merged head are green.`,
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
   lead?: Step[];
   session?: Record<string, unknown>;
+  answer?: (n: number) => string;
 }) {
   const steps: Step[] = [];
   let clock = START;
@@ -47,7 +49,7 @@ export function papercutEvents({
       "agent_message_chunk",
       update({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Answer ${n}: the checks on the merged head are green.` },
+        content: { type: "text", text: answer(n) },
       }),
       clock,
     ]);
@@ -132,6 +134,10 @@ export async function papercutPane(
     vitePlugins?: PluginOption[];
     /// Delay older-history replies to exercise the native scroll path while a page is in flight.
     historyDelayMs?: number;
+    /// Older pages (`_acpmux/events` with `beforeSeq`) honor the asked `limit` and `maxBytes` as acpmux
+    /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
+    /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
+    askedPageSize?: boolean;
   },
 ) {
   const { createServer } = await import("vite");
@@ -183,6 +189,20 @@ export async function papercutPane(
             lastSeq: events.length,
           };
         const end = Math.max(0, before - 1);
+        if (options.askedPageSize) {
+          // Newest first back from `beforeSeq`, to `limit` records or `maxBytes` of them (at least one).
+          const limit = Number(params?.limit) || options.attachPage;
+          const maxBytes = Number(params?.maxBytes) || Infinity;
+          let start = end;
+          let bytes = 0;
+          while (start > 0 && end - start < limit) {
+            const size = JSON.stringify(events[start - 1]).length;
+            if (end - start > 0 && bytes + size > maxBytes) break;
+            bytes += size;
+            start -= 1;
+          }
+          return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
+        }
         const start = Math.max(0, end - Math.min(options.attachPage, Number(params?.limit) || options.attachPage));
         return { events: events.slice(start, end), hasMore: start > 0, lastSeq: events.length };
       }

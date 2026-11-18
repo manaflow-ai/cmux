@@ -40,6 +40,7 @@ enum TerminalChatHandler {
         case .notAgentTab?, nil: throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
         case .noSession?: throw ActionFailure(message: terminal ? MiscHandlerStrings.terminalChatNoSession : MiscHandlerStrings.terminalChatNoTerminal)
         case .unsupportedHarness?: throw ActionFailure(message: MiscHandlerStrings.terminalChatHarness)
+        case .noTerminal?: throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal, isQuiet: true) // no row offers it
         // No longer answered (a chat mid-turn resumes in a terminal that waits for the turn); kept for decoding.
         case .busy?: throw ActionFailure(message: MiscHandlerStrings.terminalChatBusy)
         case .handingOff(let made)?:
@@ -80,27 +81,19 @@ enum TerminalChatHandler {
         }
     }
 
-    /// Toggle Terminal and Chat's facts about `tab`, which the action and the tab's right-click row (``offersToggle(on:services:)``)
-    /// both hand to the Rust route, so the row shows exactly where the key acts; with the chat's adopted session
-    /// (`key`, `harness:agentSessionId`) and the live terminals running it, best first (as an `agent/` link picks them).
-    /// `membership`: only what decides whether the route refuses the tab (the tab's kind and its session), for the
-    /// right-click row: the running terminals, the turn and the hand-off only pick
-    /// among the routes that act, and reading them there would observe every machine's agents.
+    /// Toggle Terminal and Chat's facts about `tab` for the Rust route (the action and its right-click row alike), with the
+    /// chat's adopted session (`key`, `harness:agentSessionId`) and the live terminals running it, best first.
+    /// `membership`: only the tab's kind and its session (hibernation's pairing, read on every switch): the running
+    /// terminals, the turn and the hand-off would walk every machine's agents there. The right-click row reads them all.
     static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
         -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
         let tabs = services.agentTabs, terminal = tab.kind == .pty
-        // A terminal's session is its agent's report (a hook's `agent_session_id`); a chat's, the outside session it adopted,
-        // else (a chat started here) the conversation its acpmux run holds (its lane's `agentSessionId`, which a terminal
-        // running it reports too, so that terminal is found), or the run itself before the harness named one.
-        let own = terminal ? nil : tab.agentSession.flatMap { ref in
-            ref.harness.flatMap { harness in tabs.session(of: tab.id).map {
-                AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0)
-            } }
-        }
-        let adopted = terminal ? nil : tabs.adoption(of: tab.id) ?? own, key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+        let adopted = terminal ? nil : chatSession(of: tab, services: services), key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
         var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
-                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId)
+                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId, // a terminal's: its agent's report
+                                            cannotStartTerminal: !terminal && (tabs.session(of: tab.id) == nil // a remote chat's run: not ours
+                                                || tabs.remoteMachineID(of: tab.id) != nil || QuitAgents.environment(services) == nil)) // searches paths: last
         guard !membership, let adopted else { return (facts, key, []) }
         let terminals = DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
                                            harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
@@ -113,18 +106,25 @@ enum TerminalChatHandler {
         return (facts, key, terminals)
     }
 
-    /// Whether `tab` is half of a terminal and chat pair, so Toggle Terminal and Chat acts on it; false when the route
-    /// refuses it (not a terminal or chat, no session, a harness acpmux cannot resume). The tab's right-click offers the
-    /// action only then (``PaneController/contextMenu(for:)``).
-    static func offersToggle(on tab: TabModel, services: AppServices) -> Bool {
-        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services, membership: true).facts))
+    /// Chat `tab`'s session: the outside one it adopted, else (started here) its acpmux run's conversation (its lane's `agentSessionId`), else the run.
+    static func chatSession(of tab: TabModel, services: AppServices) -> AgentPaneAdopt? {
+        services.agentTabs.adoption(of: tab.id) ?? tab.agentSession.flatMap { ref in ref.harness.flatMap { harness in
+            services.agentTabs.session(of: tab.id).map { AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0) }
+        } }
     }
 
-    /// Whether the route's answer `route` acts: every answer but a refusal.
+    /// Whether `tab` is half of a live terminal and chat pair, so its right-click offers the action (``PaneController/contextMenu(for:)``).
+    /// A chat no terminal runs is a GUI chat and offers none (Leo, 2026-11-17: "just... stop showing the toggle on gui");
+    /// the key and the palette still resume it in a terminal. One walk per right-click, as the key's own.
+    static func offersToggle(on tab: TabModel, services: AppServices) -> Bool {
+        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services).facts))
+    }
+
+    /// Whether the route's answer `route` shows the toggle, as cmux-window-rules `TerminalChatToggle::shows_toggle` answers it.
     static func offersToggle(_ route: WindowRules.TerminalChatToggle?) -> Bool {
         switch route {
-        case .notAgentTab?, .noSession?, .unsupportedHarness?, nil: false
-        case .toChat?, .toTerminal?, .resumeInTerminal?, .handingOff?, .busy?: true
+        case .notAgentTab?, .noSession?, .unsupportedHarness?, .noTerminal?, .resumeInTerminal?, .busy?, nil: false
+        case .toChat?, .toTerminal?, .handingOff?: true
         }
     }
 
