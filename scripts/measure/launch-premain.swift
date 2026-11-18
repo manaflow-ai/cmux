@@ -10,6 +10,8 @@
 //                                                   it run once the file HOLD exists (a sampler attaches meanwhile)
 //   launch-premain stub FILE LABEL                  exec FILE --version and time it to exit (killed at 5 s)
 //   launch-premain resident FILE                    print FILE's resident fraction and page counts
+//   launch-premain spawn FILE LABEL                 posix_spawn FILE started suspended, time the call (the kernel's
+//                                                   exec of the image, its policy check included), then kill it
 //
 // Each launch prints one `LP-RUN <json>` line. main_start is the app's own mark, in ms from its process start
 // (sysctl p_starttime). At the mark (in exec mode with the process stopped there; in open mode as the mark arrives,
@@ -182,6 +184,20 @@ case "resident":
     guard let r = resident(args[2]) else { print("LP-RESIDENT none"); exit(1) }
     print("LP-RESIDENT \(round1(r.fraction * 1000) / 1000) \(r.resident) \(r.pages)")
 
+case "spawn":
+    guard args.count >= 4 else { usage() }
+    var pid: pid_t = 0, attr: posix_spawnattr_t? = nil
+    posix_spawnattr_init(&attr)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_START_SUSPENDED))
+    let argv: [UnsafeMutablePointer<CChar>?] = [strdup(args[2]), nil]
+    let started = now()
+    let rc = posix_spawn(&pid, args[2], nil, &attr, argv, environ)
+    let spawnMs = now() - started
+    if rc == 0 { kill(pid, SIGKILL); kill(pid, SIGCONT); var status: Int32 = 0; waitpid(pid, &status, 0) }
+    var spawned: [String: Any] = ["label": args[3], "mode": "spawn", "file": (args[2] as NSString).lastPathComponent, "spawn_ms": round1(spawnMs)]
+    if rc != 0 { spawned["error"] = "spawn \(rc)" }
+    emit(spawned)
+
 case "stub":
     guard args.count >= 4 else { usage() }
     let before = resident(args[2]), sysBefore = systemPageins(), started = now()
@@ -229,11 +245,18 @@ case "exec":
     posix_spawn_file_actions_addopen(&actions, 2, appLog, O_WRONLY | O_CREAT | O_APPEND, 0o644)
     let sysBefore = systemPageins(), requested = now()
     guard posix_spawn(&child, exe, &actions, &attr, argv, env) == 0 else { emit(["label": label, "error": "spawn"]); exit(1) }
+    // posix_spawn returns once the kernel has activated the new image (the code signature and the system's policy
+    // check of the executable included); dyld, the frameworks it links and initializers run after, in the child.
+    // Started suspended, spawn_ms is the exec alone and resume_to_main is dyld, the linked frameworks and
+    // initializers up to main.
+    let spawned = now()
+    var resumed: Double?
     if let hold {
         print("LP-PID \(child)"); fflush(stdout)
         let waitFrom = now()
         while access(hold, F_OK) != 0, now() - waitFrom < 30_000 { usleep(2000) }
         kill(child, SIGCONT)
+        resumed = now()
     }
     let start = processStart(child)
     spin { mainAt != nil || now() - requested > 30_000 }
@@ -242,7 +265,9 @@ case "exec":
     var status: Int32 = 0; waitpid(child, &status, 0)
     let fields: [String: Any] = ["label": label, "mode": "exec", "pid": Int(child), "main_start": json(mainAt), "system_pageins": sysPageins,
                                  "resident_before": fraction(before), "held": hold != nil,
-                                 "request_to_start": json(start.map { round1($0 - requested) })]
+                                 "request_to_start": json(start.map { round1($0 - requested) }),
+                                 "spawn_ms": round1(spawned - requested),
+                                 "resume_to_main": json(resumed.flatMap { r in start.flatMap { s in mainAt.map { round1(s + $0 - r) } } })]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if mainAt == nil { row["error"] = "no main_start in 30 s" }
@@ -334,9 +359,13 @@ case "first":
         CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     }
     func owner(_ info: [String: Any]) -> String { info[kCGWindowOwnerName as String] as? String ?? "?" }
+    func windowID(_ info: [String: Any]) -> Int { info[kCGWindowNumber as String] as? Int ?? -1 }
+    // CoreServicesUIAgent windows already on screen before the request (a prompt an earlier launch left unanswered)
+    // are not this launch's prompt: only a window that came after the request is.
+    let agentBefore = Set(onScreen().filter { owner($0) == "CoreServicesUIAgent" }.map(windowID))
     func agentWindow(_ list: [[String: Any]]) -> (pid: Int32, id: Int)? {
-        for info in list where owner(info) == "CoreServicesUIAgent" {
-            if let pid = info[kCGWindowOwnerPID as String] as? Int32, let id = info[kCGWindowNumber as String] as? Int { return (pid, id) }
+        for info in list where owner(info) == "CoreServicesUIAgent" && !agentBefore.contains(windowID(info)) {
+            if let pid = info[kCGWindowOwnerPID as String] as? Int32 { return (pid, windowID(info)) }
         }
         return nil
     }
@@ -398,7 +427,8 @@ case "first":
         "prompt": since(prompt), "prompt_gone": since(promptGone), "pressed": since(pressed), "press": press,
         "start": since(start), "main": fromRequest("main_start"), "window": since(window), "usable": fromRequest("window_usable"),
         "main_start": json(mainAt), "translocated": path.contains("/AppTranslocation/"), "ran_from": path,
-        "marks": marks.mapValues(round1), "new_window_owners": newOwners,
+        "marks": marks.mapValues(round1), "new_window_owners": newOwners, "prompts_before": agentBefore.count,
+        "prompt_left": agentWindow(onScreen()) != nil,
     ]
     row.merge(fields) { $1 }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 60 s" }
