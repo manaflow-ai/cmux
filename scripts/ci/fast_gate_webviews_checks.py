@@ -41,6 +41,7 @@ CHECKS = (
     "check:browser-lanes",
     "check:fixed-waits",
     "check:whole-list-rows",
+    "check:list-contract",
     "check:design-tokens",
     "check:ui-review",
     "typecheck",
