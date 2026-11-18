@@ -1172,11 +1172,20 @@ final class UnboundAgentSource: AgentSessionSource {
         guard let start else { return notSent("Connecting to \(summary.macName)… Send again once the chat loads.") }
         guard !starting else { return notSent("\(summary.agentName) is still starting. Send again in a moment.") }
         starting = true
+        let summary = summary
         Task { [weak self] in
             do {
                 try await start(text, attachments) { failure in
+                    // After the bind the tab's chat opens on its session's own source, so the
+                    // message goes back to the composer of the store that shows the tab now.
                     self?.starting = false
-                    notSent(failure.reason)
+                    guard let store = AgentSessionDirectory.shared.existingStore(id: summary.id, macID: summary.macID) else {
+                        return notSent(failure.reason)
+                    }
+                    store.clientError = failure.reason
+                    if case .notSent = failure {
+                        store.returnedDraft = AgentChatStore.ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                    }
                 }
             } catch {
                 self?.starting = false

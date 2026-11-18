@@ -152,13 +152,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
                 "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
             ]))
-        } catch {
-            // No tab shows the session (refused, or the Mac's own first send bound the tab first):
-            // it leaves the chat lists instead of staying there unprompted.
+        } catch let error as DaemonReplyError {
+            // The Mac answered no (refused, or its own first send bound the tab first): no tab
+            // shows the session, so it leaves the chat lists instead of staying there unprompted.
+            // A lost reply proves nothing either way and archives nothing.
             _ = try? await acpmux?.request("_acpmux/archive", .object(["sessionId": .string(session), "archived": .bool(true)]),
                                            timeout: .seconds(20))
-            if let error = error as? DaemonReplyError { throw WorkspaceCreationError(error.message) }
-            throw error
+            throw WorkspaceCreationError(error.message)
         }
         let folder = (try? await sync.listNow())?.directories[tabID] ?? cwd ?? ""
         do {

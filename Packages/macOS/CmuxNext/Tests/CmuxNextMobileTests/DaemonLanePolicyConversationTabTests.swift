@@ -28,6 +28,13 @@ struct DaemonLanePolicyConversationTabTests {
         }
     }
 
+    /// A phone's first message in a Mac's New chat tab binds its session there only through
+    /// cmux-mobile-host, which checks the tab against this Mac's agent tab host.
+    @Test func firstSessionBindsAreRefusedOnThisLane() {
+        let line = #"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"0199-abc","expected_session":null,"harness":"claude"}"#
+        #expect(errorCode(line) == "unavailable")
+    }
+
     @Test func programFieldsStayForbidden() {
         let line = #"{"id":1,"cmd":"new-conversation-tab","pane":4,"agent_session":{"host":"install:mac-1"},"command":"sh"}"#
         #expect(errorCode(line) == "forbidden")
