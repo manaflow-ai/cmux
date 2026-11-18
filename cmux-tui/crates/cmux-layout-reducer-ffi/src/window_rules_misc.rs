@@ -282,6 +282,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: launch::LandingFacts = read(request)?;
             value(launch::landing(&facts))?
         }
+        // A Home landing that waits for Home's workspace: wait, land in the saved front window, or stop.
+        b"window_launch_pending_home" => {
+            let facts: launch::PendingHome = read(request)?;
+            value(launch::pending_home(&facts))?
+        }
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
