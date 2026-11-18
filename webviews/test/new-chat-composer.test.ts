@@ -203,29 +203,19 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(newTab.gap).toBe(chat.gap);
   });
 
-  test("no private-folder sentence over the composer; the folder chip's menu says it", async () => {
+  test("no private-folder sentence over the composer or under the folder chip's menu", async () => {
     expect((await card("claude")).sentence).toBe(false);
     const page = await open("folder-menu");
-    const menu = await page.evaluate(() => ({
-      note: document.querySelector(".acpmux-location-menu .acpmux-location-note")?.textContent?.trim() ?? null,
-      choose: document.querySelector('.acpmux-location-menu [data-choose=""]')?.textContent?.trim() ?? null,
-      sentence: document.querySelector(".acpmux-folder-choice") !== null,
-    }));
-    await page.close();
-    expect(menu).toEqual({
-      note: "New chats in this workspace start in a private folder.",
-      choose: "Add folder…",
-      sentence: false,
+    const menu = await page.evaluate(() => {
+      const popup = document.querySelector(".acpmux-location-menu");
+      return {
+        choose: popup?.querySelector('[data-choose=""]')?.textContent?.trim() ?? null,
+        privateFolder: popup?.textContent?.includes("private folder") ?? false,
+        sentence: document.querySelector(".acpmux-folder-choice") !== null,
+      };
     });
-  });
-
-  test("a chat in a project has no private-folder note in its folder menu", async () => {
-    const page = await open("project");
-    await page.locator('.acpmux-composer-strip [aria-label="Folder"]').click();
-    await page.locator(".acpmux-location-menu").waitFor();
-    const note = await page.evaluate(() => document.querySelector(".acpmux-location-menu .acpmux-location-note"));
     await page.close();
-    expect(note).toBeNull();
+    expect(menu).toEqual({ choose: "Add folder…", privateFolder: false, sentence: false });
   });
 
   test("the folder chip's Add folder… asks the host's workspace folder sheet", async () => {

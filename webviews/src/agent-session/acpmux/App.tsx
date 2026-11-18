@@ -12578,8 +12578,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
-            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        {/* Only the host's refusal of the folder chip's Choose folder… stands over the composer,
+            with the line to retry. */}
         <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
           <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
         </Notice>
@@ -13202,7 +13202,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   },
                 }
               : {})}
-            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
                 ? chooseWorkspaceFolder

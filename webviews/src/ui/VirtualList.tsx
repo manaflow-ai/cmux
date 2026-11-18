@@ -24,6 +24,9 @@ export interface VirtualListProps {
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
   role?: "listbox" | "grid" | "list";
   label?: string;
+  /** With `role="grid"`: the whole list's row count (aria-rowcount), since only some rows are
+   * mounted; rows then carry their own aria-rowindex. */
+  rowCount?: number;
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
   scrollParent?: string;
@@ -59,6 +62,7 @@ export function VirtualList({
   scrollParent,
   fade = false,
   measureRows = false,
+  rowCount,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();
@@ -113,8 +117,7 @@ export function VirtualList({
       return indexes;
     },
   });
-  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
-  // The range extractor adds the active row to a measured range; before the first measure (no
+  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" })); // The range extractor adds the active row to a measured range; before the first measure (no
   // viewport yet) there is no range, so the active row is added here from its estimated place.
   const items = virtualizer
     .getVirtualItems()
@@ -142,6 +145,7 @@ export function VirtualList({
       style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
+      aria-rowcount={role === "grid" ? rowCount : undefined}
     >
       <div
         ref={space}
@@ -151,18 +155,35 @@ export function VirtualList({
         {items.map((item) =>
           renderRow(
             item.index,
-            {
-              position: "absolute",
-              top: 0,
-              insetInlineStart: 0,
-              width: "100%",
-              transform: `translateY(${item.start - scrollMargin}px)`,
-              ...(measureRows ? {} : { height: item.size }),
-            },
+            virtualRowStyle(item.start - scrollMargin, measureRows ? undefined : item.size),
             measureRows ? virtualizer.measureElement : undefined,
           ),
         )}
       </div>
     </div>
   );
+}
+
+const ROW_STYLES_KEPT = 4096;
+const rowStyles = new Map<string, CSSProperties>();
+
+/** A row's style is the same object for the same place and size, so a memoized row (one that takes
+ * `style` as a prop) does not re-render when the list scrolls, a sibling is hovered or the caller
+ * re-renders. A pure function of the geometry (no ref read at render, so the compiler keeps the
+ * component); the oldest entries go past ROW_STYLES_KEPT. The objects are frozen: shared by lists. */
+export function virtualRowStyle(offset: number, height: number | undefined): CSSProperties {
+  const key = `${offset}|${height ?? ""}`;
+  const kept = rowStyles.get(key);
+  if (kept) return kept;
+  const style: CSSProperties = Object.freeze({
+    position: "absolute",
+    top: 0,
+    insetInlineStart: 0,
+    width: "100%",
+    transform: `translateY(${offset}px)`,
+    ...(height === undefined ? {} : { height }),
+  });
+  if (rowStyles.size >= ROW_STYLES_KEPT) rowStyles.delete(rowStyles.keys().next().value!);
+  rowStyles.set(key, style);
+  return style;
 }
