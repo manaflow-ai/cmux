@@ -47,7 +47,7 @@ import Testing
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let top = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn,
                                 items: [LayoutItem(id: home, ref: SidebarLayoutDocument.homeRef), LayoutItem(id: store, ref: .app("cmux/app-store"))])
-        let block = SidebarSection(kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue)), nodes: [])
+        let block = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue)), nodes: [])
         let nodes: [SidebarNode] = [
             .group(SidebarGroup(id: GroupID("grp-a"), name: "clicksiq", workspaces: [workspace("ws-1", "Enable worktrees")])),
             .group(SidebarGroup(id: GroupID("grp-b"), name: "alldevneeds", workspaces: [workspace("ws-2", "Change background color"),
@@ -55,7 +55,7 @@ import Testing
             .workspace(workspace("ws-4", "Update main page colors")),
             .workspace(workspace("ws-5", "Change UI")),
         ]
-        let model = SidebarModel(sections: [block, SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("ws-2"))
+        let model = SidebarModel(sections: [block, CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("ws-2"))
         model.layout = SidebarLayoutDocument(sections: [top])
         model.docDrag = SidebarDocDrag(item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { _ in nil })
         var preferences = SidebarSectionsPreferences.defaults
