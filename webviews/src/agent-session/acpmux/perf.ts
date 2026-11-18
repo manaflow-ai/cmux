@@ -213,26 +213,16 @@ export class AcpmuxPerf {
       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
       const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
-      // The key's edit: its `input` event, then the microtasks the field and React run it in. It is done by the
-      // first point after the key's task: the next task (a message posted from the edit) or the next frame,
-      // whichever runs first. A frame due before that message runs the page's whole rendering update in between,
-      // which the message alone counted as the key's work: every key whose frame came first had that frame's style,
-      // layout and paint in its `to_work` (goal typing-latency). `to_frame` and `to_paint` keep the frame.
-      let edited = false;
-      const input = () => {
-        edited = true;
-        const done = new MessageChannel();
-        done.port1.onmessage = () => {
-          sample.work ??= performance.now() - start;
-          done.port1.close();
-        };
-        done.port2.postMessage(0);
-      };
-      page.addEventListener("input", input, { capture: true, once: true });
+      // The key's edit is done inside its own task: the `input` event reaches the document last, as it bubbles, after
+      // the field's and React's handlers, and each handler's microtasks (the editor's flush, React's sync render and
+      // commit) run before the next handler. A microtask from here ends the key's work. A point after the task (a
+      // posted message) also counted whatever ran before it: on Mac WebKit the next frame ran first on nearly every
+      // key, so `to_work` read the wait for the frame, not the work (goal typing-latency). `to_frame` keeps the frame.
+      const input = () => queueMicrotask(() => (sample.work ??= performance.now() - start));
+      page.addEventListener("input", input, { once: true });
       requestAnimationFrame(() => {
         const frame = performance.now();
-        page.removeEventListener("input", input, { capture: true });
-        if (edited) sample.work ??= frame - start;
+        page.removeEventListener("input", input);
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
           sample.frame = frame - start;
