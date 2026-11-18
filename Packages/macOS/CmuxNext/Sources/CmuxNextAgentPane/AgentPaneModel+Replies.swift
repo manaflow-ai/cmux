@@ -48,9 +48,9 @@ extension AgentPaneModel {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
-    /// `transport.gestureRelease` forgets the gesture tickets; `transport.close` closes its connection.
-    func endTransport(closing connection: Int?) -> [String: Any] {
-        if let connection { transport.close(connection: connection) } else { transport.gestures.clearTickets() }
+    /// `transport.close` closes its connection.
+    func endTransport(closing connection: Int) -> [String: Any] {
+        transport.close(connection: connection)
         return AgentPaneReply.success()
     }
 

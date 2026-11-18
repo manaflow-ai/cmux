@@ -260,7 +260,7 @@ export type AgentPaneVariant = VariantBase & {
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
-  /** Claude workflows (on by default; false as the app's `workflowLabs` push would send it turns
+  /** Claude workflows (on by default; false turns
    *  them off): a Claude workflow's transcript card and its Session Info panel. */
   workflowLabs?: boolean;
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices

@@ -2,7 +2,7 @@
 // bundle runs (Leo, 2026-11-07: "we need to make these after-restart things load a lot faster";
 // "is there a paradigm here where we can think of it like we are, in effect, operating a kind of
 // website"). The page writes it (capture.ts, writer.ts), the host keeps one per chat on disk
-// (`chat.snapshot.put` / `chat.snapshot.get`, AgentPaneChatSnapshots.swift) and serves it to the
+// (`chat.snapshot.put`, AgentPaneChatSnapshots.swift) and serves it to the
 // next document as `__snapshot/chat.js`, and the page's first classic script paints it (boot.ts)
 // in a shadow root over the live page, which takes over in one frame once it drew the chat
 // (live.ts). Shared by the boot script and the bundle, so it imports nothing.

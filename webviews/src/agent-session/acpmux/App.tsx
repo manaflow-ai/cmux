@@ -915,7 +915,7 @@ declare global {
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
-      /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
+      /// Claude workflows on or off (on by default; no app setting sends it: the gallery and tests turn them off).
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
@@ -1655,7 +1655,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useSyncExternalStore(sandbox.subscribe, sandbox.snapshot);
   /// Claude workflows (the transcript card, Session Info's workflows, the side tab) are on by
   /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
-  /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
+  /// wanna display but here"). The app never turns them off; `applyWorkflowLabs(false)` (galleries, tests) does.
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();

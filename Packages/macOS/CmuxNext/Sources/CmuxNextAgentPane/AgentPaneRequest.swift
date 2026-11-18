@@ -423,8 +423,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
     /// contract (``AgentPaneGestureIntent``).
     case transportGesture(AgentPaneGestureIntent?)
-    /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
-    case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
     case reply(AgentPaneReplyRequest)
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
@@ -493,7 +491,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        case .transportOpen, .transportSend, .transportClose, .transportGesture: true
         default: false
         }
     }

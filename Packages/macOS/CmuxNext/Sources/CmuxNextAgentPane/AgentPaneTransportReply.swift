@@ -39,7 +39,6 @@ enum AgentPaneTransportReply {
             guard let intent else { return AgentPaneModel.transportFailure(.intentInvalid) }
             guard let ticket = model.transport.reserveGesture(intent) else { return AgentPaneModel.transportFailure(.gestureRequired) }
             return AgentPaneReply.success(["ticket": ticket])
-        case .transportGestureRelease: return model.endTransport(closing: nil)
         case .transportClose(let connection): return model.endTransport(closing: connection)
         // This Mac's agent CLIs (cx-1mbnu): never for a chat on another machine.
         case .harnessUpdate, .harnessRestart:

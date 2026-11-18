@@ -65,8 +65,8 @@ const { rememberTrayOpen } = await import("../src/agent-session/acpmux/subagents
 // A tray of more than one line starts folded and builds no rows (cmux#29250); these tests read rows.
 for (const chat of [fixtures.SESSION_ID, "late-root-tray"]) rememberTrayOpen(chat, true);
 // Workflows are on by default (cmux#30192): a running workflow is its transcript card, not a tray
-// row. These tests cover the tray and Session Info lines, so they turn workflows off as the app's
-// `workflowLabs` push would, as the gallery's tray workflow-progress state does.
+// row. These tests cover the tray and Session Info lines, so they turn workflows off
+// (`applyWorkflowLabs(false)`), as the gallery's tray workflow-progress state does.
 const mountApp = async (root: { render(node: unknown): void }) => {
   await act(async () => root.render(<AcpmuxApp />));
   await act(async () =>

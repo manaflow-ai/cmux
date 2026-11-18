@@ -94,21 +94,17 @@ public final class AgentPaneChatSnapshots {
     /// always applies. One number per chat written to this launch.
     private var newest: [String: Double] = [:]
 
-    /// The ops the page sends: `chat.snapshot.put {sessionId, html, ...}` (no `html` forgets it) and
-    /// `chat.snapshot.get {sessionId}`, which answers the kept copy or null.
+    /// The op the page sends: `chat.snapshot.put {sessionId, html, ...}` (no `html` forgets it). The
+    /// page never reads a copy back over the bridge; the next document gets it as `__snapshot/chat.js`.
     nonisolated static func handles(method: String) -> Bool {
-        method == "chat.snapshot.put" || method == "chat.snapshot.get"
+        method == "chat.snapshot.put"
     }
 
-    /// Answers one op. `allowed` is false for an incognito chat (nothing kept, nothing read), and a
-    /// page from before a sign-out (`pageGeneration`) writes nothing.
+    /// Answers one op. `allowed` is false for an incognito chat (nothing kept), and a page from
+    /// before a sign-out (`pageGeneration`) writes nothing.
     func reply(_ method: String, params: JSONValue, op: String, allowed: Bool, pageGeneration: UInt64) async throws -> JSONValue {
         guard case .object(var body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty
         else { throw PageError.invalidParams(op) }
-        if method == "chat.snapshot.get" {
-            guard allowed, let kept = await snapshot(for: session), Self.draws(kept) else { return .null }
-            return kept
-        }
         // A put answers `{kept}`: whether this keeps it (the page's own record of its writes).
         guard allowed, pageGeneration == AgentPaneTailCache.shared.generation, AgentPaneTailCache.shared.acceptsTails
         else { return ["kept": .bool(false)] }

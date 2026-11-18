@@ -26,7 +26,7 @@ enum WhatsNewPage {
     }
 
     /// A click on a client-only sidebar item: the Channels entry switches Home to Channels; a
-    /// Chief subagent row opens its chat. Other machines' chats draw no rows (`RemoteMachinesSidebar` is not bound).
+    /// Chief subagent row opens its chat. Other machines' chats draw no rows.
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
         if ChiefSidebar.shared.activate(id, registry: services.registry) { return }
         // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.

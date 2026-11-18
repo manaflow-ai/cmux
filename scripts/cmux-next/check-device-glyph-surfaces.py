@@ -19,7 +19,6 @@ from pathlib import Path
 SURFACES = [
     # The sidebar's remote machine groups: each peer's `health.deviceSymbol`.
     ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPeerList.swift", r'\["deviceSymbol"\]'),
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift", r"symbol: machine\.symbol"),
     # The sidebar's machine section headers: the machine daemon's `identify` `machine_symbol`.
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/Identify.swift", r'"machine_symbol"'),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/MachineRegistry+Icons.swift", r"device: .*\.machineSymbol"),

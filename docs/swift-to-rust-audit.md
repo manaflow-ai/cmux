@@ -80,7 +80,7 @@ Legend for cost and risk: S, M or L. "Mirror of" names the Rust owner of the sam
 | `StatusMapping` | Bridge/StatusMapping.swift | merges hook roster, OSC 7501, acpmux indicator, a client clock | `.shared` | cmux-tui-core roster + `program_status.rs` | read by every spinner | **Move the merge into cmux-tui-core** and publish one tab status (M) |
 | `SidebarSessionTreeFeed`, `AgentSessionParents`, `RemoteAgentSessionLinks` | AgentLanes/, AgentPane/ | lineage in 4 places (UserDefaults included) | `.shared` | acpmux `spawned_by` | ObservationStream over every tab | Lineage from acpmux only; tree reduction via FFI (M) |
 | `AgentPriorityChats` / `SidebarPriorityFeed` / `AgentPriorityMarks` | AgentLanes/ | marks, ranking | per window | "read" overlaps acpmux `unread` | sorts all lanes per lane change | Ranking via FFI, marks into acpmux (M) |
-| `RemoteMachinesSidebar`, `ChiefSidebar` | AgentLanes/ | peers, Chief badge | `.shared` | acpmux peers, lanes | 2 s debounce; O(n) lanes scan | Keep (S fixes) |
+| `ChiefSidebar` | AgentLanes/ | Chief badge | `.shared` | lanes | O(n) lanes scan | Keep (S fixes) |
 | `HomeService` | App/Home/HomeService.swift | conversations, cloud Chiefs, sessions | composition root | daemon `local-conversations-v1`, `home-inbox-v1` | ~15 ObservationStream loops | Delete `conversations` and `sessions` (third mirror) (M) |
 | `HomeConversationSession` | HomeEngine/ | per-conversation mirror + intents | HomeService | daemon conversation | observers | Delete: no external caller of `send`/`retry` (S) |
 | `HomeStore` (+`HomeMirror`, `IntentLog`, `HomeLiveBook`) | Shared/CmuxHomeCore | rows, transcripts, drafts, live runs | HomeService; iOS too | daemon / cloud ConversationDO (cmux-conversation) | `rows`, `transcriptVersion` | Keep for now (shared with iOS); long term cmux-mobile-core FFI (L, high) |
@@ -202,7 +202,7 @@ runtime state. The ones that matter most:
 
 - `AgentTurnStateStore`, `AgentLaneStore`, `AgentTurnStateFeed`, `StatusMapping`
 - `SidebarChatHistoryFeed`, `SidebarSessionTreeFeed`, `SidebarChatHistory`, `SidebarSessionTree`
-- `ChiefSidebar`, `RemoteMachinesSidebar`
+- `ChiefSidebar`
 - `ClosingWorkspaces`, `PendingWorkspaceRows`, `WorkspaceLanes`
 - `DesignSettings`, `GhosttyRuntime`
 - `DaemonUpdateBoard`, `AcpmuxMacApprover`, `AcpmuxPeerReconnects`, `AppProcessRoot`
