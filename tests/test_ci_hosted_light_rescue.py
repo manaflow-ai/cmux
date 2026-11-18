@@ -1504,6 +1504,10 @@ class Backlog(unittest.TestCase):
         self.assertIn("CI_HOSTED_LIGHT_RESCUE_DISABLED", job_["if"])
         self.assertEqual(job_["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
         self.assertNotIn("ubuntu-24.04\",", job_["runs-on"])  # never queues behind the hosted backlog it drains
+        # The janitor's route, never blacksmith-2vcpu, which held this group from 16:13Z on 2026-11-18.
+        janitor = yaml.safe_load((ROOT / ".github/workflows/ci-queue-janitor.yml").read_text())
+        self.assertEqual(job_["runs-on"], next(iter(janitor["jobs"].values()))["runs-on"])
+        self.assertNotIn("blacksmith-2vcpu", job_["runs-on"])
         [checkout] = [s for s in job_["steps"] if s.get("with", {}).get("ref") == "main"]
         self.assertFalse(checkout["with"]["persist-credentials"])
         [step] = [s for s in job_["steps"] if "hosted_light_rescue.py" in str(s.get("run", ""))]
