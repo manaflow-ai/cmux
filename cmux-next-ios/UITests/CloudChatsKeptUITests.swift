@@ -8,7 +8,7 @@ import XCTest
 /// screen had no kept chats to draw and showed the connect wait.
 final class CloudChatsKeptUITests: XCTestCase {
     override func setUp() {
-        continueAfterFailure = false
+        continueAfterFailure = true // capture-only "before": keep saving frames past the failed checks
     }
 
     @MainActor

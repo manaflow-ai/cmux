@@ -337,7 +337,7 @@ struct CloudMachineChatsScreen: View {
     private var location: CloudChatLocation { CloudChatLocation(macID: macID, machine: machine) }
 
     /// The chats this run last listed on this machine (``CloudChatsMemory``).
-    private var kept: [AcpmuxSession]? { CloudChatsMemory.shared.chats(at: location) }
+    private var kept: [AcpmuxSession]? { nil } // capture-only "before": the screen as it was without kept chats
 
     @ViewBuilder private func chatRows(_ rows: [AcpmuxSession]) -> some View {
         ForEach(rows, id: \.id) { chat in
