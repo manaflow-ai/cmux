@@ -73,18 +73,21 @@ const BUTTON_SECONDARY =
 export function LinkRepos({ labels }: { labels: LinkReposLabels }) {
   const [status, setStatus] = useState<GitHubStatus | "loading" | "error">("loading");
 
-  const fetchStatus = useCallback(async () => {
-    const answer = await api<GitHubStatus>(STATUS_URL);
-    setStatus(answer.ok ? answer.value : "error");
-  }, []);
+  const [attempt, setAttempt] = useState(0);
   const loadStatus = () => {
     setStatus("loading");
-    void fetchStatus();
+    setAttempt((value) => value + 1);
   };
 
   useEffect(() => {
-    void fetchStatus();
-  }, [fetchStatus]);
+    let live = true;
+    void api<GitHubStatus>(STATUS_URL).then((answer) => {
+      if (live) setStatus(answer.ok ? answer.value : "error");
+    });
+    return () => {
+      live = false;
+    };
+  }, [attempt]);
 
   if (status === "loading") return <p className="text-[14px] text-muted">{labels.loading}</p>;
   if (status === "error") {
