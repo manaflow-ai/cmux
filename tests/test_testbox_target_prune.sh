@@ -78,8 +78,9 @@ for bad in .. a/b -x; do
   [[ -f "$keep/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept name '$bad' removed an entry"
 done
 
-# A kept name that is not in the dir protects nothing, and no line names it.
-out="$("$prune" "$keep" 100000 3 no-such-entry)" || fail "the prune failed with a kept name that is not in the dir"
+# A kept name that is not in the dir protects nothing, and no line names it
+# (bound 1: the emptied dir is still over it, so the check for the kept entry runs).
+out="$("$prune" "$keep" 1 3 no-such-entry)" || fail "the prune failed with a kept name that is not in the dir"
 [[ ! -e "$keep/aarch64-unknown-linux-musl" ]] || fail "a kept name that is not in the dir protected another entry"
 said="$(grep -c 'still over the bound' <<<"$out" || true)"
 [[ "$said" == 0 ]] || fail "a line names a kept entry that is not in the dir"
