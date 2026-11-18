@@ -4,7 +4,7 @@
 // a re-render of the page with the same data renders none. Also how many rows are in the DOM at
 // 1,000 and 10,000 tasks (jsdom, an 800 px viewport).
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -18,6 +18,9 @@ let host: HTMLElement;
 const VIEWPORT = 800;
 
 beforeAll(() => {
+  // One fake clock for the whole file: the store's replies, the virtualizer's scroll-end reset and
+  // the icon asks run when `advance` moves it, never on the wall clock.
+  jest.useFakeTimers();
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/tasks/",
     pretendToBeVisual: true,
@@ -48,6 +51,11 @@ beforeAll(() => {
     },
   });
   window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The virtualizer sets its timers on the element's window: they run on the same fake clock.
+  Object.assign(window, {
+    setTimeout: (callback: () => void, ms?: number) => setTimeout(callback, ms),
+    clearTimeout: (handle: Parameters<typeof clearTimeout>[0]) => clearTimeout(handle),
+  });
   const replacements: Record<string, unknown> = {
     window,
     document: window.document,
@@ -74,6 +82,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { scope });
 });
 
@@ -89,7 +98,11 @@ const { TasksStore } = await import("../src/pages/tasks/store");
 const { TasksOps } = await import("../src/pages/tasks/types");
 type Layout = import("../src/pages/tasks/types").Layout;
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Moves the fake clock `ms` forward in 10 ms steps, each in its own act(), so each step's
+ * timers, the replies they unblock and the renders they cause all land before the next. */
+async function advance(ms: number) {
+  for (let step = 0; step < ms; step += 10) await act(async () => void jest.advanceTimersByTime(10));
+}
 
 /** `count` tasks, all in Todo (one list group, one board column), assignees as the sample's. */
 function snapshotOf(count: number) {
@@ -112,7 +125,7 @@ async function mount(layout: Layout, count = 200) {
   const store = new TasksStore(provider, { newKey: () => `k${++key}`, schedule: () => () => {}, visible: () => true });
   store.subscribe(() => {});
   await store.start();
-  await wait(0);
+  await advance(10);
   const strings = createStrings(table, ["en"]);
   const page = () => (
     <UiProvider container={host} dir="ltr">
@@ -122,8 +135,8 @@ async function mount(layout: Layout, count = 200) {
   root = createRoot(host);
   await act(async () => {
     root!.render(page());
-    await wait(20);
   });
+  await advance(20);
   return { provider, store, rerender: () => act(async () => root!.render(page())) };
 }
 
@@ -132,8 +145,8 @@ async function counted(name: string, change: () => unknown): Promise<number> {
   rowRenders.reset();
   await act(async () => {
     await change();
-    await wait(200);
   });
+  await advance(200);
   return rowRenders.count(name);
 }
 

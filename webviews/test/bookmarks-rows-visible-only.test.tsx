@@ -5,7 +5,7 @@
 // the page with the same data renders none. Also how many rows are in the DOM at 1,000 and 10,000
 // bookmarks (jsdom, an 800 px viewport).
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -19,6 +19,9 @@ let host: HTMLElement;
 const VIEWPORT = 800;
 
 beforeAll(() => {
+  // One fake clock for the whole file: the store's replies, the virtualizer's scroll-end reset and
+  // the icon asks run when `advance` moves it, never on the wall clock.
+  jest.useFakeTimers();
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/bookmarks/",
     pretendToBeVisual: true,
@@ -56,6 +59,11 @@ beforeAll(() => {
     },
   });
   window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // The virtualizer sets its timers on the element's window: they run on the same fake clock.
+  Object.assign(window, {
+    setTimeout: (callback: () => void, ms?: number) => setTimeout(callback, ms),
+    clearTimeout: (handle: Parameters<typeof clearTimeout>[0]) => clearTimeout(handle),
+  });
   const replacements: Record<string, unknown> = {
     window,
     document: window.document,
@@ -83,6 +91,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { scope });
 });
 
@@ -97,7 +106,11 @@ const { MockBookmarksProvider, longBookmarks } = await import("../src/pages/book
 const { BookmarksStore } = await import("../src/pages/bookmarks/store");
 type Bookmark = import("../src/pages/bookmarks/types").Bookmark;
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Moves the fake clock `ms` forward in 10 ms steps, each in its own act(), so each step's
+ * timers, the replies they unblock and the renders they cause all land before the next. */
+async function advance(ms: number) {
+  for (let step = 0; step < ms; step += 10) await act(async () => void jest.advanceTimersByTime(10));
+}
 
 async function mount(count = 2_000) {
   const provider = new MockBookmarksProvider(longBookmarks(count));
@@ -115,9 +128,9 @@ async function mount(count = 2_000) {
   await act(async () => {
     await store.start();
     store.showFolder("bm_long");
-    // The rows drawn ask for their icons; let those land.
-    await wait(50);
   });
+  // The rows drawn ask for their icons; let those land.
+  await advance(50);
   return { provider, store, rerender: () => act(async () => root!.render(page())) };
 }
 
@@ -126,8 +139,8 @@ async function counted(change: () => unknown): Promise<number> {
   rowRenders.reset();
   await act(async () => {
     await change();
-    await wait(200);
   });
+  await advance(200);
   return rowRenders.count("BookmarkRow");
 }
 
