@@ -41,13 +41,20 @@ struct CloudSetupTests {
         #expect(await setup(connections).decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
     }
 
-    @Test func theOrganizationServesWhenThePersonHasNothing() async {
-        let keys = CloudSetup.Snapshot.organization(keys: [("codex", true), ("claude", false)])
-        let connections = Connections(.init(personal: [], organization: keys))
-        let rule = setup(connections)
-        #expect(await rule.decide(harness: "codex", model: nil) == .start)
-        #expect(await rule.choose(harness: "codex", model: nil, account: nil) == .organization(family: "codex"))
-        #expect(await rule.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+    /// A team's shared key alone serves no Cloud chat: the Cloud service keeps it sealed and never answers it to a client
+    /// (backend team-agent-keys.ts), and gives machines no model route to spend it through (cmux#45583), so the Mac has
+    /// nothing to send with the chat's `session/new` (cmux#40159). A team-key-only start shows Set up Cloud before any
+    /// machine, as a person with nothing does, instead of a machine whose first turn says "Not logged in".
+    @Test func aTeamSharedKeyAloneServesNoCloudChat() async {
+        let keys = CloudSetup.Snapshot.organization(keys: [("codex", true), ("claude", true)])
+        let rule = setup(Connections(.init(personal: [], organization: keys)))
+        for family in ["claude", "codex"] {
+            #expect(await rule.decide(harness: family, model: "m") == .setup(family: family, model: "m"))
+            #expect(await rule.choose(harness: family, model: "m", account: nil) == .setup(family: family, model: "m"))
+        }
+        // A connection of the person's own still serves beside the team's key.
+        let own = setup(Connections(.init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: keys)))
+        #expect(await own.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
     }
 
     /// cmux#45773: once a start found the team's shared key unrouted (no machine gets the Cloud service's edge), the key
