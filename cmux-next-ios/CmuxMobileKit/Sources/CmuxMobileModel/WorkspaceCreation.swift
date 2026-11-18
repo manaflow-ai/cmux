@@ -954,6 +954,8 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var failNextForPerson = false
     /// What Jump to Latest Unread and Jump to Last Prompt find (`TabAttentionBackend`).
     public var attention: (unread: TabAttentionPlace?, prompt: TabAttentionPlace?) = (nil, nil)
+    /// Where Toggle Terminal and Chat's pairings and faces are kept (the shell's; none keeps nothing).
+    public var keeping: (any TerminalChatKeeping)?
     private let clock: any Clock<Duration>
     private let latency: Duration
 
@@ -1245,6 +1247,31 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError(message, isForPerson: failNextForPerson)
         }
     }
+}
+
+/// Toggle Terminal and Chat on mock data (`CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1` lists terminals
+/// running Claude Code and Codex): the Mac's View Only chat opens at once, and what the phone
+/// keeps goes to `keeping`, which the shell gives the file a signed-in account keeps
+/// (`KeptTerminalChats`), so a relaunch reads the pairings and faces through the real code.
+extension MockWorkspaceCreationBackend: TerminalChatBackend {
+    public func terminalChatListings(on macID: String) -> [TerminalChatListing] { [] }
+    public func openTerminalChat(harness: String, session: String, terminalTabID: String, on macID: String) async throws -> TerminalChatOpen {
+        .chat("mock-view-only-\(session)")
+    }
+    public func keptTerminalChat(harness: String, session: String, on macID: String) -> String? {
+        keeping?.keptTerminalChat(harness: harness, session: session, on: macID)
+    }
+    public func keepTerminalChat(_ chat: String?, harness: String, session: String, on macID: String) {
+        keeping?.keepTerminalChat(chat, harness: harness, session: session, on: macID)
+    }
+    public func keptTerminalChatFace(tabID: String, on macID: String) -> Bool? {
+        keeping?.keptTerminalChatFace(tabID: tabID, on: macID)
+    }
+    public func keepTerminalChatFace(_ showsChat: Bool, tabID: String, on macID: String) {
+        keeping?.keepTerminalChatFace(showsChat, tabID: tabID, on: macID)
+    }
+    public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
+    public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
 }
 #endif
 
