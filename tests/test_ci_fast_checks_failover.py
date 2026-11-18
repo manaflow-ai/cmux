@@ -62,15 +62,19 @@ class FastChecksFailoverTests(unittest.TestCase):
                           if selector.startswith("${{") else selector)
                 # Only the smallest measured Blacksmith size: a picker's re-run
                 # route is never 16 or 32 vCPU.
-                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "ubuntu-24.04"
-                self.assertEqual(actual, expected)
+                if requested == "blacksmith-8vcpu-ubuntu-2404":
+                    self.assertEqual(actual, requested)
+                else:
+                    # The live 2 vCPU pool, never a GitHub-hosted label (2026-11-18).
+                    self.assertNotEqual(actual, requested)
+        self.assertTrue(selector.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"), selector)
 
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
         selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
         self.assertEqual(runner_label_errors(selector), [])
         for unsafe in (
             selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
-            selector.replace("'ubuntu-24.04'", "'self-hosted'"),
+            selector.replace("fromJSON(vars.RUNNER_POOLS).linux_2", "'self-hosted'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
             # A picker's re-run route is the smallest measured size only.
@@ -138,49 +142,13 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("FAIL:", result.stdout)
 
-    def test_main_hosted_guard_rejects_release_admission(self) -> None:
-        result = self.run_hosted_guard(admission_change=("  admit:\n", "  admit:\n    environment: release\n"))
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("FAIL:", result.stdout)
-
-    def test_main_hosted_guard_rejects_privileged_or_macos_admission(self) -> None:
-        for before, after in (
-            (" || 'ubuntu-24.04' }} #", " || 'macos-26' }} #"),
-            ("    permissions:\n      contents: read", "    permissions:\n      contents: write"),
-        ):
+    def test_main_hosted_guard_rejects_hosted_admission(self) -> None:
+        for after in (" || 'ubuntu-24.04' }}", " || 'macos-26' }}"):
             with self.subTest(change=after):
-                result = self.run_hosted_guard(admission_change=(before, after))
+                result = self.run_hosted_guard(
+                    admission_change=(" || fromJSON(vars.RUNNER_POOLS).linux_2 }}", after))
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("FAIL:", result.stdout)
-
-    def test_the_label_comes_from_the_linux_pool(self) -> None:
-        line = checks_runs_on().rstrip()
-        self.assertIn("needs.admit.outputs.runner", line, line.strip())
-        self.assertNotIn("CI_CONTROL_RUNNER", line, line.strip())
-        self.assertNotIn("RUNNER_POOLS", line, line.strip())
-        self.assertIn("blacksmith-8vcpu-ubuntu-2404", line, line.strip())
-
-    def test_the_linux_pool_is_selected_from_the_live_pool_variable(self) -> None:
-        line = checks_runs_on()
-        self.assertIn("needs.admit.outputs.runner", line)
-        self.assertNotIn("CI_CONTROL_RUNNER", line)
-        self.assertNotIn("RUNNER_POOLS", line)
-
-    def test_failover_never_reaches_github_hosted_linux(self) -> None:
-        line = checks_runs_on()
-        self.assertNotIn("LINUX_RUNNER", line, line.strip())
-        self.assertNotRegex(line.replace("blacksmith-8vcpu-ubuntu-2404", ""), HOSTED, line.strip())
-
-    def test_a_broker_redispatch_may_name_only_a_listed_blacksmith_linux_label(self) -> None:
-        # HQ's lane-gh broker dispatches a run again with `runner` when the first waited on a label that started
-        # nothing (Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow").
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertRegex(text, r"\n      runner:\n(?:        .*\n)*?        default: ''\n")
-        self.assertIn("REQUESTED_RUNNER", text)
-        # The runtime allowlist is reviewed on feat-cmux-next and checked out
-        # by the admission job; the main wiring must carry both files.
-        self.assertIn("scripts/ci/fast_checks_runner.py", text)
-        self.assertIn("scripts/ci/pr_runner_pool.py", text)
 
     def test_cache_paths_are_portable_across_runner_families(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

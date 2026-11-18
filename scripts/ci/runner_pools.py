@@ -154,17 +154,11 @@ UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
-# The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
-# recovers?": "Allow until it recovers"). Blacksmith Linux started almost no jobs across the org (cmux: 2,500 queued,
-# 48 in progress at 21:34Z), and a hand-set RUNNER_POOLS is reset by the next pass, since a label outside a pool's
-# members is dropped (parse_value()). While the repository variable CI_LINUX_HOSTED_RUNNER names a GitHub-hosted
-# Ubuntu label, load_pools() puts it first in every x64 Linux pool (linux, linux_2 ... linux_32, promotion), so each pass keeps
-# those pools on it, and the queue spill (which loads main's pools the same way) agrees. linux_arm64,
-# macOS, Windows and provenance are never touched. Deleting the variable is the whole revert: the next pass points
-# each pool back at its first live Blacksmith member.
-HOSTED_OVERRIDE = "CI_LINUX_HOSTED_RUNNER"
-HOSTED_OVERRIDE_POOL = re.compile(r"^(?:linux(?:_\d+)?|promotion)$")
-HOSTED_OVERRIDE_LABEL = re.compile(r"^ubuntu-\d+\.\d+$")
+# No outage override puts a GitHub-hosted label in a pool. CI_LINUX_HOSTED_RUNNER (2026-11-17, Leo's allowance
+# "until it recovers") put ubuntu-24.04 first in every x64 Linux pool; on 2026-11-18 the hosted pool then started
+# nothing for five hours while light jobs sat on it (Leo, 2026-11-17: "just dont use github for private"). The
+# variable is no longer read: an outage moves a pool to its next ephemeral size (reconcile()).
+HOSTED_UBUNTU = re.compile(r"^ubuntu-\d+\.\d+$")
 X64_UBUNTU = re.compile(r"^blacksmith-\d+vcpu-ubuntu-\d+$")
 
 
@@ -183,26 +177,10 @@ def parse_time(value: object) -> dt.datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
-def hosted_override(env: Mapping[str, str] | None = None) -> str | None:
-    """The hosted Ubuntu label CI_LINUX_HOSTED_RUNNER names, or None when it is unset or not one."""
-    raw = ((os.environ if env is None else env).get(HOSTED_OVERRIDE) or "").strip()
-    return raw if HOSTED_OVERRIDE_LABEL.match(raw) else None
-
-
 def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
-    """The declared pools, with the outage override (hosted_override()) first in each x64 Linux pool."""
+    """The declared pools. `env` is accepted for callers that pass one; no variable adds a member."""
     pools = json.loads(path.read_text(encoding="utf-8"))["pools"]
-    declared = {name: spec for name, spec in pools.items() if not name.startswith("$")}
-    label = hosted_override(env)
-    if label is None:
-        return declared
-    for name, spec in declared.items():
-        listed = spec.get("members")
-        if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
-            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
-                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
-    return declared
+    return {name: spec for name, spec in pools.items() if not name.startswith("$")}
 
 
 def members(spec: Mapping[str, Any]) -> list[str]:
@@ -397,10 +375,8 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
             continue
-        # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
-        # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
-        # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
-        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
+        # A hosted Ubuntu label left by the retired outage override follows the pool back to its live member.
+        if current and not EPHEMERAL.match(current) and not HOSTED_UBUNTU.match(current):
             continue
         writes.append((name, want))
     writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
@@ -736,12 +712,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
     pools = load_pools(env=env)
-    if hosted_override(env):
-        print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
-              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
-    elif (env.get(HOSTED_OVERRIDE) or "").strip():
-        print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
-              "label (ubuntu-NN.NN); ignored")
     problems = spec_problems(pools)
     if problems:
         for problem in problems:

@@ -143,9 +143,9 @@ def problems(env: dict[str, str]) -> list[str]:
                     continue
                 found.append(f"{name}={value!r}: {reason}")
             trusted = variables.get(TRUSTED_VARIABLE, "").strip()
-            if trusted and trusted != "ubuntu-24.04" and trusted not in TRUSTED_BLACKSMITH_LABELS:
+            if trusted and trusted not in TRUSTED_BLACKSMITH_LABELS:
                 # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
-                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only ubuntu-24.04, "
+                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only "
                              + ", ".join(sorted(TRUSTED_BLACKSMITH_LABELS)) + "; anything else falls back")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
