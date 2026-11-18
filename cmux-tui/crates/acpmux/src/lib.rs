@@ -45,6 +45,7 @@ pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;

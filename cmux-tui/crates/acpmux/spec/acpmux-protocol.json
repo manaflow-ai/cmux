@@ -2081,6 +2081,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place_event",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true

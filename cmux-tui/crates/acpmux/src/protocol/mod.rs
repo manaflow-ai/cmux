@@ -499,6 +499,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/chat_place", Request),
+        untyped("_acpmux/chat_place_event", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         keyed::<params::PeerReconnectParams>("_acpmux/peer_reconnect", Request),

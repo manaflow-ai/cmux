@@ -42,6 +42,28 @@ pub enum PeerCmd {
     /// the caller owns that VM. `off` refuses that on the machine; `on` (the
     /// default off a Mac) stops refusing. Nothing on the machine turns the
     /// boundary on. Shows whether cmux created the VM. `vm-host` still works.
+    /// Where a new chat on Auto would start, and why; changes nothing. This
+    /// machine, a joined machine or Cloud, weighed like `pick` plus the
+    /// folder's size, battery, lid, sleep, network and what the work needs
+    /// (design/auto-chat-placement.md). With `--running`, whether Auto would
+    /// move that chat now.
+    #[command(name = "chat-pick")]
+    ChatPick {
+        /// The chat's folder (measured with a bounded walk).
+        #[arg(long)]
+        cwd: Option<String>,
+        /// What the work needs: macos, gpu, build (repeat or comma-separate).
+        #[arg(long, value_delimiter = ',', value_parser = ["macos", "gpu", "build"])]
+        needs: Vec<String>,
+        /// Cloud is available on this account (the app passes the plan; the
+        /// command line says it).
+        #[arg(long)]
+        cloud: bool,
+        /// A running chat, as JSON: {"place": "local", "home": "local",
+        /// "turnActive": false, "localOverSecs": 0}.
+        #[arg(long)]
+        running: Option<String>,
+    },
     #[command(name = "dedicated", alias = "vm-host")]
     VmHost {
         /// A machine you added; omit for this machine.
