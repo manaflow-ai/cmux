@@ -1606,8 +1606,8 @@
   max-width: 100%;
   border-radius: 16px;
   overflow: hidden;
-  background: var(--cv-codeblock-bg);
-  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+  background: var(--cv-card-fill, var(--cv-codeblock-bg));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-codeblock-ring));
 }
 .cv-codeblock__header {
   display: flex;
@@ -1883,8 +1883,8 @@
   margin: var(--ds-space-1) 0 var(--ds-space-2);
   border-radius: 12px;
   overflow: hidden;
-  background: var(--cv-codeblock-bg);
-  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+  background: var(--cv-card-fill, var(--cv-codeblock-bg));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-codeblock-ring));
 }
 .cv-edit-diff__header {
   display: flex;
@@ -1892,7 +1892,7 @@
   gap: var(--ds-space-2);
   min-height: calc(var(--cv-font-size) * 32 / 14);
   padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--cv-codeblock-ring);
+  border-bottom: 1px solid var(--cv-card-ring, var(--cv-codeblock-ring));
   font-size: calc(var(--cv-font-size) * 13 / 14);
   line-height: calc(var(--cv-font-size) * 20 / 14);
   color: var(--cv-codeblock-text);
@@ -2252,9 +2252,9 @@ pre.cv-math-source {
   margin: 0;
   padding-block: var(--grid-half-step);
   padding-inline: var(--ds-space-2) var(--ds-space-1);
-  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring, var(--cv-card-ring-base));
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
   box-shadow: none;
   color: var(--cv-tool-strong);
   font-family: var(--cv-font);
@@ -2362,7 +2362,7 @@ pre.cv-math-source {
 /* The wider grant: a hairline rim so it reads as a choice next to the filled Allow, not as a
    disabled one (cg-design-judge, light theme). */
 .acpmux-ask-action.is-secondary {
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .acpmux-ask-action.is-primary:hover {
   background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
@@ -2419,8 +2419,11 @@ pre.cv-math-source {
 
 :root {
   --cv-tool-strong: color-mix(in srgb, var(--cv-fg) 60%, transparent); /* #a5a5a0 settled tool rows */
-  --cv-card-ring: color-mix(in srgb, var(--cv-fg) 10%, transparent);
-  --cv-card-fill: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  /* A card's own strengths. --cv-card-fill and --cv-card-ring (cmux.agentPane.style/1) have no
+     value here: unset, each card keeps its own (these for tool cards, --cv-codeblock-* for code);
+     set by a look on :root, they paint every card, code included (style-tokens.json). */
+  --cv-card-ring-base: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  --cv-card-fill-base: color-mix(in srgb, var(--cv-fg) 4%, transparent);
 }
 /* appearance.borders none (data-borders on the root, applyAgentTheme): code and tool cards keep
    their fill and lose the ring. */
@@ -3535,8 +3538,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   margin: var(--ds-space-1) 0 var(--ds-space-2);
   padding: var(--grid-cards-padding);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text-muted);
 }
 .cv-shell__label,
@@ -3654,7 +3657,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 }
 .cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--cv-card-ring);
+  border-bottom: 1px solid var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-shell__command + .cv-shell__body {
   margin-top: 8px;
@@ -3699,8 +3702,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   max-height: 220px;
   margin: 0;
   object-fit: contain;
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
 }
 
 /* Native audio controls have an intrinsic width; fit them inside a narrow tool row. */
@@ -3806,8 +3809,8 @@ button.cv-video-frames__name:focus-visible {
   overflow: hidden;
   border: 0;
   border-radius: 6px;
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   font: inherit;
 }
 .cv-video-frames__grid .cv-video-frames__frame,
@@ -3855,8 +3858,8 @@ button.cv-video-frames__frame:focus-visible {
   overflow: auto;
   padding: 8px 12px;
   border-radius: 12px;
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -3916,10 +3919,10 @@ button.cv-video-frames__frame:focus-visible {
    command, output tail, diff or capture they already present. */
 :root[data-tool-steps-look="ios-sheet"] .cv-steps {
   margin: 0;
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring, var(--cv-card-ring-base));
   border-radius: 8px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+  background: color-mix(in srgb, var(--cv-card-fill, var(--cv-card-fill-base)) 72%, transparent);
 }
 :root[data-tool-steps-look="ios-sheet"] .cv-steps > .cv-step {
   padding: 0;
@@ -3975,7 +3978,7 @@ button.cv-video-frames__frame:focus-visible {
   --cv-step-inset: 12px;
   --cv-step-text: 0px;
   margin: 2px 0 6px;
-  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring, var(--cv-card-ring-base));
   border-radius: 12px;
   overflow: hidden;
 }
@@ -4088,7 +4091,7 @@ button.cv-video-frames__frame:focus-visible {
   border-top: 0;
 }
 :root[data-tool-steps-look="zebra"] .cv-step:nth-child(odd) {
-  background: var(--cv-card-fill);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
 }
 .cv-tool__counts {
   display: inline-flex;
@@ -4216,10 +4219,10 @@ button.cv-video-frames__frame:focus-visible {
   margin: 0 0 var(--ds-space-2) var(--cv-tool-text-inset);
   padding: var(--ds-space-1) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
   box-shadow:
     inset 2px 0 0 color-mix(in srgb, var(--agent-status-failure) 70%, transparent),
-    inset 0 0 0 1px var(--cv-card-ring);
+    inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   font-size: var(--text-detail);
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
@@ -4801,8 +4804,8 @@ a.cv-sha:focus-visible {
   overflow: auto;
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text-muted);
   font-family: var(--cv-mono);
   font-size: var(--text-detail);
@@ -4871,8 +4874,8 @@ a.cv-sha:focus-visible {
 .cv-tool-detail__fields {
   display: grid;
   border-radius: var(--ds-radius-popup);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   overflow: hidden;
 }
 .cv-tool-detail__field {
@@ -4882,7 +4885,7 @@ a.cv-sha:focus-visible {
   padding: var(--ds-space-2) var(--ds-space-3);
 }
 .cv-tool-detail__field + .cv-tool-detail__field {
-  border-top: 1px solid var(--cv-card-ring);
+  border-top: 1px solid var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-tool-detail__key {
   color: var(--cv-text-muted);
@@ -4942,8 +4945,8 @@ a.cv-sha:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   border-radius: 12px;
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
 }
 /* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
 .cv-tool-output__box:has(> .cv-tool-output__actions) {
@@ -5208,7 +5211,7 @@ a.cv-sha:focus-visible {
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
   background-color: color-mix(in srgb, var(--cv-fg) 4%, transparent);
-  box-shadow: inset 0 1px 0 var(--cv-card-ring);
+  box-shadow: inset 0 1px 0 var(--cv-card-ring, var(--cv-card-ring-base));
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row:hover {
   background-color: color-mix(in srgb, var(--cv-fg) 8%, transparent);
@@ -5256,7 +5259,7 @@ a.cv-sha:focus-visible {
 .cv-recap[data-look="card"] {
   padding: var(--grid-cards-padding);
   border-radius: var(--grid-cards-radius);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-recap[data-look="rule"] {
   padding-left: 12px;
@@ -6244,8 +6247,8 @@ a.cv-sha:focus-visible {
 .acpmux-shell-block {
   margin: 4px 0 8px;
   border-radius: 6px;
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text-muted);
   font-style: normal;
   font-weight: 400;
@@ -6464,7 +6467,7 @@ a.cv-sha:focus-visible {
 .cv-diagram {
   margin: 8px 0;
   border-radius: 8px;
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   overflow: hidden;
 }
 .cv-diagram__bar {
@@ -6475,7 +6478,7 @@ a.cv-sha:focus-visible {
   min-height: calc(var(--cv-font-size) * 28 / 14);
   padding: 0 6px 0 10px;
   font-size: calc(var(--cv-font-size) * 11 / 14);
-  background: var(--cv-card-fill);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
 }
 .cv-diagram__lang {
   opacity: 0.7;
@@ -6495,7 +6498,7 @@ a.cv-sha:focus-visible {
   background: transparent;
 }
 .cv-diagram__toggle:hover {
-  background: var(--cv-card-ring);
+  background: var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-diagram__chart {
   min-height: 120px;
@@ -6856,8 +6859,8 @@ a.cv-sha:focus-visible {
   margin: var(--ds-space-2) 0;
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--grid-cards-radius);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
@@ -7211,7 +7214,7 @@ a.cv-sha:focus-visible {
   color: var(--agent-text);
 }
 .cv-agent-pair__resume:hover:not(:disabled) {
-  background: var(--cv-card-fill);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
 }
 .cv-agent-pair__resume:disabled {
   cursor: default;
@@ -7892,8 +7895,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--ds-radius-control);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
-  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text);
@@ -7953,7 +7956,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   min-height: 24px;
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text-muted);
 }
 .cv-run-elsewhere__machine input {

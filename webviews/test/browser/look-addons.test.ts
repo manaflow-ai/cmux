@@ -8,6 +8,11 @@
 //     contract is paint only, schemas/agent-pane/style-tokens.json);
 //   - twin: a look whose built-in preset exists (looks.json `builtIn.variant`) draws within a few
 //     pixels of it, so the built-in look never needs code an outsider cannot reach.
+//   - readable: in light and in dark, every drawn line of text keeps WCAG AA contrast over what is
+//     under it (4.5:1, 3:1 for large text), computed from the colors the page resolves and the fills
+//     it stacks under the text. A line the plain chat already draws under the minimum may not get
+//     worse. Studio 1.0.0 (2.9:1 bubble in light) and Paper 1.0.0 (1.4:1 bubble in dark) fail it
+//     (cmux#46049); scripts/check-look-addons.ts refuses the literal colors that caused them.
 // Captures go to $FAST_CHECKS_OUT/look-addons when it is set.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -105,6 +110,87 @@ await requireBrowserLane("look-addons.test.ts", async () => {
     return moves;
   }
 
+  type Line = { key: string; text: string; ratio: number; min: number };
+  /** Every element that draws text of its own: its contrast over the fills stacked under it. */
+  const readability = (page: Page) =>
+    page.evaluate((): Line[] => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+      type Rgba = [number, number, number, number];
+      const parse = (css: string): Rgba => {
+        const srgb = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.e]+))?\)$/.exec(css);
+        if (srgb) return [+srgb[1]!, +srgb[2]!, +srgb[3]!, srgb[4] === undefined ? 1 : +srgb[4]];
+        const rgb = /^rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?\)$/.exec(css);
+        if (rgb) return [+rgb[1]! / 255, +rgb[2]! / 255, +rgb[3]! / 255, rgb[4] === undefined ? 1 : +rgb[4]];
+        // oklab(), lab() and the rest: the canvas converts them.
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = css;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        return [r! / 255, g! / 255, b! / 255, a! / 255];
+      };
+      const over = (top: Rgba, under: [number, number, number]): [number, number, number] => [
+        top[0] * top[3] + under[0] * (1 - top[3]),
+        top[1] * top[3] + under[1] * (1 - top[3]),
+        top[2] * top[3] + under[2] * (1 - top[3]),
+      ];
+      const luminance = (c: [number, number, number]) => {
+        const f = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+      };
+      const lines: Line[] = [];
+      const all = [...document.body.querySelectorAll("*")];
+      all.forEach((el, index) => {
+        const own = [...el.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? "")
+          .join("")
+          .trim();
+        if (!own || el.closest("[disabled], [aria-disabled='true'], [inert]")) return;
+        const box = el.getBoundingClientRect();
+        if (!box.width || !box.height) return;
+        const style = getComputedStyle(el);
+        if (style.visibility !== "visible" || style.display === "none") return;
+        // The fills under the text, outermost first, and the opacity the text is drawn at.
+        const fills: Rgba[] = [];
+        let opacity = 1;
+        for (let node: Element | null = el; node; node = node.parentElement) {
+          const s = getComputedStyle(node);
+          opacity *= +s.opacity;
+          fills.unshift(parse(s.backgroundColor));
+        }
+        if (opacity < 0.05) return;
+        let under: [number, number, number] = [1, 1, 1];
+        const firstOpaque = fills.findIndex((fill) => fill[3] >= 0.999);
+        if (firstOpaque < 0) {
+          const page = parse(getComputedStyle(document.documentElement).getPropertyValue("--agent-page-bg").trim() || "#fff");
+          under = [page[0], page[1], page[2]];
+        }
+        for (const fill of fills.slice(Math.max(0, firstOpaque))) under = over(fill, under);
+        const ink = parse(style.color);
+        const text = over([ink[0], ink[1], ink[2], ink[3] * opacity], under);
+        const [hi, lo] = [luminance(text), luminance(under)].sort((a, b) => b - a);
+        const size = parseFloat(style.fontSize);
+        const large = size >= 24 || (size >= 18.66 && +style.fontWeight >= 700);
+        lines.push({
+          key: `${index} ${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`,
+          text: own.slice(0, 40),
+          ratio: Math.round(((hi! + 0.05) / (lo! + 0.05)) * 100) / 100,
+          min: large ? 3 : 4.5,
+        });
+      });
+      return lines;
+    });
+
+  /** The lines a look draws under the minimum where the plain chat did not, or lower than it did. */
+  function unreadable(plain: Line[], looked: Line[]): string[] {
+    const before = new Map(plain.map((line) => [line.key, line.ratio]));
+    return looked
+      .filter((line) => line.ratio < line.min && line.ratio < (before.get(line.key) ?? Infinity) - 0.05)
+      .map((line) => `${line.key} "${line.text}": ${line.ratio}:1 (needs ${line.min}:1; plain ${before.get(line.key)}:1)`);
+  }
+
   for (const look of addons) {
     for (const theme of ["dark", "light"] as const) {
       test(`${look.id} (${theme}): applies through the host's path, faithful, and moves no box`, async () => {
@@ -112,9 +198,20 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         try {
           await open(page, VARIANT, theme);
           const plain = await boxes(page);
+          const plainLines = await readability(page);
           const lookCss = css(look.addon);
           await applyLook(page, lookCss);
           expect(moved(plain, await boxes(page))).toEqual([]);
+
+          // Readable in this appearance: no line under WCAG AA that the plain chat drew above it.
+          const lookLines = await readability(page);
+          expect(lookLines.length).toBeGreaterThan(10);
+          if (out)
+            writeFileSync(
+              path.join(out, `${look.id}-${theme}-contrast.json`),
+              JSON.stringify({ plain: plainLines, look: lookLines }, null, 1),
+            );
+          expect(unreadable(plainLines, lookLines)).toEqual([]);
 
           // Faithful: every token the look sets is the value the page resolves on :root, and the
           // bubble's corner is the one the look names.
@@ -150,6 +247,31 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         }
       });
     }
+  }
+
+  // The detector: the looks as published at 1.0.0, each written for one appearance, fail over the other.
+  const LITERAL_LOOKS = {
+    "studio 1.0.0 over light": [
+      "light",
+      ":root { --cv-user-bubble-tint: rgb(39 39 42 / 0.72); --cv-user-bubble-edge: rgb(63 63 70 / 0.9); --cv-card-fill: rgb(24 24 27 / 0.9); --cv-text-muted: #a1a1aa; --cv-text-dim: #71717a; --cv-link: #93c5fd; --agent-link: #93c5fd; }",
+    ],
+    "paper 1.0.0 over dark": [
+      "dark",
+      ":root { --cv-user-bubble-tint: rgb(232 225 211 / 0.85); --cv-card-fill: rgb(244 239 229 / 0.9); --cv-text-muted: #6b6257; --cv-text-dim: #948a7d; --cv-link: #8a5a2b; --agent-link: #8a5a2b; }",
+    ],
+  } as const;
+  for (const [name, [theme, lookCss]] of Object.entries(LITERAL_LOOKS)) {
+    test(`a look written for one appearance fails the contrast check over the other (${name})`, async () => {
+      const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+      try {
+        await open(page, VARIANT, theme);
+        const plainLines = await readability(page);
+        await applyLook(page, lookCss);
+        expect(unreadable(plainLines, await readability(page)).length).toBeGreaterThan(0);
+      } finally {
+        await page.close();
+      }
+    });
   }
 
   for (const look of addons.filter((look) => look.builtIn?.variant)) {

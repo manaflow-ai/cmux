@@ -79,8 +79,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--cv-card-fill);
-  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  background: var(--cv-card-fill, var(--cv-card-fill-base));
+  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
   color: var(--cv-text);
 }
 /* A listed subagent: one plain 48px row with its current action under its name. */
@@ -229,7 +229,7 @@ button.cv-subagent > :last-child {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--cv-card-ring);
+  background: var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-subagent-of__frame {
   box-sizing: border-box;
@@ -239,7 +239,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   border-radius: var(--ds-radius-control);
-  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  box-shadow: 0 0 0 1px var(--cv-card-ring, var(--cv-card-ring-base));
 }
 .cv-subagent-of__pill {
   all: unset;

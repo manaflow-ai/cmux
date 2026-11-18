@@ -29,17 +29,24 @@ change often, so a look sets only these custom properties, on `:root`
 | --- | --- |
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
-| `--cv-card-fill`, `--cv-card-ring` | cards in the transcript (tool output, code, edited files) and their hairline |
+| `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
 
 ```css
 :root {
-  --cv-user-bubble-tint: rgb(39 39 42 / 0.72);
-  --cv-user-bubble-edge: rgb(63 63 70 / 0.9);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
   --cv-user-bubble-radius: 8px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 7%, transparent);
 }
 ```
+
+Make every color from the theme's own (`var(--agent-text)`, `var(--agent-accent)`, `var(--agent-page-bg)`,
+mixed with `color-mix()`), never a literal: the person may run the look's stylesheet over a light
+theme or a dark one, and a literal is right for one of them only. Studio 1.0.0's `rgb(39 39 42 /
+0.72)` bubble put black text on mid-grey (2.9:1) over a light theme, and Paper 1.0.0's beige put
+white text on it (1.4:1) over a dark one. Literal colors belong in the theme file.
 
 Every token is paint: it never changes a box, so a look applied, saved again or switched never moves
 the transcript. Type, width and spacing are settings instead, because the chat estimates row heights
@@ -55,11 +62,15 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
 - `cmux-customize` `tests/example_looks.rs` installs every look in `examples/looks` on a fresh machine
   with the same reader `cmux setup install` uses, and fails on any dropped key or problem.
 - webviews `bun run check:look-addons` fails when a look styles a class or sets anything outside the
-  contract, when a contract token stops working from `:root`, and when a built-in look has no add-on
-  twin listed in `examples/looks/looks.json`.
+  contract, when it sets a color token to a literal color instead of one made from the theme's, when
+  a contract token stops working from `:root`, and when a built-in look has no add-on twin listed in
+  `examples/looks/looks.json`.
 - webviews `test/browser/look-addons.test.ts` sends each look to the real chat through the host's own
   path, checks every token lands, and fails if applying, reloading or switching looks moves any box.
-  When a built-in preset exists, it also compares the add-on's capture with the built-in one.
+  It also holds every drawn line of text to WCAG AA contrast (4.5:1, 3:1 for large text) over the
+  fills under it, in a light theme and a dark one: a look may not take a line under the minimum, nor
+  lower one the plain chat already draws under it. When a built-in preset exists, it also compares
+  the add-on's capture with the built-in one.
 
 ## Not yet possible from outside
 

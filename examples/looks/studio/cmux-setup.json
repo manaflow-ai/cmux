@@ -4,7 +4,7 @@
   "name": "Studio",
   "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
   "description": "A whole cmux look built only from public surfaces: a theme file for color, settings for type and density, a stylesheet of cmux.agentPane.style/1 tokens for the prompt bubble and cards, and a customize view for the sidebar's hover card and rows. Remove it and everything you had comes back.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/studio",
 

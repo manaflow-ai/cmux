@@ -41,13 +41,13 @@
       "name": "--cv-card-fill",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The fill of cards in the transcript: opened tool output, code, edited files."
+      "about": "The fill of every card in the transcript: opened tool output, code, edited files. Unset: each card keeps its own strength (the theme's text at 4%, code at 7.5%)."
     },
     {
       "name": "--cv-card-ring",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The hairline around those cards (none under appearance.borders: none)."
+      "about": "The hairline around those cards (none under appearance.borders: none). Unset: each card keeps its own."
     },
     {
       "name": "--cv-user-bubble-tint",

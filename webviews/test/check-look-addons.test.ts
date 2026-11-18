@@ -12,6 +12,7 @@ import {
   hostPushed,
   rootLevel,
   run,
+  themeDerived,
   type Contract,
 } from "../scripts/check-look-addons";
 
@@ -23,12 +24,28 @@ test("the repo's contract and every look add-on pass", () => {
 });
 
 test("a look sets contract tokens on :root, and nothing else", () => {
-  expect(kinds(":root { --cv-user-bubble-radius: 6px; --cv-link: #93c5fd; }")).toEqual([]);
-  expect(kinds("@media (prefers-color-scheme: light) { :root { --cv-link: #0b63d6; } }")).toEqual([]);
+  expect(kinds(":root { --cv-user-bubble-radius: 6px; --cv-link: var(--agent-accent); }")).toEqual([]);
+  expect(
+    kinds("@media (prefers-contrast: more) { :root { --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text)); } }"),
+  ).toEqual([]);
   expect(kinds(".cv-user__bubble { --cv-user-bubble-radius: 6px; }")).toEqual(["selector"]);
   expect(kinds(":root { --cv-font-size: 13px; }")).toEqual(["private-token"]);
   expect(kinds(":root { color: red; }")).toEqual(["private-token"]);
-  expect(kinds('@import "x.css"; :root { --cv-link: red; }')).toContain("remote");
+  expect(kinds('@import "x.css"; :root { --cv-link: var(--agent-accent); }')).toContain("remote");
+});
+
+test("a look's colors come from the theme's, so it reads in light and dark", () => {
+  // Studio 1.0.0's bubble and Paper 1.0.0's bubble: right for one appearance only (cmux#46049).
+  expect(kinds(":root { --cv-user-bubble-tint: rgb(39 39 42 / 0.72); }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-text-muted: #6b6257; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-link: steelblue; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-link: color-mix(in srgb, #8a5a2b 50%, var(--agent-text)); }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-card-fill: oklch(0.9 0.02 80); }")).toEqual(["literal-color"]);
+  expect(themeDerived(" color-mix(in oklch, var(--agent-accent) 9%, transparent)")).toBe(true);
+  expect(themeDerived(" color-mix(in srgb, var(--agent-text) 72%, var(--agent-accent))")).toBe(true);
+  expect(themeDerived(" transparent")).toBe(true);
+  // A length is not a color: the corner keeps its px.
+  expect(kinds(":root { --cv-user-bubble-radius: 18px; }")).toEqual([]);
 });
 
 test("declarations carry their selector chain", () => {
