@@ -575,10 +575,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != push ]; then echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # This lookup only skips a redundant deploy. When GitHub refuses it (the shared
+          # installation token's rate limit, an outage), deploy rather than fail the job.
+          lookup_failed() { echo "::warning::Could not read earlier backend runs ($1); deploying."; echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0; }
           last=""
-          for row in $(gh api "repos/$REPO/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&per_page=15" --jq '.workflow_runs[] | "\(.id):\(.head_sha)"'); do
+          rows=$(gh api "repos/$REPO/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&per_page=15" --jq '.workflow_runs[] | "\(.id):\(.head_sha)"') || lookup_failed "run list"
+          for row in $rows; do
             id="${row%%:*}"; [ "$id" = "$RUN_ID" ] && continue
-            ok=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "deploy-dashboard-staging" and .conclusion == "success")] | length')
+            ok=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "deploy-dashboard-staging" and .conclusion == "success")] | length') || lookup_failed "jobs of run $id"
             if [ "$ok" != 0 ]; then last="${row#*:}"; break; fi
           done
           if [ -z "$last" ] || ! git cat-file -e "${last}^{commit}" 2>/dev/null; then
@@ -664,6 +668,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui

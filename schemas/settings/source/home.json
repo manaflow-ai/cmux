@@ -674,7 +674,7 @@
         },
         {
           "key": "home.chiefDock.openBeside",
-          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
+          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.",
           "title": {
             "key": "settings.home.chiefDockOpenBeside",
             "text": "Show Chief When Opening Workspaces"
@@ -684,7 +684,7 @@
             "text": "Links in the Chief open their workspace with the Chief over it. Esc hides it."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "chief",
             "dock",
