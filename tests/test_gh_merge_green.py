@@ -96,6 +96,20 @@ jobs:
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
 """
 RATE_LIMITED = "<rate limited>"
+
+
+def paged_route(items, wrap=lambda page: page):
+    """A fake gh's answer to `gh api ROUTE?per_page=100&page=N`, as scripts/ci/gh_pages.py asks (the gh-quota
+    shim refuses --paginate): page N of items, 100 a page, as wrap(page) JSON; past the end, wrap([])."""
+    pages = [items[start:start + 100] for start in range(0, len(items), 100)]
+    return ("p=$(printf '%s' \"$*\" | sed -n 's/.*[?&]page=\\([0-9][0-9]*\\).*/\\1/p'); case \"${p:-1}\" in "
+            + "".join(f"{number}) printf '%s\\n' " + shlex.quote(json.dumps(wrap(page))) + ";; "
+                      for number, page in enumerate(pages, 1))
+            + "*) printf '%s\\n' " + shlex.quote(json.dumps(wrap([]))) + ";; esac")
+
+
+# A fake gh run by gh_pages.py ROUTE filename, the changed-file list (not its patch read of the same route).
+FILENAME_READ = "ps -o args= -p \"$PPID\" | grep -q ' filename$'"
 CI_WORKFLOW = """name: CI
 jobs:
   changes:
@@ -424,7 +438,7 @@ class InstalledHelperRegression(unittest.TestCase):
             {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
             for index, (name, status, conclusion) in enumerate(extra_checks)
         )
-        check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
+        check_route = paged_route(checks, lambda page: {"check_runs": page})
         runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
             {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD, "event": "pull_request"}
             for index, (status, conclusion, attempt) in enumerate(cmux_next_runs)]}))
@@ -528,7 +542,7 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
-            "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
+            + check_route + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
             "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
@@ -545,14 +559,14 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
-            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then "
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files' && " + FILENAME_READ + "; then "
                + ("echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; " if files_rest_fails == "quota" else "")
                + "exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
                + "; exit 0; fi\n" if files_rest_fails else "") +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
-            "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
+            + paged_route([{"filename": f} for f in changed_files]) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -1686,36 +1700,38 @@ class InstalledHelperRegression(unittest.TestCase):
             directory = Path(directory)
             marker = directory / "merged"
             gh = directory / "gh"
-            gh.write_text(textwrap.dedent(f"""\
-                #!/bin/sh
-                if [ "$1 $2" = 'pr view' ]; then
-                  printf '%s\\n' '{{"headRefOid":"{HEAD}","baseRefName":"main"}}'
-                  exit 0
-                fi
-                if [ "$1 $2" = 'pr merge' ]; then
-                  touch "$MERGE_MARKER"
-                  exit 0
-                fi
-                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/scripts/ci/check-paths.txt'; then
-                  echo 'gh: Not Found (HTTP 404)' >&2; exit 1
-                fi
-                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/contents/'; then
-                  printf '%s\\n' 'HTTP/2.0 200'; exit 0
-                fi
-                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/pulls/42/files'; then
-                  case "$*" in
-                    *'.[].filename'*) i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' 'Sources/Large.swift'; i=$((i + 1)); done ;;
-                    *'.[].patch'*)
-                      if [ "$INCLUDE_CONFLICT" = 1 ]; then printf '%s\\n' '+<<<<<<< HEAD'; fi
-                      i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' '+ordinary line'; i=$((i + 1)); done ;;
-                  esac
-                  exit 0
-                fi
-                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/check-runs'; then
-                  printf '%s\\n' '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success"}},{{"id":2,"name":"macos / macOS compile admission","status":"completed","conclusion":"success"}}]}}]'
-                  exit 0
-                fi
-                exit 2
+            # The PR files API lists at most 3000 files, 100 a page: all 30 pages, each file's patch 34 lines, so
+            # gh_pages.py hands the gate 3000 filenames and about 100000 patch lines. INCLUDE_CONFLICT puts a
+            # conflict marker in the last file's patch, so a cut-short read would miss it.
+            gh.write_text("#!/usr/bin/env python3\n" + textwrap.dedent(f"""\
+                import json, os, re, sys
+                from pathlib import Path
+                a = sys.argv[1:]
+                joined = ' '.join(a)
+                if a[:2] == ['pr', 'view']:
+                    print(json.dumps({{"headRefOid": "{HEAD}", "baseRefName": "main"}}))
+                elif a[:2] == ['pr', 'merge']:
+                    Path(os.environ['MERGE_MARKER']).touch()
+                elif a[0] == 'api' and 'contents/scripts/ci/check-paths.txt' in joined:
+                    print('gh: Not Found (HTTP 404)', file=sys.stderr)
+                    sys.exit(1)
+                elif a[0] == 'api' and '/contents/' in joined:
+                    print('HTTP/2.0 200')
+                elif a[0] == 'api' and '/pulls/42/files' in joined:
+                    page = int((re.search(r'[?&]page=(\\d+)', joined) or [0, 1])[1])
+                    files = []
+                    for n in range((page - 1) * 100, min(page * 100, 3000)):
+                        patch = ['@@ -1,0 +1,33 @@'] + ['+ordinary line'] * 33
+                        if n == 2999 and os.environ['INCLUDE_CONFLICT'] == '1':
+                            patch[-1] = '+<<<<<<< HEAD'
+                        files.append({{"filename": f"Sources/Large{{n}}.swift", "patch": '\\n'.join(patch)}})
+                    print(json.dumps(files))
+                elif a[0] == 'api' and '/check-runs' in joined:
+                    print(json.dumps({{"check_runs": [
+                        {{"id": 1, "name": "ci-status", "status": "completed", "conclusion": "success"}},
+                        {{"id": 2, "name": "macos / macOS compile admission", "status": "completed", "conclusion": "success"}}]}}))
+                else:
+                    sys.exit(2)
             """))
             gh.chmod(0o755)
             result = subprocess.run(
@@ -1757,11 +1773,12 @@ class WorkflowPresenceRegression(unittest.TestCase):
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
             gh.write_text("#!/usr/bin/env python3\n" + textwrap.dedent(r"""
-                import json, os, sys
+                import json, os, re, sys
                 from pathlib import Path
                 x = json.loads(Path(os.environ['FIXTURE']).read_text())
                 a = sys.argv[1:]
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
+                first_page = not re.search(r'[?&]page=([2-9]|[1-9][0-9])', ' '.join(a))
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
                 elif a[:2] == ['pr', 'comment']:
@@ -1790,11 +1807,12 @@ class WorkflowPresenceRegression(unittest.TestCase):
                         print('{}')
                     sys.exit(0 if code == 200 else 1)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps([{'check_runs': x['checks']}]))
+                    # One page per call (gh_pages.py), so page 1 has every item and page 2 on is empty.
+                    print(json.dumps({'check_runs': x['checks'] if first_page else []}))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
-                    print(json.dumps([x['statuses']]))
+                    print(json.dumps(x['statuses'] if first_page else []))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
-                    if '.[].filename' in a: print('\n'.join(x['files']))
+                    print(json.dumps([{'filename': f} for f in x['files']] if first_page else []))
                 else:
                     sys.exit(2)
                 """))
@@ -2812,7 +2830,9 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
                     print(out if isinstance(out, str) else json.dumps(out))
                 sys.exit(0)
         if a[0] == 'api' and '/files' in joined:
-            print('docs/README.md')
+            # One page of the PR's files per call (gh_pages.py); past it, an empty page.
+            paged = re.search(r'[?&]page=(\d+)', joined)
+            print(json.dumps([{'filename': 'docs/README.md'}] if not paged or paged.group(1) == '1' else []))
             sys.exit(0)
         if a[0] == 'api':
             print('[]')
@@ -3055,13 +3075,14 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                           exit 1
                           ;;
                         repos/example/repo/commits/*/check-runs*)
-                          printf '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}]\\n'
+                          # One page (gh_pages.py asks page by page); one check, so page 1 is the last.
+                          printf '{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success","app":{{"slug":"github-actions"}}}}]}}\\n'
                           ;;
                         repos/example/repo/commits/*/statuses*)
                           printf '[]\\n'
                           ;;
                         repos/example/repo/pulls/123/files*)
-                          printf ''
+                          printf '[]\\n'
                           ;;
                         repos/example/repo/pulls/123/merge)
                           if [ "{int(rest_merge_error)}" = 1 ]; then
