@@ -228,7 +228,7 @@ struct ChiefConversationHooksTests {
 
     /// The zoom counts from the person's own size once the screen is in a window.
     @Test(.timeLimit(.minutes(1))) func zoomStepsFromThePersonsSizeInTheWindow() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         let host = UIViewController()
@@ -283,7 +283,7 @@ struct ChiefConversationHooksTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func chiefScreenPutsInviteAndTheZoomInItsPageMenu() throws {
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend())
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         container.loadViewIfNeeded()

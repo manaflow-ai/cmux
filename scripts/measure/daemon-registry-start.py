@@ -5,7 +5,8 @@ Each start reports, from spawn: time to listen (the socket file exists), to iden
 first identify answer) and to ready (identify says lifecycle_ready), and the laps of the
 owner's startup-timings.jsonl line. A bumped start first sets the agent roster snapshot
 (journal_reducer.agent_roster in meta) one version back, as after a reducer version bump,
-so the owner re-folds the whole journal. One DRS {json} line per start on stdout.
+so the owner re-folds the whole journal. One DRS {json} line per start on stdout. With
+--trees 1, one DRS-TREES {json} line before the first start and one after each start.
 """
 
 import argparse
@@ -186,6 +187,36 @@ def file_size(path):
         return 0
 
 
+def tree_sizes(args, registry, when):
+    """The pages and bytes of each b-tree of the registry and the file's free pages, `when`
+    (before the first start, or the label of the start that just ended). None without --trees.
+
+    The generator's `--trees` reads them (`dbstat`, in the SQLite that the owner has), read
+    only, while no owner has the file open. The read goes through the whole file, so the file
+    is in the file cache after it. A read that fails is `{"error": ...}`, not a failed run.
+    The printed line has the 12 largest b-trees; the report has each one.
+    """
+    if not args.trees:
+        return None
+    done = subprocess.run([args.synth, "--trees", "--registry", str(registry)], stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3600, check=False)
+    sizes = None
+    if done.returncode == 0:
+        try:
+            sizes = json.loads(done.stdout)
+        except ValueError:
+            pass
+    if not isinstance(sizes, dict):
+        lines = done.stderr.decode(errors="replace").splitlines()
+        safe_print(f"DRS-TREES-FAILED {when}: {lines[-1][:200] if lines else ''}", file=sys.stderr, flush=True)
+        sizes = {"error": f"exit {done.returncode}"}
+    line = {"when": when, **sizes}
+    if isinstance(sizes.get("trees"), list):
+        line.update(trees=sizes["trees"][:12], trees_in_all=len(sizes["trees"]))
+    safe_print("DRS-TREES " + json.dumps(line), flush=True)
+    return sizes
+
+
 def start(args, label, bumped):
     sdir = session_dir(args.state)
     registry = sdir / REGISTRY
@@ -291,12 +322,18 @@ def start(args, label, bumped):
         if not laps or "at_ms" not in laps or "total_ms" not in laps
         else round(laps["at_ms"] - laps["total_ms"] - spawned_at_ms, 1),
         **before,
+        # What the start and the stop left in the 2 files.
+        "registry_bytes_after": file_size(registry),
+        "wal_bytes_after": file_size(str(registry) + "-wal"),
     }
     # The printed line keeps the laps and a short form of the counters; the report has all.
     safe_print("DRS " + json.dumps({**result, "after_ready": None}), flush=True)
     if after is not None:
         own = laps if isinstance(laps, dict) and laps.get("pid") == child.pid else None
         safe_print("DRS-AFTER " + json.dumps(after_summary(label, own, after)), flush=True)
+    if args.trees:
+        # After the DRS line: the b-trees are in the report and in their own line.
+        result["trees_after"] = tree_sizes(args, registry, label)
     return result
 
 
@@ -417,7 +454,15 @@ def main():
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--creates-early", type=int, default=0)
     parser.add_argument("--creates-late", type=int, default=0)
+    # --trees 1: the b-trees of the registry before the first start and after each start, read
+    # by --synth (the generator of this checkout). --made-by: the commit whose generator wrote
+    # the registry, for the report.
+    parser.add_argument("--trees", type=int, default=0)
+    parser.add_argument("--synth", default="")
+    parser.add_argument("--made-by", default="")
     args = parser.parse_args()
+    if args.trees and not args.synth:
+        parser.error("--trees 1 needs --synth")
     generated = json.loads(Path(args.generate).read_text())
     registry = session_dir(args.state) / REGISTRY
     # The first exec of a binary just linked pays for macOS's check of it, before main and
@@ -438,6 +483,7 @@ def main():
         print(f"error: the warm start did not get ready: {warm_last_line or '(no output)'}",
               file=sys.stderr, flush=True)
         return 1
+    trees_before = tree_sizes(args, registry, "before")
     starts = []
     for index in range(max(args.rounds, 1)):
         # The generator wrote the first bump; later rounds set it again.
@@ -447,6 +493,10 @@ def main():
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
     report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "warm_ready_ms": warm_ready, "starts": starts}
+    if args.made_by:
+        report["made_by"] = args.made_by
+    if args.trees:
+        report["trees_before"] = trees_before
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 

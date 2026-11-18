@@ -3,8 +3,8 @@
 
   launch-ready-seed.py SOCKET [--windows 3] [--workspaces 60]
 
-SOCKET is the app's release control socket (launch-ready.swift starts the app with CMUX_NEXT_SOCKET_PATH
-HOME_ROOT/app.sock and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get` and `action.run`.
+SOCKET is the app's release control socket (launch-ready.swift starts the app with CMUX_NEXT_SOCKET_PATH set to
+the short /tmp path launch-ready.sh gives it, and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get` and `action.run`.
 
 It opens windows until there are --windows (newWindow), then makes --workspaces workspaces (workspace.newAtBottom, a
 terminal each; the new id from the reply's `created`) and moves each to its window, as evenly as it can

@@ -49,7 +49,7 @@ struct DaemonTerminalEventParser: Sendable {
     private var detector = AlternateScreenDetector()
     /// The Mac's grid this mirror holds (from `vt-state` and `resized`).
     private var grid: (columns: Int, rows: Int)?
-    /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe starts the mirror over.
+    /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe at another grid starts the mirror over.
     private var drewHybridFrame = false
     /// This attach's lean frames (`agent-cli-lean`): their header and style table.
     private var lean = AgentCLIHybridLeanDecoder()
@@ -58,11 +58,16 @@ struct DaemonTerminalEventParser: Sendable {
     private var hybridShown: (stream: String, frame: Int)?
     /// A frame failed (``DaemonTerminalInbound/hybridFallback(reason:)``): no later one is drawn.
     private var hybridLost = false
+    /// Whether the mirror is on the alternate screen when this attach starts: a resumed agent
+    /// CLI stream keeps that screen, and the daemon does not say it again.
+    private let resumeAlternate: Bool
 
-    /// `hybridResume`: the stream and frame this attach names to resume from (nil: none).
-    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil) {
+    /// `hybridResume`: the stream and frame this attach names to resume from (nil: none);
+    /// `alternate`: whether the mirror it resumes on shows the alternate screen.
+    init(surface: Int, hybridResume: (stream: String, frame: Int)? = nil, alternate: Bool = false) {
         self.surface = surface
         hybridShown = hybridResume
+        resumeAlternate = alternate
     }
 
     mutating func parse(_ line: Data) -> [DaemonTerminalInbound] {
@@ -180,15 +185,25 @@ struct DaemonTerminalEventParser: Sendable {
             out.append(.rows(frame.rows))
         }
         grid = (frame.columns, frame.rows)
+        // Frames carry cells, not the terminal's modes: the alternate screen and the input
+        // modes (bracketed paste, cursor keys, mouse) come as `output` bytes, which the
+        // detector follows, and a keyframe keeps them.
         if frame.base == nil {
-            detector = AlternateScreenDetector()
-            if drewHybridFrame {
-                // A keyframe after a resize: the screen starts over at the new grid.
-                out.append(.resetMirror(alternate: false))
-            } else {
+            if !drewHybridFrame {
                 out.append(.historyRowsOmitted(0))
-                out.append(.alternateScreen(false))
+                out.append(.alternateScreen(detector.isActive))
+            } else if !sameGrid {
+                // A keyframe after a resize: the screen starts over at the new grid, in the
+                // modes the stream set (the reset clears them, and the daemon does not resend them).
+                out.append(.resetMirror(alternate: detector.isActive))
+                let restoring = detector.restoringBytes
+                if !restoring.isEmpty { out.append(.output(restoring)) }
             }
+            // A keyframe at the same grid (the program switched screens) clears and draws the
+            // screen the mirror shows: no reset, so the scrollback stays.
+        } else if !drewHybridFrame {
+            // A resumed stream applies on the mirror as it was, on the screen it showed.
+            detector = AlternateScreenDetector(active: resumeAlternate)
         }
         out.append(.output(bytes))
         out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
