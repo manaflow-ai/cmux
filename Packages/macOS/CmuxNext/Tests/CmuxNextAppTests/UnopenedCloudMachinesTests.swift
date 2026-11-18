@@ -336,7 +336,7 @@ struct UnopenedCloudMachinesTests {
         let terminal = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .pty, cwd: nil)
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(id)", hostName: id, session: "s-chat", harness: "claude"))
-        let screen = { (pane: UInt64, tab: TabSnapshot) in ScreenSnapshot(id: pane, layout: .leaf(pane), panes: [PaneSnapshot(id: pane, tabs: [tab])]) }
+        let screen = { (pane: UInt64, tab: TabSnapshot) in ScreenSnapshot(id: ScreenID(rawValue: pane), layout: .leaf(PaneID(rawValue: pane)), panes: [PaneSnapshot(id: PaneID(rawValue: pane), tabs: [tab])]) }
         session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: [
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-image-terminal"), name: "workspace-1", screens: [screen(1, terminal)]),
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-chat"), name: "chat", screens: [screen(2, chat)]),

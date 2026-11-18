@@ -1,6 +1,6 @@
 //! The committed rows of the whole-session snapshot, read with no writer lock.
 //!
-//! Lawrence's daemon, 2026-11-10 (826 workspaces, 2 h): the snapshot read held the workspace registry lock and the
+//! A large session, 2026-11-10 (826 workspaces, 2 h): the snapshot read held the workspace registry lock and the
 //! state lock across its O(session) walk 434 times, mean 105 ms, max 262 ms; a split waited behind it. Chromium's
 //! rule: a reader never holds the writer's lock across an O(session) walk; it reads a published immutable snapshot.
 //!
