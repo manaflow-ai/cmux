@@ -70,8 +70,8 @@ final class MacScreenDeviceRows: NSView {
     private var separators = false
     private var index: [String: Int] = [:]
     private var cells: [String: Cell] = [:]
-    /// `offsets[i]`: the top of row `i`; the last entry is the list's height.
-    private var offsets: [CGFloat] = [0]
+    /// Each row's top and the list's height (`RowOffsets`, CmuxVisibleRows: the same math runs on Linux).
+    private var offsets = RowOffsets(count: 0) { _ in 0 }
     /// Each row's measured height, with the value it was measured for (a changed row is measured again).
     private var measured: [String: (row: MacScreenDeviceRow, height: CGFloat)] = [:]
     private var kindHeights: [String: CGFloat] = [:]
@@ -94,7 +94,7 @@ final class MacScreenDeviceRows: NSView {
 
     override var isFlipped: Bool { true }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: offsets.last ?? 0) }
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: offsets.height) }
 
     /// Shows `rows`: rows whose values and hairline did not change keep their views. Only the mounted rows are
     /// compared; the id index and the row tops are the cheap passes over values (no views).
@@ -103,7 +103,7 @@ final class MacScreenDeviceRows: NSView {
         self.separators = separators
         index = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         listWork.walked(cells.count)
-        for (id, cell) in cells where index[id].map({ rows[$0] != cell.row }) ?? true { unmount(id) }
+        for id in RowIDDiff.stale(mounted: cells.mapValues(\.row), rows: rows, index: index) { unmount(id) }
         rebuildOffsets()
         needsLayout = true
         realize()
@@ -129,30 +129,13 @@ final class MacScreenDeviceRows: NSView {
 
     /// The tops of every row: a cheap pass over values, on a list change or a newly measured height only.
     private func rebuildOffsets() {
-        var offsets = [CGFloat]()
-        offsets.reserveCapacity(rows.count + 1)
-        var y: CGFloat = 0
-        for (at, row) in rows.enumerated() {
-            offsets.append(y)
-            y += height(of: row) + (hasSeparator(at) ? 1 : 0)
-        }
-        offsets.append(y)
-        let changed = offsets.last != self.offsets.last
+        let offsets = RowOffsets(count: rows.count) { Double(height(of: rows[$0])) + (hasSeparator($0) ? 1 : 0) }
+        let changed = offsets.height != self.offsets.height
         self.offsets = offsets
         if changed {
             invalidateIntrinsicContentSize()
             onHeightChange?()
         }
-    }
-
-    /// The row at `y` (the first or last row past the ends).
-    private func row(at y: CGFloat) -> Int {
-        var low = 0, high = rows.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if offsets[mid] <= y { low = mid } else { high = mid - 1 }
-        }
-        return low
     }
 
     /// The part of the list near the viewport, in the list's coordinates.
@@ -174,7 +157,7 @@ final class MacScreenDeviceRows: NSView {
         // A newly measured kind moves the rows after it: place again with the measured heights (once per kind).
         for _ in 0..<3 {
             let near = nearViewport()
-            range = near.maxY < 0 || near.minY > (offsets.last ?? 0) ? 0..<0 : row(at: near.minY)..<(row(at: near.maxY) + 1)
+            range = offsets.rows(reaching: near.minY, near.maxY)
             var remeasured = false
             for at in range where cells[rows[at].id] == nil {
                 let row = rows[at]
@@ -226,7 +209,7 @@ final class MacScreenDeviceRows: NSView {
                 cell.separator = nil
             }
             cells[row.id] = cell
-            let frame = NSRect(x: 0, y: offsets[at], width: width, height: rowHeight + (lined ? 1 : 0))
+            let frame = NSRect(x: 0, y: CGFloat(offsets.top(at)), width: width, height: rowHeight + (lined ? 1 : 0))
             if cell.container.frame != frame || cell.view.frame.width != width {
                 listWork.laidOut()
                 cell.container.frame = frame
