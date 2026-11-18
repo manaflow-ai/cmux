@@ -290,6 +290,14 @@ fold_hosts() {
   "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" "$DEST_DIR" "${folded_hosts[@]}"
 }
 is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
+# The app's iPhone host (bin/cmux-mobile-host) is not this client's companion:
+# the app bundles it from its own tree, before this install in nightly and
+# release. When the installed cmux runs that same host (link-mobile-host.sh:
+# the host source of <commit> is the copy's), the copy becomes a link to cmux.
+link_mobile_host() {
+  [[ -n "${1:-}" ]] || return 0
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-mobile-host.sh" "$DEST_DIR" "$1"
+}
 
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
@@ -297,6 +305,8 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   # A local client brings its app host and app servers when they sit beside it.
   rm -f "$DEST_DIR/cmux-browser-host" "$DEST_DIR/cmux-agent-screen-detection"
   fold_hosts
+  # A local client's commit is known only when the caller names it.
+  link_mobile_host "$EXPECTED_COMMIT"
   for companion in "${COMPANIONS[@]}"; do
     is_folded "$companion" && continue
     rm -f "$DEST_DIR/$companion"
@@ -445,6 +455,7 @@ case "$ARCH" in
 esac
 install_binary "$CLIENT"
 fold_hosts
+link_mobile_host "$COMMIT"
 # The app host (apps-v1) and the first-party app servers ship from the same build when
 # the manifest has them. Older builds have none; then none is bundled (the app reports
 # that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).

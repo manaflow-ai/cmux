@@ -18,24 +18,32 @@ For each --bin LABEL=DIR (a folder with cmux and its siblings, links or files):
                                daemon (/proc/self/exe): run once with the folder as it is and once with
                                cmux-tui-host hidden (`full-host`), which is what a host folded into bin/cmux costs.
                                start: wall time of `cmux-tui-host --version`, and of `cmux --version`.
+  cmux-mobile-host             start: wall time of `--print-device-id` (CMUX_MOBILE_DEVICE_ID set: exec, its tokio
+                               runtime and log setup, one line, exit). ready: spawn to its `online` event on
+                               stdout, supervised as the app runs it (CMUX_MOBILE_CONTROL=stdio, the token on
+                               stdin) against --fake-backend (cmux-mobile-link's testing support): it registered
+                               this Mac and holds the signaling socket, so a phone can dial. idle: the same process
+                               SETTLE s after `online`, stdin still open.
 
 Idle numbers are /proc/PID/smaps_rollup: Rss, Pss, Pss_Anon, Private_Dirty (kB). Prints one FOLD-SAMPLE line (JSON)
 per sample and a FOLD-SUMMARY line per label and metric (median, p90, n). Measurement only: it signals only the
 processes it started.
 
-  fold-hosts.py --bin base=DIR --bin head=DIR [--rounds 15] [--idle-rounds 3] [--settle 8]
+  fold-hosts.py --bin base=DIR --bin head=DIR [--fake-backend BIN] [--rounds 15] [--idle-rounds 3] [--settle 8]
 """
 
 import argparse
 import importlib.util
 import json
 import os
+import select
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -46,7 +54,8 @@ _spec.loader.exec_module(tui_idle)
 DETECTOR = "cmux-agent-screen-detection"
 CLOUD = "cmux-cloud"
 HOST = "cmux-tui-host"
-KEYS = ("Rss", "Pss", "Pss_Anon", "Private_Dirty")
+MOBILE = "cmux-mobile-host"
+KEYS =("Rss", "Pss", "Pss_Anon", "Private_Dirty")
 
 
 SAMPLES = {}
@@ -94,6 +103,15 @@ def starts(label, bin_dir, answers):
                 if out != previous:
                     raise RuntimeError(f"{label}: `{DETECTOR} list` answered differently from the first run")
             emit(label, program, "start_ms", round(ms, 2))
+        if (bin_dir / MOBILE).exists():
+            ms, out = wall_ms([str(bin_dir / MOBILE), "--print-device-id"],
+                              dict(env, CMUX_MOBILE_DEVICE_ID="fold-hosts-device"))
+            if out.strip() != b"fold-hosts-device":
+                raise RuntimeError(f"{label}: `{MOBILE} --print-device-id` answered {out[-200:]!r}")
+            emit(label, MOBILE, "start_ms", round(ms, 2))
+            if FAKE_BACKEND["url"]:
+                ms, _ = mobile_once(bin_dir / MOBILE, root, settle=0)
+                emit(label, MOBILE, "ready_ms", round(ms, 2))
         if (bin_dir / CLOUD).exists():
             ms, line, idle = cloud_once(bin_dir / CLOUD, env, settle=0)
             emit(label, CLOUD, "start_ms", round(ms, 2))
@@ -206,6 +224,90 @@ def daemon_idle(label, bin_dir, settle, variant):
         shutil.rmtree(root, ignore_errors=True)
 
 
+FAKE_BACKEND = {"url": None, "proc": None}
+
+
+def start_fake_backend(binary):
+    """The fake mobile backend on a free loopback port; its URL from its stderr line."""
+    proc = subprocess.Popen([str(binary), "127.0.0.1:0"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, start_new_session=True)
+    line = proc.stderr.readline().decode(errors="replace").strip()
+    if " on http://" not in line:
+        proc.kill()
+        proc.wait()
+        raise RuntimeError(f"fake backend said {line!r} (exit {proc.poll()})")
+    FAKE_BACKEND.update(url=line.rsplit(" on ", 1)[1], proc=proc)
+
+
+def stop_fake_backend():
+    proc = FAKE_BACKEND["proc"]
+    if proc is not None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def mobile_once(binary, root, settle):
+    """The iPhone host supervised as the app runs it: spawn to its `online` event (ms), and its rollup SETTLE s
+    later (None for settle 0). Ends it by closing stdin, as the app does."""
+    state =tempfile.mkdtemp(prefix="mobile-", dir=root)
+    env = dict(scratch_env(state), CMUX_MOBILE_CONTROL="stdio", CMUX_MOBILE_BASE_URL=FAKE_BACKEND["url"],
+               CMUX_MOBILE_TEAM_ID="fold-team", CMUX_MOBILE_DEVICE_ID=str(uuid.uuid4()),
+               CMUX_MOBILE_STATE_DIR=os.path.join(state, "state"), CMUX_MOBILE_PUSH="0",
+               CMUX_MOBILE_TUI_SOCKET_DIR=os.path.join(state, "tui"), ACPMUX_HOME=os.path.join(state, "acpmux"),
+               TMPDIR=state)
+    log = open(os.path.join(state, "stderr.log"), "wb")  # noqa: SIM115 - closed below, after the process
+    t0 = time.perf_counter()
+    proc = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, env=env)
+    try:
+        proc.stdin.write(b'{"type":"token","token":"user:fold"}\n{"type":"devices","devices":[],"denied":[]}\n')
+        proc.stdin.flush()
+        deadline = time.monotonic() + 30
+        seen = []
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([proc.stdout], [], [], left)[0]:
+                raise RuntimeError(f"{binary}: no `online` within 30 s; events {seen}; stderr "
+                                   f"{Path(state, 'stderr.log').read_bytes()[-400:]!r}")
+            line = proc.stdout.readline()
+            if not line:
+                raise RuntimeError(f"{binary} exited {proc.wait()} before `online`; events {seen}; stderr "
+                                   f"{Path(state, 'stderr.log').read_bytes()[-400:]!r}")
+            event = json.loads(line).get("type")
+            seen.append(event)
+            if event == "online":
+                break
+        ms = (time.perf_counter() - t0) * 1000
+        idle = None
+        if settle:
+            time.sleep(settle)  # bench: the idle window
+            idle = tui_idle.rollup(proc.pid)
+        return ms, idle
+    finally:
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        log.close()
+
+
+def mobile_idle(label, bin_dir, settle):
+    if not (bin_dir / MOBILE).exists() or not FAKE_BACKEND["url"]:
+        return
+    root = tempfile.mkdtemp(prefix="fold-mobile-")
+    try:
+        _, roll = mobile_once(bin_dir / MOBILE, root, settle)
+        for key in KEYS:
+            emit(label, MOBILE, f"idle_{key.lower()}_kb", roll.get(key, 0))
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def cloud_idle(label, bin_dir, settle):
     if not (bin_dir / CLOUD).exists():
         return
@@ -224,8 +326,18 @@ def main():
     ap.add_argument("--rounds", type=int, default=15)
     ap.add_argument("--idle-rounds", type=int, default=3)
     ap.add_argument("--settle", type=float, default=8)
+    ap.add_argument("--fake-backend", help="cmux-mobile-fake-backend: the iPhone host's ready and idle samples")
     args = ap.parse_args()
     bins = [(label, Path(path).resolve()) for label, path in (b.split("=", 1) for b in args.bin)]
+    if args.fake_backend:
+        start_fake_backend(args.fake_backend)
+    try:
+        sample(args, bins)
+    finally:
+        stop_fake_backend()
+
+
+def sample(args, bins):
     answers = {}
     # Round 0 warms the page cache of every file and is not kept.
     for round_ in range(args.rounds + 1):
@@ -239,6 +351,7 @@ def main():
         order = bins if round_ % 2 == 0 else bins[::-1]
         for label, path in order:
             cloud_idle(label, path, args.settle)
+            mobile_idle(label, path, args.settle)
             daemon_idle(label, path, args.settle, "as-built")
             daemon_idle(label, path, args.settle, "full-host")
     for (label, program, metric), values in sorted(SAMPLES.items()):

@@ -1882,9 +1882,20 @@ pub fn main() -> std::process::ExitCode {
 
 /// The programs this binary runs when argv[0]'s file name is theirs (links
 /// beside bin/cmux, scripts/cmux-next/link-folded-hosts.sh, CMUX-570).
-#[cfg(unix)]
+/// The macOS build also runs the cmux-next app's iPhone connection host
+/// (`cmux-mobile-host`); another unix only with the measurement feature
+/// `fold-mobile-host`.
+#[cfg(all(unix, not(any(target_os = "macos", feature = "fold-mobile-host"))))]
 pub const FOLDED_HOSTS: &[&str] =
     &["cmux-browser-host", "cmux-app-host", "cmux-agent-screen-detection", "cmux-cloud"];
+#[cfg(all(unix, any(target_os = "macos", feature = "fold-mobile-host")))]
+pub const FOLDED_HOSTS: &[&str] = &[
+    "cmux-browser-host",
+    "cmux-app-host",
+    "cmux-agent-screen-detection",
+    "cmux-cloud",
+    "cmux-mobile-host",
+];
 
 /// Set to `1` on a run through a folded name: the binary prints
 /// `folded-hosts: <name>...` ([`FOLDED_HOSTS`]) and exits, so the bundle
@@ -1916,6 +1927,10 @@ fn run_folded_host() -> Option<std::process::ExitCode> {
         // A panic in the plugin still ends its process here, where panics
         // unwind: `cli::run` installs that hook (its own build is panic=abort).
         "cmux-agent-screen-detection" => cmux_agent_screen_detection::cli::run(args()),
+        // The app's copy is built panic=abort (build-mobile-host.sh); this entry
+        // keeps that rule where panics unwind (MobileHostSupervisor restarts it).
+        #[cfg(any(target_os = "macos", feature = "fold-mobile-host"))]
+        "cmux-mobile-host" => cmux_mobile_host::entry::run_aborting_on_panic(args()),
         // What a `main` returning `io::Result` prints and exits with on an error.
         "cmux-cloud" => match cmux_cloud::run_stdio() {
             Ok(()) => ExitCode::SUCCESS,

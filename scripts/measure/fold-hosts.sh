@@ -5,7 +5,9 @@
 # or `scripts/bench/cmux-bench fold-hosts --build HEAD_SHA [--arg base=SHA]`.
 # BASE_SHA defaults to this checkout's merge base with origin/feat-cmux-next. For each commit it builds, with the
 # shipped crates' own release profiles, bin/cmux (cmux-tui) and bin/cmux-tui-host (one cargo invocation, one build
-# identity), bin/cmux-agent-screen-detection and bin/cmux-cloud (each its own Cargo workspace), strips every file
+# identity; with `fold-mobile-host` when the commit has it, as the macOS build always does),
+# bin/cmux-agent-screen-detection, bin/cmux-cloud and bin/cmux-mobile-host (each its own Cargo workspace; the iPhone
+# host with build-mobile-host.sh's fat LTO, one codegen unit and panic=abort), strips every file
 # (strip --strip-unneeded) and lays them out as the bundle does: this checkout's link-folded-hosts.sh links the
 # names that commit's cmux runs by argv[0]. Then fold-hosts.py samples start time and idle memory of both folders
 # in turns. Lines: FOLD-AT <label> <sha>, FOLD-SIZE <label> <file> <bytes|link>, FOLD-TOTAL <label> <bytes>, and
@@ -60,8 +62,15 @@ for label in base head; do
   mkdir -p "$bin"
   t0=$(date +%s)
   commit="$(git -C "$tree" rev-parse HEAD)"
+  # The macOS bin/cmux carries the iPhone host; on Linux a tree that folds it does so only with this feature.
+  tui_features=()
+  grep -q '^fold-mobile-host = ' "$tree/cmux-tui/crates/cmux-tui/Cargo.toml" && tui_features=(--features fold-mobile-host)
   (cd "$tree/cmux-tui" && CMUX_TUI_BUILD_COMMIT="$commit" CARGO_TARGET_DIR="$target/tui" \
-    cargo build --locked --release -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 2) || { status=1; continue; }
+    cargo build --locked --release -p cmux-tui --bin cmux-tui --bin cmux-tui-host "${tui_features[@]}" 2>&1 | tail -n 2) || { status=1; continue; }
+  # The app's own iPhone host, with build-mobile-host.sh's size profile.
+  (cd "$tree/cmux-next-ios/rust" && CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+    CARGO_PROFILE_RELEASE_PANIC=abort CARGO_TARGET_DIR="$target/mobile" \
+    cargo build --locked --release -p cmux-mobile-host --bin cmux-mobile-host 2>&1 | tail -n 1) || { status=1; continue; }
   (cd "$tree/cmux-tui/bindings/examples/rust-agent-screen-detection" && CARGO_TARGET_DIR="$target/detector" \
     cargo build --locked --release 2>&1 | tail -n 1) || { status=1; continue; }
   (cd "$tree/first-party-apps/cloud/server" && CARGO_TARGET_DIR="$target/cloud" \
@@ -71,6 +80,7 @@ for label in base head; do
   install -m 755 "$target/tui/release/cmux-tui-host" "$bin/cmux-tui-host"
   install -m 755 "$target/detector/release/cmux-agent-screen-detection" "$bin/cmux-agent-screen-detection"
   install -m 755 "$target/cloud/release/cmux-cloud" "$bin/cmux-cloud"
+  install -m 755 "$target/mobile/release/cmux-mobile-host" "$bin/cmux-mobile-host"
   for file in "$bin"/*; do strip --strip-unneeded "$file"; done
   # The names this commit's cmux runs by argv[0] become links, as in the bundle (only those built here).
   folded=()
@@ -88,5 +98,10 @@ for label in base head; do
   echo "FOLD-TOTAL $label $total"
 done
 (( status == 0 )) || exit "$status"
+# The fake backend (cmux-mobile-link's testing support) the iPhone host registers with: one build, for both sides;
+# it is not what is measured.
+(cd "$root/cmux-next-ios/rust" && CARGO_TARGET_DIR="$scratch/target-fake" \
+  cargo build --locked --release -p cmux-mobile-host --features fake-backend --bin cmux-mobile-fake-backend 2>&1 | tail -n 1) \
+  || { echo "FOLD-ERROR fake backend build"; exit 1; }
 python3 "$root/scripts/measure/fold-hosts.py" --bin "base=$scratch/bin-base" --bin "head=$scratch/bin-head" \
-  --rounds "$rounds" || exit 1
+  --fake-backend "$scratch/target-fake/release/cmux-mobile-fake-backend" --rounds "$rounds" || exit 1

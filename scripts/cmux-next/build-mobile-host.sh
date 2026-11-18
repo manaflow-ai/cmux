@@ -16,7 +16,11 @@ usage() {
   cat <<'USAGE'
 
 Usage: build-mobile-host.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+                            [--source-key-at REV]
   --output PATH  also copy the binary (and PATH.ref) there
+  --source-key-at REV  print the source key a build of commit REV without uncommitted
+                 changes has (its .ref key=) and exit; link-mobile-host.sh compares it
+                 with a bundled copy's to learn whether REV's bin/cmux runs the same host
 Environment:
   CMUX_NEXT_MOBILE_HOST_ARCHS  space/comma-separated arm64 and/or x86_64 (default: ARCHS, else host)
   CMUX_NEXT_MOBILE_HOST_CACHE  cache root (default: cmux-next-ios/rust/target/hosted/cmux-mobile-host)
@@ -26,6 +30,7 @@ USAGE
 build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 cached_only=0
 print_path=0
+key_at=""
 output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,6 +38,7 @@ while [[ $# -gt 0 ]]; do
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
     --check-build-allowed) build_allowed; exit $? ;;
+    --source-key-at) key_at="${2:?missing commit after --source-key-at}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -61,13 +67,25 @@ inputs=(cmux-next-ios/rust cmux-tui/crates/cmux-wg cmux-tui/crates/cmux-transpor
 # about 1.6 s), the same path as a host kill. The iPhone's xcframework (rd-ffi's
 # catch_unwind FFI guards) keeps unwinding: it is built by its own scripts.
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort)
-key_material="${size_profile[*]}"$'\n'
-for input in "${inputs[@]}"; do
-  key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'
-done
-key_material+="$(git -C "$repo_root" diff HEAD -- "${inputs[@]}" 2>/dev/null || true)"
-key_material+="$(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)"
-source_key="$(printf '%s' "$key_material" | shasum -a 256 | cut -c1-16)"
+# source_key_of <rev> <with working tree: 1|0>
+source_key_of() {
+  local rev="$1" input key_material="${size_profile[*]}"$'\n'
+  for input in "${inputs[@]}"; do
+    key_material+="$(git -C "$repo_root" rev-parse "$rev:$input" 2>/dev/null || echo "missing:$input")"$'\n'
+  done
+  if [[ "$2" == 1 ]]; then
+    key_material+="$(git -C "$repo_root" diff HEAD -- "${inputs[@]}" 2>/dev/null || true)"
+    key_material+="$(git -C "$repo_root" ls-files --others --exclude-standard -- "${inputs[@]}" 2>/dev/null || true)"
+  fi
+  printf '%s' "$key_material" | shasum -a 256 | cut -c1-16
+}
+if [[ -n "$key_at" ]]; then
+  # A commit this clone does not have names no source: no key, so nothing matches it.
+  git -C "$repo_root" rev-parse --verify --quiet "$key_at^{commit}" >/dev/null || { echo "error: no commit $key_at here" >&2; exit 1; }
+  source_key_of "$key_at" 0
+  exit 0
+fi
+source_key="$(source_key_of HEAD 1)"
 
 normalize_archs() {
   local raw="${CMUX_NEXT_MOBILE_HOST_ARCHS:-${ARCHS:-}}"
