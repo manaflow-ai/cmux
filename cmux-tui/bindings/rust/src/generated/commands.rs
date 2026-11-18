@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
+// cmux-tui mux protocol 12, IR d54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2100,6 +2100,8 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -5114,6 +5116,10 @@ impl CmuxClient {
     }
 
     pub fn list_notifications(&mut self, request: ListNotificationsRequest) -> Result<ListNotificationsResult> {
+        if !request.since.is_missing() {
+            self.require_protocol_field("list-notifications", 12)?;
+            self.require_capability_field("list-notifications", "notification-ledger-delta-v1")?;
+        }
         self.execute(&LIST_NOTIFICATIONS_METADATA, &request)
     }
 

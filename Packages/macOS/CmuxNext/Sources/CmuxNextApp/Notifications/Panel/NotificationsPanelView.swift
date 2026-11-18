@@ -166,22 +166,19 @@ final class NotificationsPanelView: NSView {
         ])
     }
 
-    /// Shows the rows; returns the card height it needs. Until the first
-    /// ledger reply (`loaded` false) an empty list shows nothing rather than
-    /// the empty state. The list measures its rows by their text, so no
-    /// layout pass walks them.
-    func show(_ rows: [NotificationsPanelRow], loaded: Bool, now: Date) -> CGFloat {
-        // Rows wrap at their real width, so the list measures true.
-        list.show(rows, width: Self.listWidth, now: now)
-        empty.isHidden = !rows.isEmpty || !loaded
-        markAllRead.isEnabled = rows.contains { $0.unread }
-        clearAll.isEnabled = !rows.isEmpty
-        let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.contentHeight
+    /// Shows the list's rows (`list.show` or `list.apply` at `listWidth`, where rows wrap true); returns the
+    /// card height it needs. Until the first ledger reply (`loaded` false) an empty list shows nothing rather
+    /// than the empty state. The list measures its rows by their text, so no layout pass walks them.
+    func show(loaded: Bool, now: Date) -> CGFloat {
+        empty.isHidden = list.count > 0 || !loaded
+        markAllRead.isEnabled = list.unreadCount > 0
+        clearAll.isEnabled = list.count > 0
+        let content = list.count == 0 ? (loaded ? empty.fittingSize.height : 0) : list.contentHeight
         let height = min(ceil(content), Self.maxListHeight)
         if listHeight?.constant != height { listHeight?.constant = height }
         layoutSubtreeIfNeeded()
         // The list mounts for the viewport the layout gave it.
-        list.realize()
+        list.realize(now: now)
         return fittingSize.height
     }
 

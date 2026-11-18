@@ -177,39 +177,55 @@ pub(super) fn report_agent(
     }))
 }
 
-pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow::Result<Value> {
-    let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-    Ok(json!({
-        "notifications": rows
-            .iter()
-            .map(|(row, acknowledged)| {
-                let post = mux.notification_post(&row.id);
-                let poster = post.as_ref().and_then(|post| post.poster.as_ref());
-                json!({
-                    "id": row.id,
-                    "notification": post.as_ref().map(|post| post.notification),
-                    "reply": row.reply,
-                    "poster_pid": poster.map(|poster| poster.pid),
-                    "poster_executable": poster.map(|poster| poster.executable.as_str()),
-                    "title": row.title,
-                    "subtitle": row.subtitle,
-                    "body": row.body,
-                    "level": row.level.as_str(),
-                    "terminal_id": row.terminal_id,
-                    "surface": row.surface,
-                    "created_at_ms": row.created_at_ms,
-                    "source": row.source.as_str(),
-                    "acknowledged": acknowledged,
-                    // The question the row's agent still waits on (memory only).
-                    "question": row
-                        .terminal_id
-                        .as_ref()
-                        .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
-                        .as_deref(),
-                })
+/// `list-notifications`. The whole ledger (no `limit` under 256) shown to a
+/// client that sees all of it carries its `version`; with `since` it holds
+/// only the rows changed since that version (`notification-ledger-delta-v1`).
+pub(super) fn list_notifications(
+    mux: &Arc<Mux>,
+    limit: Option<usize>,
+    since: Option<String>,
+    whole_view: bool,
+) -> anyhow::Result<Value> {
+    match limit.filter(|limit| *limit < 256) {
+        None if whole_view => {
+            mux.notification_list_answer(since.as_deref(), || notification_rows_json(mux, 256))
+        }
+        limit => Ok(json!({ "notifications": notification_rows_json(mux, limit.unwrap_or(256))? })),
+    }
+}
+
+/// The first `limit` ledger rows, newest first.
+fn notification_rows_json(mux: &Arc<Mux>, limit: usize) -> anyhow::Result<Vec<Value>> {
+    let rows = mux.notification_rows(limit)?;
+    Ok(rows
+        .iter()
+        .map(|(row, acknowledged)| {
+            let post = mux.notification_post(&row.id);
+            let poster = post.as_ref().and_then(|post| post.poster.as_ref());
+            json!({
+                "id": row.id,
+                "notification": post.as_ref().map(|post| post.notification),
+                "reply": row.reply,
+                "poster_pid": poster.map(|poster| poster.pid),
+                "poster_executable": poster.map(|poster| poster.executable.as_str()),
+                "title": row.title,
+                "subtitle": row.subtitle,
+                "body": row.body,
+                "level": row.level.as_str(),
+                "terminal_id": row.terminal_id,
+                "surface": row.surface,
+                "created_at_ms": row.created_at_ms,
+                "source": row.source.as_str(),
+                "acknowledged": acknowledged,
+                // The question the row's agent still waits on (memory only).
+                "question": row
+                    .terminal_id
+                    .as_ref()
+                    .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
+                    .as_deref(),
             })
-            .collect::<Vec<_>>(),
-    }))
+        })
+        .collect())
 }
 
 /// One `list-agents` row. `state` is the roster state (`done` there is an

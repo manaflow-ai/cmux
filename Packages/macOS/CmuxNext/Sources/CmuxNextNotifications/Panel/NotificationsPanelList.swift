@@ -5,9 +5,10 @@ package import CmuxVisibleRows
 /// visible rect and one viewport on each side have views (`overscan`); a row
 /// that scrolls out gives its view back to a pool, and a reload reconfigures
 /// only the views whose notification (or its relative time) changed. Heights
-/// are measured once per row text with the row's own layout (no Auto Layout),
-/// so a reload measures only new or changed rows, and the list's view work does
-/// not grow with the ledger (Leo 2026-11-18: "we draw the visible area, right?").
+/// are measured once per row text with the row's own layout (no Auto Layout).
+/// A ledger delta (`apply`) reads, measures and indexes only the rows it names,
+/// so the list's work per notification does not grow with the ledger (Leo
+/// 2026-11-18: "we draw the visible area, right?").
 package final class NotificationsPanelList: NSView {
     /// Viewports mounted past each edge of the visible rect.
     static let overscan: CGFloat = 1
@@ -20,10 +21,8 @@ package final class NotificationsPanelList: NSView {
     package var dismiss: (NotificationsPanelRow) -> Void = { _ in }
     package var rowMenu: (NotificationsPanelRow) -> NSMenu = { _ in NSMenu() }
 
-    private(set) var rows: [NotificationsPanelRow] = []
-    /// Each row's top; the last is the list's height.
-    private var offsets: [CGFloat] = [0]
-    private var indexByID: [String: Int] = [:]
+    /// The rows newest first, their index by id and their tops.
+    private var ledger = NotificationsPanelLedger()
     /// Each row's measured height and the row it was measured as, by id, at `measuredWidth`.
     private var heights: [String: (row: NotificationsPanelRow, height: CGFloat)] = [:]
     private var measuredWidth: CGFloat = 0
@@ -41,46 +40,83 @@ package final class NotificationsPanelList: NSView {
 
     nonisolated override package var isFlipped: Bool { true }
 
-    package var contentHeight: CGFloat { offsets[offsets.count - 1] }
+    package var contentHeight: CGFloat { ledger.height }
+    package var count: Int { ledger.count }
+    package var unreadCount: Int { ledger.unreadCount }
+    package func row(at index: Int) -> NotificationsPanelRow { ledger.rows[index] }
+    package func index(of id: String) -> Int? { ledger.index(of: id) }
+    package func row(id: String) -> NotificationsPanelRow? { ledger.index(of: id).map { ledger.rows[$0] } }
 
     /// The rows' views in list order: what VoiceOver and a test see.
     var mountedViews: [NotificationRowView] {
-        mounted.values.sorted { (indexByID[$0.row.id] ?? 0) < (indexByID[$1.row.id] ?? 0) }
+        mounted.values.sorted { (ledger.index(of: $0.row.id) ?? 0) < (ledger.index(of: $1.row.id) ?? 0) }
     }
 
-    /// Shows `rows`, newest first, `width` wide. Only a row not measured as it is now is
+    /// Shows `rows` (the whole ledger), newest first, `width` wide. Only a row not measured as it is now is
     /// measured; a new width measures them all again.
     package func show(_ rows: [NotificationsPanelRow], width: CGFloat, now: Date) {
-        self.rows = rows
         self.now = now
         if width != measuredWidth { heights = [:]; measuredWidth = width }
-        var offsets = [CGFloat](), index = [String: Int](minimumCapacity: rows.count)
         var kept = [String: (row: NotificationsPanelRow, height: CGFloat)](minimumCapacity: rows.count)
-        offsets.reserveCapacity(rows.count + 1)
-        var y: CGFloat = 0
-        for (i, row) in rows.enumerated() {
-            offsets.append(y)
-            index[row.id] = i
-            var height = heights[row.id].flatMap { $0.row.measuresLike(row) ? $0.height : nil }
-            if height == nil {
-                let sizer = sizer ?? NotificationRowView(row: row, now: now, callbacks: .init(open: {}, dismiss: {}, menu: { NSMenu() }))
-                self.sizer = sizer
-                sizer.configure(row, now: now)
-                height = sizer.height(width: width)
-                listWork.laidOut()
-            }
-            kept[row.id] = (row, height ?? 0)
-            y += height ?? 0
+        let rowHeights = rows.map { row in
+            let height = measure(row)
+            kept[row.id] = (row, height)
+            return height
         }
-        offsets.append(y)
-        // The ledger comes whole from the daemon: one pass reads it to find what changed (the index, no view work).
+        // The whole ledger: one pass reads it to find what changed (the index, no view work).
         listWork.walked(rows.count)
-        self.offsets = offsets
-        indexByID = index
         heights = kept
-        if let selectedID, index[selectedID] == nil { self.selectedID = nil }
-        setFrameSize(NSSize(width: width, height: y))
+        ledger.replace(rows, heights: rowHeights)
+        if let selectedID, ledger.index(of: selectedID) == nil { self.selectedID = nil }
+        setFrameSize(NSSize(width: width, height: ledger.height))
         realize()
+    }
+
+    /// Shows a ledger reply's rows: the whole ledger, or with `removed` (a delta) only the rows that changed.
+    package func show(_ rows: [NotificationsPanelRow], removed: [String]?, width: CGFloat, now: Date) {
+        guard let removed else { return show(rows, width: width, now: now) }
+        apply(upserted: rows, removed: removed, width: width, now: now)
+    }
+
+    /// Applies a ledger delta: `upserted` rows (new or changed, newest first) and the ids `removed`. Reads,
+    /// measures and indexes only those rows; the mounted ones are configured again.
+    package func apply(upserted: [NotificationsPanelRow], removed: [String], width: CGFloat, now: Date) {
+        guard width == measuredWidth else {
+            // A new width measures every row: the whole ledger with the delta in it.
+            let gone = Set(removed).union(upserted.map(\.id))
+            let merged = (upserted + ledger.rows.filter { !gone.contains($0.id) }).sorted { $0.createdAt > $1.createdAt }
+            return show(merged, width: width, now: now)
+        }
+        self.now = now
+        for id in removed {
+            guard let index = ledger.index(of: id) else { continue }
+            ledger.remove(at: index)
+            heights[id] = nil
+            if selectedID == id { selectedID = nil }
+        }
+        // Oldest first, so new rows that tie on time stack newest on top.
+        for row in upserted.reversed() {
+            let height = measure(row)
+            heights[row.id] = (row, height)
+            if let index = ledger.index(of: row.id) {
+                ledger.update(at: index, row, height: height)
+            } else {
+                ledger.insert(row, at: ledger.insertionIndex(row), height: height)
+            }
+        }
+        listWork.walked(upserted.count + removed.count)
+        setFrameSize(NSSize(width: width, height: ledger.height))
+        realize()
+    }
+
+    /// `row`'s height at `measuredWidth`: the one it was measured at while its text is the same.
+    private func measure(_ row: NotificationsPanelRow) -> CGFloat {
+        if let known = heights[row.id], known.row.measuresLike(row) { return known.height }
+        let sizer = sizer ?? NotificationRowView(row: row, now: now, callbacks: .init(open: {}, dismiss: {}, menu: { NSMenu() }))
+        self.sizer = sizer
+        sizer.configure(row, now: now)
+        listWork.laidOut()
+        return sizer.height(width: measuredWidth)
     }
 
     /// The rect rows are mounted for: the visible rect and `overscan` viewports on each side.
@@ -91,14 +127,20 @@ package final class NotificationsPanelList: NSView {
         return viewport.insetBy(dx: 0, dy: -viewport.height * Self.overscan)
     }
 
-    /// The first row whose bottom is below `y` (a binary search of the offsets).
+    /// The first row whose bottom is below `y` (a binary search of the tops).
     private func firstRow(below y: CGFloat) -> Int {
-        var low = 0, high = rows.count
+        var low = 0, high = ledger.count
         while low < high {
             let mid = (low + high) / 2
-            if offsets[mid + 1] <= y { low = mid + 1 } else { high = mid }
+            if ledger.top(mid + 1) <= y { low = mid + 1 } else { high = mid }
         }
         return low
+    }
+
+    /// Mounts the rows in `mountRect` with their times relative to `now`.
+    package func realize(now: Date) {
+        self.now = now
+        realize()
     }
 
     /// Mounts the rows in `mountRect`, keeping their views; the others go back to the pool.
@@ -106,10 +148,10 @@ package final class NotificationsPanelList: NSView {
         let rect = mountRect
         let first = firstRow(below: rect.minY)
         var end = first
-        while end < rows.count, offsets[end] < rect.maxY { end += 1 }
+        while end < ledger.count, ledger.top(end) < rect.maxY { end += 1 }
         var keep = [String: NotificationRowView](minimumCapacity: end - first)
         for i in first..<end {
-            let row = rows[i]
+            let row = ledger.rows[i]
             let view: NotificationRowView
             if let existing = mounted.removeValue(forKey: row.id) {
                 view = existing
@@ -121,7 +163,7 @@ package final class NotificationsPanelList: NSView {
                 addSubview(view)
             }
             view.isSelected = row.id == selectedID
-            let frame = NSRect(x: 0, y: offsets[i], width: bounds.width, height: offsets[i + 1] - offsets[i])
+            let frame = NSRect(x: 0, y: ledger.top(i), width: bounds.width, height: ledger.rowHeight(i))
             if view.frame != frame { view.frame = frame; listWork.laidOut() }
             keep[row.id] = view
         }
@@ -147,9 +189,9 @@ package final class NotificationsPanelList: NSView {
     package func select(_ id: String?) {
         if let old = selectedID, old != id { mounted[old]?.isSelected = false }
         selectedID = id
-        guard let id, let index = indexByID[id] else { return }
+        guard let id, let index = ledger.index(of: id) else { return }
         mounted[id]?.isSelected = true
-        scrollToVisible(NSRect(x: 0, y: offsets[index], width: bounds.width, height: offsets[index + 1] - offsets[index]))
+        scrollToVisible(NSRect(x: 0, y: ledger.top(index), width: bounds.width, height: ledger.rowHeight(index)))
     }
 }
 

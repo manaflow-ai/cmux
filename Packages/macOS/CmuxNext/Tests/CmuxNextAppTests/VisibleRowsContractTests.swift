@@ -19,8 +19,7 @@ struct VisibleRowsContractTests {
         try await VisibleRowsContract.check(SidebarWorkspaceRows.self)
     }
 
-    /// In `VisibleRowsBaseline` for items walked only: the daemon answers each change with the whole ledger, and the
-    /// panel reads it to find what changed. Every other rule holds and fails the test if it breaks.
+    /// One notification is a one-row delta from the daemon (`list-notifications` `since`): the panel reads that row.
     @Test func notificationsPanel() async throws {
         try await VisibleRowsContract.check(NotificationsPanelRows.self)
     }
@@ -113,7 +112,7 @@ struct VisibleRowsContractTests {
     func close() { window.close() }
 }
 
-/// The notifications panel over `rows` ledger entries, shown as `NotificationsPanelController.render` shows a ledger reply.
+/// The notifications panel over `rows` ledger entries, shown as `NotificationsPanelController.apply` shows a ledger reply.
 @MainActor final class NotificationsPanelRows: VisibleRowsFixture {
     static let name = "notifications panel"
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -130,7 +129,7 @@ struct VisibleRowsContractTests {
         window.isReleasedWhenClosed = false
         window.contentView = card
         window.orderFrontRegardless()
-        render()
+        render(rows)
     }
 
     static func row(_ index: Int, unread: Bool) -> NotificationsPanelRow {
@@ -139,9 +138,11 @@ struct VisibleRowsContractTests {
                               createdAt: now.addingTimeInterval(-60 * Double(index)), unread: unread, surface: nil, terminal: nil)
     }
 
-    /// What the controller's render does with a ledger reply: the rows shown, the selection drawn, the panel sized to the card.
-    func render() {
-        _ = card.show(rows, loaded: true, now: Self.now)
+    /// What the controller does with a ledger reply: the list takes its rows (the whole ledger, or a delta with
+    /// `removed`), then render draws the selection and sizes the panel to the card.
+    func render(_ rows: [NotificationsPanelRow], removed: [String]? = nil) {
+        list.show(rows, removed: removed, width: NotificationsPanelView.listWidth, now: Self.now)
+        _ = card.show(loaded: true, now: Self.now)
         card.select(nil)
         window.setContentSize(card.fittingSize)
         drawFrame(window)
@@ -152,11 +153,11 @@ struct VisibleRowsContractTests {
         return list.mountedViews.filter { visible.intersects($0.frame) }.count
     }
 
-    /// A notification is read: the ledger's reply marks one shown row read (the panel reloads on an unread change).
+    /// A notification is read: the panel reloads on the unread change, and the daemon's reply is a delta of that row.
     func changeOneItem() async throws {
         let read = rows[1]
         rows[1] = Self.row(1, unread: !read.unread)
-        render()
+        render([rows[1]], removed: [])
     }
 
     /// From the middle of the ledger (that move is not measured), one row down.

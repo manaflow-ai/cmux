@@ -1895,6 +1895,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// `notification-ledger-delta-v1`: the `version` of the reply the client holds;
+        /// the reply then holds only the rows changed since it.
+        #[serde(default)]
+        since: Option<String>,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {

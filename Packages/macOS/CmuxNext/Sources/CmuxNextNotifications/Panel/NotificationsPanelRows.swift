@@ -72,22 +72,21 @@ package struct NotificationsPanelSelection: Equatable {
 
     package init() {}
 
-    package mutating func move(by offset: Int, in rows: [NotificationsPanelRow]) {
-        guard !rows.isEmpty else { id = nil; return }
-        let current = id.flatMap { id in rows.firstIndex { $0.id == id } }
-        let next = current.map { min(max($0 + offset, 0), rows.count - 1) } ?? (offset < 0 ? rows.count - 1 : 0)
-        id = rows[next].id
+    @MainActor package mutating func move(by offset: Int, in list: NotificationsPanelList) {
+        guard list.count > 0 else { id = nil; return }
+        let current = id.flatMap(list.index(of:))
+        let next = current.map { min(max($0 + offset, 0), list.count - 1) } ?? (offset < 0 ? list.count - 1 : 0)
+        id = list.row(at: next).id
     }
 
-    /// Keeps the selection on its row, or the row now at its old index.
-    package mutating func reconcile(old: [NotificationsPanelRow], new: [NotificationsPanelRow]) {
-        guard let id else { return }
-        if new.contains(where: { $0.id == id }) { return }
-        guard !new.isEmpty, let index = old.firstIndex(where: { $0.id == id }) else { self.id = nil; return }
-        self.id = new[min(index, new.count - 1)].id
+    /// Keeps the selection on its row, or the row now at `oldIndex`, its index before the list changed.
+    @MainActor package mutating func reconcile(oldIndex: Int?, in list: NotificationsPanelList) {
+        guard let id, list.index(of: id) == nil else { return }
+        guard list.count > 0, let oldIndex else { self.id = nil; return }
+        self.id = list.row(at: min(oldIndex, list.count - 1)).id
     }
 
-    package func index(in rows: [NotificationsPanelRow]) -> Int? {
-        id.flatMap { id in rows.firstIndex { $0.id == id } }
+    @MainActor package func index(in list: NotificationsPanelList) -> Int? {
+        id.flatMap(list.index(of:))
     }
 }

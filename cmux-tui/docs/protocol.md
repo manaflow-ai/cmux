@@ -257,6 +257,10 @@ acknowledgement durably, so it survives a daemon restart; frontends call it
 when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
+`notification-ledger-delta-v1` adds `version` to a whole-ledger reply and
+`since` to the request: a client that sends the `version` it holds gets only
+the rows new or changed since it and the ids that left (`delta: true`,
+`removed`), or the whole ledger when the daemon no longer keeps that version.
 
 `feed-local-owner-v1` makes the daemon the local owner of feed items
 (plans/cmux-next/feed.md section 9.1). Each notification is also a local item,
