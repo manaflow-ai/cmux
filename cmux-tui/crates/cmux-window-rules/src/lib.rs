@@ -20,6 +20,8 @@
 //! - [`workspaces`]: the workspace, screen, space and group verbs' rules
 //!   (bulk closes and their question, the question each destructive action
 //!   asks, space defaults, description and status, screen moves).
+//! - [`restore`]: which saved windows a launch makes before its front window
+//!   is live (only the front one; the others follow, one per turn).
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
@@ -27,6 +29,9 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`launch`]: whether the launch snapshot drawn before the daemon answered
+//!   is that daemon's, or stale (the launch then goes on as a bare one), and
+//!   where the launch lands: the last workspace and tab, or Home.
 
 pub mod appearance;
 pub mod browser;
@@ -35,8 +40,10 @@ pub mod close;
 pub mod closed;
 pub mod files;
 pub mod history;
+pub mod launch;
 pub mod notifications;
 pub mod remote;
+pub mod restore;
 pub mod screen_share;
 pub mod tabs;
 pub mod targets;

@@ -42,6 +42,11 @@ on:
         default: auto
         type: choice
         options: [auto, "true", "false"]
+      platform_readiness:
+        description: mint the cmux-platform push token and read its main Wrangler config without pushing
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [feat-cmux-next]
     paths:
@@ -58,6 +63,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  platform-readiness:
+    if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: cmux-vm-production
+    permissions:
+      contents: read
+    steps:
+      - name: Mint the cmux-platform readiness token
+        id: platform-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cmux-platform
+          permission-contents: write
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: manaflow-ai/cmux-platform
+          ref: main
+          path: cmux-platform
+          token: ${{ steps.platform-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: workers/cmux-vm/wrangler.jsonc
+      - name: Read cmux-platform main's Wrangler config
+        run: test -s cmux-platform/workers/cmux-vm/wrangler.jsonc
+
   plan:
     # Never on the roll's own commits (they change the lock), and only on feat-cmux-next.
     if: >-
@@ -200,18 +233,41 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+      - name: Mint the cmux-platform push token
+        id: platform-token
+        if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cmux-platform
+          permission-contents: write
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
+        with:
+          repository: manaflow-ai/cmux-platform
+          ref: main
+          path: cmux-platform
+          token: ${{ steps.platform-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: workers/cmux-vm/wrangler.jsonc
       - name: Land the roll commit
         id: push
         env:
           TOKEN: ${{ steps.push-token.outputs.token }}
+          PLATFORM_TOKEN: ${{ steps.platform-token.outputs.token }}
+          PLATFORM_CHECKOUT: ${{ vars.CMUX_VM_DEPLOY_ENABLED != '1' && format('{0}/cmux-platform', github.workspace) || '' }}
           PIN: ${{ needs.plan.outputs.pin }}
           REVISION: ${{ needs.bake.outputs.revision }}
           DRY_RUN: ${{ needs.plan.outputs.dry_run == 'true' && '--dry-run' || '' }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC2086
+          platform_args=()
+          if [ -n "$PLATFORM_CHECKOUT" ]; then platform_args+=(--platform-checkout "$PLATFORM_CHECKOUT"); fi
           images/cmux-vm/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
-            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN | tee "$RUNNER_TEMP/push.out"
+            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN "${platform_args[@]}" | tee "$RUNNER_TEMP/push.out"
           tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the roll commit's diff
         if: always()
@@ -220,6 +276,7 @@ jobs:
           name: cloud-vm-image-roll-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/image-roll.diff
+            ${{ runner.temp }}/platform-image-roll.diff
             ${{ runner.temp }}/message.txt
             ${{ runner.temp }}/approve.json
           if-no-files-found: ignore

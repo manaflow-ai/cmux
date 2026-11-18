@@ -141,7 +141,8 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
     AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
@@ -246,7 +247,7 @@ mod cmd_server;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
-pub use size_lease::SIZE_LEASE_CAPABILITY;
+pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -888,6 +889,9 @@ enum Command {
         screen_sharing: Option<bool>,
         #[serde(default)]
         headless: Option<bool>,
+        /// The app's own Screen Recording and Accessibility (memory only).
+        #[serde(default)]
+        app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
@@ -1927,6 +1931,8 @@ enum Command {
     MoveColumn(column_move::MoveColumnParams),
     /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
     FloatPane(floating_panes::FloatPaneParams),
+    /// `quick-terminal-v1`: make the quick terminal of a screen, show it with the focus, or hide it.
+    QuickTerminal(floating_panes::QuickTerminalParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3090,10 +3096,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
-}
-
-fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
-    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
