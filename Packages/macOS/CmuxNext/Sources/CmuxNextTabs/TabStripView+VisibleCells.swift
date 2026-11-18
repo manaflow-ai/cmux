@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
+public import CmuxVisibleRows
 
 // Visible-only tabs (Leo 2026-11-18: "we draw the visible area, right?"). A tab has a cell (its layers and its
 // accessibility element) only while its slot lies within one viewport of what the strip shows, or while something
@@ -109,7 +110,8 @@ extension TabStripView {
         cell.layer.opacity = Float(min(max(place.alpha, 0), 1))
         cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
         framedCells = nil
-        rowPasses.cellsMade &+= 1
+        listWork.configured()
+        listWork.laidOut()
         return cell
     }
 
@@ -124,7 +126,6 @@ extension TabStripView {
         }
         occlusionEnds[id] = nil
         framedCells = nil
-        rowPasses.cellsDropped &+= 1
     }
 
     /// The trailing edge of the tabs with no cell (the + follows the last tab): their places are their slots.
@@ -173,4 +174,10 @@ extension TabStripView {
             ? CGRect(x: frame.width - side - metrics.contentLeadingInset, y: (frame.height - side) / 2, width: side, height: side) : .zero)
         return element
     }
+}
+
+/// The strip under the visible-rows contract: its rows are its cells (one layer tree and element each), made only for
+/// the tabs in view and the held ones.
+extension TabStripView: VisibleRowsList {
+    public var rowViewsAlive: Int { cells.count }
 }

@@ -2299,6 +2299,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextResources",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),

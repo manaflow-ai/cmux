@@ -25,7 +25,7 @@ extension VerticalTabListView {
             let panes = look == .plain ? 0..<0 : VerticalTabListLayout.lineRange(listLayout.groupPanes, minY: visible.minY, maxY: visible.maxY)
             let lines = VerticalTabListLayout.lineRange(listLayout.groupLines, minY: visible.minY, maxY: visible.maxY)
             let rows = listLayout.rowRange(minY: visible.minY - 1, maxY: visible.maxY + 1)
-            passes.rowsVisited &+= rows.count
+            listWork.walked(rows.count)
             // A group with no color: one neutral pane behind its header and tabs, with a hairline rim and no hue
             // (Leo 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were
             // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
@@ -49,8 +49,9 @@ extension VerticalTabListView {
                 group.tint.headerFill.setFill()
                 NSBezierPath(roundedRect: viewRect(line.frame), xRadius: line.frame.width / 2, yRadius: line.frame.width / 2).fill()
             }
-            for row in listLayout.rows[rows] where row.frame.insetBy(dx: 0, dy: -1).intersects(visible) {
-                passes.rowsDrawn &+= 1
+            // The rows with area in the rect: a row's drawing stays inside its frame.
+            for row in listLayout.rows[rows] where row.frame.maxY > visible.minY && row.frame.minY < visible.maxY {
+                listWork.configured()
                 drawRow(row)
             }
             if let drag, drag.isActive, let slot = drag.slot {

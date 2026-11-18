@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
+public import CmuxVisibleRows
 import Observation
 import QuartzCore
 
@@ -166,6 +167,9 @@ public final class TabStripView: NSView {
     /// Accessibility elements of tabs with no cell, made when an accessibility client asks for the strip's children
     /// (``accessibilityChildren()``); a cell made for the tab takes its element.
     var parkedAccessibility: [TabID: TabAccessibilityElement] = [:]
+    /// The strip's row work for the visible-rows contract (`VisibleRowsContract`): cells made or redrawn, frames written,
+    /// tabs a pass reads (`TabStripView+VisibleCells`).
+    public let listWork = ListWorkMeter()
     /// An accessibility client asked for the strip's children: a dropped cell parks its element.
     var servesAccessibility = false
     let windowMain = WindowMainObserver()

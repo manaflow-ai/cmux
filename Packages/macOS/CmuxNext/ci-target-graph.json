@@ -2202,7 +2202,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextTaskManagerPage": {

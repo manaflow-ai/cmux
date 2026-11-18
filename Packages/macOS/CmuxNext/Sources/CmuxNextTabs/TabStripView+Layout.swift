@@ -39,6 +39,8 @@ extension TabStripView {
                   keepsClosing: Bool = false) {
         let grows = growsAdded
         rowPasses.layouts &+= 1
+        // The engine places every tab (a structure change: tabs come, go or move).
+        listWork.walked(displayed.count)
         result = TabLayoutEngine.layout(
             items: layoutItems(),
             availableWidth: viewportWidth,
@@ -342,14 +344,15 @@ extension TabStripView {
             if scrollProbe.superlayer == nil { tabsClip.layer?.addSublayer(scrollProbe) }
             move.addScroll(scrollPart(isPinned: false), to: scrollProbe)
         }
-        // Only the tabs within a viewport of the view have cells: the ones it reveals get theirs, where the layers show now.
+        // The cells the view left behind go first, so no pass frames them (a move would carry them, and keep them until it
+        // ends: one it shows where it starts stays); then the tabs it reveals get theirs, where the layers show now.
+        dropHiddenCells(shownFrom: move == nil ? nil : scrollFrom ?? mapping)
         mountVisibleCells(showing: scrollFrom ?? mapping)
-        // A move would carry every cell (and keep it until it ends): first the ones it shows neither now nor where it lands go.
-        if move != nil { dropHiddenCells(shownFrom: scrollFrom ?? mapping) }
         var trailing = unmountedTrailing()
+        listWork.walked(cells.count)
         for (id, cell) in cells {
             guard let place = placed[id] else { continue }
-            rowPasses.cellsFramed &+= 1
+            listWork.laidOut()
             let isPinned = cell.item.isPinned
             // A tab pinned or unpinned since it was made moves to its region's layer.
             if let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }

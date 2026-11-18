@@ -15,5 +15,11 @@ public enum VisibleRowsBaseline {
     public static let knownFailures: [String: Known] = [
         "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
             + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
+        "tab strip": Known("the model hands the strip every tab on each change (TabStripModel.tabs), so finding the one that "
+            + "changed reads them all; cells, frames and redraws are the tabs in view (fix: a per-tab change from the store, "
+            + "visible-only-macos-lists)", only: "items walked per one item's change"),
+        "vertical tabs": Known("one view draws every row: a scroll repaints the rows in view (not only the ones that came in), "
+            + "and the model hands the list every tab on each change, so finding the one that changed reads them all "
+            + "(fix: rows on scrolling layers, a per-tab change from the store; visible-only-macos-lists)"),
     ]
 }

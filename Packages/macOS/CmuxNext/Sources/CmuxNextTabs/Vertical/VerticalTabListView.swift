@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
+public import CmuxVisibleRows
 
 /// A pane's tabs as a vertical list beside its content (Edge's and Chrome's vertical tabs; Leo
 /// 2026-10-20). It reads the same `TabStripModel` as the horizontal strip and sends the same
@@ -70,8 +71,8 @@ public final class VerticalTabListView: NSView {
     var drawnSnapshot: VerticalTabModelSnapshot?
     /// The shape `listLayout` was laid out from: a model change that keeps it moves no row.
     var laidOutShape: VerticalTabListLayout.Shape?
-    /// What the list's events cost, for the count tests (`VerticalTabListPasses`).
-    var passes = VerticalTabListPasses()
+    /// The list's row work for the visible-rows contract (`VisibleRowsContract`): rows drawn, rows placed, tabs a pass reads.
+    public let listWork = ListWorkMeter()
     /// Set while a menu from the list is open (`trackMenu`): its end-of-tracking notice (``MenuTracking``).
     var menuEnd: MenuTracking?
 
@@ -186,7 +187,9 @@ public final class VerticalTabListView: NSView {
                                            iconsOnly: !showsTitles, width: bounds.width, metrics: metrics)
         laidOutShape = VerticalTabListLayout.Shape(tabs: tabs, groups: model.groups, showsNewTab: model.showsNewTabButton)
         drawnSnapshot = VerticalTabModelSnapshot(model)
-        passes.layouts &+= 1
+        // Every row placed and every tab read: a structure change (tabs come, go, move, group), a width, the metrics.
+        listWork.laidOut(listLayout.rows.count)
+        listWork.walked(tabs.count)
         clampScroll()
         // Made again when an accessibility client next asks (`accessibilityChildren`), not for every row now.
         accessibilityRowsAreStale = true
@@ -199,6 +202,8 @@ public final class VerticalTabListView: NSView {
     func redrawChangedRows(from drawn: VerticalTabModelSnapshot, to snapshot: VerticalTabModelSnapshot, tabs: [TabItem]) {
         drawnSnapshot = snapshot
         var changed: Set<TabID> = []
+        // The model hands over its whole list: finding what changed reads every tab.
+        listWork.walked(tabs.count)
         if listLayout.tabs.count == tabs.count {
             for (old, new) in zip(listLayout.tabs, tabs) where old != new { changed.insert(new.id) }
         }
@@ -223,16 +228,14 @@ public final class VerticalTabListView: NSView {
 
     /// Redraws the whole view (a layout, a scroll, a theme).
     func invalidateAll() {
-        passes.wholeInvalidations &+= 1
         needsDisplay = true
     }
 
     /// Redraws `row` alone, where it shows; nothing when it is out of view.
     func invalidate(_ row: VerticalTabListLayout.Row?) {
         guard let row else { return }
-        let rect = viewRect(row.frame).insetBy(dx: -1, dy: -1)
+        let rect = viewRect(row.frame).insetBy(dx: -1, dy: 0)
         guard rect.intersects(bounds) else { return }
-        passes.rowInvalidations &+= 1
         setNeedsDisplay(rect)
     }
 
@@ -337,20 +340,10 @@ public final class VerticalTabListView: NSView {
     }
 }
 
-/// What the vertical tab list's events cost (its `passes`), as the strip's `TabStripRowPasses`: tests read the counts
-/// around a change. A row out of view costs nothing: no draw, no element, no layout of its own.
-struct VerticalTabListPasses: Equatable {
-    /// Rows laid out again from the model (`relayout`).
-    var layouts = 0
-    /// Whole-view redraws asked for (a layout, a scroll, a theme).
-    var wholeInvalidations = 0
-    /// One-row redraws asked for (`invalidate(_:)`).
-    var rowInvalidations = 0
-    /// Rows `draw(_:)` read (the binary search's range), and the ones it drew.
-    var rowsVisited = 0
-    var rowsDrawn = 0
-    /// Row accessibility elements configured.
-    var accessibilityRowsConfigured = 0
+/// The list under the visible-rows contract: it has no row views (one view draws the rows), so its rows alive are the
+/// rows it draws, the ones in view. A row drawn counts as configured, a row placed as laid out.
+extension VerticalTabListView: VisibleRowsList {
+    public var rowViewsAlive: Int { listLayout.rowRange(minY: scrollOffset, maxY: scrollOffset + bounds.height).count }
 }
 
 /// What the list draws from the model; a change of any of it is diffed (`modelChanged`).

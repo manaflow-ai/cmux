@@ -25,7 +25,6 @@ extension VerticalTabListView {
 
     /// `element` says what tab `item` is now.
     func configureAccessibilityRow(_ element: TabAccessibilityElement, _ item: TabItem) {
-        passes.accessibilityRowsConfigured &+= 1
         let id = item.id
         var parts = [item.title.isEmpty ? Strings.untitled : item.title]
         if item.isPinned { parts.append(Strings.axPinned) }

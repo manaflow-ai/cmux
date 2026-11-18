@@ -35,11 +35,13 @@ extension TabStripView {
     private func syncItems(_ input: ModelSnapshot) {
         lastSyncedInput = input
         let ordered = model.orderedTabs
+        // The model hands over its whole list: finding what changed reads every tab (the snapshot compare, the order).
+        listWork.walked(ordered.count)
         guard ordered.count == displayed.count else { return sync(fromModel: true) }
         displayed = ordered
         for (id, cell) in cells {
             guard let index = displayedIndex[id], ordered.indices.contains(index), ordered[index].id == id else { continue }
-            if cell.update(item: ordered[index]) { rowPasses.cellsConfigured &+= 1 }
+            if cell.update(item: ordered[index]) { listWork.configured() }
         }
         refreshHoverCard()
     }
@@ -95,6 +97,7 @@ extension TabStripView {
         // Only a model sync runs the order bookkeeping below: an internal sync leaves the echo to run it.
         if fromModel { lastSyncedInput = ModelSnapshot(model) }
         let modelOrdered = model.orderedTabs
+        listWork.walked(modelOrdered.count)
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {
             let order = modelOrdered.map(\.id)
@@ -182,7 +185,7 @@ extension TabStripView {
                 goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
                 // Only a tab with a cell draws, and only a changed item draws again.
-                if let cell = cells[item.id], cell.update(item: item) { rowPasses.cellsConfigured &+= 1 }
+                if let cell = cells[item.id], cell.update(item: item) { listWork.configured() }
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
             } else if let from = handed[item.id], let place = placed[from] {
@@ -191,7 +194,7 @@ extension TabStripView {
                 if let shown = cells[from] {
                     // It shows where that cell shows now; `relayout` moves it on from there.
                     makeCellLayers(item).frame = TabStripMove.shownFrame(shown.layer)
-                    rowPasses.cellsMade &+= 1
+                    listWork.configured()
                 }
                 removeTab(from)
             } else {
