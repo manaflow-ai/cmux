@@ -131,12 +131,13 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         ])
     }
 
-    /// Picks Chat or Terminal from the title's menu; Start then says where it opens.
+    /// Picks Chat or Terminal in Task Options, then closes it; Start then says where it opens.
     @MainActor
     private static func openIn(_ app: XCUIApplication, _ title: String) -> String? {
         steps([
-            { openTitleMenu(app) },
-            { tap(app.buttons[title].firstMatch, title) }, { pause(0.6); return nil },
+            { openOptions(app) },
+            { tap(app.segmentedControls.buttons[title].firstMatch, title) }, { pause(0.6); return nil },
+            { closeSheet(app, "taskComposer.options.done") },
             { check((any(app, "taskComposer.start").value as? String) == "in \(title)", "did not switch to \(title)") },
         ])
     }
@@ -377,9 +378,18 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                            return Self.check(count > 1 && app.staticTexts["+\(count - 1)"].exists, "the +N is cut off") }])
             },
             // The title's menu: rename the task in place, and Chat or Terminal (A13).
-            Scene(group: g, id: "launch-menu", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
-                         { Self.check(app.buttons["Terminal"].firstMatch.exists && app.buttons["Chat"].firstMatch.exists, "no Chat or Terminal") }])
+            Scene(group: g, id: "title-menu", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) }])
+            },
+            // Chat or Terminal, in Task Options (the left button's sheet).
+            Scene(group: g, id: "launch-in-options", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openOptions(app) },
+                         { Self.check(app.segmentedControls.buttons["Chat"].firstMatch.exists
+                                      && app.segmentedControls.buttons["Terminal"].firstMatch.exists, "no Chat or Terminal") }])
+            },
+            Scene(group: g, id: "launch-in-options-chat", args: Self.list) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openOptions(app) },
+                         { C.tap(app.segmentedControls.buttons["Chat"].firstMatch, "Chat") }, { C.pause(0.6); return nil }])
             },
             Scene(group: g, id: "title-renaming", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { Self.openTitleMenu(app) },
@@ -534,52 +544,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertNil(Self.openComposer(app))
         let left = C.any(app, "taskComposer.prompt").value as? String ?? ""
         XCTAssertTrue(left.isEmpty, "the prompt is cleared, got \(left)")
-    }
-
-    /// The four ways to choose Chat or Terminal, each in the one-row layout (pickers scrolling
-    /// between Task Options + attach and Start), at rest, choosing, and with a long prompt.
-    @MainActor
-    func testLaunchStyles() {
-        let long = "Fix the flaky upload test.\nRun it 50 times on the simulator and log every failure.\nFind the race in the upload queue, fix it, add a regression test, and open a PR with the trace."
-        func scenes(_ style: Int, _ name: String, choosing: @escaping @MainActor (XCUIApplication) -> String?) -> [Scene] {
-            let args = Self.list + ["-cmux-mobile-task-launch-style", "\(style)"]
-            let g = "9 Chat or Terminal"
-            return [
-                Scene(group: g, id: "\(style)-\(name)-rest", args: args) { app in
-                    C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                             { Self.check(C.any(app, "taskComposer.settingsRow").frame.midY == C.any(app, "taskComposer.attach").frame.midY
-                                          || abs(C.any(app, "taskComposer.settingsRow").frame.midY - C.any(app, "taskComposer.attach").frame.midY) < 4,
-                                          "the pickers are not in the buttons' row") }])
-                },
-                Scene(group: g, id: "\(style)-\(name)-choosing", args: args) { app in
-                    C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }, { choosing(app) }])
-                },
-                Scene(group: g, id: "\(style)-\(name)-long-prompt", args: args) { app in
-                    C.steps([{ Self.openComposer(app) }, { Self.type(app, long) }])
-                },
-                Scene(group: g, id: "\(style)-\(name)-two-agents", args: args) { app in
-                    C.steps([{ Self.composeTwoAgents(app) }])
-                },
-            ]
-        }
-        capture(
-            scenes(1, "title-menu") { app in Self.openTitleMenu(app) }
-            + scenes(2, "title-menu-and-hold") { app in
-                C.steps([{ () -> String? in
-                    let start = app.buttons["taskComposer.start"].firstMatch
-                    guard start.waitForExistence(timeout: 5) else { return "no Start" }
-                    start.press(forDuration: 1.0)
-                    return nil
-                }, { Self.check(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start in'")).count >= 2, "no Start in Chat / Terminal") }])
-            }
-            + scenes(3, "chip") { app in
-                C.steps([{ Self.revealTap(C.any(app, "taskComposer.launchChip"), "Chat or Terminal chip") },
-                         { Self.check(app.buttons["Chat"].firstMatch.exists, "the chip's menu did not open") }])
-            }
-            + scenes(4, "two-starts") { app in
-                C.steps([{ Self.check(C.any(app, "taskComposer.start.chat").exists && C.any(app, "taskComposer.start.terminal").exists,
-                                      "not two Start buttons") }])
-            })
     }
 
     /// Start with two agents: two rows, one per agent, and the list stays on screen.
