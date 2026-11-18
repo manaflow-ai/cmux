@@ -43,23 +43,23 @@
     {"name": "cmux", "title": "cmux", "description": "The chat as cmux draws it: the default.", "tokens": {}},
     {"name": "claude", "title": "Claude", "description": "Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards.",
      "tokens": {
-       "density": "comfortable", "messageWidth": 720, "font": "system", "fontSize": 15, "lineHeight": 1.5,
+       "density": "comfortable", "messageWidth": 720, "font": "system", "fontSize": 15, "lineHeight": 1.4,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.8,
-       "userMessage.radius": 16, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.06,
+       "userMessage.radius": 16, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.04,
        "toolCards": "minimal", "toolCard.radius": 12, "toolCard.border": "hairline", "codeCard.radius": 12, "timestamps": "hover"
      }},
     {"name": "codex", "title": "Codex", "description": "A narrow column, a rounded bubble for your messages, borderless cards, no times.",
      "tokens": {
-       "density": "cozy", "messageWidth": 640, "font": "system", "fontSize": 14, "lineHeight": 1.5,
+       "density": "cozy", "messageWidth": 640, "font": "system", "fontSize": 13, "lineHeight": 1.6,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.75,
-       "userMessage.radius": 14, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.12,
+       "userMessage.radius": 10, "userMessage.paddingBlock": 7, "userMessage.paddingInline": 12, "userMessage.fill": 0.05,
        "toolCards": "minimal", "toolCard.radius": 10, "toolCard.border": "none", "codeCard.radius": 10, "timestamps": "off"
      }},
-    {"name": "studio", "title": "Studio", "description": "Dense work logs: tight rows, a square bubble, small radii.",
+    {"name": "studio", "title": "Studio", "description": "Dense work logs: tight rows, a rounded bubble, small radii.",
      "tokens": {
        "density": "compact", "messageWidth": 736, "font": "system", "fontSize": 14, "lineHeight": 1.625,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.8,
-       "userMessage.radius": 16, "userMessage.paddingBlock": 12, "userMessage.paddingInline": 12, "userMessage.fill": 0.08,
+       "userMessage.radius": 16, "userMessage.paddingBlock": 11, "userMessage.paddingInline": 12, "userMessage.fill": 0.05,
        "toolCards": "row", "toolCard.radius": 6, "toolCard.border": "hairline", "codeCard.radius": 6, "timestamps": "hover"
      }}
   ]
