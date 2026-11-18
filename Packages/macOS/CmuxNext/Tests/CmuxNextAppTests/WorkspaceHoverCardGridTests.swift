@@ -82,6 +82,9 @@ import Testing
         let textX = Self.textX(name, in: card)
         let rows = try Self.rows(in: card)
         try #require(rows.count >= 4, "the card lists \(rows.count) tabs")
+        if let r = rows.first {
+            Issue.record("DIAG header=\(Self.frame(header, in: card)) headerFrame=\(header.frame) headerAlign=\(header.alignmentRectInsets) side=\(header.side) img=\(String(describing: header.image?.size)) imgAlign=\(String(describing: header.image?.alignmentRect)) name=\(Self.frame(name, in: card)) nameAlign=\(name.alignmentRectInsets) nameSuper=\(String(describing: name.superview.map { Self.frame($0, in: card) })) rowIcon=\(Self.frame(r.icon, in: card)) rowTitle=\(Self.frame(r.title, in: card)) titleAlign=\(r.title.alignmentRectInsets) row=\(Self.frame(r.view, in: card)) list=\(Self.frame(card.tabList, in: card)) iconSize=\(WorkspaceHoverCardView.iconSize) textInset=\(WorkspaceHoverCardView.textInset) outset=\(WorkspaceTabHoverCardRow.fillOutset) space2=\(Metrics.space2) tokens=\(WorkspaceHoverCardView.tokens)")
+        }
         for row in rows {
             let x = Self.frame(row.icon, in: card).midX
             #expect(abs(x - iconX) <= 0.5, "\"\(row.title.stringValue)\": its icon centers at x \(x), the header's at \(iconX)")
