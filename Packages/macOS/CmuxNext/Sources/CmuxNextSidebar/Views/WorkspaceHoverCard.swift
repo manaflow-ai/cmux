@@ -857,7 +857,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         var hit = hitTest(point)
         while let view = hit {
             if view === detailsToggle { return true }
-            if view === customSlot, detailsExpanded { return true }
+            if view === customSlot, !customSlot.isHidden { return true }
             hit = view.superview
         }
         return false
@@ -874,15 +874,18 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         }
         detailsToggle.title = expandedForLayout ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = expandedForLayout
-        if !showsDetails {
-            if measuringDetails == nil, builtIn.contains(where: { !$0.isHidden }) { detailRowsHidings += 1 }
-            for view in builtIn { view.isHidden = true }
-            customSlot.isHidden = true
-            customError.isHidden = true
-        } else if customView != nil {
+        // The user's card (`cmux.hovercard/1`) replaces the built-in card whether or not its details are
+        // open, and a card that failed says why on the collapsed card too: behind Show details, a working
+        // card never drew and a broken one showed no error, only the built-in card.
+        if customView != nil {
             for view in builtIn { view.isHidden = true }
             customSlot.isHidden = false
             customError.isHidden = true
+        } else if !showsDetails {
+            if measuringDetails == nil, builtIn.contains(where: { !$0.isHidden }) { detailRowsHidings += 1 }
+            for view in builtIn { view.isHidden = true }
+            customSlot.isHidden = true
+            customError.isHidden = customError.stringValue.isEmpty
         } else {
             customSlot.isHidden = true
             activityRow.isHidden = activityWord == nil
