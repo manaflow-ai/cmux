@@ -381,31 +381,39 @@ struct SessionScrollbackCheckpointPersister: Sendable {
     let queue: DispatchQueue
     let activity: TerminalScrollbackCheckpointActivity
 
-    /// Deletes removals before this batch's writes, both ordered after every
-    /// earlier queued write.
+    /// Hands the batch to background I/O and returns without waiting on it.
     ///
     /// A removal means the panel stopped being eligible (for example a command
-    /// started running). Deleting it in `queue.sync` blocks the caller — the
-    /// main actor — behind every earlier queued write batch, then runs the
-    /// file deletions inline on the main thread.
+    /// started running). The serial queue still orders the deletion after every
+    /// earlier queued write and before this batch's captures, so a crash after
+    /// those writes cannot resurrect its file. What changes is who waits: the
+    /// caller no longer sits in `queue.sync` behind the drain while file
+    /// deletions run on its thread — `persist` runs on the main actor, where
+    /// that wait surfaced as multi-second main-thread stalls in watchdog
+    /// captures (https://github.com/manaflow-ai/cmux/issues/46042).
+    ///
+    /// The cost is that `persist` returns before the deletion executes. A
+    /// crash inside that drain window leaves a removed panel's stale file for
+    /// the next unclean restore to merge — replaying scrollback into a
+    /// terminal the plan just excluded, for example one running a command.
+    /// The window is bounded by earlier queued writes.
     func persist(_ batch: SessionScrollbackCheckpointWriteBatch) {
-        if !batch.removals.isEmpty {
-            let removals = SessionScrollbackCheckpointWriteBatch(
-                captures: [],
-                removals: batch.removals,
-                livePanelIds: nil
-            )
-            queue.sync {
-                _ = store.apply(removals)
-            }
-        }
-        let writes = SessionScrollbackCheckpointWriteBatch(
-            captures: batch.captures,
-            removals: [],
-            livePanelIds: batch.livePanelIds
-        )
         queue.async {
-            store.applyMarkingFailuresPending(writes, activity: activity)
+            if !batch.removals.isEmpty {
+                _ = store.apply(SessionScrollbackCheckpointWriteBatch(
+                    captures: [],
+                    removals: batch.removals,
+                    livePanelIds: nil
+                ))
+            }
+            store.applyMarkingFailuresPending(
+                SessionScrollbackCheckpointWriteBatch(
+                    captures: batch.captures,
+                    removals: [],
+                    livePanelIds: batch.livePanelIds
+                ),
+                activity: activity
+            )
         }
     }
 }
