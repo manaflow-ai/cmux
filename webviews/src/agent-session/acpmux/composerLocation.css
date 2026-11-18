@@ -1171,21 +1171,29 @@
   padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
 }
 
-/* The folder popover (FolderPopover.tsx): search, pinned project actions, then scrolling folders. A row is its check, its project's badge and its name, with a short
-   suffix only when another project shares the name; the full path is its tooltip. */
+/* The folder popover (FolderPopover.tsx): the search field, the scrolling folders (and a Cloud chat's
+   GitHub repositories), then the fixed actions under a rule. A row is its check, its project's badge
+   and its name, with a short suffix only when another project shares the name; the full path is its
+   tooltip. Nothing sits under the actions. */
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* As wide as the hero's project menu (styles.css .acpmux-project-menu): 240 px at least, so a project and
-     its path read whole (Lucas 2026-11-11: the menu was "still too skinny" at 184 px). */
-  min-width: min(240px, calc(100vw - 32px));
-  /* Its widest follows Text Size as its names do (--ui-px, ui/popupSurface.css). */
-  max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
-  /* It fits the room on its side (Base UI's --available-height), so it never covers its control. */
-  max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
+  /* Wide enough that a repository, its branch and a GitHub owner/name read whole (the owner, of the
+     240 to 360 px menu: "i cant see anything"); like a desktop project picker, never a skinny list.
+     Both widths follow Text Size as its names do (--ui-px, ui/popupSurface.css), and a narrow pane
+     keeps its 16 px margins. */
+  min-width: min(calc(380 * var(--ui-px, 1px)), calc(100vw - 32px));
+  max-width: min(calc(560 * var(--ui-px, 1px)), calc(100vw - 32px));
+  /* Tall enough for about fifteen folders over the actions, but it fits the room on its side (Base
+     UI's --available-height), so it never covers its control, and a short pane. */
+  max-height: min(560px, calc(100dvh - 36px), var(--available-height, 560px));
   overflow: hidden;
 }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
+/* Its list takes the menu's height, not the shared location list's 260 px cap: the menu's own
+   max-height bounds it, and the list gives up room first (flex, min-height 0). The designed scroll
+   height popupHost.ts measures is the same. */
+.acpmux-folder-popover .ui-combobox-scroll.acpmux-location-folders { --popup-scroll-cap: 440px; max-height: none; }
 /* In a short pane, budget one action row, two padding units of continuation fade, and the
    pinned list's bottom padding. This leaves two complete projects in the shortest gallery pane;
    a fragment of the third would shift out of view when the second opens its worktrees. */
@@ -1238,19 +1246,6 @@
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
 .acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
-/* Where a new chat with no folder starts (its workspace's private folder), under the list: quiet
-   text, never a row of its own. */
-.acpmux-folder-popover .acpmux-location-note {
-  margin: 4px 0 2px;
-  padding: 4px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  line-height: 16px;
-}
-@media (max-height: 260px) {
-  .acpmux-folder-popover .acpmux-location-note { flex: none; max-height: 16px; margin: 2px 0 0; padding: 0 8px; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-}
 /* A repository's other worktrees (projectRepos.ts) sit under its row, their branch glyph where the
    row's badge is, so the names line up with the repository's. The count at the end of the row opens
    them: "⑂ 4 ›", quiet until the row is hovered or highlighted; its chevron turns down while open. */

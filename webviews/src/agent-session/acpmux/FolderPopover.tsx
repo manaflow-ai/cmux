@@ -24,23 +24,24 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// another shares that name, a short suffix that tells it apart (projectSuffix.ts); the full path is
 /// the row's tooltip. A repository's row picks the current folder, else its main checkout, else its
 /// newest worktree; its other worktrees, newest first, open under it with → (← or the count closes
-/// them). The current folder is checked. The actions sit under the scrolling folders, each with its
-/// glyph (Leo, 2026-11-06: "it's just folder / that's your project"): Add folder…, Add another folder…, New Worktree and No
-/// folder last, where the host offers them.
+/// them). The current folder is checked. The actions are fixed under the scrolling folders, each with
+/// its glyph in the folders' icon column (Leo, 2026-11-06: "it's just folder / that's your project"):
+/// Add folder…, the GitHub row, Add another folder…, New Worktree, New Project and No folder last,
+/// where the host offers them. Nothing sits under the actions.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
 /// folder panel, and a folder picked there is listed with the others from then on. The shared
 /// Combobox keeps the keyboard in the field:
 /// typing filters by repository, branch and path, and lists a worktree on its own when the words
 /// name it; ↑/↓ move through the rows and the actions; Return picks; Escape closes back to the
-/// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
-/// where the chat starts while no folder is picked (a new chat's private folder).
-/// `github` (a new Cloud chat only, githubRepos.ts) adds the person's GitHub repositories under the
-/// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`,
-/// ending in Choose more repositories… (the installation's page on GitHub) so a connected team always sees it.
-/// GitHub is optional: until it is connected (the cmux GitHub App not installed, signed out, no GitHub
-/// App on this Cloud service, or the check did not answer) one Connect to GitHub row ends the list, and
-/// one click connects in place: the host opens the install page, or sign-in when signed out, the menu
+/// strip. A typed absolute or `~/` path is offered as typed.
+/// `github` (a new chat that can run on Cloud, githubRepos.ts) adds the person's GitHub repositories
+/// to the list: a GitHub group, filtered by the same search, whose pick is the folder
+/// `github:owner/name`, over the folders for a chat set to Cloud (`githubFirst`), else under them.
+/// The GitHub row is a fixed action under Add folder…: Choose more repositories… (the installation's
+/// page on GitHub) once connected, so a connected team always sees it; until then (the cmux GitHub
+/// App not installed, signed out, no GitHub App on this Cloud service, or the check did not answer)
+/// Connect to GitHub, which one click connects in place: the host opens the install page, or sign-in when signed out, the menu
 /// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
 /// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
 /// Before the first status read answers the row says it is checking, so GitHub is never missing.
@@ -56,7 +57,6 @@ export function FolderPopover({
   onNewProject,
   onNoProject,
   noProject = false,
-  note,
   extra,
   github,
   githubFirst = false,
@@ -79,8 +79,6 @@ export function FolderPopover({
   /// the user's (its private one). Checked while `noProject`.
   onNoProject?(): void;
   noProject?: boolean;
-  /// A quiet line under the list.
-  note?: string;
   /// The new chat's extra folders (extraFolders.ts): Add another folder… turns the list into a pick
   /// of one more folder the chat sees beside its own, and the ones added are listed under it.
   extra?: ExtraFolderRows;
@@ -544,8 +542,7 @@ export function FolderPopover({
             </Button>
           </div>
         )}
-        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
-        {note && <p className="acpmux-location-note">{note}</p>}
+        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}{" "}
       </Popover>
     </span>
   );

@@ -176,6 +176,49 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
   }
 });
 
+for (const status of [
+  { state: "not_connected", repos_scope: null },
+  { state: "unavailable", repos_scope: null, reason: "unreachable" },
+]) {
+  test(`${status.state}: Connect to GitHub is a fixed action under Add folder…, never a row of the scrolling list`, async () => {
+    const gh = host({ "github.status": status, "github.connect": { opened: true } });
+    const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+    try {
+      await openFolderMenu();
+      const pinned = doc().querySelector(".ui-combobox-pinned")!;
+      const actions = [...pinned.querySelectorAll("[role=option]")].map((item) => item.textContent ?? "");
+      expect(actions[0]).toContain("Add folder…");
+      expect(actions[1]).toContain(CONNECT);
+      const scrolling = doc().querySelector(".ui-combobox-scroll")!;
+      expect(scrolling.textContent).toContain("notes");
+      expect(scrolling.textContent).not.toContain(CONNECT);
+      // Its glyph is in the actions' icon column, as Add folder…'s is.
+      expect(option(CONNECT)!.querySelector(".acpmux-location-action > .acpmux-location-action-icon")).not.toBeNull();
+      await press(option(CONNECT)!);
+      expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
+      expect(picked).toEqual([]);
+      // Still open, the row still pinned.
+      expect(option(CONNECT)!.closest(".ui-combobox-pinned")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
+
+test("a new Cloud chat with no folder draws no line under the folder menu's actions", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({ summary: { sessionId: "", cwd: "" }, onNoProject: () => {} }, gh.store);
+  try {
+    await openFolderMenu();
+    const menu = doc().querySelector(".acpmux-folder-popover")!;
+    expect(menu).not.toBeNull();
+    expect(menu.querySelector(".acpmux-location-note")).toBeNull();
+    expect(menu.textContent).not.toContain("fresh home");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("with the page's own key state, coming back to the window after Connect to GitHub reads the status", async () => {
   // The real pageKey.ts wiring, not a test seam: the window's blur (GitHub opened in the browser)
   // and focus (the person is back) re-read github.status with the menu still open.
