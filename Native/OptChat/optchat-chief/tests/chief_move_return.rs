@@ -480,6 +480,71 @@ fn fake_ssh(dir: &Path, remote_home: &Path) -> PathBuf {
     path
 }
 
+/// The fakes this file runs (`fake_ssh`, `fake_app_cli`) while sibling tests fork: on
+/// Linux, a fork made while this process holds a fake open for write keeps that
+/// descriptor until the child execs or exits, and running the fake then fails with
+/// ETXTBSY ("Text file busy"). In the round trip that made the watcher's first move
+/// fail after it had taken the request, so the test waited out its 120 s deadline.
+/// Here the forks are children that only sleep, so the window stays open.
+#[test]
+fn the_fakes_run_while_sibling_tests_fork() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let remote = dir.path().join("mini-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let forking = stop.clone();
+    let forker = std::thread::spawn(move || {
+        let mut children: Vec<libc::pid_t> = Vec::new();
+        while !forking.load(Ordering::Relaxed) || !children.is_empty() {
+            if !forking.load(Ordering::Relaxed) && children.len() < 64 {
+                // SAFETY: the child calls only async-signal-safe usleep and _exit.
+                let pid = unsafe { libc::fork() };
+                if pid == 0 {
+                    unsafe {
+                        libc::usleep(50_000);
+                        libc::_exit(0);
+                    }
+                }
+                assert!(pid > 0, "fork failed");
+                children.push(pid);
+            }
+            // Reap only our own children, never a sibling test's.
+            children.retain(|&pid| {
+                // SAFETY: waitpid on a pid this thread forked, without blocking.
+                unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) == 0 }
+            });
+            std::thread::yield_now();
+        }
+    });
+    let mut busy = Vec::new();
+    for i in 0..200 {
+        let at = dir.path().join(i.to_string());
+        std::fs::create_dir_all(&at).unwrap();
+        let ssh = fake_ssh(&at, &remote);
+        let cli = fake_app_cli(&at, "http://127.0.0.1:1");
+        for (fake, args) in [
+            (ssh, ["mini", "true", ""]),
+            (cli, ["auth", "token", "--json"]),
+        ] {
+            if let Err(e) = Command::new(&fake)
+                .args(args.iter().filter(|a| !a.is_empty()))
+                .output()
+            {
+                busy.push(format!("{}: {e}", fake.display()));
+            }
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    forker.join().unwrap();
+    assert!(
+        busy.is_empty(),
+        "{} fakes did not run: {:?}",
+        busy.len(),
+        &busy[..busy.len().min(3)]
+    );
+}
+
 /// The round trip the person asks for in chat: this Mac -> cloud -> Mac mini -> this
 /// Mac. The Cloud Chief asks to go to the mini (its teleport tool), the Chief on the
 /// mini asks to come home (its move tool's request file); this Mac's watcher carries
@@ -512,9 +577,17 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
         .env("OPTCHAT_MOVE_SSH", &ssh)
         .env_remove("CMUX_CLOUD_SESSION_TOKEN")
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::fs::File::create(dir.path().join("watch.log")).unwrap())
         .spawn()
         .unwrap();
+    // What the watcher said and the last move's report, for a failed assertion.
+    let said = || {
+        format!(
+            "watcher: {}\nmove.json: {}",
+            std::fs::read_to_string(dir.path().join("watch.log")).unwrap_or_default(),
+            std::fs::read_to_string(src.join("state/move.json")).unwrap_or_default()
+        )
+    };
     let on_mini = remote.join(".cmux/chief/src");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     // Bounded wait for the watcher's first move: its flip (moved.json naming the mini) comes
@@ -528,7 +601,7 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
     while !flipped() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
-    assert!(on_mini.join("state/moved-in.json").exists());
+    assert!(on_mini.join("state/moved-in.json").exists(), "{}", said());
     let moved: Value =
         serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
             .unwrap();
