@@ -14,6 +14,11 @@
 //! [`HedgePolicy::attempt_timeout`], and returns the first that connects. The
 //! others are dropped, which closes their sockets. Only the connect is hedged:
 //! nothing has been written on any of them yet.
+//!
+//! The last attempt has no timeout of its own: on a saturated uplink where every
+//! connect takes longer than [`HedgePolicy::attempt_timeout`], it still connects
+//! slowly inside the caller's own budget (the relay's 10 s connect) instead of
+//! failing where a plain connect used to succeed.
 
 use std::future::Future;
 use std::io;
@@ -28,7 +33,8 @@ use tokio::time::Instant;
 pub struct HedgePolicy {
     /// How long the newest attempt has alone before the next one starts.
     pub stagger: Duration,
-    /// How long one attempt may take to connect before it is dropped.
+    /// How long one attempt but the last may take to connect before it is
+    /// dropped. The last runs until it answers or the caller's budget ends.
     pub attempt_timeout: Duration,
     /// Attempts in flight at once.
     pub max_in_flight: usize,
@@ -38,8 +44,9 @@ pub struct HedgePolicy {
 
 impl HedgePolicy {
     /// For a host that connects in 10 to 50 ms: a second socket after 400 ms,
-    /// at most three at a time, each given 3 s, six in all (about 7 s when
-    /// every one is black-holed, inside the relay's 10 s connect budget).
+    /// at most three at a time, each but the last given 3 s, six in all (the
+    /// sixth starts after about 4 s when every one is black-holed, and has the
+    /// rest of the relay's 10 s connect budget).
     pub const INTERNET: Self = Self {
         stagger: Duration::from_millis(400),
         attempt_timeout: Duration::from_secs(3),
@@ -50,7 +57,8 @@ impl HedgePolicy {
 
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
-/// is the last attempt's (an attempt that ran out of time is `TimedOut`).
+/// is the last attempt's (an attempt that ran out of time is `TimedOut`). The
+/// final attempt is not timed out here: the caller bounds the whole connect.
 pub async fn connect<A, T, F, Fut>(
     targets: &[A],
     policy: HedgePolicy,
@@ -75,8 +83,10 @@ where
         if may_launch && (running.is_empty() || Instant::now() >= next_launch) {
             let target = targets[launched % targets.len()].clone();
             let attempt = connect(target);
-            let timeout = policy.attempt_timeout;
+            // The last attempt may connect slowly: only the caller's budget ends it.
+            let timeout = (launched + 1 < max_attempts).then_some(policy.attempt_timeout);
             running.push(async move {
+                let Some(timeout) = timeout else { return attempt.await };
                 match tokio::time::timeout(timeout, attempt).await {
                     Ok(result) => result,
                     Err(_) => Err(io::Error::new(
