@@ -286,9 +286,8 @@ final class SessionInfoListView: NSView {
     /// Each item's key (its line's id, else its kind and place), and each key's index.
     private var keys: [String] = []
     private var indexByKey: [String: Int] = [:]
-    /// Each item's slot: its top and the room it takes, by index.
-    private var tops: [CGFloat] = []
-    private var extents: [CGFloat] = []
+    /// Each item's slot: its top and the room it takes, by index, and the items in view (RowSlots).
+    private var slots = RowSlots(start: Double(SessionInfoMetrics.padding))
     /// View heights measured at `measuredWidth`, by key; an item without one has its estimate.
     private var measured: [String: CGFloat] = [:]
     private var measuredWidth: CGFloat = -1
@@ -338,9 +337,9 @@ final class SessionInfoListView: NSView {
         // An unchanged item keeps its measured height; a changed or new one is estimated until shown.
         // The keys and slots above are an index over the page's snapshot; the compares are the work.
         listWork.walked(measured.count)
-        measured = measured.filter { key, _ in indexByKey[key].map { old[key] == items[$0] } ?? false }
-        extents = items.indices.map { extent(at: $0) }
-        restack(from: 0)
+        let kept = RowKeyDiff.unchanged(measured.keys, old: old, index: indexByKey, items: items)
+        measured = measured.filter { kept.contains($0.key) }
+        slots.reset(items.indices.map { Double(extent(at: $0)) })
         stale = Set(mounted.keys)
         fit = nil
         // Views stay in the list across a model change, so the scroll position and focus stay with them.
@@ -375,9 +374,9 @@ final class SessionInfoListView: NSView {
         let drop = convert(point, from: view)
         var before: String?
         if !items.isEmpty {
-            for index in self.index(at: drop.y)..<items.count {
+            for index in slots.index(at: Double(drop.y))..<items.count {
                 guard case .line(let line) = items[index], line.kind == .header || line.reorderable, let candidate = line.id else { continue }
-                if drop.y < tops[index] + extents[index] / 2 { before = candidate; break }
+                if Double(drop.y) < slots.tops[index] + slots.extents[index] / 2 { before = candidate; break }
             }
         }
         guard before != id else { return }
@@ -387,7 +386,7 @@ final class SessionInfoListView: NSView {
 
     func reveal(section: String) {
         guard let index = indexByKey[section], case .line = items[index], let scroll = enclosingScrollView else { return }
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, tops[index] - SessionInfoMetrics.rowHeight)))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, CGFloat(slots.tops[index]) - SessionInfoMetrics.rowHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
         guard let target = mounted[keys[index]] else { return }
         target.layer?.backgroundColor = ink.colors.hover.withAlphaComponent(0.8).cgColor
@@ -407,15 +406,14 @@ final class SessionInfoListView: NSView {
         for (key, view) in mounted {
             guard let index = indexByKey[key], let measure = measure(view, inner: inner) else { continue }
             listWork.laidOut()
-            height += Self.extent(items[index], height: measure) - extents[index]
+            height += Self.extent(items[index], height: measure) - CGFloat(slots.extents[index])
         }
         fit = (width, height)
         return height
     }
 
     private var total: CGFloat {
-        guard let last = tops.indices.last else { return 2 * SessionInfoMetrics.padding }
-        return tops[last] + extents[last] + SessionInfoMetrics.padding
+        CGFloat(slots.end) + SessionInfoMetrics.padding
     }
 
     private static func inner(_ width: CGFloat) -> CGFloat { max(0, width - 2 * SessionInfoMetrics.edge) }
@@ -433,21 +431,20 @@ final class SessionInfoListView: NSView {
         if measuredWidth != width {
             measuredWidth = width
             measured = [:]
-            extents = items.indices.map { extent(at: $0) }
-            restack(from: 0)
+            slots.reset(items.indices.map { Double(extent(at: $0)) })
         }
         for _ in 0..<4 {
             scrolledWhilePlacing = false
             let clip = enclosingScrollView?.contentView.bounds
             // The first item in view keeps its place on screen when an estimate above it was off.
-            let anchor = clip.flatMap { clip in items.isEmpty || clip.minY <= 0 ? nil : index(at: clip.minY) }
-            let anchorTop = anchor.map { tops[$0] }
+            let anchor = clip.flatMap { clip in items.isEmpty || clip.minY <= 0 ? nil : slots.index(at: Double(clip.minY)) }
+            let anchorTop = anchor.map { slots.tops[$0] }
             let changed = realize()
-            if let changed { restack(from: changed) }
+            if let changed { slots.restack(from: changed) }
             resize()
-            if let anchor, let anchorTop, let scroll = enclosingScrollView, tops[anchor] != anchorTop {
+            if let anchor, let anchorTop, let scroll = enclosingScrollView, slots.tops[anchor] != anchorTop {
                 let origin = scroll.contentView.bounds.origin
-                scroll.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + tops[anchor] - anchorTop))
+                scroll.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + CGFloat(slots.tops[anchor] - anchorTop)))
                 scroll.reflectScrolledClipView(scroll.contentView)
             }
             guard changed != nil || scrolledWhilePlacing else { break }
@@ -464,21 +461,9 @@ final class SessionInfoListView: NSView {
 
     /// The items in view and one viewport each side.
     private func realizedRange() -> Range<Int> {
-        guard !items.isEmpty else { return 0..<0 }
         let clip = enclosingScrollView?.contentView.bounds ?? .zero
         let viewport = clip.height >= 1 ? clip.height : Self.unsizedViewport
-        let first = index(at: clip.minY - viewport), last = index(at: clip.minY + 2 * viewport)
-        return first..<(last + 1)
-    }
-
-    /// The item whose slot holds `y`, or the first or last one past either end.
-    private func index(at y: CGFloat) -> Int {
-        var low = 0, high = items.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if tops[mid] <= y { low = mid } else { high = mid - 1 }
-        }
-        return low
+        return slots.range(top: Double(clip.minY), height: Double(viewport))
     }
 
     /// Unmounts what left the realized range and mounts what entered it. Returns the first index
@@ -531,17 +516,14 @@ final class SessionInfoListView: NSView {
         guard measured[key] == nil, let view = mounted[key], let height = measure(view, inner: Self.inner(width)) else { return false }
         if laidThisPass.insert(key).inserted { listWork.laidOut() }
         measured[key] = height
-        let extent = Self.extent(item, height: height)
-        guard extent != extents[index] else { return false }
-        extents[index] = extent
-        return true
+        return slots.set(index, extent: Double(Self.extent(item, height: height)))
     }
 
     /// Frames every mounted view at its slot, and keeps them in item order (accessibility, the tests).
     private func frameMounted() {
         for (key, view) in mounted {
             guard let index = indexByKey[key] else { continue }
-            let frame = slotFrame(items[index], top: tops[index], height: measured[key] ?? 0)
+            let frame = slotFrame(items[index], top: CGFloat(slots.tops[index]), height: measured[key] ?? 0)
             if view.frame != frame {
                 view.frame = frame
                 if laidThisPass.insert(key).inserted { listWork.laidOut() }
@@ -550,16 +532,6 @@ final class SessionInfoListView: NSView {
         // Items moved (a section dragged to a new place): put the kept views back in item order.
         if !zip(subviews, subviews.dropFirst()).allSatisfy({ $0.frame.minY <= $1.frame.minY }) {
             subviews = subviews.sorted { $0.frame.minY < $1.frame.minY }
-        }
-    }
-
-    private func restack(from start: Int) {
-        if tops.count != items.count { tops = Array(repeating: 0, count: items.count) }
-        guard start < items.count else { return }
-        var y = start == 0 ? SessionInfoMetrics.padding : tops[start - 1] + extents[start - 1]
-        for index in start..<items.count {
-            tops[index] = y
-            y += extents[index]
         }
     }
 
