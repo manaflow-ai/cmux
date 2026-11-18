@@ -121,6 +121,29 @@ import Testing
         return cli
     }
 
+    /// A serve that refused to start for want of its device key (a DEV build's Keychain that refused it; the
+    /// supervisor reports it as `helper_refused`) ends a wait for the link with that reason; the same step refused
+    /// by a ready serve, one connection's dial, and a dropped or not yet ready link are dialed again. The reason
+    /// is the link's own words with no next step.
+    @Test func onlyAHelperThatCannotStartEndsALinkWait() {
+        let noKey = CloudLinkError.helperRefused(code: "handshake", message: "handshake: the Keychain refused the carrier key (-128)")
+        #expect(CloudLinkError(wire: ["kind": "helper_refused", "code": "handshake", "message": "handshake: the Keychain refused the carrier key (-128)"]) == noKey)
+        #expect(CloudLinkError.endsWaits(noKey))
+        #expect(CloudLinkError.failureReason(noKey) == "the Keychain refused the carrier key (-128)")
+        #expect(CloudCarrierDial.carrierRefusal(noKey).retryable == false, "asking again starts a helper that refuses the same way")
+        #expect(CloudCarrierDial.carrierRefusal(noKey).code == "handshake")
+        #expect(noKey.description == "Could not connect to the Cloud machine (handshake: the Keychain refused the carrier key (-128)). Click Connect to try again.")
+        let healing: [CloudLinkError] = [.failed(code: "handshake", message: "handshake: pin mismatch"),
+                                         .failed(code: "ticket", message: "ticket: no credential"),
+                                         .disconnected(reason: "relay"), .notUp(state: "parked_timeout"),
+                                         .helperNotRunning(reason: "cmux carrier serve missed its deadline")]
+        for error in healing {
+            #expect(!CloudLinkError.endsWaits(error), "\(error)")
+        }
+        #expect(CloudLinkError.failureReason(CloudLinkError.helperNotRunning(reason: "cmux carrier serve missed its deadline.")) == "cmux carrier serve missed its deadline")
+        #expect(CloudLinkError.failureReason(CloudLinkError.unsupported) == nil)
+    }
+
     /// A failed carrier socket ask of the Cloud app server names the carrier step the server maps, never
     /// a credential: a refused start keeps its code, a dropped relay and an unregistered daemon theirs,
     /// anything else is `unavailable`.

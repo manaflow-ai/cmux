@@ -28,6 +28,7 @@ extension AppServices {
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
         return .init(title: names.label(workspace, front: tab, work: work), favicon: sidebarPageFavicon(workspace, tab: tab), audio: audio,
+                     startsInCloud: cloudStartTitles.startsInCloud(tab),
                      icon: tab.kind != .browser ? nil : BrowserTabIconState.pageIcon(tab.url.flatMap { URL(string: $0) }))
     }
 
