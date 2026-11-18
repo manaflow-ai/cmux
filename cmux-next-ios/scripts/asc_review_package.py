@@ -32,7 +32,8 @@ ASC_API_KEY_P8_BASE64 (the production lane's names), or ASC_KEY_ID, ASC_ISSUER_I
 and ASC_PRIVATE_KEY_PATH (the INTERNAL builder's names). The JWT is signed with
 openssl, so no Python package is installed next to the key.
 
-The app sells no digital goods, so there is no subscription step here.
+The app's subscriptions (cmux Go, Pro and Max) are set up in App Store Connect,
+not by this script; the notes only tell App Review where they are.
 """
 
 from __future__ import annotations
