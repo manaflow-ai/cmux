@@ -299,6 +299,35 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_ACCOUNT_USAGE,
             Skip("starts the account's `codex app-server`, which asks ChatGPT"),
         ),
+        // Connections (`server/connections.rs`): the keys are secret references, so nothing
+        // leaves the hermetic HOME; the unknown ids answer not found (-32002) past the checks.
+        (method::MUX_CONNECTIONS, Run(json!({}))),
+        (method::MUX_CONNECTIONS_ORDER_SET, Run(json!({"ids": []}))),
+        (method::MUX_CONNECTIONS_SPREAD_SET, Run(json!({"on": false}))),
+        (
+            method::MUX_CONNECTIONS_KEY_ADD,
+            Run(json!({"provider": "anthropic", "secret": "keychain:lso-key"})),
+        ),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Run(json!({"secret": "keychain:lso-token"}))),
+        (method::MUX_CONNECTIONS_REMOVE, Run(json!({"id": "lso-no-connection"}))),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_BEGIN,
+            Skip("starts a ChatGPT sign-in and its callback listener (network)"),
+        ),
+        (method::MUX_CONNECTIONS_CHATGPT_WAIT, Run(json!({"attempt": "lso-no-attempt"}))),
+        (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Run(json!({"attempt": "lso-no-attempt"}))),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+            Any(json!({"id": "lso-no-connection"}), "a token is read only by the person"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CREDENTIAL,
+            Any(json!({"id": "lso-no-connection"}), "a token is read only by the person"),
+        ),
+        (
+            "_acpmux/controls",
+            Any(json!({}), "answered only on a peer daemon's link v2 (method not found here)"),
+        ),
         (method::ACP_TRUST_GET, Run(json!({"cwd": "$CWD"}))),
         (method::ACP_TRUST_SET, Run(json!({"cwd": "$CWD", "level": "trusted"}))),
         (
