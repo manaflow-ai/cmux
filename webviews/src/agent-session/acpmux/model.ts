@@ -1642,7 +1642,7 @@ export type ConversationLayout = {
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
 /// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
-/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); measuredRowHeight sets it.
+/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
 let measuringReply = false;
 /// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
 const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
@@ -3022,16 +3022,6 @@ function measuredRowHeight(
   // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
     return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-  // A reply's text measures in the reply's face (`proseFont`): the same row measured again with the
-  // flag up, which only the text below reads.
-  if (row.kind === "assistant" && !measuringReply) {
-    measuringReply = true;
-    try {
-      return measuredRowHeight(row, width, cache, beforeFooter, lastTurn, sessionId, continuation, actions);
-    } finally {
-      measuringReply = false;
-    }
-  }
   const entry = preparedRow(cache, row.id);
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
@@ -3520,20 +3510,26 @@ export function layoutConversation(
         height = kept.height;
         remembered = true;
       } else {
-        height = custom
-          ? customHeight
-          : edge === LIVE_STEP_EDGE
-            ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
-            : measuredRowHeight(
-                row,
-                width,
-                cache,
-                edge?.startsWith("footer") === true,
-                edge?.startsWith("last-turn") === true,
-                sessionId,
-                edge?.startsWith("continuation") === true,
-                edge?.endsWith(ACTIONS_EDGE) === true,
-              );
+        // A reply's text measures in the reply's face (`proseFont`).
+        measuringReply = row.kind === "assistant";
+        try {
+          height = custom
+            ? customHeight
+            : edge === LIVE_STEP_EDGE
+              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              : measuredRowHeight(
+                  row,
+                  width,
+                  cache,
+                  edge?.startsWith("footer") === true,
+                  edge?.startsWith("last-turn") === true,
+                  sessionId,
+                  edge?.startsWith("continuation") === true,
+                  edge?.endsWith(ACTIONS_EDGE) === true,
+                );
+        } finally {
+          measuringReply = false;
+        }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         known?.set(row, { width, height, edge, scale });
