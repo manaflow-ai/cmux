@@ -207,4 +207,31 @@ import Testing
         #expect(model.restoreReading(reader) == nil)
         #expect(model.state == .reading(reader))
     }
+
+    /// Step fdef196a3760133107947747 (`place=f+4058@1656/4151`, then
+    /// `newest=4096-4152/gap4111`): the restore set the reader's rows while
+    /// the page waited for their frame; the next drag began before the page
+    /// got there and took the state, so it started on the Mac's screen. A
+    /// drag that begins before the page reached the restored rows gets them,
+    /// to put the page there first.
+    @Test func aDragBeforeThePageReachedTheRestoredRowsGetsThem() {
+        var model = TerminalScrollModel()
+        model.reset()
+        let reader = TerminalScrollModel.Anchor(row: 1_656, delta: 2)
+        model.restoreReading(reader)
+        #expect(model.began() == reader)
+        #expect(model.isInteracting)
+        // Once is enough: the next drag starts wherever this one left the page.
+        #expect(model.began() == nil)
+    }
+
+    /// The page reached the rows (applyScroll set the offset): a drag starts
+    /// where the page is.
+    @Test func aDragAfterThePageReachedTheRestoredRowsStartsThere() {
+        var model = TerminalScrollModel()
+        model.reset()
+        model.restoreReading(.init(row: 1_656, delta: 2))
+        model.reachedTarget()
+        #expect(model.began() == nil)
+    }
 }

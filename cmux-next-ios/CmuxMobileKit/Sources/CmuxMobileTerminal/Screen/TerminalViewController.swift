@@ -814,6 +814,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.contentOffset.y = target
             settingOffset = false
         }
+        scroll.reachedTarget()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         updateBottomFade()
         #if DEBUG
@@ -2708,7 +2709,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         // A finger owns the offset until it lifts (or the deceleration ends).
-        scroll.began()
+        // A restore still waiting for its frame (applyScroll) moves the page
+        // to the reader's rows first, so the drag starts there. Before, the
+        // drag started on the old offset, the Mac's screen after a history
+        // window's replay, and a fling up asked for the newest rows (#43189,
+        // step fdef196a3760133107947747: `place=f…@1656/4151`, then
+        // `newest=4096-4152/gap4111`).
+        if let unplaced = scroll.began(), let document, cell.height > 0, !model.isTUI {
+            let y = document.contentY(ofRow: unplaced.row, cellHeight: cell.height) + unplaced.delta
+            settingOffset = true
+            scrollView.contentOffset.y = min(max(-scrollView.contentInset.top, y), maxOffsetY)
+            settingOffset = false
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("U")
+            #endif
+        }
         restoredMark = nil
         dropPendingRestore()
         placesFromReport = false

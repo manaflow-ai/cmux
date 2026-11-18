@@ -52,13 +52,20 @@ public struct TerminalScrollModel: Equatable, Sendable {
 
     // MARK: Input
 
-    /// A finger came down on the page (a drag begins).
-    public mutating func began() {
+    /// A finger came down on the page (a drag begins). Returns the reader's
+    /// restored rows when the page has not reached them yet
+    /// (``reachedTarget()``): the controller puts the page there first.
+    @discardableResult
+    public mutating func began() -> Anchor? {
         touchedBottom = false
         movedUp = false
         lastOffsetY = nil
         state = .interacting(startedFollowing: isFollowing || (isInteracting && startedFollowing))
+        return nil
     }
+
+    /// The page's offset is the target now (the controller set it).
+    public mutating func reachedTarget() {}
 
     private var startedFollowing: Bool {
         if case .interacting(let following) = state { following } else { false }

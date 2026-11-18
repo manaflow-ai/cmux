@@ -36,8 +36,9 @@ public final class TerminalHistoryWindowProbe {
 
     /// `top=000123 probe=P3,F0,K0,S0,T0,D0,N0,R0 trail=PPS place=f+0@1530/4051 newest=-`: no spaces inside a field.
     /// `K`: the restore found the reader's rows but the scroll model kept another state.
+    /// `U`: a drag began before the page reached the restored rows; it was moved there first.
     public var caption: String {
-        let fields = "PFKSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
+        let fields = "PFKUSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
         return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest)"
     }
 }
