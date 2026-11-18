@@ -141,7 +141,7 @@ import Foundation
         store.index.remove(pane)
         screen.panes.remove(at: index)
         screen.layout = shown.layout
-        if shown.columns != columns { screen.columns = shown.columns }
+        if shown.columnsEdited, shown.columns != columns { screen.columns = shown.columns }
         return HiddenPane(pane: pane, screen: screen.handle, index: index, layout: layout, columns: columns)
     }
 
