@@ -161,8 +161,9 @@ Our own takes on the references, each one program:
 4. Orbits: fine orbit linework; the pointer bends the nearest orbit like a mass.
 5. Metal: embossed brushed metal with light that follows the pointer.
 6. Blueprint: a blueprint grid with dimension ticks; the pointer draws a crosshair and the grid breathes.
-7. Block Matrix: a fine dot matrix where rectangular blocks of dots light, hold and fade and drift a
-   dot at a time; blocks near the pointer glow brighter, and agent output lights blocks (`agents`).
+7. Block Matrix: a fine, even matrix of faint dots lit by a glow centered on the pointer (with a short
+   trail), a few slow drifting lights and agent output (`agents`); the light arrives in rectangular
+   blocks that ease between levels.
 
 Each is mostly the theme's paper and ink with one accent.
 
