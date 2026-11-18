@@ -260,8 +260,10 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
 # queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
 # Only a cmux-next.yml pull_request run honors it (pr_rescue()): its placement takes Blacksmith macOS once the
 # owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
-# MAX_PER_RUN caps as `on`, and its re-run attempts' runs-on fall back to Blacksmith (cmux-next.yml). Every
-# other workflow compares the variable with exactly `on`, so for them it is off.
+# MAX_PER_RUN caps as `on`. A re-run attempt takes Blacksmith only through that placement's retry label, which is
+# empty for a dead or stalled label (cmux#44966: a plain vars.MACOS_RUNNER_26 fallback queued re-runs on a label with
+# no runner online); otherwise it keeps the side lane. Every other workflow compares the variable with exactly
+# `on`, so for them it is off.
 PR_RESCUE = "pr-rescue"
 RESCUE_ROUTE_MINUTES = 45.0
 RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"

@@ -246,7 +246,7 @@ mod cmd_server;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
-pub use size_lease::SIZE_LEASE_CAPABILITY;
+pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -888,6 +888,9 @@ enum Command {
         screen_sharing: Option<bool>,
         #[serde(default)]
         headless: Option<bool>,
+        /// The app's own Screen Recording and Accessibility (memory only).
+        #[serde(default)]
+        app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
