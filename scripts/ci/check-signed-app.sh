@@ -71,6 +71,7 @@ for entitlement in \
   com.apple.security.personal-information.calendars \
   com.apple.security.personal-information.location \
   com.apple.security.personal-information.photos-library; do
+  # plist-exists: codesign -d wrote $SIGNED_ENTITLEMENTS above or the script exited
   value="$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   if [[ "$value" != "true" ]]; then
     echo "error: signed app missing enabled $entitlement" >&2

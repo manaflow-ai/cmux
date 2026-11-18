@@ -21,8 +21,10 @@ public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
     /// The name System Settings lists the two grants under: the helper's
-    /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
-    /// without the helper (then they are this app's own).
+    /// ("cmux Computer Use", the one app computer use is granted under too; a
+    /// DEV or older build's separate "cmux NIGHTLY Screen Sharing"), or nil
+    /// while unknown and in a build without the helper (then they are this
+    /// app's own). The permission copy names it (``MacScreenGrantCopy``).
     public private(set) var grantHolderName: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     /// A build without the helper: a fresh child reads TCC under this app's responsibility, just like
