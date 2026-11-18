@@ -10,9 +10,6 @@ cd "$tests/../../.." || exit 2
 
 declare -A SKIP=(
   [screen-stream-eval-prebuilt.test.sh]="opens Screen Sharing.app: runs only on a viewer Mac"
-  [screen-stream-eval-readiness.test.py]="fails on base (10 failures, 1 error: a failed readiness check starts the source workload)"
-  [measure-pinned-bun.test.sh]="fails on base: perf-idle-ab.sh builds without private-bun.sh; fresh-home-launch.sh and tab-switch.sh pass a relative RUNNER_TEMP"
-  [mktemp-trap.test.py]="fails on base: daemon-stop-swap.sh:331 execs after mktemp -d and drops its EXIT trap"
 )
 
 failed=0

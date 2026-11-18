@@ -1813,7 +1813,38 @@
     });
     return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges };
+  async function httpJson(params, call) {
+    const url = String(params.url ?? "");
+    const r = await call("net.fetch", {
+      url,
+      method: "GET",
+      headers: {},
+      body: null,
+      cache: "shared"
+    });
+    const host = () => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return url;
+      }
+    };
+    const retryable = (status) => status === 408 || status === 429 || status >= 500;
+    const failed = r.cache?.failed;
+    if (failed) {
+      const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`;
+      throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status));
+    }
+    if (r.status < 200 || r.status >= 300) {
+      throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status));
+    }
+    try {
+      return JSON.parse(r.body ?? "");
+    } catch {
+      throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true);
+    }
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson };
   var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
   var typeOf = (v) => {
     if (v === null)
@@ -2354,6 +2385,50 @@
         staleAfterSeconds: 300,
         safetyPollSeconds: 900
       },
+      "http.json": {
+        docs: "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+        scopes: [
+          "net:<host>"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "url"
+          ],
+          properties: {
+            url: {
+              type: "string",
+              minLength: 9,
+              maxLength: 2048,
+              pattern: "^https://",
+              description: "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+            },
+            everySeconds: {
+              type: "integer",
+              minimum: 60,
+              maximum: 86400,
+              description: "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+            }
+          }
+        },
+        value: {
+          description: "The response body, parsed as JSON."
+        },
+        read: {
+          reader: "http.json",
+          ops: [
+            {
+              op: "net.fetch",
+              scope: "net:<host>",
+              docs: `GET params.url with cache: "shared": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope.`
+            }
+          ]
+        },
+        push: [],
+        pollFloorSeconds: 60,
+        staleAfterSeconds: 300
+      },
       "workspace.list": {
         docs: "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
         scopes: [
@@ -2434,6 +2509,7 @@
     return next;
   }
   var asError = (e) => e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e));
+  var pacedByParams = (def) => def.params.properties?.everySeconds !== undefined;
   function lookup(name, params) {
     const def = typeof name === "string" ? SIGNALS[name] : undefined;
     if (!def)
@@ -2445,6 +2521,10 @@
     const errors = v.validate(p);
     if (errors.length)
       throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors });
+    if (pacedByParams(def) && typeof p.everySeconds === "number") {
+      const { everySeconds, ...read } = p;
+      return { def, params: JSON.parse(canonical(read)), pace: everySeconds };
+    }
     return { def, params: JSON.parse(canonical(p)) };
   }
   function missingScope(def) {
@@ -2523,7 +2603,7 @@
     if (!active(e))
       return;
     if (error) {
-      if (FINAL.has(error.code))
+      if (FINAL.has(error.code) || error.code === "upstream.failed" && !error.retryable)
         return schedule(e, -1);
       const floor = e.def.pollFloorSeconds * 1000;
       return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));
@@ -2672,10 +2752,12 @@
     };
   }
   function watch(name, params, options = {}) {
-    const every = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    let every = option;
     const id = nextReader++;
     const resolve = (p) => {
       const found = lookup(name, p);
+      every = option ?? found.pace;
       return entryFor(name, found.def, found.params);
     };
     const [current, setCurrent] = signal(resolve(typeof params === "function" ? untrack(params) : params));
@@ -2705,8 +2787,14 @@
             log("error", `watch ${name}: ${asError(err).message}`);
             return;
           }
-          if (e === current.peek())
+          if (e === current.peek()) {
+            if (e.readers.get(id) !== every && e.readers.has(id)) {
+              e.readers.set(id, every);
+              if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+                schedule(e, pollMs(e));
+            }
             return;
+          }
           const old = release;
           release = join(e, id, every);
           setCurrent(e);
