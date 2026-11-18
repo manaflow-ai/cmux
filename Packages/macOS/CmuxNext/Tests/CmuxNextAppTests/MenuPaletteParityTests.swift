@@ -49,10 +49,14 @@ import Testing
     }
 
     /// The ids of every palette row, with every context fact present so a row that needs a focused
-    /// object is listed too (the palette's own filter follows focus at run time).
+    /// object is listed too (the palette's own filter follows focus at run time). A bound row that
+    /// cannot run in this bare fixture (no tab, no chat) is left out of the palette until it can,
+    /// so the ids of the same catalog read unbound are the palette's reach.
     static func paletteIDs(_ registry: ActionRegistry) -> Set<ActionID> {
         registry.context = registry.descriptors.reduce(into: ActionContext()) { $0.formUnion($1.requires) }
-        return Set(RegistryPaletteProvider(registry: registry, includeUnbound: true).makeItems().compactMap(\.actionID))
+        let catalog = ActionRegistry(catalog: registry.descriptors)
+        catalog.context = registry.context
+        return Set(RegistryPaletteProvider(registry: catalog, includeUnbound: true).makeItems().compactMap(\.actionID))
     }
 
     /// What one row runs: a registry action, a native selector, nothing (a header or a checked

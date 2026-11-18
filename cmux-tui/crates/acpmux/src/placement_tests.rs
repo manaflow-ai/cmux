@@ -274,6 +274,32 @@ fn a_held_host_is_never_a_placement_candidate() {
     assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
 }
 
+/// A lane host the registry drains (`lanes.accept_new` false, leo-workspace lane-place's drain
+/// flag) takes no new work here either. 2026-11-17: gcp-agent-lane-5 was drained for a
+/// black-start drill, lane-place stopped placing there, and about 20 lanes still landed on it
+/// through `--machine auto`, because this pick read `hold` but never `accept_new`.
+#[test]
+fn a_drained_lane_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let mut reg = registry();
+    reg["machines"]["big"]["lanes"]["accept_new"] = json!(false);
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    let big = host(&v, "big");
+    assert_eq!(big["ok"], false);
+    assert_eq!(big["refused"], "draining (lanes.accept_new false)", "{big}");
+    // Its why, when the registry gives one, is the refusal's.
+    reg["machines"]["big"]["lanes"]["accept_new_why"] = json!("black-start drill");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "big")["refused"], "draining: black-start drill");
+    // accept_new true, or absent, keeps it a candidate.
+    for open in [json!(true), Value::Null] {
+        reg["machines"]["big"]["lanes"]["accept_new"] = open.clone();
+        assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big", "{open}");
+    }
+}
+
 /// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
 /// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
 #[test]

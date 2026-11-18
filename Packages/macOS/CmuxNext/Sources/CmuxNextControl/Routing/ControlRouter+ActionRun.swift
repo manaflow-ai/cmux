@@ -122,6 +122,7 @@ extension ControlRouter {
         given.callerAgentSession = caller?.agentSession
         given.callerTerminal = caller?.terminalID
         given.callerHomeChat = caller?.homeChat ?? false
+        given.callerWorkspace = caller?.workspaceKey
         return given
     }
 

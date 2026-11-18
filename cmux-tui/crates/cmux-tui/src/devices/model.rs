@@ -148,6 +148,10 @@ pub(crate) struct Available {
     /// a host the person's own ssh config names.
     pub mine: bool,
     pub found: Found,
+    /// Whether ssh answers on it from here (`reach.rs`): set before `cmux device list` prints,
+    /// and with `--json --probe`; absent when nothing probed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<super::reach::SshReach>,
 }
 
 /// Hosts a person reaches with ssh that are never a computer to add: git
@@ -462,6 +466,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,
+                    ssh: None,
                 },
             )
         })
@@ -497,6 +502,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             os: String::new(),
             mine: true,
             found: Found::SshConfig,
+            ssh: None,
         })
         .collect();
     ssh.sort_by_key(|a| a.name.to_ascii_lowercase());
