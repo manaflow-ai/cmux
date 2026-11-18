@@ -171,6 +171,7 @@ func rpc(_ method: String) -> [String: Any]? {
 // page (`context.keys` topPage: "home" when Home is in front; snapshot.get has no top page). Read once, after the
 // settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
 // launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
+// `workspaces` counts the session's workspaces: snapshot=foreign fails a launch that made one (a New Tab stand-in).
 func front() -> [String: Any] {
     guard let snapshot = rpc("snapshot.get"), let topology = snapshot["topology"] as? [String: Any] else {
         return ["error": "snapshot.get did not answer"]
@@ -181,7 +182,7 @@ func front() -> [String: Any] {
     let context = rpc("context.keys") ?? [:]
     let keys = context["keys"] as? [String: Any] ?? context
     return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "top_page": keys["topPage"] ?? NSNull(),
-            "windows": (topology["windows"] as? [Any])?.count ?? 0]
+            "windows": (topology["windows"] as? [Any])?.count ?? 0, "workspaces": (topology["workspaces"] as? [Any])?.count ?? 0]
 }
 var frontAtQuit: [String: Any]?
 
