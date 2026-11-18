@@ -886,6 +886,19 @@ class SeedRoot(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.seed.iterdir()), ["nightly"])
         self.assertFalse((self.seed.parent / scratch.SEED_LOCK).exists())
 
+    def test_a_kept_build_loses_the_last_jobs_resource_bundles(self):
+        # The last job on the seed root may have built another branch, and a package the seed does not restore keeps
+        # its .build: its String Catalog bundles must not reach this job (cmux#26961, as link and lease do).
+        config = self.seed / "Packages/macOS/B/.build/arm64-apple-macosx/debug"
+        (config / "Other.bundle").mkdir(parents=True)
+        (config / "description.json").write_text("{}")
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.assertFalse((config / "Other.bundle").exists())
+        self.assertTrue((config / "description.json").is_file())
+
+    def test_the_jobs_own_workspace_is_never_the_seed_root(self):
+        self.assertIsNone(scratch.seed_lease(self.seed, self.seed, RUNNER))
+
     def test_only_owned_runners(self):
         self.assertIsNone(scratch.seed_lease(self.workspace, self.seed, "blacksmith-6vcpu-macos-26-x"))
 
