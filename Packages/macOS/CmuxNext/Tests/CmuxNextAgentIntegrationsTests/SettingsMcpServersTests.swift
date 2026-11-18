@@ -135,7 +135,7 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let cli = folder.appending(path: "cmux", directoryHint: .notDirectory)
-        let model = SettingsMcpServers(cli: { cli }, openPage: { _ in })
+        let model = SettingsMcpServers(cli: { cli }, home: { nil }, openPage: { _ in })
         await model.refresh()
         #expect(model.state["problem"] == .string("unavailable"))
         #expect(model.state["servers"] == .array([]))
