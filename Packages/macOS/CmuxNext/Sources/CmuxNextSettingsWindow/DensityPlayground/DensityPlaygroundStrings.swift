@@ -22,6 +22,12 @@ public nonisolated struct DensityPlaygroundStrings {
     static var builtInHint: String {
         text("densityPlayground.builtInHint", "Built-in densities stay as they are. Your first change makes a copy.")
     }
+    /// The status line while a policy manages the density keys.
+    public static var managedNotice: String {
+        text("densityPlayground.managedNotice", "Your organization manages density. Changes show now but are not saved.")
+    }
+    /// The save state while a policy manages the density keys.
+    static var notSaved: String { text("densityPlayground.notSaved", "Not saved") }
     static var importFailed: String { text("densityPlayground.importFailed", "The clipboard holds no density JSON.") }
     /// The name of a copy of `name`.
     static func copyName(_ name: String) -> String { format("densityPlayground.copyName", "%@ Custom", name) }

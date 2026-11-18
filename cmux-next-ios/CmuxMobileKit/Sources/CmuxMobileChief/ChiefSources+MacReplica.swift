@@ -44,7 +44,7 @@ extension ChiefSources {
 
     /// Hands `request` to the Cloud Chief with the Mac Chief's last 20
     /// messages (``handOffText(_:context:meID:)``), through the Cloud Chief's
-    /// own session (its outbox keeps it until the Cloud Chief answers).
+    /// own session (it sends when the Cloud Chief connects).
     public func askCloudChief(_ request: String) async {
         let trimmed = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -54,7 +54,7 @@ extension ChiefSources {
         } else {
             context = Array(mac.store.messages.suffix(20))
         }
-        cloud.send(ConversationComposeMessage(text: Self.handOffText(trimmed, context: context, meID: ChiefIdentity.standard.meID)))
+        cloud.sendKeepingDraft(ConversationComposeMessage(text: Self.handOffText(trimmed, context: context, meID: ChiefIdentity.standard.meID)))
     }
 
     nonisolated static func read(_ http: ChiefCloudHTTP, _ op: String, _ params: [String: Any]) async throws -> [String: Any] {
