@@ -353,6 +353,44 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     }
   });
 
+  // Every workspace's pages read the same recent chats ahead, so N hidden pages read each one N times
+  // for a switch only the shown page takes (Leo, 2026-11-18: "And other general perf"). A hidden page
+  // reads none ahead until it shows; then it reads them as a shown page does.
+  test("a hidden page reads no chat ahead until it shows", async () => {
+    readAhead.clear();
+    currentPage += 1;
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
+    try {
+      await page.addInitScript(() => {
+        const flag = window as unknown as { __benchHidden: boolean };
+        flag.__benchHidden = true;
+        Object.defineProperty(Document.prototype, "visibilityState", {
+          configurable: true,
+          get: () => (flag.__benchHidden ? "hidden" : "visible"),
+        });
+        Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => flag.__benchHidden });
+      });
+      await installPaintedFrames(page);
+      const from = calls.length;
+      await page.goto(url(chats[0]!.sessionId));
+      const deadline = Date.now() + 30_000;
+      while (!calls.slice(from).some((call) => call.method === "_acpmux/watch")) {
+        if (Date.now() > deadline) throw new Error("the hidden page never listed its chats");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // fixed-wait: three times the idle read ahead's delay (direct.ts READ_AHEAD_DELAY_MS, 600 ms).
+      await new Promise((resolve) => setTimeout(resolve, 1_800));
+      expect(readAhead.size).toBe(0);
+      await page.evaluate(() => {
+        (window as unknown as { __benchHidden: boolean }).__benchHidden = false;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await readAheadOf(page, chats.slice(1, 1 + RECENT));
+    } finally {
+      await page.close();
+    }
+  });
+
   test("cold prefetched and warm capped turns keep their first painted layout through attach", async () => {
     let page = await openPage(chats[0]!);
     try {
