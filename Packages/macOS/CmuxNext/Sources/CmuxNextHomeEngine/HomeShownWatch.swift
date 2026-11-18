@@ -20,7 +20,7 @@ import os
 @MainActor
 public final class HomeShownWatch: NSView {
     /// `CMUX_NEXT_CHIEF_START=visible`.
-    public static let waitsForScreen = ProcessInfo.processInfo.environment["CMUX_NEXT_CHIEF_START"] == "visible"
+    public static let waitsForScreen = (ProcessInfo.processInfo.environment["CMUX_NEXT_CHIEF_START"] ?? "visible") == "visible"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     private var start: (@MainActor () -> Void)?
     private weak var followed: NSWindow?
