@@ -48,12 +48,12 @@
        "userMessage.radius": 16, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.06,
        "toolCards": "minimal", "toolCard.radius": 12, "toolCard.border": "hairline", "codeCard.radius": 12, "timestamps": "hover"
      }},
-    {"name": "codex", "title": "Codex", "description": "A pill for your messages, borderless cards, no times.",
+    {"name": "codex", "title": "Codex", "description": "A narrow column, a rounded bubble for your messages, borderless cards, no times.",
      "tokens": {
-       "density": "cozy", "messageWidth": 760, "font": "system", "fontSize": 14, "lineHeight": 1.6,
+       "density": "cozy", "messageWidth": 640, "font": "system", "fontSize": 14, "lineHeight": 1.5,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.75,
-       "userMessage.radius": 20, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.12,
-       "toolCards": "minimal", "toolCard.radius": 14, "toolCard.border": "none", "codeCard.radius": 14, "timestamps": "off"
+       "userMessage.radius": 14, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.12,
+       "toolCards": "minimal", "toolCard.radius": 10, "toolCard.border": "none", "codeCard.radius": 10, "timestamps": "off"
      }},
     {"name": "studio", "title": "Studio", "description": "Dense work logs: tight rows, a square bubble, small radii.",
      "tokens": {
