@@ -5,7 +5,7 @@ set -e  # the inline step ran under bash -e
 CMUX_NODE_BIN="$(command -v node)"
 export npm_config_prefix="$RUNNER_TEMP/npm-global"
 mkdir -p "$npm_config_prefix"
-npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+"$(dirname "${BASH_SOURCE[0]}")/net-retry.sh" -- npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
 mkdir -p "$wrapper_dir"
 cat > "$wrapper_dir/create-dmg" <<EOF
