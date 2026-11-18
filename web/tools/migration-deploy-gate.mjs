@@ -30,6 +30,7 @@ export const WAIT_SECONDS_ENV = "CMUX_MIGRATION_GATE_WAIT_SECONDS";
 // build itself already gave the migration several minutes.
 export const DEFAULT_WAIT_SECONDS = 20 * 60;
 export const DEFAULT_POLL_SECONDS = 20;
+export const MAX_WAIT_SECONDS = 30 * 60;
 
 // Keep in sync with scripts/cloud-vm/projects.mjs (a test enforces it).
 export const gatedProjects = {
@@ -49,6 +50,9 @@ function envValue(env, key) {
 export function resolveGateMode(env) {
   if (envValue(env, "VERCEL") !== "1") return { action: "skip", reason: "not a Vercel build" };
   const vercelEnv = envValue(env, "VERCEL_ENV");
+  if (!vercelEnv) {
+    return { action: "fail", reason: "VERCEL_ENV is not set on a Vercel build, so the gate cannot tell a production build from a preview" };
+  }
   if (vercelEnv !== "production") return { action: "skip", reason: `Vercel ${vercelEnv ?? "unknown"} environment` };
   const projectId = envValue(env, "VERCEL_PROJECT_ID");
   if (!projectId) {
@@ -82,7 +86,8 @@ export function localMigrationNames(webDir) {
 export function resolveWaitMs(env) {
   const raw = envValue(env, WAIT_SECONDS_ENV);
   if (raw === undefined || !/^\d+$/.test(raw)) return DEFAULT_WAIT_SECONDS * 1000;
-  return Math.min(Number(raw), 40 * 60) * 1000;
+  // Stay well inside Vercel's 45-minute build limit, after `next build`.
+  return Math.min(Number(raw), MAX_WAIT_SECONDS) * 1000;
 }
 
 // Driver messages can contain hosts, users, or SQL. Report only a stable code.

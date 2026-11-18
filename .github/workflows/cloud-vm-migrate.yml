@@ -5,10 +5,11 @@ name: Cloud VM DB migration
 # production build waits for it (web/tools/migration-deploy-gate.mjs) and does
 # not go live until production has every migration the code ships; the
 # previous deployment keeps serving meanwhile. Migrations therefore must be
-# expand-only (the live code must keep working once they apply); a push that
-# adds a contract statement (drop, rename, type change, SET NOT NULL) stops in
-# preflight for a person to dispatch target=production
-# (web/scripts/cloud-vm/contract-migrations.mjs). Incident 2026-11-18: #42784
+# expand-only (the live code must keep working once they apply). Before a push
+# run applies anything, each target's pending migrations (by its ledger, so a
+# held migration stays held on later pushes) are checked; a drop, rename, type
+# change, new constraint or SET NOT NULL stops the run for a person to dispatch
+# target=production (web/scripts/cloud-vm/contract-migrations.mjs). Incident 2026-11-18: #42784
 # and #44965 shipped readers of apple_subscriptions.carried_* while the last
 # production run was 2026-10-29.
 on:
@@ -17,6 +18,9 @@ on:
     paths:
       - "web/db/migrations/**"
       - "web/db/no-transaction-migrations.json"
+  # GitHub matches `paths` against the first 300 changed files only. A larger
+  # push that adds a migration may not start this run; the deploy gate then
+  # fails closed and someone dispatches target=production.
   workflow_dispatch:
     inputs:
       target:
@@ -35,11 +39,13 @@ permissions:
   contents: read
 
 concurrency:
-  # Production also migrates staging. One group prevents two runs from
-  # applying to the same database at once (apply-migrations.mjs also holds a
-  # Postgres advisory lock). A push run migrates its pushed commit, so a newer
-  # push run that replaces a pending one applies a superset.
-  group: cloud-vm-migrate
+  # Production also migrates staging. apply-migrations.mjs holds a Postgres
+  # advisory lock, so runs never apply to one database at once. Push runs get
+  # their own group so a manual dispatch (say target=staging) cannot replace a
+  # pending push run and leave production unmigrated. A newer push run that
+  # replaces a pending one migrates a later commit of main: a superset, and the
+  # contract check reads the ledger, not the push's diff.
+  group: cloud-vm-migrate-${{ github.event_name == 'push' && 'push' || 'dispatch' }}
   cancel-in-progress: false
 
 jobs:
@@ -59,26 +65,6 @@ jobs:
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: List the migrations this push adds
-        if: ${{ github.event_name == 'push' }}
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ || "$BEFORE" =~ ^0+$ ]]; then
-            echo "::error::No previous commit for this push; dispatch cloud-vm-migrate.yml with target=production after checking its migrations."
-            exit 1
-          fi
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            git fetch --no-tags --no-recurse-submodules --quiet --depth=1 origin "$BEFORE" || {
-              echo "::error::Cannot fetch $BEFORE (history rewritten?); dispatch cloud-vm-migrate.yml with target=production after checking its migrations."
-              exit 1
-            }
-          fi
-          git diff --relative --name-only --diff-filter=AM "$BEFORE" HEAD -- db/migrations \
-            | { grep '/migration\.sql$' || true; } > "$RUNNER_TEMP/added-migrations.txt"
-          echo "Migrations added or changed by this push:"
-          cat "$RUNNER_TEMP/added-migrations.txt"
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -87,12 +73,6 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
-      - name: Hold contract migrations for a person
-        if: ${{ github.event_name == 'push' }}
-        run: |
-          set -euo pipefail
-          mapfile -t added < "$RUNNER_TEMP/added-migrations.txt"
-          bun scripts/cloud-vm/contract-migrations.mjs ${added[@]+"${added[@]}"}
       - name: Rehearse Iroh cleanup on isolated Postgres
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:preflight -- .
@@ -134,6 +114,9 @@ jobs:
           esac
       - name: Verify staging PlanetScale connection (read only)
         run: bun run cloud-vm:migrate -- staging --check
+      - name: Hold contract migrations pending on staging for a person
+        if: ${{ github.event_name == 'push' }}
+        run: bun scripts/cloud-vm/contract-migrations.mjs staging
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
       - name: Clean up staging Iroh challenges
@@ -176,6 +159,9 @@ jobs:
           esac
       - name: Verify production PlanetScale connection (read only)
         run: bun run cloud-vm:migrate -- production --check
+      - name: Hold contract migrations pending on production for a person
+        if: ${{ github.event_name == 'push' }}
+        run: bun scripts/cloud-vm/contract-migrations.mjs production
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
       - name: Clean up production Iroh challenges

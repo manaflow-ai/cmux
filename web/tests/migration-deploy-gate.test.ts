@@ -106,6 +106,8 @@ describe("gate mode", () => {
     expect(resolveGateMode(productionBuildEnv())).toMatchObject({ action: "check", label: "production", branch: "main" });
     expect(resolveGateMode(productionBuildEnv({ VERCEL_PROJECT_ID: stagingId }))).toMatchObject({ action: "check", label: "staging" });
     expect(resolveGateMode(productionBuildEnv({ VERCEL_PROJECT_ID: undefined })).action).toBe("fail");
+    // System env vars not exposed: cannot tell production from preview, so fail rather than skip.
+    expect(resolveGateMode(productionBuildEnv({ VERCEL_ENV: undefined })).action).toBe("fail");
   });
 
   test("gated project ids match scripts/cloud-vm/projects.mjs", () => {
@@ -167,7 +169,7 @@ describe("production build", () => {
     expect(resolveWaitMs({})).toBe(1_200_000);
     expect(resolveWaitMs({ [WAIT_SECONDS_ENV]: "-1" })).toBe(1_200_000);
     expect(resolveWaitMs({ [WAIT_SECONDS_ENV]: "abc" })).toBe(1_200_000);
-    expect(resolveWaitMs({ [WAIT_SECONDS_ENV]: "99999" })).toBe(2_400_000);
+    expect(resolveWaitMs({ [WAIT_SECONDS_ENV]: "99999" })).toBe(1_800_000);
   });
 
   test("retries a transient read failure, then passes", async () => {
