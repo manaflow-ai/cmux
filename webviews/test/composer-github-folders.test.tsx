@@ -374,6 +374,40 @@ test("ready: the repositories are listed, and a pick is the folder github:owner/
   }
 });
 
+test("repositories arriving with the menu open remount the folder row that gains the This Mac heading, and only it", async () => {
+  let listed: (value: unknown) => void = () => undefined;
+  const gh = host({
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": () => new Promise((resolve) => (listed = resolve)),
+  });
+  const { root } = await renderTray({}, gh.store);
+  const folderRow = (cwd: string) =>
+    doc().querySelector(`.ui-combobox-scroll .acpmux-location-row[title="${cwd}"]`)?.closest("[role=option]");
+  try {
+    await openFolderMenu();
+    expect(option("acme/api")).toBeUndefined();
+    const cwds = [FOLDER, "/Users/me/notes"];
+    const before = new Map(cwds.map((cwd) => [cwd, folderRow(cwd)]));
+    for (const row of before.values()) expect(row?.querySelector("[data-section]")).toBeNull();
+    await act(async () => listed({ repos: REPOS, truncated: false }));
+    await settle();
+    expectOnlyOptionsInListbox();
+    expect(option("acme/api")).toBeDefined();
+    const headed = cwds.filter((cwd) => folderRow(cwd)?.querySelector("[data-section]"));
+    expect(headed).toHaveLength(1);
+    expect(folderRow(headed[0]!)!.querySelector("[data-section]")!.getAttribute("data-section")).toBe("This Mac");
+    for (const cwd of cwds) {
+      if (cwd === headed[0]) {
+        // A new element for the new heading: measured again, never the old size.
+        expect(folderRow(cwd)).not.toBe(before.get(cwd));
+        expect(before.get(cwd)!.isConnected).toBe(false);
+      } else expect(folderRow(cwd)).toBe(before.get(cwd));
+    }
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("ready with no repository granted: GitHub still shows, with the way to choose repositories", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },

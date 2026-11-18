@@ -86,8 +86,11 @@ export interface ComboboxProps {
   /** With `pinnedSuggestions`: only the scrolling rows near the viewport are in the DOM (TanStack
    * Virtual over the list's own scroller), so a list of thousands (the Projects picker, Leo
    * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
-   * frame. `estimate` is a row's height in pixels before it is measured. */
-  virtualRows?: { estimate: number };
+   * frame. `estimate` is a row's height in pixels before it is measured. `sizeKey` is a string
+   * that differs whenever a row's outer size can differ without its border box changing (a section
+   * heading drawn in the row's margin): a row whose `sizeKey` changes remounts and is measured
+   * again, and its size for one value is never reused for another. */
+  virtualRows?: { estimate: number; sizeKey?(item: string): string };
   /** The line shown when there are no suggestions ("No matches"). It is Base UI's live Empty part
    * (`role="status"`, polite), so a screen reader hears it as the list empties. */
   empty?: ReactNode;
@@ -398,13 +401,9 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
-  const renderOption = (
-    item: string,
-    index = enabledSuggestions.indexOf(item),
-    placed?: { ref: (node: Element | null) => void; start: number; count: number },
-  ) => (
+  const renderOption = (item: string, index = enabledSuggestions.indexOf(item), placed?: VirtualPlacement) => (
     <Autocomplete.Item
-      key={item}
+      key={placed?.key ?? item}
       index={index}
       value={item}
       {...(placed
@@ -480,6 +479,7 @@ export function Combobox({
               items={enabledSuggestions}
               count={scrollingCount}
               estimate={virtualRows.estimate}
+              sizeKey={virtualRows.sizeKey}
               virtualizerRef={virtualizer}
               render={renderOption}
             />
@@ -624,20 +624,25 @@ function VirtualRows({
   items,
   count,
   estimate,
+  sizeKey,
   virtualizerRef,
   render,
 }: {
   items: readonly string[];
   count: number;
   estimate: number;
+  sizeKey?(item: string): string;
   virtualizerRef: RefObject<Virtualizer<HTMLElement, Element> | null>;
-  render(
-    item: string,
-    index: number,
-    placed: { ref: (node: Element | null) => void; start: number; count: number },
-  ): ReactNode;
+  render(item: string, index: number, placed: VirtualPlacement): ReactNode;
 }) {
   const spacer = useRef<HTMLDivElement | null>(null);
+  // With `sizeKey`, the virtualizer caches a row's size by its item and size key, so a row that
+  // gains or loses a heading is never given the size it had in the other state. Without, the
+  // library's own key (the index).
+  const getItemKey = useCallback(
+    (index: number) => virtualRowKey(items[index] ?? String(index), sizeKey),
+    [items, sizeKey],
+  );
   // Rows not yet mounted are sized as the first one measured (the theme's row height and interface
   // scale), so the list's height, and where its end scrolls to, hold as rows mount.
   const [rowHeight, setRowHeight] = useState<number | undefined>(undefined);
@@ -647,6 +652,7 @@ function VirtualRows({
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
+    getItemKey: sizeKey ? getItemKey : undefined,
     // A row's slot is its border box plus its vertical margins: a row is placed at its slot's start
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache
@@ -686,10 +692,22 @@ function VirtualRows({
     >
       {rows.map((row) => {
         const item = items[row.index];
-        return item === undefined ? null : render(item, row.index, { ref: measure, start: row.start, count });
+        // A row whose size key changes is a new element: its ref measures it again.
+        return item === undefined
+          ? null
+          : render(item, row.index, { ref: measure, start: row.start, count, key: virtualRowKey(item, sizeKey) });
       })}
     </div>
   );
+}
+
+/// Where VirtualRows puts a row: its measuring ref, its offset, the list's length and its React key.
+type VirtualPlacement = { ref: (node: Element | null) => void; start: number; count: number; key: string };
+
+/// A virtual row's identity, as React's key and the virtualizer's size cache key: the item itself,
+/// or with `sizeKey` the item and its size key, so each outer size it can have is its own row.
+export function virtualRowKey(item: string, sizeKey?: (item: string) => string): string {
+  return sizeKey ? `${item}\u0001${sizeKey(item)}` : item;
 }
 
 /// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel

@@ -288,10 +288,12 @@ export function FolderPopover({
   };
   // Under the repositories (a Cloud chat) the folders are headed This Mac, apart from the GitHub group.
   const firstFolder = githubFirst && githubRows.length > 0 ? (shown.keys().next().value ?? typedPath) : undefined;
+  // The GitHub group's heading sits over its first row, and This Mac over the first folder after
+  // the repositories (composerLocation.css `data-section`, drawn in the row's margin).
+  const sectionOf = (value: string) =>
+    value === githubRows[0] ? t("cloudRepository.github") : value === firstFolder ? t("composer.thisMac") : undefined;
   const row = (value: string) => {
-    // The GitHub group's heading sits over its first row (composerLocation.css `data-section`).
-    const section =
-      value === githubRows[0] ? t("cloudRepository.github") : value === firstFolder ? t("composer.thisMac") : undefined;
+    const section = sectionOf(value);
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
       // The host's refusal, else the wait for the browser, else why it can't connect yet.
@@ -559,7 +561,8 @@ export function FolderPopover({
           autoHighlight
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
-          virtualRows={{ estimate: 28 }}
+          // A heading changes a row's margin, not its box: the row is measured again when it changes.
+          virtualRows={{ estimate: 28, sizeKey: (value) => sectionOf(value) ?? "" }}
           // The empty line sits in the list's place, over the actions.
           listEnd={
             shown.size === 0 && !typedPath && githubRows.length === 0 ? (
