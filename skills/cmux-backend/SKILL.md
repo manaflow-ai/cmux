@@ -63,8 +63,9 @@ scripts/cmux-next/cloud-dev-stack.sh down --tag <task-slug>          # when you 
   A local platform has no Freestyle or other provider secrets, so it does not create machines either.
   Crons do not run. Check those on a PR preview (`backend.yml`) before merge.
 - **Lifetime.** The VM stops a stack after 2 h without a request (`--idle-min N` to change it; `touch`
-  counts as activity) and 12 h after its last `up`. A stopped stack's credentials and branch are deleted
-  by the next `up`, `down` or `gc` from any Mac.
+  counts as activity; the check runs every 5 min) and 12 h after its last `up`. A stopped stack's
+  credentials and branch are deleted by the next `up` of another tag, `down` or `gc` from any Mac; an
+  `up` of the same tag reuses its branch and makes new credentials.
 - **Host.** `CMUX_DEV_STACK_HOST` or `--host` (default `cmux-dev-backend-1`). The VM side,
   `scripts/cmux-next/cloud-dev-stack/vm_stack.py`, sits beside hq's classic Docker stacks without using
   their registry or containers, takes a port only when they leave it free, and refuses to start below
