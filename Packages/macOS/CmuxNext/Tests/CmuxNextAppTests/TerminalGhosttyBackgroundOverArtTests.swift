@@ -6,20 +6,18 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// Ghostty color parity over a background picture (user, Nov 17: "colors between ghostty and cmux-next are definitely
-/// still different, reproduce + fix + have tests so there will be no regressions").
+/// Ghostty colors and the user's Opacity over a background picture (user, Nov 17: "colors between ghostty and cmux-next
+/// are definitely still different"; then "background color is bad now for terminals, it's no longer transparent ... we
+/// need to have both rich colors and proper transparency that respects user's settings").
 ///
-/// Measured on cmux-lawrence-2 with the user's own configs (Ghostty 1.4.0, Monokai Classic, Menlo 12; cmux-next with
-/// background art "laurence-mckinley" at 0.85): every palette, 256-color and truecolor cell, bold, inverse and the
-/// glyphs' coverage match Ghostty to within 2/255. The one difference was the terminal's own background: Ghostty
-/// draws `#272822`, cmux-next drew the window's 85 % tint over the picture (`#3a3d3b` on average, up to 25/255 off),
-/// so dim text, glyph edges and every cell a program paints in the theme's background (palette 0, a TUI's panels)
-/// stood out as dark patches on a lighter, picture-coloured ground.
-///
-/// A terminal over a picture now draws its Ghostty config's background at that config's own `background-opacity`
-/// (1, Ghostty's default: solid, as Ghostty draws it); the picture shows in the sidebar, the chrome and the other
-/// panes. `background-opacity` under 1 in the Ghostty config, or the user's `appearance.surfaces.terminal`, keep the
-/// see-through terminal.
+/// c90b89beed41 answered the first report by painting a terminal over a picture solid whenever the Ghostty config
+/// files left `background-opacity` at 1 (Ghostty's default), so the window Opacity the user set
+/// (`appearance.backgroundOpacity`, the tint over the picture) stopped reaching terminals. A terminal over a picture
+/// now shows it exactly as the window's tint shows it everywhere else: the host stays clear and the window root's one
+/// sheet (the theme background at the Opacity) is the terminal's ground, whatever the config files' own opacity. At
+/// Opacity 1 the window is opaque and the terminal paints the theme background solid. The user's
+/// `appearance.surfaces.terminal` still wins. `TerminalTransparencyOverPictureTests` checks the composite in a whole
+/// window.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TerminalGhosttyBackgroundOverArtTests {
     private static let art = BackdropSelection.art(.dahlDresdenMoonlight)
 
@@ -61,17 +59,35 @@ import Testing
         return [Int(rgb.r), Int(rgb.g), Int(rgb.b), 255]
     }
 
-    @Test func overAPictureAnOpaqueGhosttyConfigsTerminalDrawsItsOwnBackground() throws {
+    /// The regression: with the config files' `background-opacity` at 1 the terminal still shows the picture at the
+    /// window's Opacity (it painted its background solid).
+    @Test func overAPictureAnOpaqueGhosttyConfigsTerminalStillShowsThePictureAtTheWindowsOpacity() throws {
+        try Self.withGhosttyOpacity(1) {
+            let (window, scope, host) = Self.host(over: Self.art)
+            defer { window.close() }
+            for opacity in [0.85, 0.6] {
+                scope.pinBackdropTint(opacity)
+                let backdrop = WindowBackdrop(host.themeScope.tokens, selection: host.themeScope.backdropSelection,
+                                              tintOpacity: host.themeScope.backdropTintOpacity)
+                try #require(!backdrop.panesPaintBackground && backdrop.tintOpacity == opacity,
+                             "the window over the picture is not see-through at \(opacity): the test no longer reaches the case")
+                #expect(host.layer?.backgroundColor == nil || Self.rgba(host.layer?.backgroundColor)?[3] == 0,
+                        "at Opacity \(opacity) the terminal paints \(Self.rgba(host.layer?.backgroundColor) ?? []) over the picture")
+                // A pane whose terminal is not made yet shows the same (SPLIT NEW PANE GROUND, m81).
+                #expect(TerminalHostView.ground(theme: nil, in: host) == nil)
+            }
+        }
+    }
+
+    /// At Opacity 1 the window over the picture is opaque: the terminal paints its Ghostty background solid.
+    @Test func overAPictureAtOpacity1TheTerminalDrawsItsGhosttyBackgroundSolid() throws {
         let expected = try Self.configBackground()
         try Self.withGhosttyOpacity(1) {
-            let (window, _, host) = Self.host(over: Self.art)
+            let (window, scope, host) = Self.host(over: Self.art)
             defer { window.close() }
-            let backdrop = WindowBackdrop(host.themeScope.tokens, selection: host.themeScope.backdropSelection,
-                                          tintOpacity: host.themeScope.backdropTintOpacity)
-            try #require(!backdrop.panesPaintBackground, "the window over the picture is not see-through: the test no longer reaches the case")
+            scope.pinBackdropTint(1)
             #expect(Self.rgba(host.layer?.backgroundColor) == expected,
-                    "the terminal over a picture shows the picture instead of its Ghostty background")
-            // A pane whose terminal is not made yet paints the same ground (SPLIT NEW PANE GROUND, m81).
+                    "at Opacity 1 the terminal paints \(Self.rgba(host.layer?.backgroundColor) ?? []), not \(expected)")
             #expect(Self.rgba(TerminalHostView.ground(theme: nil, in: host)) == expected)
         }
     }
