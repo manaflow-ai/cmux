@@ -503,7 +503,7 @@ struct DemoDriver {
         await pause(1.8)
         tabs.post(.exit)
         await pause(1.8)
-        // Reopen: starts on its opening tab again (the layout's top-left pane's), not the browser tab used last.
+        // Reopen: back on the browser tab left on screen (Leo 2026-11-14).
         shell.workspacesPath = [ws]
         await pause(2.6)
         tabs.post(.exit)
@@ -799,9 +799,10 @@ struct DemoDriver {
         demoLog.info("demo step: \(name, privacy: .public)")
     }
 
-    /// A workspace opens on its layout's top-left pane's active tab (user 2026-11-11): ws-cmux
-    /// laid out as zsh | (Claude, docs) with the right pane focused on the Mac and docs the last
-    /// tab used on this phone. Open (zsh), switch to docs, leave, open again (zsh again).
+    /// A workspace first opens on its layout's top-left pane's active tab (user 2026-11-11), and
+    /// opened again in the same launch on the tab left on screen (Leo 2026-11-14): ws-cmux laid
+    /// out as zsh | (Claude, docs) with the right pane focused on the Mac. Open (zsh), switch to
+    /// docs, leave, open again (docs).
     private func workspaceOpenTopLeft() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
@@ -812,7 +813,6 @@ struct DemoDriver {
             WorkspaceLayout.Pane(id: 1, tabIDs: ["t-zsh"], activeTabID: "t-zsh"),
         ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
         store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
-        store.noteOpened(tabID: "t-docs", in: ws.id)
         shell.tab = .workspaces
         await pause(1.6)
         step("open")

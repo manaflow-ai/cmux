@@ -57,7 +57,7 @@ struct BackgroundAccessoryPolicyTests {
             NSApplication.shared.setActivationPolicy(.regular)
             services = AppServices(environment: AppEnvironment.current([:]))
             AppProcessRoot.shared.adopt(services)
-            settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
+            settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: configURL,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
             services.settings = settings

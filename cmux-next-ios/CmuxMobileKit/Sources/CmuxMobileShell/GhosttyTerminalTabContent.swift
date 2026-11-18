@@ -36,6 +36,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// a frame tied to the account that owned it even if auth changes later.
     private var hostFrameKeys: [String: TerminalFrameKey] = [:]
     private var frameLifecycle = TerminalFrameLifecycle()
+    /// Cooled tabs' places in their scrollback (a reader away from the
+    /// prompt), handed to the tab's next host so its replay puts the reader
+    /// back (Leo, 2026-11-14). A tab that followed the prompt has none.
+    private var scrollPlaces: [String: TerminalScrollPlace] = [:]
     /// Tabs whose host runs on a live session (the rest show the connecting
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
@@ -69,12 +73,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                // The background (or the lock screen) keeps every terminal's
-                // size claim for 45 s and renews its lease on the Mac. A
-                // short background task keeps the app running for the
-                // renewals to reach the Mac (bounded: the lease from the last
-                // refresh covers one that never lands) and while the frames
-                // for the next cold launch are saved.
+                // The background (or the lock screen) releases every
+                // terminal's size at once. A short background task keeps the
+                // app running for the releases to reach the Mac (bounded:
+                // the Mac's size lease covers a release that never lands)
+                // and while the frames for the next cold launch are saved.
                 let release = SizeReleaseBackgroundTask()
                 release.begin()
                 self?.setAppActive(false)
@@ -269,6 +272,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         }
         model.setAppActive(appActive)
         let host = TerminalTabHost(model: model)
+        // A cooled tab's reader goes back to their rows (a live host only: a
+        // placeholder never draws them and keeps the place for the live one).
+        if live != nil, let place = scrollPlaces.removeValue(forKey: tab.id) { host.restoreScrollPlace(place) }
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
         frameLifecycle.hostBuilt(tabID: tab.id)
@@ -292,6 +298,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hostMacs[id] = nil
         liveTabs.remove(id)
         warm.remove(id)
+        scrollPlaces[id] = nil
         frameLifecycle.release(tabID: id, hostFrameKey: key) { frameKey in
             lastFrames[frameKey] = nil
             framesBeingWritten[frameKey] = nil
@@ -323,6 +330,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
+        scrollPlaces = [:]
         framesBeingWritten = [:]
     }
 
@@ -333,11 +341,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             endedShells.insert(tab.id)
         } else if endedShells.remove(tab.id) != nil {
             cool(tab.id)
+            // A new shell: the old one's scrollback is not its own.
+            scrollPlaces[tab.id] = nil
         }
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
-        // A tapped web link opens beside the terminal, in this workspace (the Mac's Cmd-click).
+        // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
+        // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
         return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
     }
@@ -369,6 +380,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 frameState = "in memory"
             }
         }
+        // Where the reader was, for the next host (nil: following the prompt,
+        // or a full-screen app). A live host only: a placeholder's page drew
+        // nothing of the Mac's and leaves a place it was not given alone.
+        var placeState = "follows"
+        if liveTabs.contains(id) {
+            scrollPlaces[id] = host.scrollPlace()
+            if let place = scrollPlaces[id] { placeState = "\(place.rowsFromEnd) rows from the end" }
+        }
         slots[id] = nil
         cardViews[id] = nil
         upgrade.removed(tabID: id)
@@ -376,7 +395,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         host.model.session.stop()
         stopWatching(id)
         liveTabs.remove(id)
-        warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(frameState, privacy: .public)")
+        warmLog.info("terminal tab \(id, privacy: .public) cooled (warm set of \(Self.warmLimit, privacy: .public)), last frame \(frameState, privacy: .public), reader \(placeState, privacy: .public)")
     }
 
     // MARK: Reattach indicator (design/terminal P5)

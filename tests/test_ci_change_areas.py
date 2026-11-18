@@ -63,6 +63,7 @@ WEB_JOBS = (
     "web-tests",
     "web-instant-navigation",
     "react-apps-check",
+    "agent-pane-real-acpmux",
     "diff-sidecar-check",
     "web-db-migrations",
 )
@@ -2665,6 +2666,8 @@ def test_every_github_file_is_placed_by_the_helper_walk() -> None:
     # pull request that adds the next data file fails here instead.
     # A Windows job's PowerShell script is a script the walk follows by name (#42833's .ps1 was unplaced).
     assert module.referrer_role(".github/scripts/windows-step.ps1") == "script"
+    # A captured CI log quotes the commands a run printed; it runs none of them (#41545's fixtures).
+    assert module.referrer_role("tests/fixtures/base_red_excuse_step_mapping/run-head.log") == "documentation"
     tracked = subprocess.run(
         ["git", "-C", str(ROOT), "ls-files", "--", ".github"],
         capture_output=True, text=True, check=True,
@@ -2690,8 +2693,6 @@ def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_l
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
     for path in (
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         "scripts/strip-release-bundle.sh",
     ):
         assert module.classify_files([path]) == areas(), path
@@ -2703,6 +2704,10 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
+        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
     ):
@@ -3149,7 +3154,9 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
     start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
     block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
     assert "package_route=true" in block
-    assert "cmuxnext_route=true" in block
+    # A pull request that changes CmuxNext and another package still tests the other package (hq#11644).
+    assert "!/^Packages\\/macOS\\/CmuxNext\\//" in block
+    assert "cmuxnext_route" not in block
     assert 'echo "macos=false"' in block
     assert 'echo "swift_packages=true"' in block
     assert 'echo "release_build=false"' in block
@@ -3235,8 +3242,10 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     # #24927 moved a pull request's base comparison into react-apps-base-check;
     # the gate waits on it too and requires it only on pull requests.
     assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
-    assert 'required_jobs = ["react-apps-check-shard", "react-doctor"]' in block
+    assert 'required_jobs = ["react-apps-check-shard"]' in block
     assert 'required_jobs.append("react-apps-base-check")' in block
+    # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
+    assert 'else:\n              required_jobs.append("react-doctor")' in block
     # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
     assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
@@ -3244,6 +3253,10 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     block = workflow_job_block("react-doctor", WEB_WORKFLOW)
     assert "needs: [web-subarea-scope, runners]" in block
+    # Not on a pull request: React Doctor (changed React projects) scans and gates it there.
+    assert "if: ${{ github.event_name != 'pull_request' && inputs.web == 'true'" in block
+    ratchet = (WEB_WORKFLOW.parent / "cmux-next-react-doctor.yml").read_text(encoding="utf-8")
+    assert "  pull_request:\n" in ratchet and "react_doctor_gate.py --changed-from" in ratchet
     assert "react-apps-check-shard" not in block
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
@@ -4966,6 +4979,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
+            "agent-pane-real-acpmux": "skipped",
             "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
         },

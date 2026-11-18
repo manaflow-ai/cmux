@@ -19,6 +19,20 @@ mod api {
 }
 
 pub use api::{API_VERSION, EVENTS, RUNTIME_VERSION, SIGNALS};
+
+/// Everything a person or an agent can customize, as Rust tables written at build time from
+/// the one source `cmux customize schema` prints (`cmux_customize::schema`): every setting
+/// ([`customize::SETTINGS`], one constant per key in [`customize::keys`], so a key that does
+/// not exist does not compile), what a theme file holds and the theme tokens, the view slots
+/// and the extension points. [`customize::TYPESCRIPT`] is the TypeScript package's
+/// `cmux-extension-sdk/customize`, written from the same schema.
+pub mod customize {
+    include!(concat!(env!("OUT_DIR"), "/customize.rs"));
+
+    /// The TypeScript types of the same schema (`typescript/src/generated/customize.ts`).
+    pub const TYPESCRIPT: &str = include_str!(concat!(env!("OUT_DIR"), "/customize.ts"));
+}
+
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
 use serde_json::{Map, Value, json};
@@ -162,6 +176,86 @@ impl Manifest {
     /// A pane (`cmux.pane/1`) drawn by the script's `export`.
     pub fn pane(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.pane/1", export, title, symbol, None)
+    }
+
+    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
+    pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.newtab/1", export, title, symbol, None)
+    }
+
+    /// A widget (`cmux.widget/1`) drawn by the script's `export`: a glanceable tile the person
+    /// places on the New Tab page or in the sidebar from Edit Widgets > Add Widget. `sizes` are
+    /// the sizes it draws (small 1x1, medium 2x1, large 2x2 tiles; the first is the default),
+    /// `every_seconds` how often cmux ticks its `now()` clock (at least 60, only while shown;
+    /// `None` for a widget that never ticks) and
+    /// `places` where it may go (empty means both).
+    pub fn widget(
+        self,
+        export: &str,
+        title: &str,
+        symbol: &str,
+        sizes: &[&str],
+        every_seconds: Option<u32>,
+        places: &[&str],
+    ) -> Self {
+        let mut options = Map::new();
+        if !sizes.is_empty() {
+            options.insert("sizes".into(), json!(sizes));
+        }
+        if let Some(every) = every_seconds {
+            options.insert("refresh".into(), json!({ "everySeconds": every }));
+        }
+        if !places.is_empty() {
+            options.insert("places".into(), json!(places));
+        }
+        self.implement("cmux.widget/1", export, title, symbol, Some(Value::Object(options)))
+    }
+
+    /// Appends `entry` to the list `list` in the options of the data-only place `interface`
+    /// (no script runs for it, so it adds no activation).
+    fn append_data(mut self, interface: &str, list: &str, entry: Value) -> Self {
+        let implements = self.value.entry("implements").or_insert_with(|| json!({}));
+        if let Value::Object(places) = implements
+            && let Some(Value::Object(options)) = places
+                .entry(interface)
+                .or_insert_with(|| json!({ "options": {} }))
+                .get_mut("options")
+            && let Value::Array(items) = options.entry(list).or_insert_with(|| json!([]))
+        {
+            items.push(entry);
+        }
+        self
+    }
+
+    /// A slash command in the agent chat composer (`cmux.composer.command/1`): the `/` menu lists
+    /// it as `/name`, and picking it writes `insert` over the typed `/word`. Data only: cmux reads
+    /// it from the manifest, and a save updates the menu without a restart.
+    pub fn slash_command(self, name: &str, description: &str, insert: &str) -> Self {
+        let entry = json!({ "name": name, "description": description, "insert": insert });
+        self.append_data("cmux.composer.command/1", "commands", entry)
+    }
+
+    /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the
+    /// daemon answers the completions. `insert` is what the mention writes (the label when None).
+    pub fn mention(self, prefix: &str, id: &str, label: &str, insert: Option<&str>) -> Self {
+        let mut item = Map::new();
+        item.insert("id".into(), json!(id));
+        item.insert("label".into(), json!(label));
+        if let Some(insert) = insert {
+            item.insert("insert".into(), json!(insert));
+        }
+        let item = Value::Object(item);
+        let mut me = self.append_data("cmux.composer.mention/1", "items", item);
+        if let Some(Value::Object(options)) = me
+            .value
+            .get_mut("implements")
+            .and_then(|p| p.get_mut("cmux.composer.mention/1"))
+            .and_then(|p| p.get_mut("options"))
+        {
+            options.insert("prefix".into(), json!(prefix));
+        }
+        me
     }
 
     /// A chat widget (`cmux.chat.widget/1`) drawn by the script's `export`: a card in the agent

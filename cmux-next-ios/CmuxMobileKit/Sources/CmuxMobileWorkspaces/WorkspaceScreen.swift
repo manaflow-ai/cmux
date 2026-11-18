@@ -26,8 +26,9 @@ extension TabsKitTheme {
     }
 }
 
-/// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
-/// last tab used on this device. Pushed full screen from the Workspaces
+/// A workspace: its tabs in the Safari-style TabsKit chrome, opened where
+/// `AppStore.openingTab` says (the tab left on screen when it was open before in this
+/// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
@@ -109,6 +110,10 @@ public struct WorkspaceScreen: View {
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
@@ -364,7 +369,7 @@ struct WorkspaceGridHeader: View {
                         .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

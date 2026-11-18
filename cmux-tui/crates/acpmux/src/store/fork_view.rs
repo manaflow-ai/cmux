@@ -425,6 +425,26 @@ impl Store for ForkView {
         let chunk = self.inner.read_log(id, from, filter, stamp, marks, out)?;
         Ok(LogChunk { read: chunk.read + read, ..chunk })
     }
+    /// A fork's line at a seq through the one it was forked through is its chat's history line,
+    /// read from that chat's log; a later one is its own.
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            Some(r) if seq <= r.through_seq => {
+                self.read_log_part(&r.session, seq, offset, max, stamp, marks, out)
+            }
+            _ => self.inner.read_log_part(id, seq, offset, max, stamp, marks, out),
+        }
+    }
     /// A fork by reference reads its own count plus its chat's: a change to either log's lines
     /// changes what the fork shows.
     fn log_stamp(&self, id: &str) -> Result<u64> {
@@ -587,6 +607,36 @@ impl Store for ForkView {
             return Ok(());
         }
         self.inner.scan_kinds(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
+    /// `scan_kinds`'s join, `keep` shown the heads of both sides: the parent's past the fork
+    /// point and the fork's own before it are shown and never visited, which only keeps more.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_kinds_keyed(id, kinds, keep, visit);
+        };
+        let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
+        let mut going = true;
+        if !shown.is_empty() {
+            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+                if rec.seq > r.through_seq {
+                    return false;
+                }
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going {
+            return Ok(());
+        }
+        self.inner
+            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
     fn scan_kinds_strict(
         &self,

@@ -39,9 +39,7 @@ extension AppActionContext {
     /// group of the targeted or shown workspace. Workspace groups are
     /// personal (the home session's); without personal state there are none.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
-        guard usesPersonalGroups else {
-            throw ActionFailure(message: services.machines.local.personalStateUnavailableReason)
-        }
+        guard usesPersonalGroups else { throw ActionFailure(message: services.machines.local.personalStateUnavailableReason) }
         return try personalGroup(invocation)
     }
 

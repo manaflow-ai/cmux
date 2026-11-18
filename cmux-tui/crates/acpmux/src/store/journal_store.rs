@@ -749,6 +749,20 @@ impl Store for JournalStore {
         self.inner
             .fenced(|| Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
     }
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        self.inner.fenced(|| {
+            Store::read_log_part(&self.inner.local, id, seq, offset, max, stamp, marks, out)
+        })
+    }
     fn log_stamp(&self, id: &str) -> Result<u64> {
         Store::log_stamp(&self.inner.local, id)
     }
@@ -857,6 +871,15 @@ impl Store for JournalStore {
     ) -> Result<()> {
         self.inner
             .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
+    }
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))

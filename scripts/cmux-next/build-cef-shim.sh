@@ -106,20 +106,20 @@ done
   "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" \
   "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
 
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-cef-helper" \
-  "$OUT_DIR/obj/shim/helper_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-rb-host-helper" \
-  "$OUT_DIR/obj/shim/rb_host_helper_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface
-
-"$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
-  -o "$OUT_DIR/cmux-chromium-host" \
-  "$OUT_DIR/obj/shim/browser_host_main.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore
+# The helpers are copied into five helper apps each. -dead_strip (as CEF's own
+# CMake links every target) keeps only the wrapper code each one reaches. The
+# sandbox is not in these binaries: CefScopedSandboxContext (cef_sandbox_mac.h)
+# loads Libraries/libcef_sandbox.dylib first thing in main, before the framework.
+link_exe() {
+  local out="$1" main="$2"
+  shift 2
+  "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -Wl,-dead_strip \
+    -o "$OUT_DIR/$out" "$OUT_DIR/obj/shim/$main.o" \
+    "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface "$@"
+}
+link_exe cmux-cef-helper helper_main.mm
+link_exe cmux-rb-host-helper rb_host_helper_main.mm
+link_exe cmux-chromium-host browser_host_main.mm -framework QuartzCore
 
 rm -rf "$OUT_DIR/obj"
 printf '%s' "$key" > "$OUT_DIR/.build-key"

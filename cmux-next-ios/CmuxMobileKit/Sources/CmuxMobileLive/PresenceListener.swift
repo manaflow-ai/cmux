@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -29,6 +30,9 @@ public final class PresenceListener {
     private let fetchMacs: @MainActor () async throws -> [LiveAPI.Mac]
     private let makeSocket: @MainActor (URLRequest) -> any PresenceSocket
     private let clock: any Clock<Duration>
+    /// Settings → Transport → Align Keepalives: the ping waits for the 10 s
+    /// keepalive beat instead of 15 s after the pong.
+    private let beat: KeepaliveBeat
     private let onUpdate: @MainActor (Update) -> Void
     private var task: Task<Void, Never>?
     private var socket: (any PresenceSocket)?
@@ -59,6 +63,7 @@ public final class PresenceListener {
     }
 
     init(clock: any Clock<Duration>,
+         beat: KeepaliveBeat = .live,
          signalRequest: @escaping @MainActor () async throws -> URLRequest,
          fetchMacs: @escaping @MainActor () async throws -> [LiveAPI.Mac],
          makeSocket: @escaping @MainActor (URLRequest) -> any PresenceSocket,
@@ -67,6 +72,7 @@ public final class PresenceListener {
         self.fetchMacs = fetchMacs
         self.makeSocket = makeSocket
         self.clock = clock
+        self.beat = beat
         self.onUpdate = onUpdate
     }
 
@@ -188,7 +194,8 @@ public final class PresenceListener {
                 if let error {
                     self.failed(generation, reason: String(describing: error))
                 } else {
-                    self.pingTimer = self.timer(after: Self.pingInterval, generation: generation) { listener in
+                    let next = self.beat.delay(toNextBeatOf: KeepaliveBeat.period) ?? Self.pingInterval
+                    self.pingTimer = self.timer(after: next, generation: generation) { listener in
                         listener.ping(generation)
                     }
                 }

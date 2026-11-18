@@ -124,18 +124,14 @@ struct DaemonRecoveryNoticeTests {
         #expect(toast.detail?.contains("server.spawn_failed") == true, "the notice has not the raw failure: \(toast.detail ?? "none")")
         #expect(service.recovery.offersRestart)
 
-        // Restart asks first, as the launch window's button does; cancelled, the notice shows again.
+        // Restart runs at once, with no question first (the terminal hosts outlive the owner); this
+        // restart fails on the same full disk, so the notice shows again with its way out.
+        let dialogsBefore = CmuxDialogCenter.shared.records.count
         #expect(toasts.runAction(id: DaemonRecoveryNotice.toastID, in: window))
-        let asked = await Self.eventually {
-            CmuxDialogCenter.shared.records.contains { $0.spec.identifier == DaemonRestartPrompt.identifier }
-        }
-        #expect(asked, "Restart cmux-tui did not ask before restarting")
-        let question = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == DaemonRestartPrompt.identifier })
-        let cancel = try #require(question.spec.cancelButton?.id)
-        #expect(CmuxDialogCenter.shared.press(question.id, button: cancel))
+        #expect(await Self.eventually { service.recovery.restartFailure != nil }, "Restart did not run")
+        #expect(CmuxDialogCenter.shared.records.count == dialogsBefore, "Restart asked a question first")
         #expect(await Self.eventually { toasts.toasts(in: window).first?.id == DaemonRecoveryNotice.toastID },
-                "a cancelled restart left the window with no way out")
-        CmuxDialogCenter.shared.dismissAll()
+                "a failed restart left the window with no way out")
     }
 
     /// A start that fails for any other reason, as a restart on a heavily loaded Mac does, is retried

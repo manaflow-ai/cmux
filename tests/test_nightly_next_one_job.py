@@ -109,10 +109,13 @@ class NightlyNextOneJobTests(unittest.TestCase):
                                     f"{step.get('name')} uploads the app")
 
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
-        # Scoped to the run: a shared group would let a newer run replace this one's pending job
-        # (tests/test_nightly_delivery_concurrency.py); the push group already runs one nightly-next at a time.
-        self.assertEqual(self.job.get("concurrency"), {"group": "${{ format('nightly-next-one-{0}', github.run_id) }}",
-                                                       "cancel-in-progress": False})
+        # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
+        # nightly-next-one-push, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
+        self.assertEqual(self.job.get("concurrency"), {
+            "group": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
+                     "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                     "format('nightly-next-one-{0}', github.run_id) }}",
+            "cancel-in-progress": False})
 
     def test_it_is_admitted_as_a_signing_job(self) -> None:
         self.assertIn(JOB, signing_runner.SIGNING_JOBS["nightly.yml"])

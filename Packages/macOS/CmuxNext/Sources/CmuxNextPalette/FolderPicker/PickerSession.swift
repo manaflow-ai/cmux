@@ -194,7 +194,7 @@ public final class PickerSession {
                                back: FolderPickerState?) -> PalettePageSpec {
         let section = PaletteSection(id: "explainer", title: "", order: 0)
         let info = PaletteItem(id: "explainer.info", title: PickerStrings.explainer(PickerStrings.area(area)),
-                               subtitle: PickerStrings.explainerDetail, symbol: "hand.raised", section: section,
+                               symbol: "hand.raised", section: section,
                                isEnabled: false, primary: PaletteCommand(id: "none", title: "", effect: .performKeepingOpen {}),
                                frecencyKey: nil)
         let next = PaletteItem(id: "explainer.continue", title: PickerStrings.continueTitle, symbol: "arrow.right.circle",

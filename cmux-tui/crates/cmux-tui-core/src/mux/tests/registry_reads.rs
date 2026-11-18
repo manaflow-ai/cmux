@@ -90,6 +90,7 @@ fn a_progress_report_reads_only_its_own_terminals_tabs() {
         "resource_column_docks",
         "resource_lone_docks",
         "resource_parked_splits",
+        "resource_floating_panes",
     ] {
         assert!(
             !read.contains(table),
@@ -500,6 +501,16 @@ fn point_reads_do_not_wait_for_a_full_reader_pool() {
     use crate::workspace_registry::registry_connection::COMMITTED_READERS;
     let (mux, root) = persistent_mux("point-reads");
     mux.new_workspace(None, Some((80, 24))).unwrap();
+    // The terminal publisher commits what the new terminal's output reports
+    // (its directory, a program status) on a thread of its own. Such a commit
+    // between this test's 2 reads of the cursor moves the cursor, and the
+    // compare below then fails for no fault of a point read. So the publisher
+    // ends the job that it has, and takes no job while the test compares.
+    assert!(
+        mux.wait_for_terminal_publisher_for_test(Duration::from_secs(10)),
+        "the publisher did not finish"
+    );
+    let publisher = mux.hold_terminal_publisher_for_test();
     let revision = mux.terminal_registry_revision().unwrap();
     let cursor = crate::resource_api::public_session_cursor(&mux).unwrap();
     let (entered, inside) = std::sync::mpsc::sync_channel(COMMITTED_READERS);
@@ -534,6 +545,7 @@ fn point_reads_do_not_wait_for_a_full_reader_pool() {
     assert_eq!(during_revision, Some(revision));
     assert_eq!(during_cursor, Some(cursor));
     assert_eq!(mux.registry_connection.committed_readers_open(), COMMITTED_READERS);
+    drop(publisher);
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(root);

@@ -14,6 +14,17 @@ import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
+import { WallpaperSwitch } from "./WallpaperSwitch";
+import {
+  DARK_KEY,
+  DYNAMIC_KEY,
+  LIGHT_KEY,
+  LOCATION_KEY,
+  modeOf,
+  SCHEDULE_KEY,
+  WALLPAPER_KEYS,
+  type WallpaperValues,
+} from "../wallpaperSwitch";
 import { focusRingShown } from "../../../ui/focusModality";
 
 export const BACKGROUND_KEY = "appearance.background";
@@ -34,6 +45,12 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
   BACKGROUND_OPACITY_KEY,
   MATERIAL_KEY,
   ROTATION_KEY,
+  // Switch Automatically's keys: its editors draw them.
+  LIGHT_KEY,
+  DARK_KEY,
+  SCHEDULE_KEY,
+  DYNAMIC_KEY,
+  LOCATION_KEY,
 ]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
@@ -157,6 +174,25 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
   const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
+  // Switch Automatically reads the app's keys; a workspace's own background is one picture.
+  const read = (key: string) => {
+    const row = rows.get(key);
+    return (row?.value ?? row?.default ?? null) as unknown;
+  };
+  const switchValues: WallpaperValues = {
+    background: appCurrent,
+    light: (read(LIGHT_KEY) as string | null) ?? null,
+    dark: (read(DARK_KEY) as string | null) ?? null,
+    schedule: (read(SCHEDULE_KEY) as Record<string, string> | null) ?? null,
+    dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
+  };
+  // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
+  const pictures = [
+    { id: "none", title: t("settingsWindow.backdropPicker.none") },
+    ...backdrops.filter((choice) => choice.downloaded !== false),
+  ];
+  const rotating = !own && modeOf(switchValues, backdrops) === "rotate";
+  const rotationRow = rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />;
   const choose = async (id: string) => {
     cancelDwell();
     if (own) {
@@ -353,13 +389,39 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
+      {/* Below the first tiles, so an editor opening never moves them. */}
+      {!own && (
+        <WallpaperSwitch
+          values={switchValues}
+          choices={pictures}
+          location={(read(LOCATION_KEY) as string | null) ?? null}
+          yoursFolder={usage?.folder ?? null}
+          disabled={!state.readable}
+          onWrite={(writes, label) =>
+            store.trackAppearance(
+              WALLPAPER_KEYS,
+              async () => {
+                // In order, stopping at a refusal: Background is written after the pictures it names.
+                for (const [key, value] of writes) {
+                  const result = await (value === null ? store.reset(key) : store.set(key, value));
+                  if (!result.ok) break;
+                }
+              },
+              { label },
+            )
+          }
+          onLocation={(value) => (value === null ? store.reset(LOCATION_KEY) : store.set(LOCATION_KEY, value))}
+          onChooseFolder={() => store.chooseBackdropFolder()}
+          rotation={rotating ? rotationRow : undefined}
+        />
+      )}
       {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       <div className="rows">
         {/* How often the shuffle turns: the app's, so only for All Workspaces. Off without a shuffle,
           but still here, so search and a deep link find it. */}
-        {!own && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />}
+        {!own && !rotating && rotationRow}
         {!own && opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
         {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
           through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}

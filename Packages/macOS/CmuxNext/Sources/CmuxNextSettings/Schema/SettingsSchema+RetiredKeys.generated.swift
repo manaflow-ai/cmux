@@ -34,6 +34,10 @@ extension SettingsSchema {
         "labs.classicHome": "Home is the workspace with the Chief docked on the left",
         // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
         "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
+        "cloud.useMyClaudeLoginOnMyCloudMachines": "Cloud machines reach Claude through the Cloud service; no login is copied",
+        // Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07).
+        "cloud.useMyCodexLoginOnMyCloudMachines": "Cloud machines reach Codex through the Cloud service; no login is copied",
         // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
         "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
         // New Tab widgets removed (Lawrence 2026-11-09: "remove widgets completely").
@@ -68,6 +72,10 @@ extension SettingsSchema {
         "phone.allowConnections": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
         // The cmux-next Mac app no longer runs the iroh phone listener (2026-11-13): no cmux-next phone used it; cmux on iPhone connects through the iPhone host (mobile.allowIPhoneConnections).
         "phone.startSessions": "the Phone Access listener is gone; cmux on iPhone connects through Settings > Mobile (mobile.allowIPhoneConnections)",
+        // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
+        "agents.hiddenChats.discard": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
+        // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
+        "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its

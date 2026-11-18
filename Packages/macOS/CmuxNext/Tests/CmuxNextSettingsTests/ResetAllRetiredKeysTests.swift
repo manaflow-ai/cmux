@@ -25,6 +25,7 @@ import Testing
         """#.utf8).write(to: url)
 
         let settings = SettingsController(
+            writer: TestSettingsWriter(),
             registry: ActionRegistry(catalog: []),
             design: DesignSettings(),
             fileURL: url,
@@ -50,6 +51,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data(#"{ "agentPane": { "display": { "inspector": { "placement": "push" } } } }"#.utf8).write(to: url)
         let settings = SettingsController(
+            writer: TestSettingsWriter(),
             registry: ActionRegistry(catalog: []),
             design: DesignSettings(),
             fileURL: url,

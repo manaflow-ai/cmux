@@ -35,7 +35,9 @@ fn request_shape_is_tagged() {
 
 #[test]
 fn peer_request_allowlist_names_every_refused_shape() {
-    use crate::wire::{Anchor, AnchorSide, ListKey, ListView, Page, PageKey, PageSide, Sub};
+    use crate::wire::{
+        Anchor, AnchorSide, ListKey, ListView, Page, PageKey, PageSide, Position, Sub,
+    };
     use acpmux_book::index::{FolderKey, ListFilter, RowKey};
 
     let mut live_sub = Sub::new("s", "list");
@@ -65,7 +67,12 @@ fn peer_request_allowlist_names_every_refused_shape() {
 
     let mut anchored = live_sub;
     anchored.anchor = Some(Anchor::List {
-        key: ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into() },
+        key: ListKey {
+            last_activity: 1,
+            chat_id: "chat".into(),
+            origin: "local".into(),
+            past: false,
+        },
         side: AnchorSide::After,
     });
     assert!(validate_peer_request(&Request::Sub(anchored)).is_err());
@@ -76,6 +83,7 @@ fn peer_request_allowlist_names_every_refused_shape() {
         last_activity: 1,
         chat_id: "chat".into(),
         origin: "local".into(),
+        past: false,
     })]);
     assert!(validate_peer_request(&Request::Page(keyed.clone())).is_err());
     assert!(
@@ -85,18 +93,72 @@ fn peer_request_allowlist_names_every_refused_shape() {
         }))
         .is_err()
     );
-    for view in [ListView::All, ListView::Folders] {
-        let mut refused = keyed.clone();
-        refused.keys = None;
-        refused.view = Some(view);
-        assert!(validate_peer_request(&Request::Page(refused)).is_err());
-    }
+    let mut turns = keyed.clone();
+    turns.keys = None;
+    turns.turns = true;
+    assert!(validate_peer_request(&Request::Page(turns)).is_err());
+    let mut folders = keyed.clone();
+    folders.keys = None;
+    folders.view = Some(ListView::Folders);
+    assert!(validate_peer_request(&Request::Page(folders)).is_err());
     for filter in &filters {
         let mut refused = keyed.clone();
         refused.keys = None;
         refused.filter = Some(filter.clone());
         assert!(validate_peer_request(&Request::Page(refused)).is_err());
     }
+
+    // Decision 266: `all` and `keys` of this machine's rows, without a sub.
+    let local_key =
+        ListKey { last_activity: 1, chat_id: "chat".into(), origin: "local".into(), past: false };
+    let other_key = ListKey { origin: "c-machine".into(), ..local_key.clone() };
+    let mut all = Page::new("s", "list", PageSide::After, 0);
+    all.after = None;
+    all.view = Some(ListView::All);
+    assert!(validate_peer_request(&Request::Page(all.clone())).is_ok());
+    for allowed in [
+        ListFilter { workspace: Some("workspace".into()), ..ListFilter::default() },
+        ListFilter { state: Some("closed".into()), ..ListFilter::default() },
+        ListFilter { origin: Some("local".into()), ..ListFilter::default() },
+    ] {
+        let page = Page { filter: Some(allowed), ..all.clone() };
+        assert!(validate_peer_request(&Request::Page(page)).is_ok());
+    }
+    // Another origin, and each table filter.
+    for refused in [&filters[1], &filters[3], &filters[4], &filters[5], &filters[6]] {
+        let page = Page { filter: Some(refused.clone()), ..all.clone() };
+        assert!(validate_peer_request(&Request::Page(page)).is_err(), "{refused:?}");
+    }
+    let anchored = |key: &ListKey| Page::new_list("s", "list", PageSide::Before, key.clone());
+    let page = Page { view: Some(ListView::All), ..anchored(&local_key) };
+    assert!(validate_peer_request(&Request::Page(page)).is_ok());
+    let page = Page { view: Some(ListView::All), ..anchored(&other_key) };
+    assert!(validate_peer_request(&Request::Page(page)).is_err(), "another origin's anchor");
+    for refused in [
+        Page { turns: true, ..all.clone() },
+        Page { edition: Some(1), ..all.clone() },
+        Page { fold: Some(1), ..all.clone() },
+    ] {
+        assert!(validate_peer_request(&Request::Page(refused)).is_err());
+    }
+
+    let keys = |keys: &[&ListKey]| Page {
+        view: None,
+        keys: Some(keys.iter().map(|key| PageKey::Summary((*key).clone())).collect()),
+        ..all.clone()
+    };
+    assert!(validate_peer_request(&Request::Page(keys(&[&local_key]))).is_ok());
+    let page = Page { view: Some(ListView::All), ..keys(&[&local_key]) };
+    assert!(validate_peer_request(&Request::Page(page)).is_ok());
+    assert!(validate_peer_request(&Request::Page(keys(&[&local_key, &other_key]))).is_err());
+    assert!(validate_peer_request(&Request::Page(keys(&[]))).is_err());
+    let many: Vec<_> = std::iter::repeat_n(&local_key, 101).collect();
+    assert!(validate_peer_request(&Request::Page(keys(&many))).is_err());
+    let filtered = Page { filter: Some(filters[0].clone()), ..keys(&[&local_key]) };
+    assert!(validate_peer_request(&Request::Page(filtered)).is_err());
+    let anchored_keys =
+        Page { after: Some(Position::List(local_key.clone())), ..keys(&[&local_key]) };
+    assert!(validate_peer_request(&Request::Page(anchored_keys)).is_err());
 }
 
 #[tokio::test]
@@ -1060,6 +1122,113 @@ impl Source for DeferredSource {
     }
 }
 
+/// The source ends a sid (an actor that stopped, a chat evicted) while the client's `unsub` and
+/// `credit` for it are on the wire: the client gets `dropped` and no error, since it could not
+/// know the connection got there first. A sid the connection never had stays `unknown_sid`, and
+/// so does a second `unsub` of the ended one.
+#[tokio::test]
+async fn unsub_and_credit_after_the_connection_ended_the_sid_are_not_errors() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    send(&mut client, json!({"method":"sub","params":{"sid":"s","stream":"chat:x"}})).await;
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+    let sink = source.0.lock().unwrap().clone().unwrap();
+    sink.dropped("s");
+    assert_eq!(receive(&mut client).await.kind, FrameKind::Dropped);
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"never"}})).await;
+    let unknown = |frame: Frame| {
+        assert_eq!(frame.kind, FrameKind::Error);
+        let value: serde_json::Value = frame.decode_json().unwrap();
+        assert_eq!(value["code"], "unknown_sid", "{value}");
+        value["sid"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(unknown(receive(&mut client).await), "never");
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    assert_eq!(unknown(receive(&mut client).await), "s");
+    drop(client);
+    task.await.unwrap().unwrap();
+}
+
+/// With no room for a reply (the client reads nothing and other sids filled the budget past one
+/// largest frame), a late `credit` and `unsub` for a sid the connection ended itself are still
+/// taken: they answer nothing, so they wait for no room.
+#[tokio::test]
+async fn late_credit_and_unsub_need_no_reply_room() {
+    let source = Arc::new(DeferredSource::default());
+    let driver = source.clone();
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, driver, "test", &["chat".into()], Role::Local).await },
+        );
+    hello(&mut client).await;
+    let mut sinks = Vec::new();
+    for sid in ["f", "g", "s"] {
+        send(&mut client, json!({"method":"sub","params":{"sid":sid,"stream":"chat:x"}})).await;
+        assert_eq!(receive(&mut client).await.kind, FrameKind::Error); // not_ready
+        sinks.push(source.0.lock().unwrap().clone().unwrap());
+    }
+    let [f, g, s] = [&sinks[0], &sinks[1], &sinks[2]];
+    // Three frames of nearly MAX_FRAME_BYTES and one of 4 KiB: past three quarters of the
+    // budget, so no request has reply room, and under the whole of it, so nothing drops.
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(f.offer("f", frame(MAX_FRAME_BYTES - 64), Cursor(2)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(MAX_FRAME_BYTES - 64), Cursor(1)), Offer::Taken);
+    assert_eq!(g.offer("g", frame(4096), Cursor(2)), Offer::Taken);
+    s.dropped("s");
+    send(&mut client, json!({"method":"credit","params":{"sid":"s","consumed":1}})).await;
+    send(&mut client, json!({"method":"unsub","params":{"sid":"s"}})).await;
+    let metrics = s.metrics();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while metrics.after_end() < 2 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("the late credit and unsub waited for reply room");
+    assert!(f.metrics().queued_bytes() > 3 * MAX_FRAME_BYTES, "no reply room");
+    // The writer still holds frames the client never reads: end the connection's task.
+    task.abort();
+    drop(client);
+}
+
+/// A connection keeps at most `MAX_SUBSCRIPTIONS` sids it ended itself: the oldest is forgotten,
+/// counted, and a late request for it is `unknown_sid` again. Reusing a sid forgets it too. A
+/// late `credit` leaves the sid kept, for the `unsub` that may follow it.
+#[test]
+fn the_sids_a_connection_ended_itself_are_bounded_and_counted() {
+    let mut state = ConnectionState::default();
+    for n in 0..=MAX_SUBSCRIPTIONS {
+        let sid = format!("s{n}");
+        state.subscribe(sid.as_str(), Cursor(0)).unwrap();
+        let control = state.control(&sid).unwrap();
+        state.drop_from(&sid, &control);
+        while let Some(notice) = state.take() {
+            state.written(&notice);
+        }
+    }
+    assert_eq!(state.metrics.ends_forgotten(), 1);
+    assert!(!state.unsubscribe_ended("s0"));
+    let credit = |sid: &str| Credit { sid: sid.into(), consumed: 1 };
+    assert!(matches!(state.credit(credit("s0")), Err(ConnError::UnknownSubscription(_))));
+    assert_eq!(state.credit(credit("s1")).unwrap(), None);
+    assert!(state.unsubscribe_ended("s1"));
+    state.subscribe("s2", Cursor(0)).unwrap();
+    assert!(state.unsubscribe("s2"));
+    assert!(!state.unsubscribe_ended("s2"));
+    assert_eq!(state.metrics.after_end(), 2);
+}
+
 #[tokio::test]
 async fn not_ready_then_window_uses_the_same_subscription_until_unsub() {
     let source = Arc::new(DeferredSource::default());
@@ -1522,4 +1691,146 @@ fn a_later_reply_past_the_budget_is_counted_and_ends_the_connection() {
     assert!(state.broken());
     assert_eq!(state.metrics.failed_replies(), 1);
     assert_eq!(state.queued_bytes(), 0);
+}
+
+/// A link's serving side over a pipe: `hub` in peer role, as `link_v2` runs it.
+fn peer_link(hub: Arc<Hub>) -> (DuplexStream, tokio::task::JoinHandle<Result<(), ConnError>>) {
+    let source = Arc::new(HubSource::for_peer(hub));
+    let (client, server) = tokio::io::duplex(64 * 1024);
+    let (rd, wr) = tokio::io::split(server);
+    let task =
+        tokio::spawn(
+            async move { run(rd, wr, source, "peer", &["list".into()], Role::Peer).await },
+        );
+    (client, task)
+}
+
+async fn page_reply(client: &mut DuplexStream, page: &Page) -> Frame {
+    send(client, serde_json::to_value(Request::Page(page.clone())).unwrap()).await;
+    receive(client).await
+}
+
+/// Decision 266, the third-machine test. This machine holds 20 live and 11,000 closed rows
+/// of its own and a third machine's rows between them. A link client's `all` walk, newest to
+/// oldest, and its `keys` pages get exactly this machine's rows, in peer form; no frame names
+/// the third machine. Each refused shape gets an error frame, and the link goes on.
+#[tokio::test]
+async fn a_peer_link_pages_all_and_keys_of_this_machine_only() {
+    use crate::wire::{ListKey, ListView, PageKey, PageResult, PageSide, Position};
+    let mut index = SummaryIndex::new();
+    let (mut seq, mut local, mut remote) = (0, Vec::new(), Vec::new());
+    for n in 0..11_020_u64 {
+        let mut mine = Summary::new(format!("b-{n:05}"));
+        mine.last_activity = 1_000_000 - 2 * n;
+        if n >= 20 {
+            mine.state = "closed".into();
+        }
+        local.push(mine.chat_id.clone());
+        seq += 1;
+        index = index.apply(seq, mine);
+        // A third machine's row now and then, and after the 100th a run of 900 of them,
+        // longer than one page's candidates.
+        let run = if n == 100 { 900 } else { u64::from(n % 50 == 0) };
+        for m in 0..run {
+            let mut theirs = Summary::new(format!("c-{n:05}-{m:03}"));
+            theirs.origin = "c-machine".into();
+            theirs.last_activity = 1_000_000 - 2 * n - 1;
+            remote.push(theirs.chat_id.clone());
+            seq += 1;
+            index = index.apply(seq, theirs);
+        }
+    }
+    let (hub, _writer) = Hub::new(index);
+    let hub = Arc::new(hub);
+    assert_eq!(
+        hub.snapshot().len(),
+        local.len() + remote.len(),
+        "the third machine's rows are held"
+    );
+    let (mut client, _serving) = peer_link(hub);
+    hello(&mut client).await;
+    let foreign = |frame: &Frame| {
+        let text = std::str::from_utf8(frame.payload()).unwrap();
+        assert!(!text.contains("c-machine"), "a third machine's origin reached the link");
+        assert!(!remote.iter().any(|id| text.contains(id.as_str())), "a third machine's row");
+    };
+
+    let mut all = Page::new("pages", "list", PageSide::After, 0);
+    all.after = None;
+    all.view = Some(ListView::All);
+    let mut seen = Vec::new();
+    let mut page = all.clone();
+    loop {
+        let frame = page_reply(&mut client, &page).await;
+        assert_eq!(frame.kind, FrameKind::Page, "{:?}", frame.decode_json::<serde_json::Value>());
+        foreign(&frame);
+        let result: PageResult<serde_json::Value> = frame.decode_json().unwrap();
+        assert!(!result.rows.is_empty() || !result.has_after);
+        for row in &result.rows {
+            assert!(row.get("origin").is_none_or(|origin| origin == "local"), "{row}");
+            seen.push(row["chatId"].as_str().unwrap().to_owned());
+        }
+        if !result.has_after {
+            break;
+        }
+        page.after = Some(Position::List(result.after_key.expect("has_after with no key")));
+    }
+    assert_eq!(seen, local, "the walk is this machine's rows, newest first, each once");
+
+    let key = |id: &str, at: u64, origin: &str| ListKey {
+        last_activity: at,
+        chat_id: id.into(),
+        origin: origin.into(),
+        past: false,
+    };
+    let mut keys = all.clone();
+    keys.view = None;
+    keys.keys = Some(vec![
+        PageKey::Summary(key("b-00000", 1_000_000, "local")),
+        PageKey::Summary(key("b-05000", 990_000, "local")),
+        PageKey::Summary(key("gone", 1, "local")),
+    ]);
+    let frame = page_reply(&mut client, &keys).await;
+    assert_eq!(frame.kind, FrameKind::Page);
+    foreign(&frame);
+    let result: PageResult<serde_json::Value> = frame.decode_json().unwrap();
+    let ids: Vec<_> = result.rows.iter().map(|row| row["chatId"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["b-00000", "b-05000"]);
+    assert_eq!(result.missing.len(), 1);
+    assert!(result.unknown.is_empty());
+
+    // Refused, each with an error frame and no rows: another origin's key, anchor and filter.
+    let mut other_key = keys.clone();
+    other_key.keys = Some(vec![PageKey::Summary(key("c-00000-000", 999_999, "c-machine"))]);
+    let mut other_anchor = all.clone();
+    other_anchor.after = Some(Position::List(key("c-00000-000", 999_999, "c-machine")));
+    let mut other_filter = all.clone();
+    other_filter.filter = Some(acpmux_book::index::ListFilter {
+        origin: Some("c-machine".into()),
+        ..Default::default()
+    });
+    for refused in [other_key, other_anchor, other_filter] {
+        let frame = page_reply(&mut client, &refused).await;
+        assert_eq!(frame.kind, FrameKind::Error, "{refused:?}");
+        foreign(&frame);
+    }
+    // The mirror's `live` page without its sub is refused as today.
+    let mut live = all.clone();
+    live.view = Some(ListView::Live);
+    let frame = page_reply(&mut client, &live).await;
+    assert_eq!(frame.kind, FrameKind::Error);
+    assert_eq!(frame.decode_json::<serde_json::Value>().unwrap()["code"], "unknown_sid");
+}
+
+/// A local connection's page still needs its held sub: `all` without one is refused as today.
+#[tokio::test]
+async fn a_local_page_without_a_held_sub_is_refused_as_today() {
+    let (mut client, _task, _hub, _writer, _source) = list_pair();
+    hello(&mut client).await;
+    let mut all = Page::new("nosub", "list", crate::wire::PageSide::After, 0);
+    all.after = None;
+    all.view = Some(crate::wire::ListView::All);
+    let frame = page_reply(&mut client, &all).await;
+    assert_eq!(frame.kind, FrameKind::Error);
+    assert_eq!(frame.decode_json::<serde_json::Value>().unwrap()["code"], "unknown_sid");
 }

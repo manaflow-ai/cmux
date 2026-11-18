@@ -315,11 +315,12 @@ open class ChromeLabel: NSView {
             bounds.fill()
         }
         guard selection == nil, let ctx = NSGraphicsContext.current?.cgContext else { return }
-        // Font smoothing (stem darkening) as AppKit draws a label: an image context leaves it off.
+        // Font smoothing (stem darkening) as AppKit draws a label in this process: an image
+        // context leaves it off.
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.setAllowsFontSmoothing(true)
-        ctx.setShouldSmoothFonts(true)
+        ctx.setShouldSmoothFonts(ProcessFontSmoothing.chrome.smoothsStems)
         LabelText.draw(inkText(color: textColor ?? .labelColor), shape: shape, in: bounds.size, context: ctx)
     }
 

@@ -422,6 +422,9 @@ pub mod method {
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
+    /// The unix socket's first line that turns the connection into a pipe to a machine's cmux-tui
+    /// remote daemon over the hub carrier (`cmux_tui_service.rs`); the reply is the last line.
+    pub const MUX_REMOTE_PIPE: &str = "_acpmux/remote.pipe";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
     /// The asking-mode table and the remote guard's lists, for the native
     /// relay; unix socket only.
@@ -462,6 +465,9 @@ pub mod method {
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
+    /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
+    /// stops and it watches its own transcript (`hub/release_to_watch.rs`): `{sessionId}`.
+    pub const MUX_RELEASE_TO_WATCH: &str = "_acpmux/release_to_watch";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -557,6 +563,10 @@ pub mod method {
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.
     pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
+    /// A local session reads the current legacy Computer Use endpoint (`cua_socket::from_env`):
+    /// its spawn env holds the endpoint of the app launch it started under, which an app
+    /// relaunch replaces (`cmux mcp serve`'s `cua_recovery.rs`).
+    pub const MUX_COMPUTER_USE_ENDPOINT: &str = "_acpmux/computer_use_endpoint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -770,6 +780,23 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
+    // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
+    // also the local app; every change and every ChatGPT call: the unix socket only.
+    pub const MUX_CONNECTIONS: &str = "_acpmux/connections";
+    pub const MUX_CONNECTIONS_ORDER_SET: &str = "_acpmux/connections/order.set";
+    pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
+    pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
+    pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
+    pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
+    /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
+    pub const MUX_CONNECTIONS_CHANGED: &str = "_acpmux/connections.changed";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";
@@ -868,6 +895,15 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    /// The share host's status (`share_host/`): `{}` -> `acpmux.share-host.status/1`, what
+    /// `acpmux share-host status` prints. Local socket only.
+    pub const MUX_SHARE_HOST_STATUS: &str = "_acpmux/share_host_status";
+    /// The person's other machines' workspace routes (`machine_routes.rs`): `{}` ->
+    /// `{machines: [{host, daemonId, via, route, socket, state, refusal}]}`. Local socket only.
+    pub const MUX_MACHINE_ROUTES: &str = "_acpmux/machine_routes";
+    /// One session circuit to a listed machine, opened and closed: `{daemonId}` -> `{ok}` or the
+    /// refusal (`reason`). What New Workspace asks first: the far machine asks its person once.
+    pub const MUX_MACHINE_ROUTE_PROBE: &str = "_acpmux/machine_route_probe";
     /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
     /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
     pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";

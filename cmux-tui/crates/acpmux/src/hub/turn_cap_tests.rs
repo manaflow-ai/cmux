@@ -450,10 +450,9 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
         message_sender: None,
     });
     let (hub, session) = (f.hub.clone(), f.session.clone());
-    let steered =
-        tokio::spawn(
-            async move { hub.steer_queued(&session, run, "test", "inbox-digest-x").await },
-        );
+    let steered = tokio::spawn(async move {
+        hub.steer_queued(&session, run, "test", "inbox-digest-x", false).await
+    });
     let deadline = tokio::time::Instant::now() + WAIT;
     while !f.session.queue().iter().any(|q| q.prompt_id == "inbox-digest-x") {
         assert!(!steered.is_finished(), "it ran: {:?}", steered.await);

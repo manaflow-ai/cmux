@@ -7,6 +7,7 @@
 // the app's one selected-text color). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "../../../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { APP_ACCENTS, contrastReport, deriveAppTheme, type AppAccent } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
@@ -75,6 +76,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     "app-light": useId(),
     "app-dark": useId(),
     accent: useId(),
+    themeFileOpen: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
   const previewOwners = useRef(new Map<"terminal" | "app", object>());
@@ -144,6 +146,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const themeMenu = useRowMenu(THEME_KEY);
   const appMenu = useRowMenu(APP_THEME_KEY);
   const accentMenu = useRowMenu(ACCENT_KEY);
+  const themeFileMenu = useRowMenu(THEME_FILE_KEY);
   const appState = useRowState(APP_THEME_KEY);
   const appDisabled = !state.connected || !state.readable || appManaged !== null;
   const appPaired = appSpec?.kind === "pair";
@@ -442,6 +445,29 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
           )}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
           {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
+          {themeFileRow && (
+            // Open Theme File: the host opens the active theme file in the person's editor, writing
+            // one from the current look first when none is active (`cmux theme export`).
+            <StudioRow
+              kind="themeFileOpen"
+              settingKey={THEME_FILE_KEY}
+              id={ids.themeFileOpen}
+              title={t("settingsPage.theme.file.open")}
+              help={t("settingsPage.theme.file.openHelp")}
+              menu={themeFileMenu}
+            >
+              <Button
+                variant="ghost"
+                type="button"
+                className="link-button"
+                disabled={!state.connected}
+                data-theme-file-action="open"
+                onClick={() => void store.openThemeFile()}
+              >
+                {t("settingsPage.theme.file.open")}
+              </Button>
+            </StudioRow>
+          )}
         </div>
       </section>
     </div>

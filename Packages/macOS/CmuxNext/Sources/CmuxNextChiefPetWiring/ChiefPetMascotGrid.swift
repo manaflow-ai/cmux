@@ -72,7 +72,7 @@ final class ChiefPetMascotGrid: NSStackView {
         guard upload?.still != shownUpload || upload == nil else { return uploadCell.isHidden = false }
         shownUpload = upload?.still
         let picture = upload.map { upload in upload.image.map { NSImage(cgImage: $0, size: .zero) } }
-            ?? NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+            ?? NSImage(systemSymbolName: "plus", accessibilityDescription: nil) // plus-button-allow: a tile's placeholder picture, not a control
         uploadCell.image = picture.map { ChiefPetSettingsRows.thumbnail($0, side: ChiefPetMascotCell.pictureSide) }
         uploadCell.name = upload == nil ? ChiefAvatarUploads.chooseTitle : ChiefAvatarUploads.yoursTitle
         uploadCell.themedToolTip = uploadCell.name

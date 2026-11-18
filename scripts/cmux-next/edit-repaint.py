@@ -136,8 +136,10 @@ class Round:
                 break
             last_unchanged = shot
         final = len(blocks_changed(reference, bmp(shots[-1]["path"])) - mask) if shots else 0
+        # A round with no change keeps its reference and its last snapshot, so a miss can be looked at.
+        kept = (found, last_unchanged) if found else (base[-1], shots[-1] if shots else None)
         for s in base + shots:
-            if s is not found and s is not last_unchanged:
+            if not any(s is k for k in kept):
                 os.unlink(s["path"])
         snap_ms = statistics.median([(s["back"] - s["sent"]) * 1000 for s in shots]) if shots else None
         row = {"write_ms": round((written - started) * 1000, 1), "mask_blocks": len(mask), "snaps": len(shots),
@@ -148,6 +150,20 @@ class Round:
             row["blocks"] = found["blocks"]
             row["shot"] = os.path.basename(found["path"])
         return row
+
+
+def section_readback(app, headline):
+    """The customize section as the window's mirror of its scene holds it (`apps.views`): whether a view is
+    open, its status, revision and words, and whether `headline` is among them."""
+    reply = app.rpc("apps.views", {"app": MANIFEST["id"]}, timeout=10)
+    views = [v for v in (reply.get("views") or []) if v.get("interface") == "cmux.section/1"] \
+        if isinstance(reply, dict) else []
+    if not views:
+        return {"open": False, "reply": reply}
+    view = views[0]
+    return {"open": True, "status": view.get("status"), "revision": view.get("revision"),
+            "surface": view.get("surface"), "shows": headline in (view.get("texts") or []),
+            "texts": view.get("texts")}
 
 
 def summary(rows):
@@ -222,10 +238,17 @@ def main():
                     raise SystemExit(f"edit-repaint: unknown case {case}")
                 row = rnd.run(write, opts.window)
                 row["round"] = i
+                if case == "extension":
+                    # What the window's mirror of the section holds after the snapshots (`apps.views`): the
+                    # new headline there with no pixel change means the save reloaded but the change is
+                    # not where the snapshots look; no view means the section never mounted.
+                    row["section"] = section_readback(app, HEADLINES[i % 2])
                 rows.append(row)
                 print(f"edit-repaint: {case} round {i}: {json.dumps(row)}", flush=True)
                 time.sleep(1.0)
             stats = summary(rows)
+            if case == "extension":  # saves the section's mirror shows, beside the saves the pixels show
+                stats["section_shown"] = sum(1 for r in rows if r.get("section", {}).get("shows"))
             result["cases"][case]["summary"] = stats
             print("EDIT_REPAINT " + json.dumps({"case": case, **stats}), flush=True)
             if case == "theme":  # the next cases run on the default look

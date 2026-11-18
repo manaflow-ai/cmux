@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 const AT: u64 = 1_791_540_000_000;
 
 /// A home on disk: v1's store and its hub, with the tee installed when `books` is on.
-pub(super) struct Home {
+pub(crate) struct Home {
     pub dir: PathBuf,
     _temp: Option<tempfile::TempDir>,
     pub hub: Arc<Hub>,
@@ -49,7 +49,7 @@ impl Home {
 }
 
 /// Chats `(id, messages, bytes)` written through a store at `dir`, then a hub over them, loaded.
-pub(super) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books: bool) -> Home {
+pub(crate) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books: bool) -> Home {
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Local;
     let store = crate::store::open(&config.store, &dir).unwrap();
@@ -79,7 +79,7 @@ pub(super) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books:
     Home { dir, _temp: None, hub, tee }
 }
 
-pub(super) async fn home(chats: &[(String, usize, u64)], books: bool) -> Home {
+pub(crate) async fn home(chats: &[(String, usize, u64)], books: bool) -> Home {
     let temp = tempfile::tempdir().unwrap();
     let mut home = home_at(temp.path().to_path_buf(), chats, books).await;
     home._temp = Some(temp);
@@ -278,7 +278,8 @@ async fn a_notice_to_a_full_mailbox_or_a_failed_chat_is_dropped_and_loses_nothin
     let book = home.book(&chat(0));
     wait_for("the last line saved", Duration::from_secs(120), || cursor(&book) == Some(seq + 1))
         .await;
-    assert!(handle.ready() && handle.failures() == 0);
+    assert!(handle.wait_ready().await, "the actor is ready after the gate opens");
+    assert_eq!(handle.failures(), 0);
     assert!(tee.registry().evict(&chat(0)));
     assert_eq!(cursor(&book), Some(seq + 1), "every line the notices told of is in the book");
 
@@ -391,6 +392,44 @@ async fn a_chat_purged_while_its_actor_runs_leaves_no_book_and_no_actor() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(tee.registry().is_empty());
     assert!(!dir.exists() && books_under(&home.dir).is_empty(), "no book outlives its chat");
+}
+
+/// cmux#43078: an import whose bundle has a line that does not parse is rolled back
+/// (`transfer.rs` `drop_failed_import`), and the tee never began a book or an actor for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_import_leaves_no_book_and_no_actor() {
+    let home = home(&[(chat(0), 40, 64 << 10)], true).await;
+    let tee = home.tee().clone();
+    home.hub.config.write().await.harnesses.insert(
+        "claude".into(),
+        serde_json::from_value(serde_json::json!({"argv": ["claude"]})).unwrap(),
+    );
+    let out = tempfile::tempdir().unwrap();
+    let bundle = home.hub.export(&home.session(&chat(0)), out.path()).unwrap();
+    let id = "failed-import";
+    let mut meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(bundle.join("session.json")).unwrap())
+            .unwrap();
+    meta["id"] = id.into();
+    std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+    let mut events = std::fs::OpenOptions::new()
+        .append(true)
+        .open(bundle.join("events").join("000001.ndjson"))
+        .unwrap();
+    std::io::Write::write_all(&mut events, b"not a record\n").unwrap();
+    drop(events);
+    let held = tee.registry().len();
+
+    let failed = home.hub.import(&bundle, None).await;
+    assert!(failed.is_err_and(|e| e.message.contains("import events")), "the import failed");
+    assert!(home.hub.session_by_id(id).is_none());
+    assert!(!home.hub.store.session_path(id).unwrap().exists(), "the import is rolled back");
+    // A mark for the id hydrates nothing: the chat is in no hub map.
+    tee.tell(&home.hub, id);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(tee.registry().get(id).is_none());
+    assert_eq!(tee.registry().len(), held);
+    assert!(!home.book(id).exists(), "no book for the failed import");
 }
 
 /// The daemon's catch-up of one long chat in a child process, killed at a point of the parent's

@@ -764,13 +764,15 @@ impl ConnectionStats {
         &self.commands
     }
 
-    /// Opens the session's slow request log in `directory`, once; the log, if there is one.
+    /// Opens the session's slow request log in `directory`, once, with `clock` as its wall
+    /// clock; the log, if there is one.
     pub(crate) fn open_request_log(
         &self,
         directory: &std::path::Path,
+        clock: request_log::Clock,
     ) -> Option<&std::sync::Arc<request_log::RequestLog>> {
         if self.request_log.get().is_none()
-            && let Some(log) = request_log::RequestLog::open(directory)
+            && let Some(log) = request_log::RequestLog::open(directory, clock)
         {
             let _ = self.request_log.set(log);
         }

@@ -167,11 +167,20 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
+    /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
+    public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
+    /// Settings → Transport → Align Keepalives (off by default): every keepalive goes out on
+    /// one 10 s beat. Read by the dial and by the app's timers (`KeepaliveBeat`) through the same key.
+    public var alignKeepalives: Bool { didSet { save(alignKeepalives, "alignKeepalives") } }
+    /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
+    /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
+    public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -212,6 +221,8 @@ public final class SettingsStore {
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
@@ -219,6 +230,8 @@ public final class SettingsStore {
         self.ultra = ultra
         // Saved now: the dial reads this key, and the earlier switch is retired below.
         defaults.set(ultra.rawValue, forKey: "cmuxMobile.settings.ultra")
+        alignKeepalives = bool("alignKeepalives", false)
+        agentCLIHybrid = bool("agentCLIHybrid", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)

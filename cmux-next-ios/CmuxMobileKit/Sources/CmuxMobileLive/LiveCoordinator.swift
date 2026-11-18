@@ -101,6 +101,11 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    #if DEBUG
+    /// This phone's device ids for the account (link, then presence): the ids a Mac lists the phone by.
+    /// DEBUG only: the dogfood readiness receipt is its one reader.
+    public var deviceIDs: [String] { [identity.link, identity.presence] }
+    #endif
     /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
     @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
@@ -268,6 +273,10 @@ public final class LiveCoordinator {
             if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
             var scoped = summary
             scoped.accountID = self.userID
+            // A terminal tab's chat face names its acpmux session itself (Toggle Terminal and Chat).
+            if let owner, let session = summary.acpmuxSessionID {
+                return self.agentSource(owner, session: session, summary: scoped)
+            }
             let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
             // A tab of a workspace this phone is still creating (New Task, New Agent Chat): the Mac
             // is starting its chat, which opens under the Mac's own tab id once listed. It loads
@@ -301,6 +310,8 @@ public final class LiveCoordinator {
             return self.agentSource(owner, session: session, summary: scoped)
         }
         restoreSnapshot()
+        // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
+        if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
     }
 

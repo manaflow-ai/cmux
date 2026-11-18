@@ -15,30 +15,25 @@
 use super::tests::{Home, home};
 use super::*;
 use crate::god_fixture::{Shape, chat_id};
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
 const ROUNDS: usize = 5;
 const APPENDS: usize = 2_000;
 
-fn p95(values: &[u64]) -> u64 {
-    let mut values = values.to_vec();
-    values.sort_unstable();
-    values.get((values.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap_or(0)
-}
-
-/// The best p95 of the rounds, and the p95 of every sample of them.
-fn measures(rounds: &[Vec<u64>]) -> (u64, u64) {
-    let best = rounds.iter().map(|round| p95(round)).min().unwrap_or(0);
-    let all: Vec<u64> = rounds.iter().flatten().copied().collect();
-    (best, p95(&all))
+/// The rounds' samples as [`gate_rounds`] takes them.
+fn measures(rounds: &[Vec<u64>]) -> Vec<Vec<u128>> {
+    rounds.iter().map(|round| round.iter().copied().map(u128::from).collect()).collect()
 }
 
 /// Prints the row's line (so a red run still has its numbers) and writes it to `V2_GATE_OUT`,
 /// then holds the best p95 to 1.2x and, when the row has one, every sample's to `all_limit`.
 fn emit(name: &str, small: &[Vec<u64>], god: &[Vec<u64>], all_limit: Option<f64>) {
-    let (small_p95, small_all) = measures(small);
-    let (god_p95, god_all) = measures(god);
+    let (small, god) = (measures(small), measures(god));
+    gate_rounds::report(name, &[("small", &small), ("god", &god)]);
+    let (small_p95, small_all) = (best_p95(&small), all_p95(&small));
+    let (god_p95, god_all) = (best_p95(&god), all_p95(&god));
     let line = json!({
         "name": name,
         "small_p95": small_p95,
@@ -86,6 +81,34 @@ async fn caught_up(home: &Home) {
 
 fn take_hook_samples() -> Vec<u64> {
     std::mem::take(&mut *HOOK_NS.lock().unwrap())
+}
+
+/// The hook's time is kept while this lives: a gate round that panics clears `HOOK_RECORDING`
+/// as it unwinds, so no later test in the process grows the samples (cmux#43100).
+struct Recording;
+
+impl Recording {
+    fn start() -> Self {
+        HOOK_RECORDING.store(true, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        HOOK_RECORDING.store(false, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn a_panic_while_recording_clears_the_flag() {
+    let panicked = std::panic::catch_unwind(|| {
+        let _recording = Recording::start();
+        assert!(HOOK_RECORDING.load(Ordering::Relaxed));
+        panic!("a gate round failed");
+    });
+    assert!(panicked.is_err());
+    assert!(!HOOK_RECORDING.load(Ordering::Relaxed), "the flag outlived the panic");
 }
 
 /// One round of prompts to `id`, each timed through v1's append.
@@ -139,14 +162,14 @@ async fn v2_pr03b_tee_append_added() {
     caught_up(&god).await;
     let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     take_hook_samples();
-    HOOK_RECORDING.store(true, Ordering::Relaxed);
+    let recording = Recording::start();
     for round in 0..ROUNDS {
         appends(&small, &chat_id(0), round);
         small_rounds.push(take_hook_samples());
         appends(&god, &chat_id(0), round);
         god_rounds.push(take_hook_samples());
     }
-    HOOK_RECORDING.store(false, Ordering::Relaxed);
+    drop(recording);
     let _ = small_drain.close(Duration::from_secs(1)).await;
     let _ = god_drain.close(Duration::from_secs(1)).await;
     emit("v2.pr03b.tee_append_added", &small_rounds, &god_rounds, Some(2.0));

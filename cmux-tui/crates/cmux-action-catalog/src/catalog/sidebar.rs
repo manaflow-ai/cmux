@@ -26,12 +26,12 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "sidebar.customize",
         group: GROUP,
-        title: t("ActionCatalog", "action.sidebar.customize", "Customize sidebar…"),
+        title: t("ActionCatalog", "action.sidebar.customize", "Customize Sidebar…"),
         keywords: &["sidebar", "customize", "rows", "layout", "density", "sections"],
         category: "sidebar",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 299)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 118).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },

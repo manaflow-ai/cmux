@@ -5,6 +5,11 @@
 # (`acpmux host self-update`, run by their acpmux-update.timer). A tree without
 # the daemon-tests.json marker is not pointed at.
 #
+# A windows-<name> channel names the tree's Windows acpmux instead, from the
+# tree's completion-windows.json (only a dispatch with include_windows builds
+# it): the Windows join line (cmux-tui/scripts/machine-join.ps1) installs from
+# it.
+#
 # The pointer only moves forward, and fails closed: it moves when GitHub's
 # compare says this commit is ahead of the one it names, or there is no file
 # yet; behind, identical, diverged, a compare or read that fails, or a file that
@@ -18,7 +23,7 @@
 # Usage: cmux-tui-point-channel.sh <channel> <tree key>
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
 # GITHUB_API_URL, GITHUB_REPOSITORY and GH_TOKEN (the compare).
-# Caller: cmux-tui-artifacts.yml point-feat-channel.
+# Caller: cmux-tui-artifacts.yml point-feat-channel and point-windows-channel.
 set -euo pipefail
 
 channel="${1:-}"
@@ -38,11 +43,20 @@ if ! curl --head --fail --silent --proto '=https' --connect-timeout 20 --max-tim
   echo "Tree $key has no daemon-tests marker yet; the $channel channel stays where it is."
   exit 0
 fi
-fetch "$base/tree/$key/completion.json" "$tmp/completion.json"
+if [[ "$channel" == windows-* ]]; then
+  if ! fetch "$base/tree/$key/completion-windows.json" "$tmp/completion.json"; then
+    echo "Tree $key has no completion-windows.json (no Windows build); the $channel channel stays where it is."
+    exit 0
+  fi
+else
+  fetch "$base/tree/$key/completion.json" "$tmp/completion.json"
+fi
 
-python3 - "$key" "$tmp/completion.json" > "$tmp/channel.json" <<'PY'
+# Exit 10 from the reader: a windows-* tree with no acpmux (its companion build is optional).
+status=0
+python3 - "$key" "$tmp/completion.json" "$channel" > "$tmp/channel.json" <<'PY' || status=$?
 import json, os, re, sys
-key, path = sys.argv[1], sys.argv[2]
+key, path, channel = sys.argv[1], sys.argv[2], sys.argv[3]
 completion = json.load(open(path))
 if completion.get("key") != key or not isinstance(completion.get("binaries"), dict):
     raise SystemExit(f"error: the completion.json of tree {key} names another key or no binaries")
@@ -51,10 +65,17 @@ binaries = {
     for name, digest in completion["binaries"].items()
     if name.startswith("cmux-tui-acpmux-") and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
 }
+if not binaries and channel.startswith("windows-"):
+    sys.exit(10)
 if not binaries:
     raise SystemExit(f"error: tree {key} lists no acpmux binaries")
 print(json.dumps({"key": key, "commit": os.environ["GITHUB_SHA"], "binaries": binaries}, indent=2, sort_keys=True))
 PY
+if [[ "$status" == 10 ]]; then
+  echo "Tree $key's Windows build has no acpmux (an optional companion); the $channel channel stays where it is."
+  exit 0
+fi
+[[ "$status" == 0 ]] || exit "$status"
 
 # The channel's current file, read again on every attempt (a new query, so no
 # cache answers it): "absent", "ok" with $tmp/current.json, or "unreadable".

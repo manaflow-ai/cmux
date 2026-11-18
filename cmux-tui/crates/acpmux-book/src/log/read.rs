@@ -7,7 +7,8 @@
 //! ([`Window::bytes`]); [`Log::fill`] reads checked ranges for other callers.
 //!
 //! One read does at most one search of `folds.idx`, then steps to neighbouring entries as its
-//! walk moves; rows between two folds cost no read of the index.
+//! walk moves; rows between two folds cost no read of the index. A page of turns
+//! ([`Log::read_turns`]) reads only the group rows `folds.idx` lists.
 //!
 //! Windows and pages hold at most [`MAX_ROWS`] visible rows. The record-byte bounds are
 //! [`MAX_FRAME_BYTES`] for a window or resume and [`MAX_PAGE_BYTES`] for a page.
@@ -135,7 +136,16 @@ pub struct Since {
 pub enum ResumeSize {
     Within(u64),
     Over,
+    /// A header on the way to the record after the cursor is not the next record's (or the log
+    /// ends first): the resume would stop at it, so its size is not known. The caller sends a
+    /// window and rebuilds the book, as for a record a read refused.
+    Damaged,
 }
+
+/// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
+/// none when its index entry is missing or its record is refused: a hole that keeps its place
+/// and its row slot.
+type TurnRead = (RowRef, Vec<u8>);
 
 /// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
@@ -706,17 +716,112 @@ impl Log {
         Ok(result)
     }
 
-    /// Measures the bytes a resume starts from, without reading a record. Cursors in the
-    /// same sparse block share an upper bound; a span across three segments is always over.
+    /// A page of turns: the group rows `folds.idx` lists just before or just after a row, one a
+    /// settled turn, nearest the anchor first to be taken. Each is carried as a window carries
+    /// a closed fold's group row, its record checked. No other row of a fold and no row between
+    /// folds is read. At most `max_bytes` of records ([`MAX_PAGE_BYTES`] at most) and
+    /// [`MAX_ROWS`] rows, always one when one exists; `has_before` and `has_after` say whether
+    /// `folds.idx` lists more on each side. The fold that holds the anchor is before it (unless
+    /// the anchor is its group row), never on both sides. The open turn's group row is not
+    /// settled, so `folds.idx` does not list it.
+    ///
+    /// One search of `folds.idx`, then one step to a neighbouring entry, one `rows.idx` lookup
+    /// and one read a group row: the cost of a page, at any number of turns or length of turn.
+    pub fn read_turns(
+        &mut self,
+        edge: Edge,
+        max_bytes: usize,
+        folds: &Folds,
+    ) -> Result<Window, Error> {
+        if self.broken {
+            return Err(Error::Stopped);
+        }
+        let count = folds.count();
+        let (id, up) = match edge {
+            Edge::Before(id) => (id, false),
+            Edge::After(id) => (id, true),
+        };
+        // `first_after` is the position of the first entry whose group is after the anchor.
+        // Before it, an entry whose group is the anchor itself is on neither side.
+        let (first_after, before_end) = match folds.search(id)? {
+            Some((position, entry)) => {
+                let after = position.saturating_add(1);
+                (after, if entry.group == id { position } else { after })
+            }
+            None => (0, 0),
+        };
+        let mut next =
+            if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
+        let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
+        let mut taken: Vec<(u64, Option<TurnRead>)> = Vec::new();
+        while let Some(at) = next
+            && taken.len() < MAX_ROWS
+        {
+            let Some(fold) = folds.entry_at(at)? else { break };
+            let read = match self.entry(fold.group) {
+                Some(entry) => {
+                    let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
+                    if len > bytes_left && !taken.is_empty() {
+                        break;
+                    }
+                    bytes_left = bytes_left.saturating_sub(len);
+                    let row = RowRef::of(fold.group, 0, &entry);
+                    self.read_row_bytes(&row)?.map(|text| (row, text))
+                }
+                None => None,
+            };
+            taken.push((fold.group, read));
+            next = if up {
+                Some(at.saturating_add(1)).filter(|at| *at < count)
+            } else {
+                at.checked_sub(1)
+            };
+        }
+        let (has_before, has_after) = if up {
+            (first_after > 0, next.is_some())
+        } else {
+            (next.is_some(), before_end < count)
+        };
+        if !up {
+            taken.reverse();
+        }
+        let mut result = Window {
+            lo: taken.first().map_or(id, |(group, _)| *group),
+            hi: taken.last().map_or(id, |(group, _)| *group),
+            has_before,
+            has_after,
+            ..Window::default()
+        };
+        for (group, read) in taken {
+            match read {
+                Some((row, text)) => {
+                    let start = result.bytes.len();
+                    result.bytes.extend_from_slice(&text);
+                    result.at.push(start..result.bytes.len());
+                    result.rows.push(row);
+                }
+                None => result.refused.push(group),
+            }
+        }
+        Ok(result)
+    }
+
+    /// Measures the bytes a resume reads, from the record after `cursor` to the end, without
+    /// reading a record's text: the records between `seq.idx`'s entry and the cursor cost a
+    /// header read each ([`Log::since_start`]). A span across three segments is always over.
     /// At most one closed segment's metadata is read. The actor uses a 1 MiB cap.
-    pub fn resume_size(&self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
+    pub fn resume_size(&mut self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if cursor >= self.last_seq {
             return Ok(ResumeSize::Within(0));
         }
-        let (seg, offset) = self.resume_start(cursor)?;
+        // A header that is not the next record's: the resume reads up to it and stops, so
+        // its size is not known here, and the book is damaged.
+        let Some((seg, offset)) = self.since_start(cursor)? else {
+            return Ok(ResumeSize::Damaged);
+        };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),
             Some(1) => {
@@ -748,10 +853,48 @@ impl Log {
         }
     }
 
+    /// Where the record after `cursor` starts: from `seq.idx`'s entry at or before the cursor,
+    /// one read of a header (40 bytes) a record, at most 255, so neither a resume nor its
+    /// measure reads or counts the records before its cursor, whatever their size. `None`
+    /// when a header on the way is not the next record's or the log ends first.
+    fn since_start(&mut self, cursor: u64) -> Result<Option<(u32, u64)>, Error> {
+        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
+        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut head = [0u8; HEADER_LEN];
+        while expected <= cursor {
+            let read = match self.read_segment(seg, offset, &mut head) {
+                Ok(read) => read,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+            if read == 0 {
+                // The end of a segment: the next record starts the next one.
+                if seg >= self.tail.seg {
+                    return Ok(None);
+                }
+                seg = seg.saturating_add(1);
+                offset = super::SEGMENT_HEADER_LEN;
+                continue;
+            }
+            let Some(header) = head.get(..read).and_then(Header::parse) else {
+                return Ok(None);
+            };
+            if header.seq != expected {
+                return Ok(None);
+            }
+            expected = expected.saturating_add(1);
+            offset = offset.saturating_add(header.record_len() as u64);
+        }
+        Ok(Some((seg, offset)))
+    }
+
     /// The records after `cursor`, in change order: at most `max_bytes` of record bytes
     /// ([`MAX_FRAME_BYTES`] at most), always at least one when one exists. Starts at the
-    /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
-    /// records before it), never the book. A cursor at or past the last seq gets nothing.
+    /// record after the cursor ([`Log::since_start`]), so it reads what was missed, never the
+    /// book. A cursor at or past the last seq gets nothing.
     /// Bytes alone bound a resume: it has no row count cap ([`MAX_ROWS`] bounds windows and
     /// pages only).
     pub fn since(&mut self, cursor: u64, max_bytes: usize) -> Result<Since, Error> {
@@ -767,10 +910,12 @@ impl Log {
         if cursor >= self.last_seq {
             return Ok(since);
         }
-        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
-        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let Some((mut seg, mut offset)) = self.since_start(cursor)? else {
+            since.stopped_on_refusal = true;
+            return Ok(since);
+        };
         let mut left = Self::bound(max_bytes, MAX_FRAME_BYTES) as u64;
-        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut expected = cursor.saturating_add(1);
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
             let read = match self.read_segment(seg, offset, &mut chunk) {

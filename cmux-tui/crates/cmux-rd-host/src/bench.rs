@@ -39,6 +39,12 @@ use std::os::fd::AsRawFd;
 const KEY_A: u32 = 0x0007_0004;
 /// The bench's upstream stream id (any id the host does not use for a display).
 const UP_STREAM: u16 = 100;
+/// The most `--marker-log` entries kept (about 28 minutes at 60 fps).
+const MARKER_LOG_MAX: usize = 100_000;
+
+#[cfg(all(test, any(feature = "vp9", feature = "av1")))]
+#[path = "bench_eval_tests.rs"]
+mod eval_tests;
 
 /// How the bench reaches the host: the development sockets, or a device hub
 /// session's secure link (`--link`, the same path `cmux-rd serve` serves).
@@ -164,7 +170,23 @@ struct Viewer {
     marker_at_ns: u64,
     /// Host capture time (host monotonic us) of the frame that showed the marker.
     marker_capture_us: u64,
+    /// The frame that showed the marker, when its first datagram arrived and when the
+    /// datagram that completed it arrived (this Mac's clock, ns): with `marker_at_ns`, the
+    /// viewer's share of a key press's time (`sample_times`, scripts/screen-share-vs.py).
+    marker_frame: u32,
+    marker_first_rx_ns: u64,
+    marker_complete_ns: u64,
+    /// Times the marker changed (`--input none`: the fps of a ticking marker).
+    marker_changes: u64,
+    /// `--marker-log 1` (passive runs): every marker change, as (decoded µs on the protocol
+    /// clock, marker), so a script can time recovery after a stall frame by frame.
+    marker_log: Option<Vec<(u64, u16)>>,
+    /// The first datagram's arrival of the newest video frames (frame, ns).
+    first_rx: std::collections::VecDeque<(u32, u64)>,
     frames: u64,
+    decoded_frames: u64,
+    eval_decode: Option<crate::eval::DecodeLog>,
+    eval_quality: Option<crate::eval::Quality>,
     bytes: u64,
     decode_ms: Vec<f64>,
     decode_errors: u64,
@@ -194,6 +216,10 @@ struct Viewer {
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
     vt: Option<crate::vtdecode::VtDecoder>,
+    /// Linux `--present :N`: every decoded frame drawn in a window on that X display.
+    #[cfg(target_os = "linux")]
+    presenter: Option<crate::present::Presenter>,
+    present_errors: u64,
     /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
     /// host started with the same `--codec`, and the picture it decodes into.
     #[cfg(any(feature = "vp9", feature = "av1"))]
@@ -214,6 +240,33 @@ impl Viewer {
         self.io.send_datagram(d)
     }
 
+    /// A decoded frame (`frame`, captured at host `t_capture_us`, completed at `complete_ns`,
+    /// decoded at `decoded_ns`) read `read` from the marker.
+    fn saw_marker(
+        &mut self,
+        read: Option<u16>,
+        frame: u32,
+        t_capture_us: u64,
+        complete_ns: u64,
+        decoded_ns: u64,
+    ) {
+        let Some(v) = read else { return };
+        if self.marker == Some(v) {
+            return;
+        }
+        self.marker_changes += u64::from(self.marker.is_some());
+        if let Some(log) = self.marker_log.as_mut().filter(|log| log.len() < MARKER_LOG_MAX) {
+            log.push((decoded_ns / 1000, v));
+        }
+        self.marker = Some(v);
+        self.marker_at_ns = decoded_ns;
+        self.marker_capture_us = t_capture_us;
+        self.marker_frame = frame;
+        self.marker_complete_ns = complete_ns;
+        self.marker_first_rx_ns =
+            self.first_rx.iter().find(|(f, _)| *f == frame).map_or(complete_ns, |(_, at)| *at);
+    }
+
     fn on_datagram(&mut self, d: &[u8]) {
         let now = now_ns();
         let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
@@ -224,6 +277,12 @@ impl Viewer {
                     transport_seq: h.transport_seq,
                     arrival_us: (now / 1000) as u32,
                 });
+                if !self.first_rx.iter().any(|(f, _)| *f == h.frame) {
+                    if self.first_rx.len() >= 64 {
+                        self.first_rx.pop_front();
+                    }
+                    self.first_rx.push_back((h.frame, now));
+                }
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
                     self.frames += 1;
@@ -238,17 +297,31 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(Some(picture)) => {
+                                self.decoded_frames += 1;
+                                if let Some(log) = self.eval_decode.as_mut() {
+                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                                }
+                                if let Some(quality) = self.eval_quality.as_mut() {
+                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                        quality.decoded(
+                                            u64::from(frame.frame),
+                                            frame.body.t_capture_us,
+                                            &frame.body.access_unit,
+                                            &pixels,
+                                        );
+                                    }
+                                }
                                 let origin = self.marker_origin;
                                 let read = picture.with_luma(|y, stride| {
                                     marker::decode_luma_at(y, stride, true, origin)
                                 });
-                                if let Some(v) = read {
-                                    if self.marker != Some(v) {
-                                        self.marker = Some(v);
-                                        self.marker_at_ns = t1;
-                                        self.marker_capture_us = frame.body.t_capture_us;
-                                    }
-                                }
+                                self.saw_marker(
+                                    read,
+                                    frame.frame,
+                                    frame.body.t_capture_us,
+                                    now,
+                                    t1,
+                                );
                                 if self.want_snapshot {
                                     self.newest_picture = Some(picture);
                                 }
@@ -265,54 +338,91 @@ impl Viewer {
                         self.decode_ms.push((t1 - t0) as f64 / 1e6);
                         match decoded {
                             Ok(true) => {
+                                self.decoded_frames += 1;
+                                if let Some(log) = self.eval_decode.as_mut() {
+                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                                }
+                                if let Some(quality) = self.eval_quality.as_mut() {
+                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                        quality.decoded(
+                                            u64::from(frame.frame),
+                                            frame.body.t_capture_us,
+                                            &frame.body.access_unit,
+                                            &pixels,
+                                        );
+                                    }
+                                }
                                 let read = marker::decode_luma_at(
                                     &pic.y,
                                     pic.width,
                                     true,
                                     self.marker_origin,
                                 );
-                                if let Some(v) = read {
-                                    if self.marker != Some(v) {
-                                        self.marker = Some(v);
-                                        self.marker_at_ns = t1;
-                                        self.marker_capture_us = frame.body.t_capture_us;
-                                    }
-                                }
+                                self.saw_marker(
+                                    read,
+                                    frame.frame,
+                                    frame.body.t_capture_us,
+                                    now,
+                                    t1,
+                                );
                             }
                             Ok(false) => {}
                             Err(_) => self.decode_errors += 1,
                         }
                         continue;
                     }
-                    let decoded = self.decoder.decode(&frame.body.access_unit);
-                    let t1 = now_ns();
-                    self.decode_ms.push((t1 - t0) as f64 / 1e6);
-                    match decoded {
-                        Ok(Some(yuv)) => {
-                            // OpenH264 lends its picture only for this call, so a snapshot
-                            // converts every frame: use --snapshot for pictures, not timing.
-                            if self.want_snapshot {
-                                let (w, h) = yuv.dimensions();
-                                let mut rgb = vec![0u8; w * h * 3];
-                                yuv.write_rgb8(&mut rgb);
-                                self.snapshot = Some((w, h, rgb));
-                            }
-                            if let Some(v) = marker::decode_luma_at(
-                                yuv.y(),
-                                yuv.strides().0,
-                                true,
-                                self.marker_origin,
-                            ) {
-                                if self.marker != Some(v) {
-                                    self.marker = Some(v);
-                                    self.marker_at_ns = t1;
-                                    self.marker_capture_us = frame.body.t_capture_us;
+                    let t1;
+                    // A block, so the decoder's borrowed picture ends before saw_marker.
+                    let read = {
+                        let decoded = self.decoder.decode(&frame.body.access_unit);
+                        t1 = now_ns();
+                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                        match decoded {
+                            Ok(Some(yuv)) => {
+                                #[cfg(target_os = "linux")]
+                                if let Some(p) = self.presenter.as_mut() {
+                                    if p.show(&yuv).is_err() {
+                                        self.present_errors += 1;
+                                    }
                                 }
+                                self.decoded_frames += 1;
+                                if let Some(log) = self.eval_decode.as_mut() {
+                                    log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
+                                }
+                                if let Some(quality) = self.eval_quality.as_mut() {
+                                    if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0)
+                                    {
+                                        quality.decoded(
+                                            u64::from(frame.frame),
+                                            frame.body.t_capture_us,
+                                            &frame.body.access_unit,
+                                            &pixels,
+                                        );
+                                    }
+                                }
+                                // OpenH264 lends its picture only for this call, so a snapshot
+                                // converts every frame: use --snapshot for pictures, not timing.
+                                if self.want_snapshot {
+                                    let (w, h) = yuv.dimensions();
+                                    let mut rgb = vec![0u8; w * h * 3];
+                                    yuv.write_rgb8(&mut rgb);
+                                    self.snapshot = Some((w, h, rgb));
+                                }
+                                marker::decode_luma_at(
+                                    yuv.y(),
+                                    yuv.strides().0,
+                                    true,
+                                    self.marker_origin,
+                                )
+                            }
+                            Ok(None) => None,
+                            Err(_) => {
+                                self.decode_errors += 1;
+                                None
                             }
                         }
-                        Ok(None) => {}
-                        Err(_) => self.decode_errors += 1,
-                    }
+                    };
+                    self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                 }
             }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
@@ -574,9 +684,25 @@ fn cpu_s() -> f64 {
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
+    // The first decoder session in a process is the slow one: create a throwaway one now,
+    // in parallel with connecting, so the first IDR does not pay for it.
+    #[cfg(target_os = "macos")]
+    if opts.str_or("decoder", "videotoolbox") == "videotoolbox"
+        && opts.num_or("vt-prewarm", 1u8)? == 1
+    {
+        crate::vtdecode::prewarm_in_background();
+    }
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
+    let eval_local = opts.num_or("eval-local", 0u8)? == 1;
+    let eval_relay = opts.num_or("eval-netem-relay", 0u8)? == 1;
+    if (eval_local || eval_relay) && (!addr.ip().is_loopback() || opts.get("link").is_some()) {
+        return Err("local eval requires a loopback socket address, without --link".into());
+    }
+    if eval_relay && carrier != "udp" {
+        return Err("--eval-netem-relay requires --carrier udp".into());
+    }
     // key (default) | click | scroll: which input moves the marker (cloud browser page);
     // none: a passive window (`run_passive`).
     let input = opts.str_or("input", "key");
@@ -599,7 +725,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         } else {
             None
         };
-        let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
+        let udp_port = udp
+            .as_ref()
+            .map(|(s, _)| -> io::Result<u16> {
+                if eval_relay {
+                    // Teach the local relay our actual endpoint before Hello. The relay
+                    // consumes this empty probe; advertise its port for downstream media.
+                    s.send_to(&[], addr)?;
+                    Ok(addr.port())
+                } else {
+                    Ok(s.local_addr()?.port())
+                }
+            })
+            .transpose()?;
         (ViewerIo::Socket { tcp, reader: FrameReader::default(), udp }, udp_port)
     };
     let mut v = Viewer {
@@ -611,7 +749,16 @@ pub fn run(opts: &Opts) -> Res<()> {
         marker: None,
         marker_at_ns: 0,
         marker_capture_us: 0,
+        marker_frame: 0,
+        marker_first_rx_ns: 0,
+        marker_complete_ns: 0,
+        marker_changes: 0,
+        marker_log: (opts.num_or("marker-log", 0u8)? == 1).then(Vec::new),
+        first_rx: std::collections::VecDeque::new(),
         frames: 0,
+        decoded_frames: 0,
+        eval_decode: eval_local.then(crate::eval::DecodeLog::default),
+        eval_quality: if eval_local { crate::eval::Quality::from_env() } else { None },
         bytes: 0,
         decode_ms: Vec::new(),
         decode_errors: 0,
@@ -651,7 +798,14 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        #[cfg(target_os = "linux")]
+        presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
+        present_errors: 0,
     };
+    #[cfg(not(target_os = "linux"))]
+    if opts.get("present").is_some() {
+        return Err("--present needs Linux (X11)".into());
+    }
     // `--at X,Y`: where click and scroll input lands, in stream pixels.
     let (at_x, at_y) = match opts.get("at") {
         Some(at) => {
@@ -728,6 +882,14 @@ pub fn run(opts: &Opts) -> Res<()> {
         None => None,
     };
     let first_frame_ms = (v.marker_at_ns.saturating_sub(start)) as f64 / 1e6;
+    // The first frame's own times, so a script can split first_frame_ms with the host's log.
+    let first_frame_times = json!({
+        "start_ns": start,
+        "capture_us": v.marker_capture_us,
+        "first_rx_ns": v.marker_first_rx_ns,
+        "complete_ns": v.marker_complete_ns,
+        "decoded_ns": v.marker_at_ns,
+    });
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     // A stall is a run of lost samples: from the first lost key press to the next one
     // that showed. A link blip shows up here as its length plus the recovery time.
@@ -738,6 +900,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Same-machine runs share CLOCK_MONOTONIC, so these split the sample at the host capture.
     let mut to_capture = Vec::new();
     let mut capture_to_decoded = Vec::new();
+    // Each shown sample on this Mac's clock (ns) with the host's capture time (µs), for a
+    // breakdown against the host's CMUX_RD_TIMING_LOG (scripts/screen-share-vs.py).
+    let mut sample_times = Vec::new();
     let mut lost = 0usize;
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
@@ -771,6 +936,14 @@ pub fn run(opts: &Opts) -> Res<()> {
                 to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
                 capture_to_decoded
                     .push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
+                sample_times.push(json!({
+                    "sent_ns": t0,
+                    "frame": v.marker_frame,
+                    "capture_us": v.marker_capture_us,
+                    "first_rx_ns": v.marker_first_rx_ns,
+                    "complete_ns": v.marker_complete_ns,
+                    "decoded_ns": v.marker_at_ns,
+                }));
                 break;
             }
             if now_ns() - t0 > 1_000_000_000 {
@@ -791,15 +964,18 @@ pub fn run(opts: &Opts) -> Res<()> {
         "input": input,
         "welcome": v.welcome,
         "first_frame_ms": first_frame_ms,
+        "first_frame_times": first_frame_times,
         "stalls_ms": stalls_ms,
         "g2g_ms": pct(&mut g2g),
         "lost": lost,
         "same_clock_input_to_capture_ms": pct(&mut to_capture),
         "same_clock_capture_to_decoded_ms": pct(&mut capture_to_decoded),
+        "sample_times": sample_times,
         "frames_per_s": (v.frames - f0) as f64 / secs,
         "mbit_per_s": (v.bytes - b0) as f64 * 8.0 / secs / 1e6,
         "decode_ms": pct(&mut v.decode_ms.clone()),
         "decode_errors": v.decode_errors,
+        "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
@@ -818,7 +994,7 @@ pub fn run(opts: &Opts) -> Res<()> {
 fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> Res<()> {
     let duration_ns = opts.num_or("duration-s", 30u64)? * 1_000_000_000;
     let start = now_ns();
-    while v.frames == 0 {
+    while v.decoded_frames == 0 {
         v.pump(5_000_000)?;
         if let Some(e) = &v.ended {
             return Err(format!("ended before the first frame: {e}").into());
@@ -836,8 +1012,18 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
     };
     let (c0, t_begin) = (cpu_s(), now_ns());
     let frames_start = v.frames;
+    let decoded_start = v.decoded_frames;
+    let marker_changes_start = v.marker_changes;
+    let bytes_start = v.bytes;
+    // The measured window starts after first frame. Preserve that distinction.
+    if let Some(log) = v.eval_decode.as_mut() {
+        log.records.clear();
+        log.truncated = false;
+    }
     let mut series = Vec::new();
     let (mut bytes, mut frames, mut decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+    let mut bucket_start = t_begin;
+    let mut decoded = v.decoded_frames;
     let mut next = t_begin + 1_000_000_000;
     while now_ns() - t_begin < duration_ns && v.ended.is_none() {
         v.pump(next.saturating_sub(now_ns()).max(1_000_000))?;
@@ -849,10 +1035,14 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
             "unix_ms": unix_ms(),
             "bytes": v.bytes - bytes,
             "frames": v.frames - frames,
+            "decoded_frames": v.decoded_frames - decoded,
+            "duration_ms": (now_ns() - bucket_start) as f64 / 1e6,
             "decode_ms": pct(&mut v.decode_ms[decode_from..].to_vec()),
             "host_stats": v.stats.last(),
         }));
         (bytes, frames, decode_from) = (v.bytes, v.frames, v.decode_ms.len());
+        decoded = v.decoded_frames;
+        bucket_start = now_ns();
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
     let fps = v.frames.saturating_sub(frames_start) as f64 / secs.max(f64::EPSILON);
@@ -862,10 +1052,24 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "input": "none",
         "welcome": v.welcome,
         "seconds": secs,
+        "bytes": v.bytes - bytes_start,
+        "decoded_frames": v.decoded_frames - decoded_start,
+        "eval_clock": v.eval_decode.as_ref().map(|_| "same-host protocol monotonic microseconds"),
+        "eval_begin_us": v.eval_decode.as_ref().map(|_| t_begin / 1000),
+        "eval_end_us": v.eval_decode.as_ref().map(|_| now_ns() / 1000),
+        "decode_records": v.eval_decode.as_ref().map(|log| &log.records),
+        "decode_records_truncated": v.eval_decode.as_ref().map(|log| log.truncated),
+        "quality_samples": v.eval_quality.as_ref().map(|quality| &quality.samples),
         "first_frame_ms": first_frame_ms,
         "fps": fps,
+        // A host marker that counts every refresh (cmux-rd-marker --tick) changes once per
+        // frame that shows something new: the fps a person sees, not the frames sent.
+        "marker_changes": v.marker_changes - marker_changes_start,
+        "marker_fps": (v.marker_changes - marker_changes_start) as f64 / secs.max(f64::EPSILON),
         "series": series,
+        "marker_log": v.marker_log.as_ref(),
         "decode_errors": v.decode_errors,
+        "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "ended": v.ended,
     });

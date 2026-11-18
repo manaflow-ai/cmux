@@ -1025,9 +1025,12 @@ export type PresenceNote = {
 
 export interface PrewarmParams {
   _meta?: RequestMeta;
+  credentials?: unknown;
   cwd?: unknown;
   harness?: unknown;
+  model?: unknown;
   release?: unknown;
+  workspaceId?: unknown;
 }
 
 /**
@@ -1239,6 +1242,11 @@ export type QueuedSubagentRetry = {
   /** Its task or name, when acpmux knew one. */
   name: (string | null);
 } & Record<string, unknown>;
+
+export interface ReleaseToWatchParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+}
 
 export type RequestMeta = {
   acpmux?: AcpmuxRequestMeta;

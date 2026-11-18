@@ -1,6 +1,9 @@
 //! I/O-free client state machine for agent-service v2.
 
+pub mod chat;
 pub mod ffi;
+pub mod page;
+pub mod tokio_list;
 pub mod wire;
 
 use acpmux_list_types::{OriginState, RowKey, Summary};
@@ -87,6 +90,8 @@ pub enum Change<T> {
         cursor: Cursor,
     },
     Fallback(Vec<u8>),
+    /// A chat sub's change: the same queue, the same credit, and no `T`.
+    Chat(chat::ChatChange),
 }
 
 /// Encodes a list summary using the object shape expected by the v1 app.
@@ -189,6 +194,9 @@ enum PagePurpose {
     User,
     MirrorWalk,
     Wanted,
+    /// A page asked under its own sid with no sub, for the relay (row 8b): answered once,
+    /// never sent again on a reconnect.
+    Relay,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -229,6 +237,11 @@ pub struct Client<T = Summary> {
     direct_v2: bool,
     upgrade_id: Option<Value>,
     skips: SkipCounters,
+    chats: HashMap<String, chat::ChatSub>,
+    blobs: VecDeque<chat::PendingBlob>,
+    /// The surfaces this connection's upgrade granted; none while not known (before the reply,
+    /// and on a handle made already connected in v2, which has what it named).
+    granted: Option<Vec<String>>,
 }
 
 /// Counts protocol values this client intentionally skips while preserving the
@@ -239,13 +252,15 @@ pub struct SkipCounters {
     pub unknown_op: u64,
     pub missing_seq: u64,
     pub unheld_sid: u64,
+    /// A chat window or page past 400 rows or 256 KB, skipped and answered with an error change.
+    pub over_bound: u64,
 }
 
 struct QueuedChange<T> {
-    change: Change<T>,
-    sid: Option<String>,
-    bytes: u64,
-    charge: bool,
+    pub(crate) change: Change<T>,
+    pub(crate) sid: Option<String>,
+    pub(crate) bytes: u64,
+    pub(crate) charge: bool,
 }
 
 impl<T> Client<T>
@@ -276,6 +291,53 @@ where
             direct_v2: false,
             upgrade_id: None,
             skips: SkipCounters::default(),
+            chats: HashMap::new(),
+            blobs: VecDeque::new(),
+            granted: None,
+        }
+    }
+
+    /// Whether this connection serves a stream's surface: no for one its upgrade did not grant.
+    fn surface_granted(&self, stream: &wire::Stream) -> bool {
+        let surface = if stream.as_str().starts_with("chat:") { "chat" } else { stream.as_str() };
+        self.granted.as_ref().is_none_or(|granted| granted.iter().any(|name| name == surface))
+    }
+
+    /// Ends a list sub whose surface the connection does not serve: one `error` change with
+    /// method `sub` and code `surface_off`, and nothing on the wire.
+    fn end_list_surface_off(&mut self, sid: String) {
+        self.subscriptions.remove(&sid);
+        self.pages.remove(&sid);
+        self.stale_folder_pages.remove(&sid);
+        self.deferred_folder_pages.remove(&sid);
+        self.push_change(
+            Change::Error {
+                method: "sub".into(),
+                sid: Some(sid),
+                id: None,
+                code: "surface_off".into(),
+            },
+            None,
+            0,
+            false,
+        );
+    }
+
+    /// After the upgrade reply: each held sub on a surface not granted ends, the list's first,
+    /// each in order of its sid.
+    fn end_subs_not_granted(&mut self) {
+        let mut lists: Vec<String> = self
+            .subscriptions
+            .iter()
+            .filter(|(_, sub)| !self.surface_granted(&sub.request.stream))
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        lists.sort_unstable();
+        for sid in lists {
+            self.end_list_surface_off(sid);
+        }
+        if !self.surface_granted(&wire::Stream::new("chat:")) {
+            self.end_chats_surface_off();
         }
     }
 
@@ -288,6 +350,10 @@ where
     }
 
     pub fn connected(&mut self) {
+        // A handle in fallback asks for v2 again on its next connection.
+        if self.phase == Phase::Fallback {
+            self.phase = Phase::Upgrade;
+        }
         if self.phase == Phase::Upgrade {
             let id = self.next_id;
             self.next_id += 1;
@@ -300,6 +366,10 @@ where
     pub fn disconnected(&mut self) {
         if self.phase != Phase::Fallback {
             self.phase = if self.direct_v2 { Phase::Hello } else { Phase::Upgrade };
+        }
+        if !self.direct_v2 {
+            // The next upgrade reply says again what is granted.
+            self.granted = None;
         }
         self.send.clear();
         self.frame_buf.clear();
@@ -340,6 +410,7 @@ where
             sub.consumed = 0;
             sub.credited = 0;
         }
+        self.chats_disconnected();
         if self.direct_v2 {
             self.queue_hello();
         }
@@ -361,24 +432,31 @@ where
         self.send.pop_front()
     }
     pub fn next_change(&mut self) -> Option<Change<T>> {
-        let queued = self.changes.pop_front()?;
+        let queued = self.next_change_uncredited()?;
+        self.acknowledge_change(&queued);
+        Some(queued.change)
+    }
+
+    /// Removes one change without returning credit to the daemon. The page driver uses this to
+    /// hold a bounded batch until the page acknowledges it. Legacy callers should continue to
+    /// use [`Self::next_change`], which takes the change immediately.
+    pub(crate) fn next_change_uncredited(&mut self) -> Option<QueuedChange<T>> {
+        self.changes.pop_front()
+    }
+
+    /// Returns credit for a change previously removed with [`Self::next_change_uncredited`].
+    pub(crate) fn acknowledge_change(&mut self, queued: &QueuedChange<T>) {
         if queued.charge
             && let Some(sid) = queued.sid.as_deref()
         {
-            let mut credit = None;
-            if let Some(sub) = self.subscriptions.get_mut(sid) {
-                sub.consumed = sub.consumed.saturating_add(queued.bytes);
-                if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
-                    sub.credited = sub.consumed;
-                    credit = Some(sub.consumed);
-                }
-            }
-            if let Some(consumed) = credit {
-                let _ = self
-                    .queue_request(Request::Credit(wire::Credit { sid: sid.to_owned(), consumed }));
-            }
+            self.charge_frame_now(Some(sid), queued.bytes);
         }
-        Some(queued.change)
+    }
+
+    /// Whether the handle has a queued protocol change. The page driver uses this to avoid
+    /// treating an empty batch as a page event.
+    pub(crate) fn has_queued_changes(&self) -> bool {
+        !self.changes.is_empty()
     }
 
     pub fn received(&mut self, bytes: &[u8]) -> usize {
@@ -405,6 +483,9 @@ where
             };
             if value.get("error").is_some_and(Value::is_object) {
                 self.phase = Phase::Fallback;
+                // Decision 225: each chat sub ends with one change before the fallback; the
+                // list's subs stay for the caller's v1 feed.
+                self.end_chats_surface_off();
                 let rest = bytes.get(end.saturating_add(1)..).unwrap_or_default().to_vec();
                 self.push_change(Change::Fallback(rest), None, 0, false);
                 return bytes.len();
@@ -415,6 +496,15 @@ where
                 self.protocol_error("invalid upgrade reply");
                 return bytes.len();
             }
+            // Decision 223: the reply names the surfaces granted; an older daemon's names none,
+            // and it granted all the handle named.
+            let granted = value
+                .pointer("/result/surfaces")
+                .and_then(Value::as_array)
+                .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_else(|| self.surfaces.clone());
+            self.granted = Some(granted);
+            self.end_subs_not_granted();
             self.phase = Phase::Hello;
             self.queue_hello();
             let remainder = bytes.get(end.saturating_add(1)..).unwrap_or_default();
@@ -491,6 +581,14 @@ where
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
         }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
+        }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
+        }
         if sub.view == Some(ListView::Folders) {
             // A folders window is a replacement head snapshot. Cursors and
             // editions belong to resumable summary streams only.
@@ -545,6 +643,14 @@ where
             held_keys.into_iter().map(|key| (Self::row_identity(&key), key)).collect();
         if !wire::identifier_fits(&sub.sid) {
             return Err(FrameError::InvalidLength(sub.sid.len()));
+        }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
+        }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
         }
         let sid = sub.sid.clone();
         let cursor = sub.cursor.unwrap_or_default();
@@ -628,7 +734,9 @@ where
         Ok(())
     }
 
+    /// Ends a list or a chat sub.
     pub fn unsubscribe(&mut self, sid: &str) -> Result<(), FrameError> {
+        self.forget_chat(sid);
         self.subscriptions.remove(sid);
         self.stale_folder_pages.remove(sid);
         self.deferred_folder_pages.remove(sid);
@@ -668,6 +776,33 @@ where
         Ok(())
     }
 
+    /// A page with no held sub, under its own `sid`, asked once: what a peer link answers for
+    /// `all` and `keys` (decision 266), sent by the relay (row 8b). Its answer is one
+    /// [`Change::Page`] or [`Change::Error`] for that sid, applied to no sub and to no index. A
+    /// reconnect drops it unanswered, and it is not sent again.
+    pub fn relay_page(&mut self, page: Page) -> Result<(), FrameError> {
+        if !wire::identifier_fits(&page.sid) {
+            return Err(FrameError::InvalidLength(page.sid.len()));
+        }
+        if self.phase != Phase::Ready {
+            return Err(FrameError::Refused("a relayed page needs a ready v2 connection"));
+        }
+        if self.pages.contains_key(&page.sid) || self.subscriptions.contains_key(&page.sid) {
+            return Err(FrameError::RequestInFlight);
+        }
+        let frame = Frame::json(FrameKind::Request, &Request::Page(page.clone()))?;
+        self.pages.insert(
+            page.sid,
+            PageState { request: None, purpose: PagePurpose::Relay, ..PageState::default() },
+        );
+        self.send.push_back(frame.encode());
+        Ok(())
+    }
+
+    fn is_relay_page(&self, sid: &str) -> bool {
+        self.pages.get(sid).is_some_and(|state| matches!(state.purpose, PagePurpose::Relay))
+    }
+
     fn queue_request(&mut self, request: Request) -> Result<(), FrameError> {
         self.send.push_back(Frame::json(FrameKind::Request, &request)?.encode());
         Ok(())
@@ -696,6 +831,7 @@ where
         for request in requests {
             let _ = self.queue_request(Request::Page(request));
         }
+        self.queue_chat_requests();
     }
 
     fn row_key(value: &Value) -> Option<ListKey> {
@@ -703,6 +839,7 @@ where
             last_activity: value.get("lastActivity")?.as_u64()?,
             chat_id: value.get("chatId").or_else(|| value.get("sessionId"))?.as_str()?.to_owned(),
             origin: value.get("origin").and_then(Value::as_str).unwrap_or("local").to_owned(),
+            past: false,
         })
     }
 
@@ -774,6 +911,7 @@ where
                     last_activity: 0,
                     chat_id: parent.1.clone(),
                     origin: parent.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(parent.clone(), key.clone());
                 mirror.internal_wanted.insert(parent);
@@ -1051,6 +1189,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1095,6 +1234,7 @@ where
                 filter: sub.request.filter.clone(),
                 edition: None,
                 fold: None,
+                turns: false,
             }
         };
         self.pages.insert(
@@ -1165,6 +1305,7 @@ where
 
     fn accept_frame(&mut self, frame: Frame) {
         let frame_bytes = frame.encoded_len() as u64;
+        let Some(frame) = self.accept_chat_frame(frame, frame_bytes) else { return };
         match frame.kind {
             FrameKind::Hello => {
                 let Ok(reply) = frame.decode_json::<wire::HelloReply>() else {
@@ -1281,6 +1422,17 @@ where
                     .decode_json::<Value>()
                     .ok()
                     .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                if let Some(sid) = sid_hint.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    let Ok(page) = frame.decode_json::<PageResult<T>>() else {
+                        self.protocol_error("malformed page");
+                        return;
+                    };
+                    self.pages.remove(sid);
+                    self.push_change(Change::Page(page), None, frame_bytes, false);
+                    return;
+                }
                 if sid_hint.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
                     // An unheld page cannot be applied to any current
                     // subscription. Skip it before generic decoding, since a
@@ -1376,6 +1528,8 @@ where
                         }
                     }
                     PagePurpose::MirrorWalk => self.accept_mirror_walk_page(page, frame_bytes),
+                    // A relay page is answered above, before the sub check.
+                    PagePurpose::Relay => {}
                     PagePurpose::Wanted => self.accept_wanted_page(
                         page,
                         frame_bytes,
@@ -1412,6 +1566,25 @@ where
                     return;
                 };
                 let sid = value.get("sid").and_then(Value::as_str).map(str::to_owned);
+                if value.get("method").and_then(Value::as_str) == Some("page")
+                    && let Some(sid) = sid.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    self.pages.remove(sid);
+                    let code = value.get("code").and_then(Value::as_str).unwrap_or("error");
+                    self.push_change(
+                        Change::Error {
+                            method: "page".into(),
+                            sid: Some(sid.to_owned()),
+                            id: None,
+                            code: code.to_owned(),
+                        },
+                        None,
+                        frame_bytes,
+                        false,
+                    );
+                    return;
+                }
                 if sid.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
                     self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
                 }
@@ -1543,6 +1716,7 @@ where
                     filter: sub.request.filter.clone(),
                     edition: None,
                     fold: None,
+                    turns: false,
                 }
             };
             self.pages.insert(
@@ -1692,12 +1866,18 @@ where
 
     fn charge_frame_now(&mut self, sid: Option<&str>, bytes: u64) {
         let Some(sid) = sid else { return };
+        let quarter = self.limits.credit_window / 4;
         let consumed = {
-            let Some(sub) = self.subscriptions.get_mut(sid) else { return };
-            sub.consumed = sub.consumed.saturating_add(bytes);
-            if sub.consumed.saturating_sub(sub.credited) >= self.limits.credit_window / 4 {
-                sub.credited = sub.consumed;
-                Some(sub.consumed)
+            let credit = if self.subscriptions.contains_key(sid) {
+                self.subscriptions.get_mut(sid).map(|sub| (&mut sub.consumed, &mut sub.credited))
+            } else {
+                self.chat_credit(sid)
+            };
+            let Some((consumed, credited)) = credit else { return };
+            *consumed = consumed.saturating_add(bytes);
+            if consumed.saturating_sub(*credited) >= quarter {
+                *credited = *consumed;
+                Some(*consumed)
             } else {
                 None
             }
@@ -2172,6 +2352,75 @@ mod tests {
         assert!(std::str::from_utf8(&c.take_send().unwrap()).unwrap().contains("_acpmux/v2"));
     }
 
+    /// A relayed page (row 8b) needs a ready connection, is sent once under its own sid, and
+    /// its answer or error comes back as one change for that sid with no sub; a reconnect drops
+    /// it and does not send it again.
+    #[test]
+    fn a_relayed_page_is_sent_once_and_answered_without_a_sub() {
+        let mut client = Client::<Value>::connected_v2();
+        let page = || Page::new("relay-1", "list", wire::PageSide::After, 0);
+        assert!(matches!(client.relay_page(page()), Err(FrameError::Refused(_))));
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        client.received(&hello);
+        while client.take_send().is_some() {}
+        client.relay_page(page()).unwrap();
+        assert!(matches!(client.relay_page(page()), Err(FrameError::RequestInFlight)));
+        let sent = Frame::from_encoded(&client.take_send().unwrap()).unwrap();
+        let sent: Value = sent.decode_json().unwrap();
+        assert_eq!(sent["method"], "page");
+        assert_eq!(sent["params"]["sid"], "relay-1");
+        assert!(client.take_send().is_none());
+        let answer = Frame::json(
+            FrameKind::Page,
+            &serde_json::json!({"sid":"relay-1","rows":[{"chatId":"a"}],"hasBefore":false,"hasAfter":true}),
+        )
+        .unwrap()
+        .encode();
+        assert_eq!(client.received(&answer), answer.len());
+        match client.next_change() {
+            Some(Change::Page(result)) => {
+                assert_eq!(result.sid, "relay-1");
+                assert_eq!(result.rows.len(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Answered: the sid is free again, and a second answer for it is skipped.
+        client.received(&answer);
+        assert!(client.next_change().is_none());
+        client.relay_page(Page::new("relay-2", "list", wire::PageSide::After, 0)).unwrap();
+        let error = Frame::json(
+            FrameKind::Error,
+            &serde_json::json!({"method":"page","sid":"relay-2","code":"busy","message":"full"}),
+        )
+        .unwrap()
+        .encode();
+        client.received(&error);
+        assert_eq!(
+            client.next_change(),
+            Some(Change::Error {
+                method: "page".into(),
+                sid: Some("relay-2".into()),
+                id: None,
+                code: "busy".into(),
+            })
+        );
+        client.relay_page(Page::new("relay-3", "list", wire::PageSide::After, 0)).unwrap();
+        client.disconnected();
+        client.connected();
+        let resent = std::iter::from_fn(|| client.take_send())
+            .filter_map(|bytes| Frame::from_encoded(&bytes).ok())
+            .filter(|frame| frame.payload().windows(7).any(|w| w == b"relay-3"))
+            .count();
+        assert_eq!(resent, 0, "a relayed page is not sent again");
+        client.received(&hello);
+        assert!(client.relay_page(Page::new("relay-3", "list", wire::PageSide::After, 0)).is_ok());
+    }
+
     #[test]
     fn received_stops_at_one_frame_until_change_is_taken() {
         let mut client = Client::<Value>::connected_v2();
@@ -2202,6 +2451,8 @@ mod tests {
         let mut bytes = first.clone();
         bytes.extend_from_slice(&second);
         assert_eq!(client.received(&bytes), first.len());
+        assert_eq!(client.changes.len(), 1);
+        assert_eq!(client.changes.front().map(|queued| queued.bytes), Some(first.len() as u64));
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
         assert_eq!(client.received(&bytes[first.len()..]), second.len());
         assert!(matches!(client.next_change(), Some(Change::Window(_))));
@@ -2737,6 +2988,7 @@ tail"#;
             filter: None,
             edition: None,
             fold: None,
+            turns: false,
         };
         client.page(page_request).unwrap();
         let folder = serde_json::json!({
@@ -3042,8 +3294,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             mirror_page_error(&mut client);
@@ -3072,7 +3328,12 @@ tail"#;
         mirror_window(&mut client);
         assert_eq!(take_pages(&mut client).len(), 1);
         finish_empty_walk(&mut client);
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3110,7 +3371,12 @@ tail"#;
         mirror_page_error(&mut client);
         assert!(take_pages(&mut client).is_empty());
 
-        let key = ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+        let key = ListKey {
+            last_activity: 1,
+            chat_id: "wanted".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [key]).unwrap();
         assert_eq!(take_pages(&mut client).len(), 1);
         mirror_page_error(&mut client);
@@ -3128,8 +3394,12 @@ tail"#;
             let mut client = ready_mirror();
             mirror_window(&mut client);
             assert_eq!(take_pages(&mut client).len(), 1);
-            let key =
-                ListKey { last_activity: 1, chat_id: "wanted".into(), origin: "local".into() };
+            let key = ListKey {
+                last_activity: 1,
+                chat_id: "wanted".into(),
+                origin: "local".into(),
+                past: false,
+            };
             client.want("m", [key]).unwrap();
             assert!(take_pages(&mut client).is_empty());
             for error in 0..prior_errors {
@@ -3482,6 +3752,10 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "500 held rows of safe code, over 10 minutes under Miri; no FFI call"
+    )]
     fn mirror_parent_refresh_batches_only_its_held_children() {
         for total in [20, 500] {
             let mut client = Client::<Value>::connected_v2();
@@ -3543,6 +3817,7 @@ tail"#;
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "4,096 keys of safe code, over 10 minutes under Miri; no FFI call")]
     fn caller_wanted_keys_have_priority_over_internal_parents() {
         let mut client = ready_mirror();
         {
@@ -3553,13 +3828,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.internal_wanted.insert(id);
             }
         }
-        let caller_key =
-            ListKey { last_activity: 1, chat_id: "caller".into(), origin: "local".into() };
+        let caller_key = ListKey {
+            last_activity: 1,
+            chat_id: "caller".into(),
+            origin: "local".into(),
+            past: false,
+        };
         client.want("m", [caller_key.clone()]).unwrap();
         let mirror = client.subscriptions["m"].mirror.as_ref().unwrap();
         assert!(mirror.caller_wanted.contains(&Client::<Value>::row_identity(&caller_key)));
@@ -3585,12 +3865,18 @@ tail"#;
                     last_activity: index as u64,
                     chat_id: id.1.clone(),
                     origin: id.0.clone(),
+                    past: false,
                 };
                 mirror.wanted.insert(id.clone(), key);
                 mirror.caller_wanted.insert(id);
             }
         }
-        let extra = ListKey { last_activity: 0, chat_id: "extra".into(), origin: "local".into() };
+        let extra = ListKey {
+            last_activity: 0,
+            chat_id: "extra".into(),
+            origin: "local".into(),
+            past: false,
+        };
         assert!(all_caller.want("m", [extra]).is_err());
     }
 
@@ -3607,8 +3893,10 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key1 = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
-        let key2 = ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into() };
+        let key1 =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
+        let key2 =
+            ListKey { last_activity: 2, chat_id: "b".into(), origin: "local".into(), past: false };
         client.want("m", [key1, key2.clone()]).unwrap();
         let _ = client.take_send().expect("wanted read");
         let partial = Frame::json(
@@ -3641,7 +3929,8 @@ tail"#;
         while client.take_send().is_some() {}
         client.subscribe_mirror(Sub::new("m", "list"), std::iter::empty(), true).unwrap();
         let _ = client.take_send();
-        let key = ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into() };
+        let key =
+            ListKey { last_activity: 1, chat_id: "a".into(), origin: "local".into(), past: false };
         client.want("m", [key]).unwrap();
         let _ = client.take_send().expect("wanted page");
         let error = Frame::json(
@@ -3726,87 +4015,6 @@ tail"#;
             mirror.parent_children[&(String::from("local"), String::from("parent"))]
                 .contains(&(String::from("local"), String::from("child")))
         );
-    }
-
-    #[test]
-    #[ignore = "release gate: run once through cmux-ci with --profile gate"]
-    fn v2_pr04b_mirror_v1_rows_gate() {
-        fn sample(closed_rows: usize) -> (u64, u64) {
-            use acpmux_book::index::{ReadSide, SummaryIndex};
-
-            let mut timings = Vec::new();
-            let mut received = 0_u64;
-            for _ in 0..8 {
-                let mut client = Client::<Value>::connected_v2();
-                let hello = Frame::json(
-                    FrameKind::Hello,
-                    &wire::HelloReply { daemon_id: "d".into(), limits: Limits::default() },
-                )
-                .unwrap()
-                .encode();
-                client.received(&hello);
-                while client.take_send().is_some() {}
-                let mut sub = Sub::new("m", "list");
-                sub.rows = Some("v1".into());
-                sub.view = Some(ListView::Live);
-                client.subscribe_mirror(sub, std::iter::empty(), false).unwrap();
-                let _ = client.take_send();
-                let mut index = SummaryIndex::new();
-                for row_id in 0..closed_rows {
-                    let mut row = Summary::new(format!("closed-{row_id}"));
-                    row.state = "closed".into();
-                    row.last_activity = row_id as u64;
-                    index = index.apply(row_id as u64 + 1, row);
-                }
-                for row_id in 0..20 {
-                    let mut row = Summary::new(format!("live-{row_id}"));
-                    row.state = "idle".into();
-                    row.last_activity = 11_000 + row_id as u64;
-                    index = index.apply((closed_rows + row_id) as u64 + 1, row);
-                }
-                let page = index
-                    .read_live_page(None, ReadSide::After, false, 100, wire::MAX_PAGE_BYTES, None)
-                    .unwrap();
-                assert_eq!(page.rows.len(), 20);
-                let rows: Vec<Value> = page
-                    .rows
-                    .iter()
-                    .map(|row| serde_json::to_value(row.as_ref()).unwrap())
-                    .collect();
-                drop(page);
-                drop(index);
-                let frame = Frame::json(
-                    FrameKind::Window,
-                    &serde_json::json!({"sid":"m","cursor":1,"rows":rows,"hasBefore":false,"hasAfter":false,"edition":1}),
-                )
-                .unwrap()
-                .encode();
-                received = received.saturating_add(frame.len() as u64);
-                let started = std::time::Instant::now();
-                assert_eq!(client.received(&frame), frame.len());
-                assert!(matches!(client.next_change(), Some(Change::Window(_))));
-                timings.push(started.elapsed().as_nanos() as u64);
-            }
-            timings.sort_unstable();
-            (timings[timings.len() / 2], received)
-        }
-        let (small, small_bytes) = sample(0);
-        let (god, god_bytes) = sample(11_000);
-        let line = serde_json::json!({
-            "name":"v2.pr04b.mirror_v1_rows",
-            "small_p95":small,
-            "god_p95":god,
-            "unit":"ns",
-            "small_bytes":small_bytes,
-            "god_bytes":god_bytes
-        });
-        println!("{line}");
-        if let Ok(path) = std::env::var("V2_GATE_OUT") {
-            use std::io::Write as _;
-            let mut output =
-                std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-            writeln!(output, "{line}").unwrap();
-        }
     }
 
     #[cfg(feature = "tokio")]

@@ -41,6 +41,9 @@ public nonisolated enum TerminalHostLoss: Sendable, Equatable {
     case restartExhausted
     /// The owner's restart after a host loss failed.
     case restartFailed
+    /// The owner's restart after a host loss found no free PTY: closing
+    /// terminals frees one, then this terminal can restart.
+    case restartFailedNoFreeTerminal
 }
 
 extension TerminalConnectionStatus {

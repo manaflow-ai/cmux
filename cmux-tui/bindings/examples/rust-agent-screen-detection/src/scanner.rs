@@ -24,17 +24,18 @@ use cmux::{
     JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart,
     JournalSubject, MutationOptions, ReadScreenOptions, ResourceChange, ResourceReference,
     Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
-    Terminal, TerminalId,
+    Terminal, TerminalId, TerminalLifecycle,
 };
 use serde_json::json;
 
 use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
+use crate::first_scan::{ListedTerminal, first_scan_ids};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
+use crate::reconnect::{Pass, run_passes};
 pub use crate::wake_kinds::journal_wake_kinds;
 
-const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 const PROCESS_GROUP_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
 const PROCESS_GROUP_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
 const PROCESS_GROUP_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
@@ -86,6 +87,16 @@ impl ScannerState {
         }
     }
 
+    /// The detector holds state for `terminal_id`: a tracker entry, a probe
+    /// cache, an agent job, or a journal request that it must send again.
+    fn knows_terminal(&self, terminal_id: &str) -> bool {
+        self.tracker.tracks(terminal_id)
+            || self.pending_appends.contains_key(terminal_id)
+            || self.agent_jobs.contains_key(terminal_id)
+            || self.process_cache.entries.contains_key(terminal_id)
+            || self.process_info_cache.entries.contains_key(terminal_id)
+    }
+
     fn retain_terminals(&mut self, live: &HashSet<String>) {
         // Keep the in-memory tracker and probe caches for an uncertain
         // envelope until replay settles it. Otherwise a later successful
@@ -133,27 +144,53 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
-    loop {
-        let config = Config::from_socket_path(socket);
-        match Client::connect(config) {
-            Ok(client) => {
-                let session = client.session(session_selector.clone());
-                if let Err(error) = register_manifest(&session, plugin_id) {
-                    eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
-                    thread::sleep(RECONNECT_INTERVAL);
-                    continue;
-                }
-                match scan_connection(&session, plugin_id, plugin_generation.as_deref(), &mut state)
-                {
-                    Ok(()) => return Ok(()),
-                    Err(error) => eprintln!(
-                        "cmux-agent-screen-detection: {session_name} connection ended: {error}"
-                    ),
-                }
-            }
-            Err(error) => eprintln!("cmux-agent-screen-detection: connect failed: {error}"),
+    let started = Instant::now();
+    run_passes(
+        || {
+            connection_pass(
+                socket,
+                session_name,
+                &session_selector,
+                plugin_id,
+                plugin_generation.as_deref(),
+                &mut state,
+            )
+        },
+        thread::sleep,
+        || started.elapsed(),
+    );
+    Ok(())
+}
+
+/// One pass of the reconnect loop: connect, register the manifest, scan until
+/// the connection ends.
+fn connection_pass(
+    socket: &str,
+    session_name: &str,
+    session_selector: &Selector<SessionId>,
+    plugin_id: &str,
+    plugin_generation: Option<&str>,
+    state: &mut ScannerState,
+) -> Pass {
+    let client = match Client::connect(Config::from_socket_path(socket)) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: connect failed: {error}");
+            return Pass::NotScanned;
         }
-        thread::sleep(RECONNECT_INTERVAL);
+    };
+    let session = client.session(session_selector.clone());
+    if let Err(error) = register_manifest(&session, plugin_id) {
+        eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
+        return Pass::NotScanned;
+    }
+    let mut scanned = false;
+    match scan_connection(&session, plugin_id, plugin_generation, state, &mut scanned) {
+        Ok(()) => Pass::Done,
+        Err(error) => {
+            eprintln!("cmux-agent-screen-detection: {session_name} connection ended: {error}");
+            if scanned { Pass::Scanned } else { Pass::NotScanned }
+        }
     }
 }
 
@@ -331,6 +368,7 @@ fn scan_connection(
     plugin_id: &str,
     plugin_generation: Option<&str>,
     state: &mut ScannerState,
+    scanned: &mut bool,
 ) -> Result<(), String> {
     let manifests = match ManifestSet::from_environment() {
         Ok(manifests) => manifests,
@@ -378,6 +416,8 @@ fn scan_connection(
         Ok(item.map(|item| terminal_wakes(&item.value)))
     })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
+    // From here the pass has its wake streams and the terminals of the session.
+    *scanned = true;
     let live_ids = snapshots.iter().map(|item| item.id.to_string()).collect::<HashSet<_>>();
     retry_pending_appends_without_live_terminal(
         session,
@@ -387,8 +427,13 @@ fn scan_connection(
     );
     state.retain_terminals(&live_ids);
     let mut deadlines = HashMap::<String, Instant>::new();
-    for id in live_ids {
-        deadlines.insert(id, Instant::now());
+    let listed = snapshots.iter().map(|item| ListedTerminal {
+        id: item.id.as_str(),
+        exited: item.lifecycle == TerminalLifecycle::Exited,
+        known: state.knows_terminal(item.id.as_str()),
+    });
+    for id in first_scan_ids(listed) {
+        deadlines.insert(id.to_string(), Instant::now());
     }
     loop {
         let now = Instant::now();
@@ -1159,3 +1204,6 @@ fn now_nanos() -> u128 {
 fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
     format!("agent-emission-{nonce}-{sequence}")
 }
+
+#[cfg(test)]
+mod knows_terminal_tests;

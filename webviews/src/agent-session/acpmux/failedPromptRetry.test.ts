@@ -157,7 +157,7 @@ test("a failed send says one plain sentence by its cause, and keeps the raw erro
     expect(trust?.delivery?.reason).toBe("trust.pending");
     expect(trust?.delivery?.error).toBe("trust.pending: answer the trust question for the folder first");
     const bug = shown("and the tests");
-    expect(bug?.error).toBe("Not sent because of an error in the agent pane.");
+    expect(bug?.error).toBe("Not sent. Try again.");
     expect(bug?.delivery?.code).toBe("transport.intent_invalid");
     // No code in the words the bubble shows.
     for (const row of [trust, bug]) expect(row?.error).not.toMatch(/trust\.pending|transport\.|:\s*The /);

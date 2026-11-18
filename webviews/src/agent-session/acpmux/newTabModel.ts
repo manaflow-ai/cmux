@@ -10,6 +10,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
+import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject } from "./newtab/startedProject";
@@ -84,6 +85,9 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
+  /// The extension that draws the whole page (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
+  /// newtab/NewTabAppPage.tsx); unset draws cmux's own page.
+  app?: string;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
@@ -121,9 +125,17 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
   };
 }
 
+/// The app that draws this New Tab page (`tabs.newTabApp`): none on history, and none for the visit
+/// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
+/// again, also on a parked spare that keeps its screen because its context did not change.
+export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
+  return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
+}
+
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
+/// A context that comes as the page's own part is joined with its shared part first (newtab/sharedPart.ts).
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
-  const value = handshake.newTab;
+  const value = wholeNewTab(handshake.newTab);
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
@@ -162,6 +174,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
+    // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
+    // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
+    ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }

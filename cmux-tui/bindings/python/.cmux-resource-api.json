@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f3fb63bcd6223fb30d9146f9143a1536a42e9e10b685a39b065143fc582c76bf",
+  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -208,6 +208,12 @@
     "cloud.owner.github_app": {
       "class": "read"
     },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
+      "class": "read"
+    },
     "cloud.owner.handoff_begin_turn": {
       "class": "mutation"
     },
@@ -395,6 +401,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {

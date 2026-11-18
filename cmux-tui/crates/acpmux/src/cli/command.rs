@@ -25,15 +25,6 @@ pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),
-    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
-    #[cfg(unix)]
-    #[command(hide = true)]
-    CodexAuthBroker {
-        #[arg(long)]
-        home: PathBuf,
-        #[arg(long)]
-        codex: PathBuf,
-    },
     /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
     /// Mac that lends this machine its login (`cli/gh_shim.rs`).
     #[command(hide = true, disable_help_flag = true)]
@@ -178,6 +169,10 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
+    /// How this Cloud machine's agents reach models (base URLs, placeholder keys) and whether it
+    /// holds any provider login. Names and verdicts only, never a value. Needs no daemon.
+    #[command(name = "machine-auth")]
+    MachineAuth,
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]
@@ -274,7 +269,10 @@ pub enum Command {
         prompt_id: Option<String>,
         /// Send it as this agent's message: messages from agents that wait for a busy session go
         /// in together as one turn, after the person's own. An agent running in acpmux is
-        /// named without it; elsewhere `ACPMUX_FROM` names it.
+        /// named without it; elsewhere `ACPMUX_FROM` names it. Neither is a reply address: a
+        /// Claude Code chat acpmux did not start that sends with neither also starts its own
+        /// `acpmux register` (macOS), so the receiver can answer once it runs the `--code` line
+        /// delivered to it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
         /// Prove a named sender (--from, ACPMUX_FROM, a notice's sender) is one this machine's
@@ -337,6 +335,16 @@ pub enum Command {
         /// Plain text stream instead of the TUI.
         #[arg(long)]
         plain: bool,
+    },
+    /// Run a Claude Code or Codex chat's conversation in this terminal: shows the chat's turn
+    /// as it runs, then, once the chat is idle, the chat stops its agent and watches this
+    /// terminal, which runs the agent's own resume command (`claude --resume ID`, `codex
+    /// resume ID`). Toggle Terminal and Chat types it. Never cuts a turn off.
+    ResumeHere {
+        session: String,
+        /// Print the resume command (with --json: `{argv, cwd, env}`) instead of running it.
+        #[arg(long)]
+        print: bool,
     },
     /// Be an ACP agent on stdin/stdout for an editor (Zed: `"command": "cmux",
     /// "args": ["acp", "stdio", "-m", "claude"]`). Relays to the daemon;
@@ -452,6 +460,9 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    #[command(subcommand)]
+    ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
@@ -571,7 +582,9 @@ pub enum Command {
     /// thread does not register (nothing ties a shell to its thread); start Codex with acpmux. Then `acpmux send NAME ...` reaches it through the outbox (queued and tried again
     /// while it is not running, `send --status`), and its own `acpmux send` goes out under NAME.
     /// Run it again after the session restarts (a new process gets a new token). A brand-new
-    /// session registers after its first turn, once it has a transcript
+    /// session registers after its first turn, once it has a transcript. Such a session's own
+    /// `acpmux send` takes the first step itself, as claude-desktop-<first 8 of its session id>,
+    /// so a chat that messages an agent gets the code without asking
     #[command(
         after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
     )]
@@ -698,8 +711,12 @@ pub enum Command {
         /// `permissions.default=yolo` (yolo, standard, ask or default) for the
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
-        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
-        /// `session.cpu_class=normal`).
+        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
+        /// `session.cpu_class=normal` or `remote_daemon=127.0.0.1:PORT`). A value the
+        /// daemon would refuse to start with is refused and config.json is left as it was:
+        /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
+        /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
+        /// machine runs it on its node key.
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },

@@ -271,6 +271,9 @@ fn the_rendered_current_look_reads_back_as_the_same_look() {
             "terminal": { "fontSize": 14, "term": "xterm-256color" },
             "sidebar": { "border": true, "showChats": false },
         }),
+        // Text the settings already show under 4.5:1: the file shows it the same.
+        json!({ "appearance": { "theme": "Nord",
+                                "themeEdits": { "Nord/background": "#222222", "Nord/foreground": "#333333" } } }),
     ] {
         let text =
             render(&root, schema, &domains, &RenderOptions { name: "Current", description: "" });
