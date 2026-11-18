@@ -533,6 +533,42 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "only a Claude Code chat has a native history (invalid params)",
             ),
         ),
+        (method::MUX_CONNECTIONS, Run(json!({}))),
+        (method::MUX_CONNECTIONS_ORDER_SET, Run(json!({"ids": []}))),
+        (method::MUX_CONNECTIONS_SPREAD_SET, Run(json!({"on": false}))),
+        (
+            method::MUX_CONNECTIONS_REMOVE,
+            Any(json!({"id": "none"}), "a fresh hub has no connection of that id"),
+        ),
+        (
+            method::MUX_CONNECTIONS_KEY_ADD,
+            Skip("stores a provider's API key as a route secret, outside the hermetic HOME"),
+        ),
+        (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Skip("starts a real ChatGPT sign-in (network)")),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_WAIT,
+            Any(json!({"attempt": "none"}), "no ChatGPT sign-in was begun"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_CANCEL,
+            Any(json!({"attempt": "none"}), "no ChatGPT sign-in was begun"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+            Any(json!({"id": "none"}), "a fresh hub has no ChatGPT sign-in"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+            Skip("stores a Claude token as a route secret, outside the hermetic HOME"),
+        ),
+        (
+            method::MUX_CONNECTIONS_CREDENTIAL,
+            Any(json!({"id": "none"}), "a fresh hub has no connection of that id"),
+        ),
+        (
+            "_acpmux/controls",
+            Any(json!({}), "offered on a peer daemon's v2 link only, not this unix socket"),
+        ),
         (method::MUX_SHUTDOWN, Skip("stops the hub")),
         (
             method::MUX_HANDOFF_PREPARE,
