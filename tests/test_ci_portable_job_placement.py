@@ -748,9 +748,19 @@ class Wiring(unittest.TestCase):
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
-        # The placement counts room for the daemon job only, so no build leg takes its label.
-        for name in ("build", "build-windows"):
-            self.assertNotIn("linux_runner", workflow[name].get("with", {}))
+        # The placement counts room for the daemon job only, so no build leg takes its label. The build calls take
+        # only the GCP build lane's placement (gcp-placement), which counts room for them (2026-11-18).
+        self.assertNotIn("linux_runner", workflow["build-windows"].get("with", {}))
+        gcp = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
+        self.assertEqual(gcp["env"]["FLEET_LINUX"], "${{ vars.LINUX_RUNNER_DARWIN_CROSS }}")
+        self.assertEqual(gcp["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(set(gcp["env"]["JOBS"].split()), set(gcp["env"]["LINUX_ONLY"].split()))
+        for name in ("build", "build-linux"):
+            with self.subTest(call=name):
+                runner = workflow[name]["with"]["linux_runner"]
+                self.assertNotIn("outputs.linux_runner", runner)
+                self.assertIn(f"contains(needs.tree-preflight.outputs.gcp_jobs, ' {name} ')", runner)
+                self.assertIn(name, gcp["env"]["JOBS"].split())
 
     def test_the_nightly_tree_musl_legs_route_owned_gcp_linux_first_then_blacksmith(self):
         # 2026-11-18: tree 453a2f94's musl legs sat on blacksmith-16vcpu behind about 346 queued runs while
