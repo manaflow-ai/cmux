@@ -179,7 +179,8 @@ final class HomeHostView: NSView {
         transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
             guard let services else { return }
-            // A link to elsewhere shows it beside the docked Chief, whose view stays as it is.
+            // A link to elsewhere opens only its target; the floating Chief comes with it only when the person
+            // turned on `home.chiefDock.openBeside` (off by default, cmux#45889).
             WindowDockActions(host: services).chiefLinkWillOpen(in: self?.window.flatMap(services.windows.owner(of:)))
             CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab)))
         }
