@@ -234,7 +234,6 @@ function PendingChip({
       // behind the spinner (a background, not an <img>: the strip's images are its ready chips).
       {...(chip.image && shape ? { "data-sized": "" } : {})}
       {...(chip.video ? { "data-video-shape": "" } : {})}
-      {...(chip.sizing ? { "data-sizing": "" } : {})}
       {...(chip.preview && square ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >
