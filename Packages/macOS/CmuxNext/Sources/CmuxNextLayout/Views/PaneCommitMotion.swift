@@ -16,7 +16,8 @@ import CmuxNextDesign
 /// - A pane that gets smaller shows its own ground beside its content until its edge is there (`PaneCommitMotion+Layers`).
 /// - A pane's ring and the dividers get the same move.
 /// - A pane that a close took out, or that a zoom covers, does not move: it stays as it shows, under the panes that
-///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
+///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``). It shows only where no
+///   pane goes over it: a mask on its clip takes out the box of those panes (`PaneCommitMotion+Cut`).
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -94,6 +95,8 @@ final class PaneCommitMotion {
     private var overtime = 0
     /// One number for each act, in the keys of its animations.
     var serial = 0
+    /// When the pass of each act of this motion placed its panes, by the act's number (`PaneCommitMotion+Cut`).
+    var began: [Int: CFTimeInterval] = [:]
     /// Each animation in flight.
     var moved: [(layer: CALayer, key: String)] = []
     /// The pane hosts that show ground strips, and the largest size each showed in this motion.
@@ -196,6 +199,9 @@ final class PaneCommitMotion {
     @discardableResult
     func panesPlaced(on screen: ScreenContentView) -> (act: Act, change: Change)? {
         guard let armed else { return nil }
+        #if DEBUG
+        defer { checkKept(on: screen) }
+        #endif
         self.armed = nil
         overtime = 0
         passBegan = false
@@ -238,6 +244,7 @@ final class PaneCommitMotion {
             return nil
         }
         serial += 1
+        began[serial] = CACurrentMediaTime()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dropLastFrame() // a second act in an unzoom's time: no old picture shows over a new layout
@@ -249,6 +256,7 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
+        cutKept(under: changes, act.spring)
         if act == .unzoom {
             // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
             closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
@@ -321,6 +329,7 @@ final class PaneCommitMotion {
     func finish() {
         remaining = 0
         overtime = 0
+        began = [:]
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
@@ -331,7 +340,10 @@ final class PaneCommitMotion {
             moved = []
             for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
             grounds = [:]
-            for (host, z) in under { host.layer?.zPosition = z }
+            for (host, z) in under {
+                host.layer?.zPosition = z
+                uncut(host)
+            }
             under = []
             dropLastFrame()
             lower()

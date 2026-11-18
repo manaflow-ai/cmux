@@ -67,6 +67,7 @@ extension PaneCommitMotion {
         under.removeAll { entry in
             guard !entry.host.isLeaving else { return false }
             entry.host.layer?.zPosition = entry.z
+            uncut(entry.host)
             return true
         }
         for host in hosts {
