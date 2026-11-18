@@ -22,7 +22,7 @@
 //   hidden_renders                     committed React renders in the hidden pages over the scroll, all
 //                                      components (`cmuxAcpmuxDebug.renders`); a hidden page should draw none
 //   bun bench/session-scale-scroll.bench.ts [--sizes 100,10000] [--pages 4] [--newtabs 2] [--rate 4]
-//     [--pad 17000] [--turns 30] [--long 2000] [--seconds 6] [--hidden both|hidden|visible] [--profile]
+//     [--pad 17000] [--cpu 1] [--turns 30] [--long 2000] [--seconds 6] [--hidden both|hidden|visible] [--profile]
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -47,6 +47,9 @@ const TURNS = Number(flag("--turns") ?? 30);
 const LONG = Number(flag("--long") ?? 2000);
 const SECONDS = Number(flag("--seconds") ?? 6);
 const SETTLE_MS = Number(flag("--settle") ?? 3000);
+/// The renderer's CPU slowed this many times (CDP `Emulation.setCPUThrottlingRate`): a fleet core has more
+/// headroom than a busy laptop's, so 1 reads a laptop's margin as larger than it is.
+const CPU = Number(flag("--cpu") ?? 1);
 const HIDDEN_MODE = flag("--hidden") ?? "both";
 const MODES = (HIDDEN_MODE === "both" ? ["hidden", "visible"] : [HIDDEN_MODE]) as ("hidden" | "visible")[];
 const PROFILE = argv.includes("--profile");
@@ -229,6 +232,7 @@ try {
         await scrolled.bringToFront();
         const cdp = await context.newCDPSession(scrolled);
         await cdp.send("Performance.enable");
+        if (CPU > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
         const box = (await scrolled.locator(".acpmux-scroll").first().boundingBox())!;
         await scrolled.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         for (const page of pages) await page.evaluate(() => (window as any).__scale.start());
@@ -279,6 +283,7 @@ try {
           pages: PAGES,
           newtabs: NEWTABS,
           rate: RATE,
+          cpu: CPU,
           turns: TURNS,
           frames: frames.frames,
           moved_frames: watch.moved_frames,
@@ -297,7 +302,7 @@ try {
         };
         results.push(row);
         console.log(
-          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s: ` +
+          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s cpu=${CPU}x:` +
             `frames ${row.frames} p50 ${row.frame_p50} p95 ${row.frame_p95} max ${row.frame_max} ms, dropped ${row.dropped}, ` +
             `main thread busy ${row.busy_pct} %, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
             `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)})`,
