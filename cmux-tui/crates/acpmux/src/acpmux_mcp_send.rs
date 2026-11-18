@@ -256,7 +256,7 @@ fn item_of(own: &Value, defaults: Option<&Value>) -> Result<Item, String> {
             .map(str::trim)
             .filter(|t| !t.is_empty())
             .map(str::to_owned),
-        notice: notice_arg(field("notice"), |k| std::env::var(k).ok())?,
+        notice: notice_arg(field("notice"), crate::tool_env::var)?,
     };
     match (&item.to, &item.tag) {
         (Some(_), Some(_)) => return Err("give to or tag, not both".to_owned()),
@@ -721,7 +721,7 @@ async fn tag_recipients(
             Some(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default());
     }
     let all = sessions.as_deref().unwrap_or_default();
-    let own = std::env::var(SESSION_ENV).ok();
+    let own = crate::tool_env::var(SESSION_ENV);
     let found = crate::cli::run::fanout::tag_targets(all, tag, own.as_deref());
     if found.is_empty() {
         return Err(format!("no live session carries the tag {tag}"));
@@ -760,8 +760,8 @@ pub(super) async fn relay(
     let relay = crate::cli::send_relay::configured()?;
     // The session's name when its environment has one, else its id (an MCP server's environment
     // carries ACPMUX_SESSION_ID alone), so the relay always names the sender.
-    let from = crate::cli::send_relay::sender(None, |k| std::env::var(k).ok()).or_else(|| {
-        std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    let from = crate::cli::send_relay::sender(None, crate::tool_env::var).or_else(|| {
+        crate::tool_env::var(SESSION_ENV).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
     // parse_item already validated the explicit class; aliases use the canonical wire value.

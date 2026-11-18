@@ -71,14 +71,15 @@ pub mod skill_index;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
 pub(crate) mod cua_helper;
 pub mod project_mcp;
+mod upstreams;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};
+pub use upstreams::{HTTP_FIELD, SHARED_FIELD, takes_http};
 
 /// Directory that overrides where the cmux binaries are looked up.
 pub const BIN_DIR_ENV: &str = "CMUX_AGENT_TOOLS_BIN_DIR";
@@ -292,6 +293,9 @@ pub struct AgentTools {
     /// Claude Code only: the project's own servers, wrapped for a start at a repository's head
     /// ([`project_mcp`]). A name of cmux's own servers keeps cmux's.
     pub project_servers: Map<String, Value>,
+    /// Servers the daemon serves for this chat over loopback HTTP ([`AgentTools::via_gateway`]),
+    /// by name: the harness reaches them there instead of starting their stdio launch.
+    pub http: BTreeMap<String, crate::mcp_gateway::Endpoint>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -566,18 +570,22 @@ pub(crate) fn gh_env(
 }
 
 /// `mcpServers` for acpmux session `session_id`'s ACP harness; `all_tools`
-/// from [`lists_all_tools`].
+/// from [`lists_all_tools`]. An agent that takes HTTP servers ([`takes_http`]) gets the `cmux`
+/// server through the daemon's gateway.
 pub fn acp_servers_for(
     remote_origin: bool,
     env: &BTreeMap<String, String>,
     session_id: &str,
     all_tools: bool,
+    http: bool,
+    cwd: &Path,
 ) -> Value {
     if left_out(remote_origin, env, &[]) {
-        json!([])
-    } else {
-        current().scoped(env).for_session(session_id).listing(all_tools).folded().acp_servers()
+        return json!([]);
     }
+    let tools = current().scoped(env).for_session(session_id).listing(all_tools).folded();
+    let tools = if http { tools.via_gateway(session_id, cwd) } else { tools };
+    tools.acp_servers()
 }
 
 /// Extra Claude Code flags for session `session_id` whose command line is
@@ -609,6 +617,7 @@ pub fn claude_args_for(
             .without_off(env)
             .fit_skills()
             .folded()
+            .via_gateway(session_id, cwd)
     };
     AgentTools { project_servers, ..tools }
         .claude_args(&mcp_config_path(&crate::config::home(), session_id))
@@ -644,6 +653,7 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
     let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
     let _ = crate::home_fs::remove_file(path);
+    crate::mcp_gateway::forget(home, session_id);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -875,6 +885,7 @@ fn resolve_with_cua_helper(
         user_plugin_dir,
         displays: inputs.displays.clone(),
         project_servers: Map::new(),
+        http: BTreeMap::new(),
     }
 }
 
@@ -1100,6 +1111,10 @@ impl AgentTools {
             self.servers
                 .iter()
                 .map(|s| {
+                    if let Some(at) = self.http.get(&s.name) {
+                        let headers = [json!({"name": "Authorization", "value": at.authorization})];
+                        return json!({"type": "http", "name": s.name, "url": at.url, "headers": headers});
+                    }
                     let env: Vec<Value> =
                         s.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect();
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env})
@@ -1128,46 +1143,6 @@ impl AgentTools {
         self
     }
 
-    /// Code mode for every agent tool: the other servers, as `scoped` and
-    /// `for_session` left them (the Chief's turns keep none), go into the
-    /// `cmux` server's [`UPSTREAMS_ENV`] and leave the list. Without a
-    /// `cmux` server (cmux.json turns MCP off) they stay as they are.
-    pub fn folded(mut self) -> Self {
-        let Some(at) = self.servers.iter().position(|s| s.name == "cmux") else {
-            return self;
-        };
-        let mut cmux = self.servers.remove(at);
-        cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
-        // acpmux's own servers run in one process (`tools_mcp.rs`): each keeps its own spec
-        // (a `cmux` that does not read `shared` starts it as before) and names the one launch.
-        let shared = shared_helper(&self.servers);
-        // Always set, `[]` too: a value a harness passes on from its own env
-        // (a preset's) must never name the servers.
-        let upstreams: Vec<Value> = self
-            .servers
-            .iter()
-            .map(|s| {
-                let env: Map<String, Value> =
-                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-                let mut spec =
-                    json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
-                // The secret card waits for the person, not for a timer.
-                if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec.set("callTimeoutSecs", json!(3600));
-                }
-                if let Some(shared) = &shared
-                    && crate::tools_mcp::owns(&s.name, &s.args)
-                {
-                    spec.set(SHARED_FIELD, shared.clone());
-                }
-                spec
-            })
-            .collect();
-        cmux.env.push((UPSTREAMS_ENV.to_owned(), Value::Array(upstreams).to_string()));
-        self.servers = vec![cmux];
-        self
-    }
-
     /// The servers as one Claude Code MCP config, or `None` without servers.
     pub fn mcp_config(&self) -> Option<Value> {
         if self.servers.is_empty() && self.project_servers.is_empty() {
@@ -1175,6 +1150,14 @@ impl AgentTools {
         }
         let mut servers = Map::new();
         for s in &self.servers {
+            if let Some(at) = self.http.get(&s.name) {
+                let headers = json!({"Authorization": at.authorization});
+                servers.insert(
+                    s.name.clone(),
+                    json!({"type": "http", "url": at.url, "headers": headers}),
+                );
+                continue;
+            }
             let env: Map<String, Value> =
                 s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
             servers.insert(
@@ -1224,39 +1207,6 @@ impl AgentTools {
         }
         args
     }
-}
-
-/// The upstream spec field that names the process a server runs in when others run in it too
-/// (`cmux mcp serve`'s `upstream.rs`): `{command, args, env}`, the same for each of them.
-pub const SHARED_FIELD: &str = "shared";
-
-/// The one launch of acpmux's own servers in `servers` ([`crate::tools_mcp::SERVERS`]):
-/// `acpmux tools-mcp` under their prefix with every env value of theirs, all for the same
-/// session. None without such a server, or when two of them disagree (another command, prefix
-/// or value of a key): then each runs on its own, as before.
-fn shared_helper(servers: &[McpServer]) -> Option<Value> {
-    let mut launch: Option<(&PathBuf, &[String])> = None;
-    let mut env = BTreeMap::<&str, &str>::new();
-    for server in servers.iter().filter(|s| crate::tools_mcp::owns(&s.name, &s.args)) {
-        let (_, prefix) = server.args.split_last()?;
-        match launch {
-            None => launch = Some((&server.command, prefix)),
-            Some((command, first)) if *command == server.command && first == prefix => {}
-            Some(_) => return None,
-        }
-        for (key, value) in &server.env {
-            if env
-                .insert(key.as_str(), value.as_str())
-                .is_some_and(|before| before != value.as_str())
-            {
-                return None;
-            }
-        }
-    }
-    let (command, prefix) = launch?;
-    let mut args = prefix.to_vec();
-    args.push(crate::tools_mcp::ARG.to_owned());
-    Some(json!({"command": command, "args": args, "env": env}))
 }
 
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary

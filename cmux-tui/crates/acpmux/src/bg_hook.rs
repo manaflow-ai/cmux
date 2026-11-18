@@ -536,6 +536,7 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let route = std::fs::read(&config)
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .map(|c: Value| crate::mcp_gateway::stdio_view(&home, &session, c))
         .and_then(|c: Value| route(&c));
     if let Some(answer) = decide(&input, route) {
         // The same call turned away just before runs as asked (the replacement may be unusable).

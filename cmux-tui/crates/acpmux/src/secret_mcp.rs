@@ -44,7 +44,7 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
 
 fn tools() -> Value {
     let mut all = all_tools();
-    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
+    if crate::tool_env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Some("1")
         && let Some(list) = all.as_array_mut()
     {
         list.retain(|t| *field(t, "name") != "connect_mcp_server");
@@ -191,7 +191,7 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
             }),
         ),
         Some("connect_mcp_server")
-            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
+            if crate::tool_env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Some("1") =>
         {
             return error_result(
                 "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
