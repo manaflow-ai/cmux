@@ -82,7 +82,10 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string>();
   const [sending, setSending] = useState(false);
-  const pending = answer ?? surface.pending ?? null;
+  // A request Cancel or Confirm closed stays closed while Rust's next update still carries it.
+  const [closed, setClosed] = useState<string>();
+  const carried = surface.pending && surface.pending.requestId !== closed ? surface.pending : null;
+  const pending = answer ?? carried;
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
 
@@ -90,6 +93,7 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
     const current = pendingRef.current;
     if (!current) return;
     setAnswer(null);
+    setClosed(current.requestId);
     setFailure(undefined);
     void client.uiSurfaceCancel({ surfaceId, requestId: current.requestId }).catch(() => undefined);
   }, [client, surfaceId]);
@@ -125,6 +129,7 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
       () => {
         setSending(false);
         setAnswer(null);
+        setClosed(current.requestId);
         setAnswered((done) => new Set([...done, current.actionId]));
       },
       (error: unknown) => {

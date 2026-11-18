@@ -68,7 +68,14 @@ const ICONS: Readonly<Record<string, string>> = {
 };
 
 /// A node's accessibility props: its label, live region and hidden flag, and a description element.
-function useA11y(node: UiNode): { props: Record<string, string | boolean | undefined>; describe: ReactNode } {
+type A11yProps = {
+  "aria-label"?: string;
+  "aria-live"?: "polite" | "assertive";
+  "aria-hidden"?: true;
+  "aria-describedby"?: string;
+};
+
+function useA11y(node: UiNode): { props: A11yProps; describe: ReactNode } {
   const id = useId();
   const a11y = node.a11y;
   if (!a11y) return { props: {}, describe: null };
@@ -306,7 +313,7 @@ function ChoiceField({
   node: UiFieldNode;
   value: unknown;
   setValue: (value: string | string[]) => void;
-  a11y: Record<string, unknown>;
+  a11y: A11yProps;
   describe: ReactNode;
 }) {
   const labelId = useId();

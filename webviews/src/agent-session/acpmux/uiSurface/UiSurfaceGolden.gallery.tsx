@@ -70,6 +70,9 @@ export default componentEntry<Props>({
     "travel-traveler-form": variant(travelerForm, "Quickstart 70-traveler-form."),
     "contact-form": variant(contactForm, "The A2UI basic catalog's contact form."),
     "restaurant-card": variant(restaurantCard, "The A2UI basic catalog's restaurant card: image alt, icon, text."),
-    "mcp-app-frame": variant(mcpAppFrame, "An MCP App resource: on a page with no render frame, Run waits."),
+    "mcp-app-frame": variant(
+      mcpAppFrame,
+      "An MCP App resource: a page with no render frame (the gallery) draws Rust's fallback root.",
+    ),
   },
 });
