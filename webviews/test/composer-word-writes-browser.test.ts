@@ -20,12 +20,11 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
-const COMPOSER = "form.acpmux-composer";
-const WORDS = 20;
-
 type Writes = { total: number; kinds: Record<string, number> };
 
 await requireBrowserLane("composer-word-writes-browser.test.ts", async () => {
+  const COMPOSER = "form.acpmux-composer";
+  const WORDS = 20;
   setDefaultTimeout(280_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
