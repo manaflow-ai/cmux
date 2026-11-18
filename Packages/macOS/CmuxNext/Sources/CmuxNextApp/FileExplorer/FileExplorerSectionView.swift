@@ -26,7 +26,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     private let showContents = NSButton(title: FileExplorerStrings.showProtectedContents, target: nil, action: nil)
     let table = FileExplorerTableView()
     private let scroll = OverlayScrollView()
-    private var rows: [FileExplorerRow] = []
+    let rows = TableRows<FileExplorerRow, URL>(id: \.url)
     private var observation: Task<Void, Never>?
     private var following: Task<Void, Never>?
 
@@ -149,12 +149,11 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         ])
     }
 
-    private func render() {
+    func render() {
         header.stringValue = model.failure ?? model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
-        rows = model.rows
+        rows.reloadAll(model.rows, in: table)
         showContents.isHidden = !model.held
-        table.reloadData()
-        if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
+        if let selection = model.selection, let index = rows.all.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
     }
@@ -207,7 +206,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     func beginRename(_ item: URL) {
         let item = item.standardizedFileURL
         render()
-        guard let index = rows.firstIndex(where: { $0.url == item }) else { return }
+        guard let index = rows.all.firstIndex(where: { $0.url == item }) else { return }
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         table.scrollRowToVisible(index)
         guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: true) as? FileExplorerCell else { return }
@@ -235,7 +234,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("fileExplorer.row")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FileExplorerCell ?? FileExplorerCell(identifier: id)
-        cell.show(rows[row])
+        cell.show(rows.configure(row))
         return cell
     }
 

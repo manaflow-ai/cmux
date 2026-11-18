@@ -16,7 +16,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private let status = NSTextField(labelWithString: "")
     let table = FindResultsTableView()
     private let scroll = OverlayScrollView()
-    private var results: [RipgrepMatch] = []
+    let results = TableRows<RipgrepMatch, RipgrepMatch.ID>(id: \.id)
     private var observation: Task<Void, Never>?
 
     /// - Parameters:
@@ -110,9 +110,8 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         Task { await model.search(text) }
     }
 
-    private func render() {
-        results = model.results
-        table.reloadData()
+    func render() {
+        results.reloadAll(model.results, in: table)
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root
@@ -163,7 +162,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("find.row")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FindResultCell ?? FindResultCell(identifier: id)
-        cell.show(results[row])
+        cell.show(results.configure(row))
         return cell
     }
 }
