@@ -35,7 +35,7 @@ import Testing
     }
 
     static func seq(of text: String) -> Int? {
-        guard let range = text.range(of: #""seq":"#) else { return nil }
+        guard let range = text.firstRange(of: #""seq":"#) else { return nil }
         return Int(text[range.upperBound...].prefix { $0.isNumber })
     }
 
