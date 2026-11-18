@@ -16,7 +16,8 @@ import Testing
         defer { harness.tearDown() }
         let panel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
         let snapshot = harness.workspace.customSidebarWorkspaceSnapshot(
-            index: 0, selectedId: harness.workspace.id, unreadCount: 0
+            index: 0, selectedId: harness.workspace.id, unreadCount: 0,
+            agentIndex: Workspace.customSidebarAgentBindingIndex()
         )
         let tab = try #require(snapshot.surfaces.first)
         #expect(tab.panelId != panel.id)
@@ -35,7 +36,8 @@ import Testing
         let mirror = try #require(harness.windowMirror)
         mirror.noteRemoteActivePane(22)
         let updated = try #require(harness.workspace.customSidebarWorkspaceSnapshot(
-            index: 0, selectedId: harness.workspace.id, unreadCount: 0
+            index: 0, selectedId: harness.workspace.id, unreadCount: 0,
+            agentIndex: Workspace.customSidebarAgentBindingIndex()
         ).surfaces.first)
         #expect(updated.panelId == tab.panelId)
         #expect(updated.surfaceId == mirror.panel(forPane: 22)?.id)
@@ -47,7 +49,8 @@ import Testing
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.selectedWorkspace)
         let tab = try #require(workspace.customSidebarWorkspaceSnapshot(
-            index: 0, selectedId: workspace.id, unreadCount: 0
+            index: 0, selectedId: workspace.id, unreadCount: 0,
+            agentIndex: Workspace.customSidebarAgentBindingIndex()
         ).surfaces.first)
         let surfaceID = try #require(tab.surfaceId)
         #expect(workspace.panels[surfaceID] != nil)
