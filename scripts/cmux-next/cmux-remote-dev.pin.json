@@ -1,12 +1,12 @@
 {
   "asset": "cmux-remote-dev-macos-arm64.zip",
   "arch": "arm64",
-  "sha256": "6b39efe9332fbdbb568774ef51cc7a9659d5cb27a9af7b4bbf2a4fc16392c2a6",
+  "sha256": "958c42f1f443a44e0974404e664967b09a286d24a761766b20e92bc8ef6518e1",
   "r2_bucket": "cmux-cef",
-  "r2_key": "cua-helper-dev/6b39efe9332fbdbb568774ef51cc7a9659d5cb27a9af7b4bbf2a4fc16392c2a6/cmux-remote-dev-macos-arm64.zip",
+  "r2_key": "cua-helper-dev/958c42f1f443a44e0974404e664967b09a286d24a761766b20e92bc8ef6518e1/cmux-remote-dev-macos-arm64.zip",
   "bundle_id": "com.cmuxterm.remote.dev",
-  "remote_source_tree": "b9e40aac67519fb82da84b0f547384fc22ddf08b393a6956bc928cdec79e8944",
+  "remote_source_tree": "697fcb9e3da3423dca9bc0df5a0b2d219664494aee97ee7c2594294a849dffc8",
   "signing": "Apple Development",
   "team_id": "7WLXT3NR37",
-  "unsigned_sha256": "867c26fe24f72f8b1ebc05bfda8b80ee23e23233f15a8509ef1e6b26f033a105"
+  "unsigned_sha256": "b98d981a4a062ccc8f461129300092a1b5f465bd49bc98b18472352ec6e3bb2f"
 }
