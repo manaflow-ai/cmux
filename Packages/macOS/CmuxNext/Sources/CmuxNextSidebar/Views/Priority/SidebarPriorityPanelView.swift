@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxVisibleRows
 
 /// The Priority view at the top of the sidebar, under the titlebar row: every agent chat ranked by
 /// what needs the person (the App ranks them), a header that folds it to one line with a count, and
@@ -42,7 +43,7 @@ final class SidebarPriorityPanelView: NSView {
     /// `tops` and `places` at the last placement: a chat that ranks into view slides in from where it was.
     private var placed: (tops: [CGFloat], places: [String: Int]) = ([0], [:])
     /// The panel's row work, for the count tests (`SidebarPriorityRenderCountTests`).
-    var counts = Counts()
+    let listWork = ListWorkMeter()
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
@@ -101,6 +102,8 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel, oldTops = tops
         self.panel = panel
+        // The App hands the whole ranked list: comparing it with the last one reads every chat (`VisibleRowsBaseline`).
+        listWork.walked(panel.entries.count)
         // Hiding invalidates even a press below the drag threshold: its release may never reach
         // the hidden row. A re-rank, a fold or a height change also invalidates the press's slot.
         if old.shown != panel.shown || old.collapsed != panel.collapsed || oldTops != tops
@@ -152,7 +155,7 @@ final class SidebarPriorityPanelView: NSView {
             let frame = slotFrame(index, width: width)
             kept.insert(entry.id)
             if let row = rows[entry.id] {
-                if row.entry != entry { row.configure(entry); counts.configured += 1 }
+                if row.entry != entry { row.configure(entry); listWork.configured() }
                 targets.append((row, frame))
                 runTop = nil
             } else if let was = placed.places[entry.id], was + 1 < placed.tops.count {
@@ -192,7 +195,7 @@ final class SidebarPriorityPanelView: NSView {
                 }
             }
             for (row, frame) in landing { row.slot = frame }
-            counts.framed += landing.count
+            listWork.laidOut(landing.count)
             for row in closing + leaving.map(\.0) { row.removeFromSuperview() }
             closing = []
             opensUntil = [:]
@@ -216,7 +219,7 @@ final class SidebarPriorityPanelView: NSView {
             for (row, _) in opening { row.alphaValue = 0 }
         }
         for (row, frame) in targets + opening { row.slot = frame }
-        counts.framed += targets.count + opening.count
+        listWork.laidOut(targets.count + opening.count)
         let gone = leaving.map(\.0)
         Motion.sidebar.animate(.move, in: self, {
             for (row, frame) in targets + opening {

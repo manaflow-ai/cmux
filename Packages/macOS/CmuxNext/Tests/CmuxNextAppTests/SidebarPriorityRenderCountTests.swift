@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
+import CmuxVisibleRows
 import Testing
 
 /// The Priority view lists every agent chat on every machine with no cap, so it draws the rows in view
@@ -59,35 +60,27 @@ struct SidebarPriorityRenderCountTests {
         #expect(view.rows["p\(middle)"] != nil, "the row scrolled to is drawn")
     }
 
-    /// The panel's work since `before`.
-    static func since(_ before: SidebarPriorityPanelView.Counts, _ view: SidebarPriorityPanelView) -> SidebarPriorityPanelView.Counts {
-        let now = view.counts
-        return .init(made: now.made - before.made, configured: now.configured - before.configured,
-                     framed: now.framed - before.framed, ticked: now.ticked - before.ticked)
-    }
-
-    /// One chat's text changing configures its row alone and moves no row; one scroll step makes, configures and
-    /// places only the rows it reveals.
+    /// One chat's text changing configures its row alone and moves no row; one scroll step configures and places only
+    /// the rows it reveals.
     @Test(arguments: [100, 10_000])
     func oneChangeConfiguresOneRowAndAScrollStepOnlyTheRevealedRows(count: Int) throws {
         var entries = Self.entries(count)
         let (view, window, _) = Self.shown(entries)
         defer { window.contentView = nil; window.closeAfterTest() }
         let clip = try Self.clip(of: view)
-        var before = view.counts
+        _ = view.listWork.take()
         entries[1].title = "renamed"
         view.show(SidebarPriorityPanel(entries: entries))
         view.layoutSubtreeIfNeeded()
-        let change = Self.since(before, view)
+        let change = view.listWork.take()
         #expect(view.rows["p1"]?.entry.title == "renamed")
 
-        before = view.counts
         clip.scroll(to: NSPoint(x: 0, y: SidebarPriorityRowView.height(hasPreview: false)))
-        let step = Self.since(before, view)
+        let step = view.listWork.take()
         print("priority-counts n=\(count) change=\(change) scroll_step=\(step)")
-        #expect(change == .init(made: 0, configured: 1, framed: 0, ticked: 0), "one title change: \(change)")
-        #expect(step.made <= 2, "one row's scroll made \(step.made) rows")
-        #expect(step.configured == step.made && step.framed == step.made, "a scroll step touched rows it did not reveal: \(step)")
+        #expect(change.rowsConfigured == 1 && change.rowsLaidOut == 0, "one title change: \(change)")
+        #expect(step.rowsConfigured <= 2, "one row's scroll configured \(step.rowsConfigured) rows")
+        #expect(step.rowsLaidOut == step.rowsConfigured, "a scroll step placed rows it did not reveal: \(step)")
     }
 
     /// A minute's tick redraws only the drawn rows whose working time reads differently: "5m" becomes "6m", "3h"
@@ -101,15 +94,14 @@ struct SidebarPriorityRenderCountTests {
         }
         let (view, window, _) = Self.shown(entries)
         defer { window.contentView = nil; window.closeAfterTest() }
-        var before = view.counts
+        _ = view.listWork.take()
         view.tick(now: start)
-        #expect(Self.since(before, view).ticked == 0, "a tick within the same minute redrew rows")
-        before = view.counts
+        #expect(view.listWork.take().rowsConfigured == 0, "a tick within the same minute redrew rows")
         view.tick(now: start.addingTimeInterval(60))
-        let tick = Self.since(before, view)
+        let tick = view.listWork.take()
         let minutes = view.rows.keys.filter { Int($0.dropFirst()).map { $0.isMultiple(of: 2) } == true }.count
         print("priority-counts n=\(count) tick=\(tick) drawn=\(view.rows.count) minute_rows=\(minutes)")
         #expect(minutes > 0)
-        #expect(tick == .init(made: 0, configured: 0, framed: 0, ticked: minutes), "a minute's tick: \(tick)")
+        #expect(tick == .init(rowsConfigured: minutes), "a minute's tick: \(tick)")
     }
 }

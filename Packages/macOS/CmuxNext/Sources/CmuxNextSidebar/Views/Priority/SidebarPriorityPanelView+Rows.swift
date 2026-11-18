@@ -1,20 +1,13 @@
 import AppKit
 import CmuxNextWakeups
+import CmuxVisibleRows
 
 /// The Priority view's drawn rows: each chat's slot from `tops`, the rows in the clip and one viewport above and
-/// below, and the work counts the count tests read (`SidebarPriorityRenderCountTests`).
-extension SidebarPriorityPanelView {
-    /// The panel's row work.
-    struct Counts: Equatable {
-        /// Row views made (a row coming into view).
-        var made = 0
-        /// Row configures, a new row's own included.
-        var configured = 0
-        /// Row frames set (placed, moved or landed).
-        var framed = 0
-        /// Rows a clock tick redrew (their working time read differently).
-        var ticked = 0
-    }
+/// below. Under the visible-rows contract (`VisibleRowsContract`): a new row, a configure and a tick's redraw count as
+/// configured on `listWork`, each row frame set as laid out, and the index of every chat a change rebuilds as walked.
+extension SidebarPriorityPanelView: VisibleRowsList {
+    /// Row views in the document: the drawn rows and the ones still closing their slot.
+    var rowViewsAlive: Int { document.subviews.count }
 
     /// The row is whole at `frame` with no move in flight, so landing it there again changes nothing.
     static func landed(_ row: SidebarPriorityRowView, at frame: NSRect) -> Bool {
@@ -84,6 +77,7 @@ extension SidebarPriorityPanelView {
             y += heights[(entry.preview != nil ? 2 : 0) + (entry.answerable ? 1 : 0)]
         }
         tops.append(y)
+        listWork.walked(panel.entries.count)
         self.tops = tops
         self.places = places
     }
@@ -101,7 +95,7 @@ extension SidebarPriorityPanelView {
             let row = mount(entry), frame = slotFrame(index, width: width)
             row.frame = frame
             row.slot = frame
-            counts.framed += 1
+            listWork.laidOut()
         }
         for id in rows.keys where !kept.contains(id) && !slidingOut.contains(id) { unmount(id) }
     }
@@ -109,8 +103,7 @@ extension SidebarPriorityPanelView {
     /// A view for `entry`'s row in the document.
     func mount(_ entry: SidebarPriorityEntry) -> SidebarPriorityRowView {
         let row = SidebarPriorityRowView(entry: entry)
-        counts.made += 1
-        counts.configured += 1
+        listWork.configured()
         row.onAction = { [weak self] action in self?.onAction?(action) }
         row.onMove = { [weak self, weak row] direction in
             guard let self, let row else { return }
@@ -153,7 +146,7 @@ extension SidebarPriorityPanelView {
 
     /// Redraws the drawn rows whose working time reads differently at `now`; the others are not touched.
     func tick(now: Date) {
-        for row in rows.values where row.tick(now: now) { counts.ticked += 1 }
+        for row in rows.values where row.tick(now: now) { listWork.configured() }
     }
 }
 
