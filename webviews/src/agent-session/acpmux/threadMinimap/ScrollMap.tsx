@@ -31,6 +31,7 @@ import {
 } from "./model";
 import { useCountedRender } from "../perfRender";
 import {
+  MAP_HIT,
   MAP_MARGIN,
   MAP_MIN_PROMPTS,
   mapMarks,
@@ -40,6 +41,7 @@ import {
   mapThumb,
   markAt,
   marksIn,
+  promptAt,
   scrollTopAt,
   type MapMark,
 } from "./mapGeometry";
@@ -53,7 +55,8 @@ const USER_LENGTH = [11, TICK_BOX] as const;
 const AGENT_LENGTH = [5, 15] as const;
 
 type PromptMarks = ReturnType<typeof usePromptMarks>;
-type Press = { pointer: number; y: number; moved: boolean; mark?: string };
+/// `target` is the pressed mark, which a press on a prompt its band does not draw names.
+type Press = { pointer: number; y: number; moved: boolean; mark?: string; target?: MapMark };
 
 const within = (element: Element | null, to: EventTarget | null) =>
   !!element && !!to && "nodeType" in to && element.contains(to as Node);
@@ -119,19 +122,20 @@ export function ScrollMap({
       was !== undefined && (was < 0 || keyOfRow(was) === key) ? was : rows.findIndex((each) => each.id === key);
     return row < 0 ? undefined : row;
   };
-  const [keptFocus, cardRowAt, keptReveal] = [focused, cardMark, reveal].map(rowOf);
+  const [keptFocus, cardRowAt, keptReveal, keptHover] = [focused, cardMark, reveal, hovered].map(rowOf);
   rowOfKey.current = new Map();
   for (const [key, row] of [
     [focused, keptFocus],
     [cardMark, cardRowAt],
     [reveal, keptReveal],
+    [hovered, keptHover],
   ] as const)
     if (key !== undefined) rowOfKey.current.set(key, row ?? -1);
-  // The previewed mark draws while its card shows.
+  // The previewed mark draws while its card shows; the pointed-at prompt draws, lit, while pointed at.
   const keptCard = preview.shown !== null ? cardRowAt : undefined;
   const marks = useMemo(
-    () => mapMarks(rows, turns, layout, height, index, [keptFocus, keptCard, keptReveal]),
-    [rows, turns, layout, height, index, keptFocus, keptCard, keptReveal],
+    () => mapMarks(rows, turns, layout, height, index, [keptFocus, keptCard, keptReveal, keptHover]),
+    [rows, turns, layout, height, index, keptFocus, keptCard, keptReveal, keptHover],
   );
   /// Each mark's place in `marks`, by its row's id. The state names row ids, not places: which
   /// marks a band draws moves as a reply streams, and older turns arriving renumber every row.
@@ -221,8 +225,8 @@ export function ScrollMap({
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
   /// Scrolls to `key`'s message: a prompt as the compact rail's click, a reply to its top.
-  const activate = (key: string) => {
-    const mark = markOf(key);
+  const activate = (key: string, pressed?: MapMark) => {
+    const mark = markOf(key) ?? pressed;
     const node = scroller.current;
     if (!mark || !node) return;
     if (mark.kind === "user" && mark.turn >= 0) {
@@ -248,13 +252,29 @@ export function ScrollMap({
     stopScroll(node);
     node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
   };
+  /// The mark rail point `y` is on: the nearest mark within MAP_HIT, and on a prompt's mark the
+  /// prompt nearest the point among those its band draws for (promptAt), so a pointer lands where
+  /// it did when each prompt drew its own mark. A prompt wins a tie with a reply.
+  const pointed = (y: number): MapMark | undefined => {
+    const drawn = marks[markAt(marks, y) ?? -1];
+    const prompt = promptAt(index, turns, layout, height, y);
+    if (
+      prompt &&
+      prompt.distance <= MAP_HIT &&
+      (!drawn || drawn.kind === "user" || prompt.distance <= Math.abs(drawn.y - y))
+    )
+      return { kind: "user", row: prompt.row, turn: prompt.turn, y: prompt.y };
+    return drawn;
+  };
   const point = (y: number) => {
-    const at = keyOf(marks[markAt(marks, y) ?? -1]);
+    const target = pointed(y);
+    const at = keyOf(target);
     setPointerY(Math.round(y));
     setHovered(at);
     // A scrub moves the transcript, not the card: it opens again once the drag ends.
     if (at === undefined || press.current?.moved) return;
-    setCardMark(note(at));
+    rowOfKey.current.set(at, target!.row);
+    setCardMark(at);
     intend("map");
   };
   const endPress = (event: React.PointerEvent<HTMLElement>) => {
@@ -267,7 +287,7 @@ export function ScrollMap({
         event.currentTarget.releasePointerCapture(state.pointer);
       return;
     }
-    if (state.mark !== undefined) activate(state.mark);
+    if (state.mark !== undefined) activate(state.mark, state.target);
     else seek(railY(event.clientY));
   };
   // The previewed message stays lit while the pointer is on its card.
@@ -354,11 +374,13 @@ export function ScrollMap({
           onPointerDown={(event) => {
             if (event.button !== 0 || event.pointerType === "touch") return;
             const y = railY(event.clientY);
+            const target = pointed(y);
             const state: Press = {
               pointer: event.pointerId,
               y: event.clientY,
               moved: false,
-              mark: keyOf(marks[markAt(marks, y) ?? -1]),
+              mark: keyOf(target),
+              target,
             };
             press.current = state;
             // A press released off the rail ends here, so a later hover cannot scrub.
@@ -385,25 +407,29 @@ export function ScrollMap({
           }}
         >
           <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
-          {marks.map((mark, index) => {
-            const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
-            const key = keyOf(mark)!;
-            return (
-              <Mark
-                key={key}
-                id={key}
-                mark={mark}
-                progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
-                active={key === active}
-                current={inView !== undefined && index >= inView.first && index <= inView.last}
-                bookmarked={!!turn && bookmarks.has(turn)}
-                describedBy={showCard && cardMark === key ? cardId : undefined}
-                prompt={turn?.prompt}
-                count={turns.length}
-                actions={actions}
-              />
-            );
-          })}
+          {/* The prompts drawn, each naming its place among all of them (Mark), as the compact rail's
+              rows do: a band draws one prompt for several, and the arrows reach each. */}
+          <ol className="acpmux-scrollmap__marks">
+            {marks.map((mark, index) => {
+              const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
+              const key = keyOf(mark)!;
+              return (
+                <Mark
+                  key={key}
+                  id={key}
+                  mark={mark}
+                  progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
+                  active={key === active}
+                  current={inView !== undefined && index >= inView.first && index <= inView.last}
+                  bookmarked={!!turn && bookmarks.has(turn)}
+                  describedBy={showCard && cardMark === key ? cardId : undefined}
+                  prompt={turn?.prompt}
+                  count={turns.length}
+                  actions={actions}
+                />
+              );
+            })}
+          </ol>
         </nav>
       </ContextMenu>
       {showCard && cardAt && (
@@ -493,35 +519,42 @@ const Mark = memo(function Mark({
   const bar = <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />;
   if (mark.kind === "agent")
     return (
-      <span className="acpmux-minimap__tick acpmux-scrollmap__mark" data-kind="agent" data-tone={tone} style={style}>
-        {bar}
-      </span>
+      // Drawn only: an item of the list a reader does not hear.
+      <li className="acpmux-scrollmap__entry" aria-hidden>
+        <span className="acpmux-minimap__tick acpmux-scrollmap__mark" data-kind="agent" data-tone={tone} style={style}>
+          {bar}
+        </span>
+      </li>
     );
+  // A list item that names its place among every prompt, drawn or not; it draws no box (the mark is
+  // placed on the rail itself).
   return (
-    <MinimapTick
-      type="button"
-      index={mark.turn}
-      last={count - 1}
-      active
-      data-tick={mark.turn}
-      data-kind="user"
-      className="acpmux-minimap__tick acpmux-scrollmap__mark"
-      data-tone={tone}
-      data-bookmarked={bookmarked || undefined}
-      aria-label={label}
-      aria-describedby={describedBy}
-      style={style}
-      onFocus={() => actions.focus(id)}
-      onBlur={() => actions.blur(id)}
-      // The rail's pointer handlers take presses; a click with no pointer (Return, Space) jumps here.
-      onClick={(event) => {
-        if (event.detail === 0) actions.activate(id);
-      }}
-      keyboard={(event) => actions.key(event, mark.turn)}
-    >
-      {bar}
-      <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
-    </MinimapTick>
+    <li className="acpmux-scrollmap__entry" aria-posinset={mark.turn + 1} aria-setsize={count}>
+      <MinimapTick
+        type="button"
+        index={mark.turn}
+        last={count - 1}
+        active
+        data-tick={mark.turn}
+        data-kind="user"
+        className="acpmux-minimap__tick acpmux-scrollmap__mark"
+        data-tone={tone}
+        data-bookmarked={bookmarked || undefined}
+        aria-label={label}
+        aria-describedby={describedBy}
+        style={style}
+        onFocus={() => actions.focus(id)}
+        onBlur={() => actions.blur(id)}
+        // The rail's pointer handlers take presses; a click with no pointer (Return, Space) jumps here.
+        onClick={(event) => {
+          if (event.detail === 0) actions.activate(id);
+        }}
+        keyboard={(event) => actions.key(event, mark.turn)}
+      >
+        {bar}
+        <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
+      </MinimapTick>
+    </li>
   );
 }, markPropsEqual);
 

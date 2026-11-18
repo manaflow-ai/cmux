@@ -219,6 +219,48 @@ export function mapMarks(
   return marks;
 }
 
+/// The prompt nearest rail point `y` (at its own place, not its band's mark), and how far it is, or
+/// undefined when there is none: a band draws one prompt for several, and a pointer on it points
+/// at the one nearest it, as it did when each drew. Two binary searches, no walk of the rows.
+export function promptAt(
+  index: MapRows,
+  turns: readonly MinimapTurn[],
+  layout: GeometrySource & { readonly totalHeight: number },
+  height: number,
+  y: number,
+): (MapMark & { distance: number }) | undefined {
+  const geometry = geometryOf(layout);
+  const total = layout.totalHeight;
+  const placed = Math.min(geometry.count, index.rows.length);
+  const list = index.lists.users;
+  const end = lowerBound(list, index.users, placed);
+  if (end === 0 || height <= 0) return undefined;
+  const yOf = (row: number) => mapY(geometry.topAt(row), total, height);
+  const at = lowerBound(
+    list,
+    end,
+    geometry.upperBoundTop((y / height) * (total + THREAD_PADDING_TOP) - THREAD_PADDING_TOP),
+  );
+  let best: { row: number; y: number; distance: number } | undefined;
+  // The prompts on each side of the point; the nearer wins, the upper one a tie.
+  for (const near of [at - 2, at - 1, at, at + 1]) {
+    if (near < 0 || near >= end) continue;
+    const row = list[near]!;
+    const place = yOf(row);
+    const distance = Math.abs(place - y);
+    if (!best || distance < best.distance) best = { row, y: place, distance };
+  }
+  if (!best) return undefined;
+  let low = 0;
+  let high = turns.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (turns[middle]!.index <= best.row) low = middle + 1;
+    else high = middle;
+  }
+  return { kind: "user", row: best.row, turn: low - 1, y: Math.round(best.y), distance: best.distance };
+}
+
 /// The mark nearest rail point `y`, if one is within MAP_HIT px; a prompt wins a tie with a reply.
 export function markAt(marks: readonly MapMark[], y: number): number | undefined {
   let best: number | undefined;
