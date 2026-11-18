@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextIcons
+import CmuxVisibleRows
 
 /// Native rows and editable controls. Domain mutations leave through the typed event callback.
 @MainActor
@@ -43,6 +44,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var typeahead = ""
     private var typeaheadTime: TimeInterval = 0
     private(set) var contentHeight: CGFloat = 0
+    /// Base proof only: the eager list's work, counted where it does it.
+    let listWork = ListWorkMeter()
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -96,6 +99,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if reset { selected = nil; selectionReason = "none"; searchHasInput = false }
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
+        listWork.walked(next.allRows.count)
         let retainedSliders = retainSliders(updating: next)
         if retireComposition || !retainedSliders && (next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer ||
             next.columns != model?.columns || next.searchAccessory != model?.searchAccessory) || next.railPlacement != model?.railPlacement || next.title != model?.title || next.search?.id != model?.search?.id {
@@ -192,6 +196,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func makeRow(_ row: NativePopupRow, hasIconColumn: Bool) -> NSView {
+        listWork.configured()
         if row.kind == .separator { return NSBox.separator() }
         if row.kind == .textField {
             let field = NSTextField(string: row.value ?? "")
@@ -335,7 +340,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func paintSelection() {
+        listWork.walked(rowViews.count)
         for (row, view) in rowViews {
+            if (view as? PopupRowView).map({ $0.isHighlighted != (row.id == selected) }) == true { listWork.configured() }
             (view as? PopupRowView)?.isHighlighted = row.id == selected
             (view as? NativePopupRailTab)?.isHighlighted = row.id == selected
         }
@@ -381,12 +388,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         for (row, view) in rowViews where !railIDs.contains(row.id) && !footerIDs.contains(row.id) {
             let height: CGFloat = (view as? NativePopupSliderView)?.preferredHeight ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+            if view.frame != NSRect(x: bodyX, y: y, width: bodyWidth, height: height) { listWork.laidOut() }
             view.frame = NSRect(x: bodyX, y: y, width: bodyWidth, height: height)
             y += height
         }
         y = max(y, railY)
         for (row, view) in rowViews where footerIDs.contains(row.id) {
             let height: CGFloat = (view as? NativePopupSliderView)?.preferredHeight ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
+            if view.frame != NSRect(x: bodyX, y: y, width: bodyWidth, height: height) { listWork.laidOut() }
             view.frame = NSRect(x: bodyX, y: y, width: bodyWidth, height: height)
             y += height
         }
@@ -415,4 +424,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         super.keyDown(with: event)
     }
+}
+
+extension NativePopupContent: VisibleRowsList {
+    var rowViewsAlive: Int { rowViews.count }
 }

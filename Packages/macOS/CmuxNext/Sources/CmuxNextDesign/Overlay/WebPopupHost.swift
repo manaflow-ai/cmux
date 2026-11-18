@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxVisibleRows
 
 /// A page's menu drawn past its window's edge (cx-6k6cg). A page menu that has no room above or
 /// below its anchor inside the web view hands its rows here: they show in a child panel of the
@@ -269,6 +270,9 @@ final class WebPopupRows: NSView {
     private var builtPlain = false
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
+    /// Base proof only: the eager list's work, counted where it does it.
+    let listWork = ListWorkMeter()
+    var rowViewsAlive: Int { rows.count }
 
     init(onPick: @escaping (String) -> Void, onHover: @escaping (String) -> Void) {
         self.onPick = onPick
@@ -287,6 +291,7 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
+        listWork.walked(items.count)
         if plain != builtPlain || rows.isEmpty != items.isEmpty || (items != self.items && !updateLabelsInPlace(items)) {
             rebuild(items)
         }
@@ -325,6 +330,7 @@ final class WebPopupRows: NSView {
         var layout = PopupRowView.Layout()
         layout.leadingColumn = plain ? 1 : 15
         layout.hoverFills = false
+        listWork.configured(items.count)
         rows = items.map { item -> (item: WebPopupHost.Item, view: NSView) in
             guard !item.separator else { return (item, WebPopupSeparator()) }
             let row = PopupRowView(leading: PopupRowView.checkMark(item.checked), title: item.label,
@@ -360,6 +366,7 @@ final class WebPopupRows: NSView {
         var y = style.padding
         for (item, view) in rows {
             let height = item.separator ? Self.separatorHeight : style.rowHeight
+            if view.frame != CGRect(x: style.padding, y: y, width: max(0, bounds.width - 2 * style.padding), height: height) { listWork.laidOut() }
             view.frame = CGRect(x: style.padding, y: y, width: max(0, bounds.width - 2 * style.padding), height: height)
             y += height
         }
@@ -380,3 +387,5 @@ private final class WebPopupSeparator: NSView {
         }
     }
 }
+
+extension WebPopupRows: VisibleRowsList {}
