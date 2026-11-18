@@ -21,6 +21,7 @@ import linux_pool_spill as spill  # noqa: E402
 POLICY_ROOT = os.environ.get("RUNNER_POOL_POLICY_ROOT")
 NOW = dt.datetime(2026, 11, 2, 4, 40, tzinfo=dt.timezone.utc)
 FOUR, SIXTEEN = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"
+TWO, EIGHT, THIRTY_TWO = "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
 HOSTED = "ubuntu-24.04"
 LINUX = [FOUR, SIXTEEN]
 BACKED_UP = {FOUR: {"queued": 300, "running": 400, "waited": 200},
@@ -110,6 +111,76 @@ class SpillChoice(unittest.TestCase):
                     good | {"running": True}, good | {"running": -1}, "x", None):
             with self.subTest(bad=bad):
                 self.assertFalse(spill.valid_spill(bad, LINUX))
+
+
+class DownSpill(unittest.TestCase):
+    """linux_16 also spills down to a smaller size main's policy accepts as its release valve.
+
+    2026-11-18 02:58Z: gallery health's shards (RUNNER_POOLS.linux_16) waited 16,431 s at p90 over 2 h; 16 and 32 vCPU
+    were both hours deep while 8 vCPU started jobs in a p50 of 646 s."""
+
+    VALVES = [EIGHT, FOUR, TWO]
+    MEMBERS = [SIXTEEN, THIRTY_TWO]
+
+    def candidates(self):
+        return spill.spill_candidates("linux_16", self.MEMBERS, self.VALVES)
+
+    def choose(self, load, record=None, *, now=NOW, dead=(), base=SIXTEEN):
+        return spill.spill_choice("linux_16", self.candidates(), {label: "x" for label in dead}, base, record, load,
+                                  now=now, members=self.MEMBERS)
+
+    @staticmethod
+    def load(oldest, **waited):
+        names = {"sixteen": SIXTEEN, "thirty_two": THIRTY_TWO, "eight": EIGHT, "four": FOUR}
+        found = {names[key]: {"queued": count + 5, "running": 50, "waited": count} for key, count in waited.items()}
+        found[spill.OLDEST] = {names[key]: minutes for key, minutes in oldest.items()}
+        found[spill.COMPLETE] = True
+        return found
+
+    def test_candidates_are_the_members_then_the_valve_down_to_its_floor(self):
+        self.assertEqual(self.candidates(), [SIXTEEN, THIRTY_TWO, EIGHT, FOUR])
+        # The linux pool keeps its members only: no down-spill.
+        self.assertEqual(spill.spill_candidates("linux", LINUX, [TWO]), LINUX)
+
+    def test_both_members_hours_deep_spill_down_to_a_size_that_is_starting_jobs(self):
+        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 12, "four": 9},
+                         sixteen=60, thirty_two=40, eight=20, four=30)
+        member, record, lines = self.choose(load)
+        self.assertEqual(member, EIGHT)
+        self.assertEqual(record, {"from": SIXTEEN, "to": EIGHT, "since": spill.iso(NOW), "running": 50})
+        self.assertTrue(any("spill to" in line for line in lines))
+        self.assertTrue(spill.valid_spill(record, self.candidates()))
+
+    def test_a_down_target_needs_a_short_wait_beside_the_backlog(self):
+        # 8 vCPU's oldest is past the bound: 4 vCPU next; both too old: stay.
+        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 10},
+                         sixteen=60, thirty_two=40, eight=20, four=30)
+        self.assertEqual(self.choose(load)[0], FOUR)
+        stuck = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 40},
+                          sixteen=60, thirty_two=40, eight=20, four=30)
+        member, record, lines = self.choose(stuck)
+        self.assertEqual((member, record), (SIXTEEN, None))
+        self.assertTrue(any("no later live member has room" in line for line in lines))
+        # Not much faster than the backlog it would leave: stay.
+        close = self.load({"sixteen": 20, "thirty_two": 20, "eight": 10, "four": 10},
+                          sixteen=60, thirty_two=40, eight=20, four=20)
+        self.assertEqual(self.choose(close)[:2], (SIXTEEN, None))
+
+    def test_never_below_the_floor_and_never_onto_a_dead_size(self):
+        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 45}, sixteen=60, thirty_two=40)
+        self.assertNotIn(TWO, self.candidates())
+        self.assertEqual(self.choose(load)[0], SIXTEEN)
+        fresh = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
+        # A size with nothing queued in the sample has room: 8 vCPU dead, 4 vCPU next; both dead, stay.
+        self.assertEqual(self.choose(fresh, dead={EIGHT})[0], FOUR)
+        self.assertEqual(self.choose(fresh, dead={EIGHT, FOUR})[0], SIXTEEN)
+
+    def test_a_drain_brings_it_back(self):
+        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
+        record = self.choose(load)[1]
+        drained = {SIXTEEN: {"queued": 0, "running": 10, "waited": 0}, spill.COMPLETE: True}
+        member, kept, _ = self.choose(drained, record, now=NOW + spill.SPILL_MIN_HOLD)
+        self.assertEqual((member, kept), (SIXTEEN, None))
 
 
 class HostedValve(unittest.TestCase):
@@ -236,7 +307,8 @@ class SampleLoad(unittest.TestCase):
         load = spill.sample_load(Client(self.RUNS, self.JOBS), now=NOW)
         self.assertEqual(load, {FOUR: {"queued": 2, "running": 1, "waited": 1},
                                 SIXTEEN: {"queued": 1, "running": 0, "waited": 1},
-                                HOSTED: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True})
+                                HOSTED: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True,
+                                spill.OLDEST: {FOUR: 15, SIXTEEN: 4, HOSTED: 15}})
 
     def test_a_capped_or_partly_unread_sample_is_incomplete_and_an_unread_listing_is_none(self):
         crowded = self.RUNS + [{"id": 9, "status": "in_progress", "created_at": ago(15)}]
@@ -361,6 +433,24 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(switch.writes, [])
         self.assertEqual(self.run_pass(switch, Client([], {}), NOW + spill.VALVE_MIN_HOLD), 0)
         self.assertNotIn(spill.VALVE_KEY, json.loads(switch.variables["RUNNER_POOLS"]))
+
+    def test_linux_16_spills_down_and_mains_check_accepts_it(self):
+        start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
+        jobs = ([{"status": "queued", "labels": [SIXTEEN], "created_at": ago(80)} for _ in range(30)]
+                + [{"status": "queued", "labels": [THIRTY_TWO], "created_at": ago(80)} for _ in range(30)]
+                + [{"status": "queued", "labels": [EIGHT], "created_at": ago(5)} for _ in range(3)])
+        client = Client([{"id": 1, "status": "in_progress", "created_at": ago(85)}], {1: jobs})
+        self.assertEqual(self.run_pass(switch, client, NOW), 0)
+        value = json.loads(switch.variables["RUNNER_POOLS"])
+        self.assertEqual(value["linux_16"], EIGHT)
+        self.assertEqual(value["_spill"]["linux_16"]["from"], SIXTEEN)
+        self.assertEqual(value["linux"], FOUR)
+        check = {"RUNNER_POOLS": switch.variables["RUNNER_POOLS"], "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""}
+        self.assertEqual(self.policy.main(["--check"], check, now=NOW), 0)
+        switch.writes.clear()
+        self.assertEqual(self.run_pass(switch, client, NOW + dt.timedelta(minutes=10)), 0)
+        self.assertEqual(switch.writes, [])
 
     def test_a_dead_member_is_still_mains_call(self):
         start = self.policy.render({"linux": FOUR, "_dead": {FOUR: spill.iso(NOW)}, "_updated": ago(60)})
