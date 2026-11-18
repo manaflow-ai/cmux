@@ -387,6 +387,7 @@ test("a long run cut into parts draws as the one row did", async () => {
 // and a few past it, over a box as tall as the rest, and draws the rest as it scrolls to them; nothing is lost.
 test("the summary card mounts only the subagents its body shows, and scrolls to the last", async () => {
   const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
+  const { firstRowCount } = await import("../src/agent-session/acpmux/session-info/WindowedRows");
   type Agents = Parameters<typeof SubagentStatusList>[0]["agents"];
   const agents = (n: number): Agents =>
     Array.from({ length: n }, (_, index) => ({
@@ -417,7 +418,7 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
   const lines = () => host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line").length;
   const drawn: Record<number, { lines: number; elements: number }> = {};
   try {
-    for (const n of [40, 400]) {
+    for (const n of [40, 400, 4_000]) {
       const root = createRoot(host);
       try {
         await act(async () =>
@@ -448,8 +449,10 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
   } finally {
     proto.getBoundingClientRect = laidOut;
   }
-  console.log(`summary-subagents 40=${JSON.stringify(drawn[40])} 400=${JSON.stringify(drawn[400])}`);
-  // As many as a window shows and the overscan (WindowedRows firstRowCount), whatever the chat ran.
-  expect(drawn[400]!.lines).toBeLessThanOrEqual(48);
-  expect(drawn[400]!.elements).toBeLessThanOrEqual(drawn[40]!.elements + 2);
+  console.log(`summary-subagents ${[40, 400, 4_000].map((n) => `${n}=${JSON.stringify(drawn[n])}`).join(" ")}`);
+  // 40 fit, all drawn; past that, as many as a window shows and the overscan (WindowedRows firstRowCount), whatever
+  // the chat ran.
+  expect(drawn[40]!.lines).toBe(40);
+  expect(drawn[400]!.lines).toBeLessThanOrEqual(firstRowCount(dom.window.innerHeight));
+  expect(drawn[4_000]).toEqual(drawn[400]!);
 });
