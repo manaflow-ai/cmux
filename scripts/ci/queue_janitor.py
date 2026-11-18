@@ -3951,6 +3951,33 @@ def rest_line(kinds: Mapping[str, int]) -> str:
                                          sorted(kinds.items(), key=lambda item: (-item[1], item[0]))) or "none")
 
 
+# A sweep's job listings, 564 of its 661 API calls in dry run 44279689050 (2026-11-18), are mostly the same answer as
+# ten minutes earlier: a backlog's runs sit queued for hours. With JANITOR_ETAGS naming a file, each listing is read
+# with the ETag kept from the last sweep, and GitHub answers an unchanged one 304, which costs no quota. A 304 is
+# GitHub's word that the answer is the same, so every decision reads exactly what a plain read gives. The file is the
+# `janitor-etags` artifact, carried from the newest same-repository sweep (ci-queue-janitor.yml).
+JOBS_PATH = re.compile(r"^/repos/[^/]+/[^/]+/actions/runs/\d+/jobs\?")
+
+
+def load_etags(path: Path | None) -> dict[str, dict[str, Any]]:
+    """The kept {path: {"etag", "body"}} job listings, or {} when there is no readable file."""
+    if path is None or not path.is_file():
+        return {}
+    try:
+        kept = json.loads(gzip.decompress(path.read_bytes()))
+    except (OSError, ValueError, EOFError):
+        return {}
+    if not isinstance(kept, dict):
+        return {}
+    return {key: value for key, value in kept.items() if isinstance(value, dict)
+            and isinstance(value.get("etag"), str) and value["etag"] and isinstance(value.get("body"), dict)}
+
+
+def save_etags(path: Path, etags: Mapping[str, Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(gzip.compress(json.dumps(etags, separators=(",", ":")).encode()))
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
@@ -3978,6 +4005,11 @@ class GitHub:
         self.rate_limits: dict[str, dict[str, int]] = {}
         # The first rate-limit refusal this sweep met, or "": main() then ends the sweep green with a warning.
         self.rate_limited = ""
+        # Job listings: the kept answers this sweep may send If-None-Match for (JOBS_PATH), the ones it read (kept
+        # for the next sweep; a run no longer listed drops out), and how many GitHub answered 304.
+        self.etags_kept: dict[str, Mapping[str, Any]] = {}
+        self.etags_seen: dict[str, dict[str, Any]] = {}
+        self.not_modified = 0
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -4010,6 +4042,10 @@ class GitHub:
         headers = dict(self.headers)
         if data is not None:
             headers["Content-Type"] = "application/json"
+        conditional = method == "GET" and bool(JOBS_PATH.match(path))
+        kept = self.etags_kept.get(path) if conditional else None
+        if kept:
+            headers["If-None-Match"] = kept["etag"]
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
             timeout = 30.0
@@ -4021,9 +4057,22 @@ class GitHub:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 self.note_rate_limit(response.headers)
                 raw = response.read()
-                return json.loads(raw) if raw else {}
+                answer = json.loads(raw) if raw else {}
+                etag = response.headers.get("ETag") if conditional else None
+                if etag and isinstance(answer, dict):
+                    # Steps are the bulk of a listing and nothing here reads them.
+                    entry = {"etag": etag, "body": {**answer, "jobs": [
+                        {k: v for k, v in job.items() if k != "steps"} for job in answer.get("jobs") or ()]}}
+                    with self._count_lock:
+                        self.etags_seen[path] = entry
+                return answer
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
+            if error.code == 304 and kept:
+                with self._count_lock:
+                    self.not_modified += 1
+                    self.etags_seen[path] = dict(kept)
+                return kept["body"]
             if error.code in (403, 429) and rate_limited(error):
                 limited = RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
                                       "the sweep stops rather than spend the workflow token)")
@@ -4459,6 +4508,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     parser.add_argument("--pool-load", type=Path, default=(
         Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None),
         help="write this sweep's per-pool macOS demand here as JSON")
+    parser.add_argument("--etags", type=Path, default=(
+        Path(os.environ["JANITOR_ETAGS"]) if os.environ.get("JANITOR_ETAGS") else None),
+        help="gzipped job listings with their ETags: read before the sweep, rewritten after it")
     parser.add_argument("--summary", type=Path, default=(
         Path(os.environ["GITHUB_STEP_SUMMARY"]) if os.environ.get("GITHUB_STEP_SUMMARY") else None))
     # The open-head failover's cutoff (LOST_FAILOVER_CUTOFF_S) counts from here.
@@ -4493,6 +4545,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
+    github.etags_kept = load_etags(args.etags)
     clients.append(github)
     # The workflow passes cmux-bot's token as CMUX_BOT_TOKEN too: GH_TOKEN is cmux-bot's only when they match
     # (its mint can fail, and GH_TOKEN then falls back to the glaeda-route App's). While it is, and not yet
@@ -4857,9 +4910,16 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(unclaimed)} unclaimed legs, " \
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \
-               f"{github.calls} API calls._\n"
+               f"{github.calls} API calls, {github.not_modified} of them job listings unchanged since the last sweep " \
+               f"(304, no quota; {len(github.etags_kept)} ETags kept)._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     summary += f"\n_{rest_line(getattr(github, 'kinds', {}))}_\n"
+    if args.etags:
+        try:
+            save_etags(args.etags, github.etags_seen)
+        except OSError as error:
+            print(f"queue-janitor: kept job listings not written ({error}); the next sweep reads them plainly",
+                  file=sys.stderr)
     print(summary)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

@@ -165,6 +165,79 @@ class PaidPortablePoolSnapshotTests(unittest.TestCase):
         self.assertEqual(janitor.label_started([run], {run["id"]: jobs}), {LINUX: iso(10)})
 
 
+class JobListingEtagTests(unittest.TestCase):
+    """Dry run 44279689050 spent 564 of its 661 API calls on job listings; an unchanged one is GitHub's free 304."""
+
+    PATH = "/repos/manaflow-ai/cmux/actions/runs/7/jobs?filter=latest&per_page=100&page=1"
+    JOB = {"id": 1, "status": "queued", "labels": ["ubuntu-24.04"], "runner_name": None, "steps": [{"name": "s"}]}
+
+    def answering(self, *, current_etag, jobs):
+        """urlopen answering like GitHub: 304 to a matching If-None-Match, else 200 with the ETag."""
+        sent = []
+
+        class Response(io.BytesIO):
+            def __init__(self, body, headers):
+                super().__init__(body)
+                self.headers = headers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            match = request.get_header("If-none-match")
+            sent.append(match)
+            if match == current_etag:
+                raise urllib.error.HTTPError(request.full_url, 304, "Not Modified", email.message.Message(), None)
+            body = json.dumps({"total_count": len(jobs), "jobs": jobs}).encode()
+            return Response(body, {"ETag": current_etag})
+
+        return urlopen, sent
+
+    def test_an_unchanged_listing_is_a_free_304_with_the_kept_answer(self):
+        urlopen, sent = self.answering(current_etag='W/"a"', jobs=[self.JOB])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            first = janitor.GitHub("t", "manaflow-ai/cmux")
+            self.assertEqual(first.request("GET", self.PATH)["jobs"], [self.JOB])
+            second = janitor.GitHub("t", "manaflow-ai/cmux")
+            second.etags_kept = first.etags_seen
+            answer = second.request("GET", self.PATH)
+        self.assertEqual(sent, [None, 'W/"a"'])
+        self.assertEqual(second.not_modified, 1)
+        self.assertEqual(answer["jobs"], [{k: v for k, v in self.JOB.items() if k != "steps"}])
+        self.assertEqual(second.etags_seen, first.etags_seen)
+
+    def test_a_changed_listing_is_read_and_kept_anew(self):
+        urlopen, sent = self.answering(current_etag='W/"b"', jobs=[self.JOB])
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github = janitor.GitHub("t", "manaflow-ai/cmux")
+            github.etags_kept = {self.PATH: {"etag": 'W/"a"', "body": {"jobs": []}}}
+            self.assertEqual(len(github.request("GET", self.PATH)["jobs"]), 1)
+        self.assertEqual((sent, github.not_modified, github.etags_seen[self.PATH]["etag"]), (['W/"a"'], 0, 'W/"b"'))
+
+    def test_only_job_listings_are_conditional(self):
+        urlopen, sent = self.answering(current_etag='W/"a"', jobs=[])
+        path = "/repos/manaflow-ai/cmux/actions/runs?status=queued&per_page=100&page=1"
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github = janitor.GitHub("t", "manaflow-ai/cmux")
+            github.etags_kept = {path: {"etag": 'W/"a"', "body": {}}}
+            github.request("GET", path)
+        self.assertEqual((sent, github.etags_seen), ([None], {}))
+
+    def test_the_kept_file_round_trips_and_a_bad_one_reads_as_empty(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "etags" / "janitor-etags.json.gz"
+            kept = {self.PATH: {"etag": 'W/"a"', "body": {"jobs": []}}}
+            janitor.save_etags(path, kept)
+            self.assertEqual(janitor.load_etags(path), kept)
+            path.write_bytes(b"not gzip")
+            self.assertEqual(janitor.load_etags(path), {})
+            self.assertEqual(janitor.load_etags(Path(temp) / "missing"), {})
+            self.assertEqual(janitor.load_etags(None), {})
+
+
 class ProtectionTests(unittest.TestCase):
     def test_never_touched_runs(self):
         cases = [
