@@ -39,6 +39,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
     /// starts its daemon, and only while a lookup waits on it. True when it stopped.
     func restartStuckAcpmux(sessionId: String?) async -> Bool
+    /// What the pane's waiting line says while its handshake has waited `waitedMs` for this host's
+    /// daemon (``AgentServiceWait``: busy, starting or down, and whether Restart agent service
+    /// fits). Nil when this host cannot tell (no daemon of its own, a remote or Cloud chat).
+    func agentServiceWait(sessionId: String?, waitedMs: Int) async -> AgentServiceWait?
     /// The person's click on a request this app's running acpmux lacks (it is older than the app):
     /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
     /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
@@ -74,6 +78,9 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
+
+    /// Hosts without a daemon have none to look at.
+    public func agentServiceWait(sessionId: String?, waitedMs: Int) async -> AgentServiceWait? { nil }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
@@ -385,7 +392,26 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached else { return false }
         prewarmed.drop()
-        return await daemonStop.restart(environment)
+        if await daemonStop.restart(environment) { return true }
+        // Down (no daemon process, nothing on its socket: ``AcpmuxServiceWait``): no daemon to stop,
+        // so the lookups that wait end here, and the page's next handshake starts a new one.
+        let probe = await AcpmuxServiceWait.probe(environment)
+        guard !probe.processAlive, !probe.socketAccepts else { return false }
+        Self.logger.error("acpmux of home=\(environment.home.standardizedFileURL.path, privacy: .public) is down while a lookup waits; a person asked to restart it, ending the lookup")
+        for task in inFlight.values { task.cancel() }
+        inFlight.removeAll()
+        return true
+    }
+
+    /// The waiting line's word on this host's own daemon (``AcpmuxServiceWait``): the probe here,
+    /// the verdict in Rust. Restart is offered only where ``restartStuckAcpmux(sessionId:)`` can act.
+    public func agentServiceWait(sessionId: String?, waitedMs: Int) async -> AgentServiceWait? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { return nil }
+        let probe = await AcpmuxServiceWait.probe(environment)
+        guard var wait = AcpmuxServiceWait.verdict(probe, waitedMs: waitedMs) else { return nil }
+        wait.restart = wait.restart && startsDaemons && !environment.isAttached && !inFlight.isEmpty
+        return wait
     }
 
     /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a

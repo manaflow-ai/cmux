@@ -4,6 +4,7 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import type { AgentServiceWait } from "./serviceWait";
 
 type Props = {
   message: string;
@@ -21,6 +22,8 @@ type Props = {
   connecting?: "text" | "spinner";
   /// The waiting line in place of the host line: how long the pane has waited for acpmux, in ms.
   waitedMs?: number;
+  /// What the host says of the daemon the waiting line waits on (`acpmux.serviceWait`, Rust's verdict).
+  service?: AgentServiceWait;
   /// Alternates the gallery weighs for the waiting line, not shipped (ask-083a4c92bc): the old
   /// one-row line (`before`), the reassurance squeezed into the message row (`one-line`), or put
   /// behind an "Is cmux OK?" toggle (`disclosure`).
@@ -107,6 +110,7 @@ function GalleryHostError({
   detail,
   connecting,
   waitedMs,
+  service,
   alternate,
   pair,
   selfRetrying,
@@ -131,7 +135,13 @@ function GalleryHostError({
           <span className="acpmux-host-line-message">{message}</span>
         </output>
       ) : waitedMs !== undefined ? (
-        <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
+        <HostWaitingLine
+          since={0}
+          now={waitedMs}
+          service={service}
+          restarting={restarting}
+          onRestart={() => setRestarting(true)}
+        />
       ) : harness ? (
         <HostError
           message={message}
@@ -344,6 +354,49 @@ export default componentEntry<Props>({
     waiting: {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
       note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, nothing under it (Leo 2026-11-12: no reassurance paragraphs). Restart agent service is quiet text after the time: optional, never a filled button.",
+    },
+    // Leo, 2026-11-18, on "Waiting for the agent service (1:10)  Restart agent service": "i cant
+    // connect to agent service? something? :(". The daemon was alive and slow; the line now says
+    // which it is (the host's probe, Rust's verdict) and offers Restart only where it fits.
+    "waiting-busy": {
+      props: {
+        message: "",
+        initialRetrying: false,
+        withRetry: false,
+        waitedMs: 70_000,
+        service: { state: "busy", restart: false },
+      },
+      note: "acpmux runs and took the connection, its reply is late (Leo's 1:10): says busy, offers no restart.",
+    },
+    "waiting-busy-long": {
+      props: {
+        message: "",
+        initialRetrying: false,
+        withRetry: false,
+        waitedMs: 200_000,
+        service: { state: "busy", restart: true },
+      },
+      note: "Busy past 3 minutes: Restart agent service comes back as quiet text, optional.",
+    },
+    "waiting-starting": {
+      props: {
+        message: "",
+        initialRetrying: false,
+        withRetry: false,
+        waitedMs: 40_000,
+        service: { state: "starting", restart: false },
+      },
+      note: "The daemon process runs but its socket does not take connections yet: says starting, no restart.",
+    },
+    "waiting-down": {
+      props: {
+        message: "",
+        initialRetrying: false,
+        withRetry: false,
+        waitedMs: 40_000,
+        service: { state: "down", restart: true },
+      },
+      note: "No acpmux process and nothing on its socket: says it is not running, with Restart agent service.",
     },
     "waiting-restart": {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },

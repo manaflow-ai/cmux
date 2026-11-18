@@ -694,6 +694,7 @@ import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } 
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
+import { askServiceWait, useAgentServiceWait } from "./serviceWait";
 import {
   AcpmuxRestartGate,
   type HostRestoring,
@@ -7224,6 +7225,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// home's acpmux, or no lookup of this app's acpmux in flight): the line keeps its time and drops
   /// the button until the next wait.
   const [restartUnavailable, setRestartUnavailable] = useState(false);
+  /// What the host sees of the daemon this handshake waits on (busy, starting or down, decided in
+  /// Rust), asked while the waiting line shows: the line says which, and offers Restart agent
+  /// service only when it fits (a daemon that is only slow gets none until a long wait).
+  const serviceWait = useAgentServiceWait(waitingSince, askServiceWait);
   /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
   /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).
   const [relinkingSince, setRelinkingSince] = useState<number | undefined>();
@@ -13351,6 +13356,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         since={hostWaitingSince}
         restarting={restartingAcpmux}
         onRestart={waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined}
+        service={waitingSince !== undefined ? serviceWait : undefined}
         otherwise={hostErrorCard}
       />
     ) : (

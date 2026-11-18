@@ -26,6 +26,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
     /// Only with a real gesture; answers `{stopped}`.
     case restartStuckAcpmux
+    /// `acpmux.serviceWait {waitedMs}`: while the page's handshake has waited `waitedMs` for this
+    /// app's acpmux, what the waiting line says (``AgentPaneHostProviding/agentServiceWait(sessionId:waitedMs:)``):
+    /// `{state: busy|starting|down, restart}`, or `{}` when the host cannot tell. Passive.
+    case agentServiceWait(waitedMs: Int)
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)

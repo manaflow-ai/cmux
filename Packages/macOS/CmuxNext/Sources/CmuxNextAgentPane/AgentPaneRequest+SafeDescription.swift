@@ -16,6 +16,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .uiPointerReport: "uiPointerReport"
         case .restartAcpmux: "restartAcpmux"
         case .restartStuckAcpmux: "restartStuckAcpmux"
+        case .agentServiceWait: "agentServiceWait"
         case .persistSession: "persistSession"
         case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"

@@ -4,6 +4,7 @@ import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import type { AgentServiceWait } from "./serviceWait";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -145,6 +146,7 @@ export function HostWaitingLine({
   since,
   restarting,
   onRestart,
+  service,
   otherwise = null,
   now: fixedNow,
 }: {
@@ -152,6 +154,10 @@ export function HostWaitingLine({
   restarting?: boolean;
   /// Restart agent service; none when the host cannot restart what this wait waits on.
   onRestart?(): void;
+  /// What the host saw of the daemon (`acpmux.serviceWait`, decided in Rust: cmux-agent-pane-policy
+  /// service_wait.rs): busy (it listens, the reply is late), starting, or down; and whether Restart
+  /// fits. Undefined while the host has not said (or cannot tell): the plain waiting line.
+  service?: AgentServiceWait;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery; the pane passes none and the line counts each second.
   now?: number;
@@ -160,11 +166,23 @@ export function HostWaitingLine({
   const ticking = useNow(fixedNow === undefined);
   const waited = (fixedNow ?? ticking) - since;
   if (waited < HOST_ERROR_DEADLINE_MS && !restarting) return otherwise;
+  const time = waitedText(waited);
+  const message =
+    service?.state === "busy"
+      ? t("host.serviceBusy", { time })
+      : service?.state === "starting"
+        ? t("host.serviceStarting", { time })
+        : service?.state === "down"
+          ? t("host.serviceDown")
+          : t("host.waitingService", { time });
+  // A daemon that is only slow is not offered a restart until the host says it fits (rule R5);
+  // one in flight keeps its held button.
+  const offered = onRestart && (restarting || service?.restart !== false);
   return (
-    <output className="acpmux-host-line-group" data-host-waiting>
+    <output className="acpmux-host-line-group" data-host-waiting={service?.state ?? "waiting"}>
       <div className="acpmux-host-line">
-        <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
-        {onRestart && (
+        <p className="acpmux-host-line-message">{message}</p>
+        {offered && (
           <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
             {t(restarting ? "host.restartingService" : "host.restartService")}
           </button>

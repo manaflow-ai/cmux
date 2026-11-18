@@ -4,6 +4,7 @@
     "account.add": "account.add",
     "acpmux.restart": "acpmux.restart",
     "acpmux.restartStuck": "acpmux.restartStuck",
+    "acpmux.serviceWait": "acpmux.serviceWait",
     "action.run": "action.run",
     "agent.avatar": "agent.avatar",
     "agent.avatar.remove": "agent.avatar.remove",

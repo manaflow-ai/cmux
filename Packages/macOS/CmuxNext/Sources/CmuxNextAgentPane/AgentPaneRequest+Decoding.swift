@@ -307,6 +307,13 @@ extension AgentPaneRequest {
             self = .restartAcpmux
         case "acpmux.restartStuck":
             self = .restartStuckAcpmux
+        case "acpmux.serviceWait":
+            // Milliseconds the page has waited: a whole number from 0 to a day.
+            if let waited = (params?["waitedMs"] as? NSNumber)?.doubleValue, waited.isFinite, (0 ... 86_400_000).contains(waited) {
+                self = .agentServiceWait(waitedMs: Int(waited))
+            } else {
+                self = .unsupported(method)
+            }
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
