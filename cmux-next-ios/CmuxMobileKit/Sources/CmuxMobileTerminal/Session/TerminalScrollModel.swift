@@ -47,6 +47,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// A restore set `.reading` and the page has not reached its rows yet
     /// (the controller waits for their frame; ``reachedTarget()``).
     private var unplaced = false
+    /// The reader's rows a restore handed to a gesture holding the page
+    /// (``restoreReading(_:)``), while nothing has moved the page since:
+    /// the gesture's settle reads them, not the offset.
+    private var restoredUnderGesture: Anchor?
 
     public init() {}
 
@@ -66,6 +70,7 @@ public struct TerminalScrollModel: Equatable, Sendable {
         var restored: Anchor?
         if unplaced, case .reading(let anchor) = state { restored = anchor }
         unplaced = false
+        restoredUnderGesture = nil
         state = .interacting(startedFollowing: isFollowing || (isInteracting && startedFollowing))
         return restored
     }
@@ -90,6 +95,8 @@ public struct TerminalScrollModel: Equatable, Sendable {
         }
         lastOffsetY = offsetY
         if offsetY >= bottomOffsetY - 0.5 { touchedBottom = true }
+        // The finger moved the page off the restored rows: it reads where it leaves it.
+        restoredUnderGesture = nil
     }
 
     /// The finger lifted with no deceleration, or a deceleration ended: rest
@@ -98,6 +105,22 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// the end of the deceleration or the lift it interrupted changes nothing.
     public mutating func settled(offsetY: CGFloat, bottomOffsetY: CGFloat, layout: TerminalDocumentLayout?, rowHeight: CGFloat) {
         guard isInteracting else { return }
+        if let restored = restoredUnderGesture {
+            // A restore found the reader's rows while this gesture held the
+            // page, and nothing moved it since (the controller stopped a
+            // fling there): rest on those rows. Until the page reaches them
+            // (it may wait for their frame, showing another), a drag gets
+            // them first (`began`). Steps 23a5dd6f9a59bd5ae686f20a and
+            // 29d221e0ad16937d43b3e557: settled as plain reading, the next
+            // drag began on the Mac's screen.
+            restoredUnderGesture = nil
+            touchedBottom = false
+            movedUp = false
+            lastOffsetY = nil
+            state = .reading(restored)
+            unplaced = true
+            return
+        }
         guard let layout, rowHeight > 0 else { state = .following; return }
         let slack = (touchedBottom && !movedUp ? Self.touchedBottomSlackRows : Self.followSlackRows) * rowHeight
         touchedBottom = false
@@ -111,10 +134,16 @@ public struct TerminalScrollModel: Equatable, Sendable {
     }
 
     /// Typing, a paste, the key bar: back to the prompt, like Terminal.
-    public mutating func input() { state = .following }
+    public mutating func input() {
+        state = .following
+        restoredUnderGesture = nil
+    }
 
     /// Jump to bottom.
-    public mutating func jumpToBottom() { state = .following }
+    public mutating func jumpToBottom() {
+        state = .following
+        restoredUnderGesture = nil
+    }
 
     /// A fling moving toward newer rows reached the bottom: it follows from
     /// here, while UIKit finishes the deceleration and its rubber band past
@@ -123,6 +152,7 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func flingReachedBottom() {
         guard isInteracting else { return }
         state = .following
+        restoredUnderGesture = nil
     }
 
     /// The mirror was reset and replayed (reattach, resize) or the scrollback
@@ -130,6 +160,7 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func reset() {
         state = .following
         unplaced = false
+        restoredUnderGesture = nil
     }
 
     /// A mirror reset's replay is in: the reader goes back to their rows
@@ -142,7 +173,10 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// gesture's until it settles); nil when the state places it.
     @discardableResult
     public mutating func restoreReading(_ anchor: Anchor) -> Anchor? {
-        if isInteracting { return anchor }
+        if isInteracting {
+            restoredUnderGesture = anchor
+            return anchor
+        }
         state = .reading(anchor)
         unplaced = true
         return nil
@@ -162,6 +196,7 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// Ghostty pruned `-rows` of its oldest rows (`TerminalHistoryPrune`):
     /// the rows being read keep their identity under the new numbering.
     public mutating func shiftRows(by rows: Int) {
+        restoredUnderGesture = restoredUnderGesture.map { Anchor(row: max(0, $0.row + rows), delta: $0.delta) }
         guard case .reading(var anchor) = state else { return }
         anchor.row = max(0, anchor.row + rows)
         state = .reading(anchor)

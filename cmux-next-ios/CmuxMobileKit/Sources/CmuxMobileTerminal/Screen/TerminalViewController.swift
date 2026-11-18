@@ -922,6 +922,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 frame: surface.frame.minY..<surface.frame.maxY, document: 0..<document.contentHeight(cellHeight: cell.height),
                 current: scrollView.contentOffset.y, target: target, viewport: view.bounds.height),
                abs(y - scrollView.contentOffset.y) > 0.5 {
+                #if DEBUG
+                if scroll.awaitsPlacement { TerminalHistoryWindowProbe.shared.note("I") }
+                #endif
                 settingOffset = true
                 scrollView.contentOffset.y = y
                 settingOffset = false
@@ -1980,14 +1983,33 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// After the document took the replay's rows: a reader restored under a
     /// finger or a fling gets the page moved to their rows. A fling is
-    /// stopped there and the page rests on those rows.
+    /// stopped there and the page rests on those rows: its settle reads the
+    /// reader's rows (`TerminalScrollModel.settled`), and a drag that begins
+    /// before the page has their frame starts on them.
     private func applyFingerRestore() {
         guard let restore = fingerRestore else { return }
         fingerRestore = nil
-        guard let document, cell.height > 0, !model.isTUI else { return }
+        guard let document, cell.height > 0, !model.isTUI else {
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)x\(document == nil ? "doc" : (model.isTUI ? "tui" : "cell"))"
+            #endif
+            return
+        }
         let target = document.contentY(ofRow: restore.row, cellHeight: cell.height) + restore.delta
         let y = min(max(-scrollView.contentInset.top, target), maxOffsetY)
         let decelerating = scrollView.isDecelerating || fling != nil
+        #if DEBUG
+        let probeGesture = scrollView.isTracking ? "t" : (decelerating ? "d" : "")
+        defer {
+            let state: String
+            switch scroll.state {
+            case .following: state = "f"
+            case .reading: state = "r"
+            case .interacting: state = "i"
+            }
+            TerminalHistoryWindowProbe.shared.lastFinger = "\(restore.row)y\(document.row(atContentY: max(0, y), cellHeight: cell.height))max\(document.row(atContentY: max(0, maxOffsetY), cellHeight: cell.height))\(probeGesture)>\(state)\(scroll.awaitsPlacement ? "u" : "")@\(document.row(atContentY: max(0, scrollView.contentOffset.y), cellHeight: cell.height))"
+        }
+        #endif
         if decelerating {
             fling?.stop()
             fling = nil

@@ -37,6 +37,12 @@ public final class TerminalHistoryWindowProbe {
     /// The last reset that marked nothing (`Z`), as `lastReset` reads it:
     /// kept, since the resets after it overwrite `lastReset`.
     var lastMiss = "-"
+    /// The last restore under a gesture (`applyFingerRestore`): the reader's
+    /// row, the row the page was set to and the last row it could be, `d` a
+    /// deceleration or `t` a finger, `>` then the scroll state after it
+    /// (`f`, `r`, `i`, `u` while the page has not reached the rows), or `x`
+    /// and why it placed nothing.
+    var lastFinger = "-"
 
     func note(_ event: Character) {
         counts[event, default: 0] += 1
@@ -47,9 +53,11 @@ public final class TerminalHistoryWindowProbe {
     /// `top=000123 probe=P3,F0,K0,S0,T0,D0,N0,R0 trail=PPS place=f+0@1530/4051 newest=-`: no spaces inside a field.
     /// `K`: the restore found the reader's rows but the scroll model kept another state.
     /// `U`: a drag began before the page reached the restored rows; it was moved there first.
+    /// `I`: while the page had not reached a restore's rows, it was moved to
+    /// the frame it had (`applyScroll`'s interim offset) to wait for theirs.
     public var caption: String {
-        let fields = "PFKUSTDNRMWZG".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
-        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest) reset=\(lastReset) miss=\(lastMiss)"
+        let fields = "PFKUSTDNRMWZGI".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
+        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest) reset=\(lastReset) miss=\(lastMiss) finger=\(lastFinger)"
     }
 }
 #endif
