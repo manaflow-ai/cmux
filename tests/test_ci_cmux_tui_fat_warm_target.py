@@ -258,6 +258,49 @@ class ToolchainStamp(unittest.TestCase):
         self.assertIn("warm target: hit", out)
         self.assertTrue(obj.exists())
 
+    def test_record_over_the_bound_keeps_the_triple_the_job_built(self) -> None:
+        # The steps after the build read target/<triple>/release, so record's prune must not
+        # remove it, also when it is the oldest entry of a disk that is over the bound.
+        self.warm("restore", None)
+        target = self.repo / "cmux-tui" / "target"
+        built = target / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        host = target / "release" / "build" / "host.bin"
+        for path in (built, host):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\0" * 300_000)
+        os.utime(target / "aarch64-apple-darwin", (1, 1))
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "450000"
+        out = self.warm("record", None)
+        self.assertTrue(built.exists(), out)
+        self.assertFalse(host.exists(), out)
+
+    def recorded_disk(self) -> tuple[Path, Path]:
+        """A disk as a build left it: the triple's dir (the oldest entry) and a newer one."""
+        target = self.disk / "target"
+        triple = target / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        host = target / "release" / "build" / "host.bin"
+        for path in (triple, host):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\0" * 300_000)
+        os.utime(target / "aarch64-apple-darwin", (1, 1))
+        return triple, host
+
+    def test_restore_over_the_bound_removes_the_oldest_entry(self) -> None:
+        # record keeps the triple's dir, so that dir alone can pass the bound. Before the build
+        # no entry is fresh, so restore bounds the disk by the prune's rule without a kept name.
+        triple, host = self.recorded_disk()
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "450000"
+        out = self.warm("restore", None)
+        self.assertFalse(triple.exists(), out)
+        self.assertTrue(host.exists(), out)
+
+    def test_restore_below_the_bound_removes_nothing(self) -> None:
+        triple, host = self.recorded_disk()
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "10000000"
+        out = self.warm("restore", None)
+        self.assertTrue(triple.exists(), out)
+        self.assertTrue(host.exists(), out)
+
 
 if __name__ == "__main__":
     unittest.main()

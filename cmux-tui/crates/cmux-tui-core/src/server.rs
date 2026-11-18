@@ -141,12 +141,14 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource, set_link_share_app_scheme, start_link_share_bridge,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -245,7 +247,7 @@ mod cmd_server;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
-pub use size_lease::SIZE_LEASE_CAPABILITY;
+pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
@@ -255,6 +257,7 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod floating_panes;
 mod page_credential;
 mod page_files;
 mod page_listener;
@@ -886,6 +889,9 @@ enum Command {
         screen_sharing: Option<bool>,
         #[serde(default)]
         headless: Option<bool>,
+        /// The app's own Screen Recording and Accessibility (memory only).
+        #[serde(default)]
+        app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
@@ -1923,6 +1929,8 @@ enum Command {
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
+    /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
+    FloatPane(floating_panes::FloatPaneParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3159,6 +3167,10 @@ mod agent_session_attach_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_start_phone_tests.rs"]
 mod agent_session_start_phone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_session_credentials_tests.rs"]
+mod agent_session_credentials_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/cloud_mobile_capability_tests.rs"]
