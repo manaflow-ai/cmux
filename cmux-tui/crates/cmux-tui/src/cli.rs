@@ -105,6 +105,8 @@ mod community;
 #[cfg(unix)]
 mod customize;
 #[cfg(unix)]
+mod debug_perf;
+#[cfg(unix)]
 mod dev;
 mod docs;
 mod event_match;
@@ -873,6 +875,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| debug_perf::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))

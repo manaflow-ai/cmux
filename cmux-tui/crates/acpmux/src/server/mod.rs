@@ -586,7 +586,23 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
+        }
         self.out.push(line.to_owned());
+    }
+
+    /// The perf watch's meter (`perf_watch.rs`, on only): `what` went to this client.
+    fn perf_bytes(&self, what: impl FnOnce() -> String, bytes: usize) {
+        crate::perf_watch::bytes(
+            crate::perf_watch::channel_of(self.origin),
+            || {
+                let name = self.name.lock_or_recover();
+                let client = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+                format!("{} \u{2192} {client}", what())
+            },
+            bytes,
+        );
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
@@ -615,6 +631,12 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
+                if crate::perf_watch::on() {
+                    self.perf_bytes(
+                        || crate::wire_size::What::of(msg, reply_to).label(),
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -677,6 +699,9 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| what.label(), bytes);
+        }
         // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
         if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
         {
@@ -1857,6 +1882,7 @@ async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
+                    let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
@@ -1936,6 +1962,7 @@ async fn serve_connection_from(
                     } else {
                         dual_requests::finish(first, None);
                     }
+                    crate::perf_watch::request_done(perf_started, &m, conn.origin);
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
                     if watched
@@ -2407,6 +2434,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;
 mod plan_build;
