@@ -2365,7 +2365,6 @@ pub(crate) mod controls;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
-pub(crate) mod controls;
 mod in_flight;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
