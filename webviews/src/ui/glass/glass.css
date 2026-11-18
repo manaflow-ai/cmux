@@ -351,6 +351,28 @@
   }
 }
 
+/* HOST GLASS IN EITHER ENGINE (hostGlass.ts HOST_GLASS_ENGINES_ATTRIBUTE): a page that asks for the
+   App's glass in WebKit too gets the rules above there as well. WebKit's own backdrop blur does reach
+   the window glass, but it is a CSS blur and saturate, never the App's Liquid Glass with its lensing
+   rim: beside a native surface only the App's own material matches (the Liquid Glass Parity
+   playground, pages/glass-parity). The drawn surface lays only the veil, as in Chromium. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-host-glass-engines="all"][data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
+    filter: opacity(0);
+  }
+  :root[data-host-glass-engines="all"][data-host-glass-on][data-cmux-see-through]
+    [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+      :not([data-host-glass-cover]),
+      [data-glass-over]
+    ):is(.ui-glass, .ui-tooltip) {
+    background: var(--host-glass-fill, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: var(--host-glass-edge, none);
+    border-color: transparent;
+  }
+}
+
 /* A HOVER CARD BLURS WHAT IT COVERS, IN EVERY CHROMIUM PAGE (Leo 2026-11-05, on the hover previews:
    "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
    blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's

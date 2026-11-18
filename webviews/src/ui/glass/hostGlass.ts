@@ -61,6 +61,11 @@ export const HOST_GLASS_DRAWN_ATTRIBUTE = "data-host-glass-drawn";
 export const HOST_GLASS_COVER_ATTRIBUTE = "data-host-glass-cover";
 /** On `<html>` while the App draws host glass: glass.css hides a marked surface until it is drawn. */
 export const HOST_GLASS_ROOT_ATTRIBUTE = "data-host-glass-on";
+/** On `<html>`: `all` when the page asks for the App's glass in WebKit too, not only in Chromium. WebKit's
+ * own backdrop does reach the window glass, but it is a CSS blur, not the App's Liquid Glass: only the
+ * App's own material matches a native surface beside it to the pixel (the Liquid Glass Parity
+ * playground, `debug.glass_parity`). glass.css draws a drawn surface's veil in either engine then. */
+export const HOST_GLASS_ENGINES_ATTRIBUTE = "data-host-glass-engines";
 /** On a surface while it closes (Base UI sets it for the close fade): it leaves the App's glass. */
 export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 
@@ -94,13 +99,15 @@ const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
 const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
- * backdrop already takes in the window glass), outside the lens and the live background (whose
+ * backdrop already takes in the window glass; a page that sets HOST_GLASS_ENGINES_ATTRIBUTE `all` gets
+ * it in WebKit too), outside the lens and the live background (whose
  * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
   if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
   if (root.hasAttribute("data-reduce-transparency")) return false;
+  if (root.getAttribute(HOST_GLASS_ENGINES_ATTRIBUTE) === "all") return true;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
 }
