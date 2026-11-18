@@ -6,6 +6,7 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+mod control_asks;
 
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
