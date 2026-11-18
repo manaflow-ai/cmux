@@ -294,7 +294,7 @@ fn template_scene(kind: &str) -> Result<Value, String> {
                    "branch": "fix/chat-drafts", "harness": "claude"}),
         ),
         "pane" => ("renderPane", json!({})),
-        "newtab" => ("renderNewTab", json!({"surface": "newTab", "cwd": "/Users/you/src/atlas"})),
+        "newtab" => ("renderNewTab", json!({"cwd": "/Users/you/src/atlas"})),
         _ => return Err(format!("{kind} draws no view")),
     };
     let root = tempfile::tempdir().map_err(|e| e.to_string())?;
