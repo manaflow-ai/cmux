@@ -8,6 +8,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -76,7 +77,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
 
   test("the bar shows the essentials; titles keep the full text", async () => {
     const page = await open("agent-pane.composer", "footer-essentials");
-    const model = await read(page, ".acpmux-model .acpmux-picker-button");
+    const model = await read(page, MODEL_PICKER);
     // The title leads with the full name; the context use may follow it.
     expect(model?.visible).toBe("Opus 5.5");
     expect(model?.title).toStartWith("Claude Opus 5.5");

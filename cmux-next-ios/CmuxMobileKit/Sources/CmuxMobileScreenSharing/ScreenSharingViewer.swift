@@ -232,6 +232,14 @@ public final class ScreenSharingViewer: Identifiable {
         let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
                                     signaling: { [weak self] in self?.takeSignaling() })
         session.reconnectLimit = 0
+        // A drop goes straight to the reattach (no failed card first, over the last frame).
+        session.onDropped = { [weak self, weak session] in
+            // Taken only while this viewer streams this screen's session: then it reattaches.
+            guard let self, let session, self.screen === session, let id = self.sessionID,
+                  case let .streaming(current, _) = self.phase, current == id else { return false }
+            self.streamDropped(id)
+            return true
+        }
         stopStream()
         screen = session
         watch(session, sessionID: ticket.sessionId)
@@ -250,7 +258,11 @@ public final class ScreenSharingViewer: Identifiable {
                 switch session.phase {
                 case .failed, .ended:
                     self.streamDropped(sessionID)
-                case .connecting, .connected:
+                case .connected:
+                    // A stream that came up: its next drop starts the backoff over (first try at once).
+                    self.reattachAttempts = 0
+                    self.watch(session, sessionID: sessionID)
+                case .connecting:
                     self.watch(session, sessionID: sessionID)
                 }
             }
@@ -265,26 +277,52 @@ public final class ScreenSharingViewer: Identifiable {
         scheduleReattach(id)
     }
 
-    /// The link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
-    public nonisolated static let reattachBackoff: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)]
+    /// The first try goes at once (the drop is already known and the hub answers in one round
+    /// trip), then the link's roaming backoff: 1/2/4/8/16/30 seconds, then 30 seconds.
+    public nonisolated static let reattachBackoff: [Duration] = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8),
+                                                                 .seconds(16), .seconds(30)]
+
+    /// The app came back to the foreground (or the network came back): a reattach waiting out
+    /// a long backoff step tries again now, from the start of the backoff. A reattach call
+    /// already waiting on the hub is left to answer.
+    public func reattachNow() {
+        guard case let .reconnecting(id, _) = phase, !reattachInFlight else { return }
+        reattachAttempts = 0
+        scheduleReattach(id)
+    }
+
+    /// Reattach tries since the stream last came up: kept across tickets, so a stream that fails
+    /// again before it connects (or a ticket whose signaling can't start) backs off instead of
+    /// asking the hub again at once, over and over.
+    @ObservationIgnored private var reattachAttempts = 0
+    /// A reattach call is waiting on the hub's answer.
+    @ObservationIgnored private var reattachInFlight = false
+
+    /// The next backoff step, counting the try.
+    private func nextReattachDelay() -> Duration {
+        defer { reattachAttempts += 1 }
+        return Self.reattachBackoff[min(reattachAttempts, Self.reattachBackoff.count - 1)]
+    }
 
     private func scheduleReattach(_ id: String) {
         reattachTask?.cancel()
+        reattachInFlight = false
         let hub = hub
         let reattach = reattachSession
         reattachTask = Task { [weak self] in
-            var attempt = 0
             while !Task.isCancelled {
-                let delay = Self.reattachBackoff[min(attempt, Self.reattachBackoff.count - 1)]
+                guard let delay = self?.nextReattachDelay() else { return }
                 do { try await Task.sleep(for: delay) } catch { return }
                 guard let self, case .reconnecting(id, _) = self.phase else { return }
+                self.reattachInFlight = true
                 do {
                     let ticket = try await reattach(hub, id)
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else { return } // a newer schedule owns the flag now
+                    self.reattachInFlight = false
                     self.accept(ticket)
                     return
                 } catch {
-                    attempt += 1
+                    if !Task.isCancelled { self.reattachInFlight = false }
                 }
             }
         }

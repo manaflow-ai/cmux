@@ -137,10 +137,10 @@ impl Hub {
                 None => rows.push(ToolRow { can_toggle: toggles, ..row }),
             }
         }
-        if rows == m.tools.rows {
+        if rows == *m.tools.rows {
             return;
         }
-        m.tools.rows = rows;
+        m.tools.rows = rows.into();
         drop(m);
         self.append(session, "mux", "tools", json!({"reported": true}));
         self.save_meta(session);
@@ -196,7 +196,11 @@ impl Hub {
             if !enabled {
                 m.tools.off.push(id.to_owned());
             }
-            if let Some(row) = m.tools.rows.iter_mut().find(|r| r.id == id) {
+            // Rows shared with other chats are copied only when one actually changes.
+            let differs = |r: &ToolRow| r.id == id && r.enabled != enabled;
+            if m.tools.rows.iter().any(differs)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| differs(r))
+            {
                 row.enabled = enabled;
             }
         }
@@ -288,12 +292,15 @@ impl Hub {
         }
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            match m.tools.rows.iter_mut().find(|r| r.id == id) {
-                Some(row) if row.status.as_deref() != Some("connected") => {
-                    row.status = Some("connected".to_owned());
-                    true
-                }
-                _ => false,
+            // Rows shared with other chats are copied only when one actually changes.
+            let stale = |r: &ToolRow| r.id == id && r.status.as_deref() != Some("connected");
+            if m.tools.rows.iter().any(stale)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| stale(r))
+            {
+                row.status = Some("connected".to_owned());
+                true
+            } else {
+                false
             }
         };
         drop(current);

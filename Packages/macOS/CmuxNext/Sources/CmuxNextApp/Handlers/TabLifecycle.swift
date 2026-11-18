@@ -212,6 +212,7 @@ enum TabLifecycle {
     /// absent, see `BrowserEngineResolver`). An explicit Chromium request
     /// never silently becomes WebKit.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil) {
+        var invocation = invocation
         let plan: BrowserOpenPlan
         switch BrowserOpenPlan.make(url: invocation["url"]?.stringValue, engine: invocation["engine"]?.stringValue,
                                     origin: invocation.origin) {
@@ -235,9 +236,7 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement),
-        // not in the chat's pane. The chat header's Preview is placed beside the
-        // chat as an agent's is.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement), not in the chat's pane; the header's Preview as an agent's.
         let pane: PaneModel
         var docked = false
         if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
@@ -249,14 +248,19 @@ enum TabLifecycle {
                 pane = invoked
                 docked = true
             }
+        } else if !invocation.besideCaller, let caller = invocation.callerTerminal, let from = ctx.services.paneController(for: invoked),
+                  invoked.tabs.contains(where: { $0.id == invocation.target?.id && [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].contains(caller) }) {
+            // A CLI or MCP browser at its own terminal's tab goes where a Cmd-click's would (LinkOpenPlacement, Lawrence 2026-11-15): the pane on its right, else a new pane beside it (AgentBesidePlacement).
+            let target = ctx.services.linkOpener.target(from: from, kind: .browser), id = from.layoutPaneID
+            if case .pane(let right) = target, right != id, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
+            if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
+            invocation.besideCaller = invocation.newColumnBeside
         } else {
             pane = invoked
         }
         if docked { return }
-        // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
-        // Whether it opens behind and is an agent's: Rust's (cmux-window-rules `tabs::browser_placement`).
-        // An agent never swaps out the page the person is working in: its tab opens unselected in the
-        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+        // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md). Whether it opens
+        // behind: Rust's (cmux-window-rules `tabs::browser_placement`); never over the person's page (agent-browser-passkey-DESIGN.md 3.1).
         let scripted = [.cli, .mcp, .script].contains(invocation.origin)
         let placement = WindowRules().browserPlacement(WindowRules.BrowserPlacementFacts(
             scripted: scripted, allowsViewChange: invocation.allowsViewChange,
@@ -269,15 +273,12 @@ enum TabLifecycle {
         if placement?.agentDriven ?? scripted {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
-        // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
-        // there it opens unselected in the chat's pane and moves into a new one (AgentBesidePlacement).
-        let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil
+        let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil // An agent's tab beside its chat: selected there, or moved out (AgentBesidePlacement).
         if invocation.besideCaller {
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
         }
         let background = placement?.background ?? (scripted || invocation.opensInBackground)
-        // A script's tab aimed at Home's dock opens beside it (HomeDockOpens); an agent's beside its
-        // chat is placed by AgentBesidePlacement.
+        // A script's tab aimed at Home's dock opens beside it (HomeDockOpens); an agent's beside its chat by AgentBesidePlacement.
         if !invocation.besideCaller {
             homePlacement = HomeDockOpens.opensBeside(pane, services: ctx.services)
             agentTab = HomeDockOpens.placing(pane, services: ctx.services, focus: !background,
@@ -302,9 +303,8 @@ enum TabLifecycle {
             })
             return
         }
-        // `layout.newPanePlacement: split` with `layout.tileBrowsers`: a person's browser opens
-        // as a tab in the pane Auto Layout picks, then moves into its own pane (PanePlacementRouting).
-        // Only a person's browser tiles, so `agentTab` is nil on that path.
+        // `layout.newPanePlacement: split` with `layout.tileBrowsers`: a person's browser opens as a tab in the pane Auto Layout
+        // picks, then moves into its own pane (PanePlacementRouting). Only a person's browser tiles: `agentTab` is nil there.
         var opener = pane
         var then: (@MainActor (SurfaceID) -> Void)?
         if case .split(let target, let direction) = PanePlacementRouting.route(

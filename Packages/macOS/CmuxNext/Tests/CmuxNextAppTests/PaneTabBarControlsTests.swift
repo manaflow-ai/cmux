@@ -29,7 +29,7 @@ import Testing
 
     @Test func theTopBarOffersNoCreationButtonsOnlyItsMoreMenu() {
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: ActionTargetRef(kind: .pane, id: "sample-pane"))
         toolbar.update(target: "sample-terminal", kind: .terminal)
         #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu, which the ⋮ menu holds")
         #expect(toolbar.view.buttons.isEmpty)

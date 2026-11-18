@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDictation
 import CmuxNextSettings
 import Foundation
@@ -99,6 +100,10 @@ extension AgentPaneRequest {
         }
         if AgentPaneCloudRepositoryRequest.methods.contains(method) {
             self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
+            return
+        }
+        if AgentPaneGitHubRequest.methods.contains(method) {
+            self = AgentPaneGitHubRequest(method: method, params: params).map(Self.gitHub) ?? .unsupported(method)
             return
         }
         switch method {
@@ -390,9 +395,18 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.plan.subscribe":
+            // Only the plans the cards may name; anything else is refused here.
+            if let plan = params?["plan"] as? String, AgentPaneCloudMachines.Plan.subscribable.contains(plan) { self = .cloudPlanSubscribe(plan: plan) } else { self = .unsupported(method) }
         case "cloud.signIn":
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
+        case "cloud.setUp":
+            // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
+            if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
+               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
+                self = .cloudSetUp(key: key, action: action, family: family)
+            } else { self = .unsupported(method) }
         case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "cloud.repickChat": self = AgentPaneCloudRepick(params: params).map(Self.cloudRepickChat) ?? .unsupported(method)
         case "cloud.answerStart": self = AgentPaneCloudAnswer(params: params).map(Self.cloudAnswerStart) ?? .unsupported(method)
@@ -436,6 +450,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.attach.external": self = .attachExternal
         case "attachment.sourceIcon":
             if let bundleId = params?["bundleId"] as? String, AttachmentSource.isBundleId(bundleId) { self = .attachmentSourceIcon(bundleId) }
             else { self = .unsupported(method) }
@@ -470,6 +485,9 @@ extension AgentPaneRequest {
             } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
+            else { self = .unsupported(method) }
+        case "folder.complete":
+            if let path = params?["path"] as? String, AgentPaneFolderCompletion.isWellFormed(path) { self = .completeFolder(path) }
             else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
@@ -535,6 +553,10 @@ extension AgentPaneRequest {
         case "pane.toastAvoidance":
             if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
             else { self = .unsupported(method) }
+        case "pane.toast":
+            if let message = params?["message"] as? String, !message.isEmpty {
+                self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
+            } else { self = .unsupported(method) }
         case "pane.glass":
             if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
@@ -732,8 +754,6 @@ extension AgentPaneRequest {
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneCloudMachineRequest.methods.contains(method):
             self = AgentPaneCloudMachineRequest(method: method, params: params).map(AgentPaneRequest.cloudMachine) ?? .unsupported(method)
-        case AgentPaneCloudCredentialTransferRequest.method:
-            self = AgentPaneCloudCredentialTransferRequest(params: params).map(AgentPaneRequest.cloudCredentialTransfer) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

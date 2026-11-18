@@ -295,6 +295,14 @@ struct TerminalPage: View {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalChatToggle) {
+                    SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
+                }
+                .accessibilityIdentifier("settings.terminalChatToggle")
+            } footer: {
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
@@ -481,7 +489,7 @@ struct TransportPage: View {
                         .padding(.vertical, 4)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
                     .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
                 }
@@ -493,12 +501,31 @@ struct TransportPage: View {
                 }
             }
             Section {
-                Toggle(isOn: $settings.ultraOnCellular) {
-                    Text("Ultra mode on cellular")
+                Picker(selection: $settings.ultra) {
+                    ForEach(UltraConnection.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Ultra mode")
                 }
-                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.transport.ultra")
             } footer: {
-                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.alignKeepalives) {
+                    Text("Align keepalives")
+                }
+                .accessibilityIdentifier("settings.transport.alignKeepalives")
+            } footer: {
+                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.agentCLIHybrid) {
+                    Text("Agent CLI Screen Changes")
+                }
+                .accessibilityIdentifier("settings.transport.agentCLIHybrid")
+            } footer: {
+                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             #if !DEBUG
             Section {

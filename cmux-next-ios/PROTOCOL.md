@@ -393,6 +393,18 @@ nothing at all, not a pong and no other frame, arrived for 20 s after a
 ping. (Before, a ping queued behind megabytes of data on a slow relay and a
 healthy link closed during a 10 MiB transfer.)
 
+Align Keepalives (phone Settings → Transport, off by default; no wire
+change): the phone sends every keepalive on the beats of one grid
+(multiples of the period since the Unix epoch, `cmux-mobile-link`
+`keepalive.rs`), so the radio wakes once for all of them. The link pings on
+every 10 s beat whether or not the last pong came, and its WireGuard tunnel
+sends no persistent keepalive (the ping is a tunnel datagram as often, on the
+same routes); the 20 s timeout above is unchanged. The signaling and presence
+sockets ping on every 10 s beat, the Cloud Chief socket on every 20 s beat,
+and the app's heartbeat probes a link with no traffic (only pings and pongs)
+on its 2.5 s foreground or 10 s background beat. No interval is longer than
+before.
+
 ### Lanes (added with the input lane; backward compatible)
 
 All channels used to share the main stream in FIFO order, so a keystroke,
@@ -774,15 +786,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   emulation prevention). The phone keeps a lane frame only when it carries
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
-- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper, so the
-  phone's chrome takes the colors the Mac's chrome derives from and shows the picture
-  behind the Mac's sidebar. One JSON frame now and on every change, nothing before the
+- `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
+  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
+  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
   "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
-  null}`. `id` is the SHA-256 of the picture (hex), the phone's cache key. The phone
-  derives every chrome color itself (`ThemeTokens.derive`, the Mac's own code) and keeps
-  the last frame, so it paints the same palette at launch and offline. Since 2026-11-13 a
+  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
+  the accent is the same at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
   applied Ghostty config's value for each terminal theme key
   (`appearance.rs` `TERMINAL_KEYS`: background, foreground, every palette entry, cursor,
@@ -790,11 +802,39 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   colorspace, search colors). hostd drops any other key and any value that is not a plain
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
   of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
-  Match Mac theme switch says (that switch is the chrome's); a frame without `terminal` (an
-  older Mac) stands in with `theme`'s colors.
+  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
+  `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
+  phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
+  `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`,
+  `blocks`), "hue"?: appearance.hue (0...1, 0.5 keeps the theme's), "saturation"?:
+  appearance.saturation (0...2, 1 keeps it), "glass_transparency"?:
+  appearance.glassTransparency (0...1), "sidebar_surface"?: appearance.sidebarSurface
+  (`same` | `separate`), "terminal_font"?: {"family"?, "size"?} (the face and points the
+  terminals draw in: terminal.fontFamily and terminal.fontSize over the Ghostty config's;
+  size 4...96), "chat"?: {"sent"?, "sent_text"?, "received"?, "received_text"?}
+  (home.bubbleColors.*, `#rrggbb`), "groups"?: {"palette"?: sidebar.groupPalette (`glass`,
+  `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial`), "gradient"?:
+  sidebar.groupGradient (`sunset`, `aurora`, `lagoon`, `twoTone`)}}`. The Mac app sends the
+  same object on its stdin line (`MobileHostAppearance.Look`); hostd (`appearance.rs`
+  `sanitize_look`) checks each field on its own and drops a bad one (an unknown value, a
+  number out of range, not `#rrggbb`, a family with a control character, `#`, `=` or `"`, or
+  over 120 characters) while the rest and the theme still serve; a nested object with
+  nothing valid is left out, and with nothing valid at all the frame has no `look`, the same
+  bytes an older Mac sends. The phone does not draw these yet. Since 2026-11-17 a frame
+  may also carry `"chat"`, what the phone's agent chat shows, resolved by hostd
+  (`appearance.rs` `chat_look`): `{"background", "foreground", "background_opacity",
+  "wallpaper"?: the `wallpaper` id, "bubbles"?: look's `chat` colors}`. `background_opacity`
+  is how much of `background` covers the picture: the window's tint with a picture (the
+  Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
+  colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
+  keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
+  on; the rest of its chrome stays stock.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
-  `not_found` when it shows none. Machines need the View grant for both.
+  `not_found` when it shows none. Machines need the View grant for both. The phone
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
+  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
@@ -1054,6 +1094,11 @@ Mechanisms, phone first, then the Mac:
   painted. The claim:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+  The release goes out at once on the attach channel, never behind a request
+  of the session's still waiting for its answer (that answer comes back
+  behind the terminal's output, and iOS may suspend the app first); the
+  daemon runs one connection's requests in order, so it still lands after
+  any size sent before it (2026-11-12).
 - **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
   for another tab, the grid or a sheet, or the app going to the background)
   makes the Mac replay its own grid to the hidden page, and the claim makes it
@@ -1067,21 +1112,36 @@ Mechanisms, phone first, then the Mac:
   grid), the held events show in order. The page keeps its last frame at its
   own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
   resize back... then i go to it again and it resize again").
+  On screen too, the page never draws a grid it did not ask for while its
+  claim may still bring its own back (Aziz, 2026-11-12: "ensure that the
+  phone never sees a terminal size that it doesn't want to see even if it
+  receives it"): a grid other than its claimed one (its lease ended over a
+  slow link, a reattach replayed the Mac's grid) starts the same hold, the
+  phone sends its size again at once, and the hold shows what it has only
+  when the Mac keeps its grid past 1.5 s (its policy keeps that grid). The
+  Mac's later grid changes then show as they come, until the phone's grid is
+  back or the page claims again.
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
   bare close as a dropped link and hold the grid.
-- **Size lease (phone and daemon, `size-lease-v1`).** The phone lists
-  `size-lease-v1` in `set-client-info` `capabilities`; when `identify` lists
-  it, the phone sends its claimed size again every 15 s while it claims (a
-  same-size `resize-surface` renews the lease and never resizes the PTY). A
-  size not refreshed for 45 s is released by the daemon; a connection that
+- **Size lease (phone and daemon, `size-lease-v2`, `size-lease-v1`).** The
+  phone lists both in `set-client-info` `capabilities`. When `identify` lists
+  `size-lease-v2`, the phone sends its claimed size again every 2 s while it
+  claims and the daemon releases a size not refreshed for 8 s; with only
+  `size-lease-v1`, every 15 s and 45 s. A same-size `resize-surface` renews
+  the lease and never resizes the PTY, and a refresh goes out at once, never
+  behind an unanswered request, so a slow link does not let the lease run
+  out while the phone is on screen. With the short lease, a phone that went
+  away without a release (suspended before it left, a dead link, a crash)
+  gives the Mac its grid back within 8 s; a connection that
   ended without releasing ends the departed-view hold its own departure set
   at that moment (a later departure's hold runs on). A suspended or dead phone can never pin the Mac's grid past it.
 - **Departed-view hold (daemon).** A phone's connection that ends without a
   release (the link dropped) keeps the grid from growing for 30 s, so a link
   blip that reattaches finds the grid it left (termqa V2-5); capped by the
-  lease as above, and ended at once by a phone back with a size.
+  lease as above (8 s under `size-lease-v2`), and ended at once by a phone
+  back with a size.
 - **Release on purpose (cmux-mobile-host).** The Mac releases a phone's sizes
   itself, sending `release-surface-size` for every terminal the channel
   attached to or sized and waiting up to 500 ms for the answers before it
@@ -1094,7 +1154,7 @@ Mechanisms, phone first, then the Mac:
 
 The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
 server) has no release of its own: a phone on that path relies on its own
-release and the daemon's size lease.
+release and the daemon's size lease (8 s under `size-lease-v2`).
 
 | Path | Mechanism | Mac pane restored within |
 | --- | --- | --- |
@@ -1106,17 +1166,17 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip |
-| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
+| App to the background, screen locked | `didEnterBackground` → release at once (never behind an unanswered request), inside a short background task; coming back holds the page from before until the reclaim's replay | one round trip; 8 s if the release never leaves the phone |
+| Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 8 s (45 s under `size-lease-v1`) |
 | Killed by iOS in the background | already released on entering it | one round trip |
-| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
-| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
+| Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 8 s (45 s under `size-lease-v1`); a reattach inside it keeps the phone's grid, and a later one never draws the Mac's grid first |
+| Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 8 s (30 s under `size-lease-v1`); else the Mac's grid until it does |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
-| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 45 s |
+| hostd crashes or is killed (SIGKILL) | socket closes; hold capped by the lease | 8 s (45 s under `size-lease-v1`) |
 | The Mac's cmux-tui daemon restarts | new daemon, no phone participant until it reattaches | at once |
 | iPhone connections turned off on the Mac | hostd SIGTERM → release | 0.7 s |
 | The owner removes the phone on the Mac | link closed `removed` → hostd releases | 0.5 s |
-| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 45 s worst case |
+| Phone signs out, "Remove This iPhone from My Macs" | links close (sessions stop and release when the link still carries them); else hold capped by the lease | 8 s worst case (45 s under `size-lease-v1`) |
 | Tab cooled out of the warm set, tab closed | session stop → release, then close; else hostd releases on the close frame | one round trip |
 | Grid card of a tab not started | `read-screen` only, never attaches | never claims |
 | Grid card of a started tab | its page is not interactive → release | 1 s + RTT |
@@ -1125,6 +1185,40 @@ release and the daemon's size lease.
 | Older phone without `size-lease-v1` | no lease: hostd releases on its close frame, the keepalive + 30 s hold on a drop | 65 s on a drop |
 
 Measured on the rig: cmux-next-ios/verify/size-release-20261021.md.
+
+## Terminal history window (`attach-replay-history-window-v1`; added 2026-11-14)
+
+The Mac keeps a terminal's scrollback; the phone's mirror holds the screen and
+a bounded part of it (cmux-tui `spec/commands.md`, `attach-surface`).
+
+- Attach: the screen alone (`replay_history_rows: 0`,
+  `attach-replay-history-rows-v1`, as before).
+- Scrolling up to the oldest row held: an attach with 2,000 more of the
+  newest rows, up to 10,000. Past them, an attach with a 4,000-row window
+  (`replay_history_rows: 4000, replay_history_start: S`): the Mac sends rows
+  `[S, S+4000)` and the screen, and says how many rows it left out above
+  (`history_rows_omitted`) and between the window and the screen
+  (`history_rows_skipped`). Each step moves the window 1,500 rows up, down to
+  row 0, the oldest row the Mac keeps. The phone never holds more than 10,000
+  history rows, however long the Mac's history is.
+- Scrolling down to the window's last row: the window moves 1,500 rows down.
+  Within 4,000 rows of the screen the Mac sends the rows from `S` down to the
+  screen (no `history_rows_skipped`), and the phone holds the newest rows
+  again. Scrolling up from the screen to the window brings the newest 10,000
+  rows at once.
+- Each such attach replaces the last one; the screen puts the reader back on
+  their rows by text (`TerminalReadingMark`), which a step of 1,500 rows keeps
+  within the 2,000-row search.
+- Resize: the phone declares the capability in `set-client-info`, so each
+  `resized` replay holds the screen and the newest `replay_history_rows` rows
+  of the reflowed terminal (a window becomes the newest 4,000 rows), with
+  `history_rows_omitted`, instead of the whole history.
+
+Compatibility: a daemon without the capability gets no
+`replay_history_start` (the newest rows grow as before, then the whole
+history); a Mac app whose lane refuses the field gets the same attach without
+it; a phone that does not declare the capability keeps getting whole
+`resized` replays.
 
 ## Push notifications (API 0.13.0)
 
@@ -1438,7 +1532,7 @@ priority order but makes the policy per Mac instead of per terminal.
 
 | Setting value | Shown as | Engine policy the daemon applies |
 | --- | --- | --- |
-| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid |
+| `smallest` (default) | Fit the smallest viewer | `smallest`: every viewer sees the whole grid, except that while a phone or tablet shows the terminal the grid is never narrower than it (a narrower Mac pane clips at the right; rows stay the minimum). An agent's split does not shrink it until the person uses that Mac pane (docs/shared-terminal-sizing.md, "Agent layout changes") |
 | `mac` | Prefer this Mac | `priority` with this Mac's own views first; when no view of this Mac counts (its pane hidden), the most recently active other viewer |
 | `latest` | Prefer the active device | `latest`: the viewer that typed, pasted or focused last |
 | `priority` | Priority order | `priority` over `order`, highest first; a viewer not in the list counts only when no listed viewer does (then the most recently active) |
@@ -1530,7 +1624,7 @@ app process without `client-hello`, so a phone on that path can read the
 policy but not change it. That splice has no size release of its own
 ("Terminal size claims"): under the default Fit the smallest viewer, a phone
 on it that was killed keeps the Mac's pane at its size until the size lease
-ends (45 s).
+ends (8 s under `size-lease-v2`, 45 s under `size-lease-v1`).
 
 `get-host-size-policy` answers the policy in effect: before the daemon's
 settings owner has read the settings file (only at startup, before it

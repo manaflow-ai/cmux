@@ -6,43 +6,17 @@
 //! persistent-map paths touched by that folder, and returns the one operation a
 //! subscriber needs to observe.
 
-use super::{ListFilter, MAX_FIELD_BYTES, RowKey};
+#[cfg(test)]
+use super::MAX_FIELD_BYTES;
+use super::{ListFilter, RowKey};
 use imbl::OrdMap;
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::io;
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::sync::Arc;
 
-/// A folder's stable identity. The folder itself is bounded to 1,024 bytes by
-/// the index record contract; origins use the ordinary 256-byte row-key bound.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderKey {
-    pub origin: Arc<str>,
-    pub folder: Arc<str>,
-}
+pub use acpmux_list_types::folders::{FolderKey, MAX_FOLDER_BYTES};
 
-impl FolderKey {
-    pub fn new(origin: impl Into<Arc<str>>, folder: impl Into<Arc<str>>) -> Self {
-        Self { origin: origin.into(), folder: folder.into() }
-    }
-
-    pub fn validate(&self) -> io::Result<()> {
-        if self.origin.len() > MAX_FIELD_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "folder origin exceeds 256 bytes",
-            ));
-        }
-        if self.folder.len() > MAX_FOLDER_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "folder exceeds 1024 bytes"));
-        }
-        Ok(())
-    }
-}
-
-pub const MAX_FOLDER_BYTES: usize = 1024;
 pub const MAX_FOLDER_ROWS: usize = 400;
 pub const MAX_FOLDER_PAGE_BYTES: usize = super::snapshot::PAGE_BYTES;
 
@@ -97,35 +71,16 @@ impl FolderEntry {
     }
 }
 
-/// One row in the folders view.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderRow {
-    pub origin: Arc<str>,
-    pub folder: Arc<str>,
-    pub newest: RowKey,
-    pub at: u64,
-    pub count: u32,
-}
+pub use acpmux_list_types::folders::FolderRow;
 
-impl FolderRow {
-    fn from_entry(entry: &FolderEntry) -> Option<Self> {
-        Some(Self {
-            origin: entry.key.origin.clone(),
-            folder: entry.key.folder.clone(),
-            newest: entry.newest.clone()?,
-            at: entry.at,
-            count: entry.count,
-        })
-    }
-
-    pub fn key(&self) -> FolderKey {
-        FolderKey::new(self.origin.clone(), self.folder.clone())
-    }
-
-    pub fn encoded_len(&self) -> usize {
-        serde_json::to_vec(self).map_or(0, |bytes| bytes.len())
-    }
+fn from_entry(entry: &FolderEntry) -> Option<FolderRow> {
+    Some(FolderRow {
+        origin: entry.key.origin.clone(),
+        folder: entry.key.folder.clone(),
+        newest: entry.newest.clone()?,
+        at: entry.at,
+        count: entry.count,
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -224,7 +179,7 @@ impl Folders {
     pub(crate) fn apply_validated(&self, entry: FolderEntry) -> (Self, Option<FolderOp>) {
         let mut next = self.clone();
         let old = self.by_key.get(&entry.key).cloned();
-        let Some(row) = FolderRow::from_entry(&entry).map(Arc::new) else {
+        let Some(row) = from_entry(&entry).map(Arc::new) else {
             if let Some(old) = old {
                 next.by_key.remove(&entry.key);
                 next.ordered.remove(&FolderSortKey { at: old.at, key: entry.key.clone() });
@@ -666,6 +621,7 @@ mod tests {
 #[cfg(test)]
 mod release_gates {
     use super::*;
+    use crate::gate_rounds::{self, all_p95, best_p95};
     use std::fs::OpenOptions;
     use std::hint::black_box;
     use std::io::Write;
@@ -676,21 +632,15 @@ mod release_gates {
     const SAMPLES: usize = 200;
     const HELD_VERSIONS: usize = 1_000;
 
-    fn p95(samples: &[u128]) -> u128 {
-        let mut values = samples.to_vec();
-        values.sort_unstable();
-        values[((values.len() * 95).saturating_add(99) / 100).saturating_sub(1)]
+    fn timed<F: FnMut() -> u128>(mut sample: F) -> Vec<Vec<u128>> {
+        (0..ROUNDS).map(|_| (0..SAMPLES).map(|_| sample()).collect()).collect()
     }
 
-    fn timed<F: FnMut() -> u128>(mut sample: F) -> (u128, u128) {
-        let mut rounds = Vec::with_capacity(ROUNDS * SAMPLES);
-        for _ in 0..ROUNDS {
-            for _ in 0..SAMPLES {
-                rounds.push(sample());
-            }
-        }
-        let best = rounds.chunks_exact(SAMPLES).map(p95).min().unwrap_or(1);
-        (best, p95(&rounds))
+    /// The row's rounds through [`gate_rounds::report`], then its line: each side's best round
+    /// and every god sample's p95.
+    fn gate_rounds_row(name: &str, small: &[Vec<u128>], god: &[Vec<u128>]) {
+        gate_rounds::report(name, &[("small", small), ("god", god)]);
+        gate(name, best_p95(small), best_p95(god), all_p95(god), "ns");
     }
 
     fn gate(name: &str, small: u128, god: u128, god_all: u128, unit: &str) {
@@ -845,9 +795,9 @@ mod release_gates {
             1,
         );
         let god_entry = small_entry.clone();
-        let (small_p95, _) = timed(|| apply_newest(&small, small_entry.clone()));
-        let (god_p95, god_p95_all) = timed(|| apply_newest(&god, god_entry.clone()));
-        gate("v2.pr05f.apply_newest", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| apply_newest(&small, small_entry.clone()));
+        let god_rounds = timed(|| apply_newest(&god, god_entry.clone()));
+        gate_rounds_row("v2.pr05f.apply_newest", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -863,9 +813,9 @@ mod release_gates {
             10_000,
             1,
         );
-        let (small_p95, _) = timed(|| apply_move(&small, remove.clone(), insert.clone()));
-        let (god_p95, god_p95_all) = timed(|| apply_move(&god, remove.clone(), insert.clone()));
-        gate("v2.pr05f.apply_move", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| apply_move(&small, remove.clone(), insert.clone()));
+        let god_rounds = timed(|| apply_move(&god, remove.clone(), insert.clone()));
+        gate_rounds_row("v2.pr05f.apply_move", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -873,9 +823,9 @@ mod release_gates {
     fn pr05f_first_window() {
         let small = fixture(5);
         let god = fixture(2_000);
-        let (small_p95, _) = timed(|| page_window(&small));
-        let (god_p95, god_p95_all) = timed(|| page_window(&god));
-        gate("v2.pr05f.first_window", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| page_window(&small));
+        let god_rounds = timed(|| page_window(&god));
+        gate_rounds_row("v2.pr05f.first_window", &small_rounds, &god_rounds);
     }
 
     #[test]
@@ -893,9 +843,9 @@ mod release_gates {
             .next()
             .map(|row| FolderCursor::new(row.at, row.key()))
             .expect("small cursor");
-        let (small_p95, _) = timed(|| deep_page(&small, &small_cursor));
-        let (god_p95, god_p95_all) = timed(|| deep_page(&god, &cursor));
-        gate("v2.pr05f.deep_page", small_p95, god_p95, god_p95_all, "ns");
+        let small_rounds = timed(|| deep_page(&small, &small_cursor));
+        let god_rounds = timed(|| deep_page(&god, &cursor));
+        gate_rounds_row("v2.pr05f.deep_page", &small_rounds, &god_rounds);
     }
 
     #[test]

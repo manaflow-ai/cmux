@@ -11,7 +11,7 @@ import Testing
     struct Offline: Error {}
 
     private func session() -> ChiefSession {
-        ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
     }
 
     @Test func aDroppedLinkKeepsTheOpenConversationOnScreen() async {
@@ -37,6 +37,44 @@ import Testing
         #expect(loader.failed)
         #expect(loader.session == nil)
     }
+    @Test func anOfflineConversationKnowsItsNameBeforeItsMacAnswers() async {
+        // The header of a conversation opened while its Mac is away names it (not a blank avatar).
+        let info = ConversationInfo(id: "c5", title: "Conversation 5", kind: .direct,
+                                    participants: [ChiefIdentity.standard.me, ChiefIdentity.standard.chief])
+        var events = ChiefOfflineBackend(reason: "away", info: info).events().makeAsyncIterator()
+        guard case let .conversationChanged(first)? = await events.next() else {
+            Issue.record("expected the conversation's info first")
+            return
+        }
+        #expect(first.title == "Conversation 5")
+        guard case .disconnected? = await events.next() else {
+            Issue.record("expected it to say it is disconnected next")
+            return
+        }
+    }
+
+    @Test func aFailedFirstOpenShowsTheConversationNotAFullScreenError() async {
+        // The user, 2026-11-13: a full-screen "Couldn't load this conversation." hid everything.
+        // The conversation opens (title, what was kept, composer) under its own bar.
+        let loader = MacConversationLoader()
+        let kept = session()
+        var tries = 0
+        await loader.load({ throw Offline() }, fallback: kept, tryAgain: { tries += 1 })
+        #expect(!loader.failed)
+        #expect(loader.session === kept)
+        #expect(loader.isStale)
+        #expect(kept.barItem == .unavailable(reason: MacConversationLoader.staleReason, retrying: false))
+        kept.retryConnecting()
+        #expect(tries == 1)
+
+        // The Mac answers: the live conversation replaces it.
+        let live = session()
+        await loader.load({ live }, fallback: kept)
+        #expect(loader.session === live)
+        #expect(!loader.isStale)
+        #expect(kept.unavailableTitle == nil)
+    }
+
     @Test func theKeptConversationSaysItIsNotLiveAndOffersTryAgain() async {
         let loader = MacConversationLoader()
         let open = session()
@@ -57,13 +95,15 @@ import Testing
         #expect(loader.session === open)
     }
 
-    @Test func reconnectingReplacesTheKeptConversationAndCarriesWhatWasWritten() async {
+    @Test func reconnectingReplacesTheKeptConversation() async {
         let loader = MacConversationLoader()
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
-        open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false)
-        #expect(open.outbox.map(\.text) == ["Run the tests again"])
+        // Offline, with the kept conversation on screen (its store has a sender): nothing is queued
+        // for the Mac's return (no outbox), and no Not Delivered bubble is made.
+        #expect(!open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false))
+        #expect(!open.store.messages.contains { $0.text == "Run the tests again" })
 
         let live = session()
         await loader.load { live }
@@ -71,9 +111,6 @@ import Testing
         #expect(loader.session === live)
         #expect(!loader.isStale)
         #expect(!loader.failed)
-        // Nothing written while the Mac was away is lost.
-        #expect(live.outbox.map(\.text) == ["Run the tests again"])
-        #expect(open.outbox.isEmpty)
         // The stale marks go with it.
         #expect(open.unavailableTitle == nil)
         #expect(live.unavailableTitle == nil)

@@ -16,6 +16,13 @@ name: gallery visual evidence (advisory)
 # (the team feed) and previews.json (HQ's preview tool) are other shapes of it. The PR status comment's `gallery` section
 # names the states and the download command, and says stale when the head moves.
 #
+# A `Visual-change: <state id or *>: <why>` line in the PR body (one or more) says
+# a difference is wanted. The section gives each changed, new or removed state a
+# verdict, "justified: <why>" or "unjustified", under one summary line ("N of M
+# differing states have no Visual-change line: is each wanted?"), so a review sees
+# which differences nobody explained (Leo, ask-6d611b71a0: "be warning against
+# things that differ from expectation without justification"). It warns only.
+#
 # A direct push to feat-cmux-next skips every pull request check, so it gets the
 # same receipt right after it lands: before is the tip the push replaced
 # (`github.event.before`), after is the pushed tip, and each changed, removed or
@@ -49,10 +56,10 @@ on:
 permissions:
   contents: read
 
-# A body edit that does not touch a `Gallery:` line gets its own group, so it
+# A body edit that does not touch a `Gallery:` or `Visual-change:` line gets its own group, so it
 # never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -69,7 +76,7 @@ jobs:
     # Same events as capture: a body edit that mentions `Gallery:` shares the
     # concurrency group and can cancel a synchronize run, so it must mark stale
     # too. stale() writes nothing when the section already shows this head.
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
@@ -106,7 +113,7 @@ jobs:
           PY
 
   capture:
-    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, '(#')) && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:')))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && (github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && !endsWith(github.actor, '[bot]') && !(github.event.head_commit.committer.username == 'web-flow' && contains(github.event.head_commit.message, '(#')) && github.event.before != '0000000000000000000000000000000000000000' || github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:')))) }}
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
@@ -412,7 +419,7 @@ jobs:
           name: gallery-advisory-${{ github.event.pull_request.number || 0 }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/gallery-advisory
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
 
   # The PR status comment's `gallery` section, from the artifact's data only:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).
@@ -449,6 +456,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Its `Visual-change:` lines give each differing state its verdict (read as data, never run).
+          PR_BODY: ${{ github.event.pull_request.body }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

@@ -223,6 +223,35 @@ fn toggle_swaps_a_session_between_its_terminal_and_its_chat() {
     );
 }
 
+// Leo, 2026-11-17: "why is this even a behaviour that happens / just... stop showijg the toggle
+// on gui." A chat no terminal runs, on a device that cannot start one, is only a chat: the
+// route refuses it (no toggle), never a face that answers "No terminal runs this chat".
+#[test]
+fn a_chat_no_terminal_runs_where_none_can_start_offers_no_toggle() {
+    let chat = ToggleFacts {
+        chat: true,
+        agent: Some("codex".into()),
+        session: Some("s".into()),
+        cannot_start_terminal: true,
+        ..Default::default()
+    };
+    assert_eq!(terminal_chat_toggle(&chat), TerminalChatToggle::NoTerminal);
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }),
+        TerminalChatToggle::NoTerminal
+    );
+    // A terminal that runs the session still shows: the toggle stays where it works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { running: true, ..chat.clone() }),
+        TerminalChatToggle::ToTerminal { harness: "codex".into(), session: "s".into() }
+    );
+    // A terminal reads none of it: its chat face is the toggle that works.
+    assert_eq!(
+        terminal_chat_toggle(&ToggleFacts { terminal: true, chat: false, ..chat }),
+        TerminalChatToggle::ToChat { harness: "codex".into(), session: "s".into() }
+    );
+}
+
 #[test]
 fn toggle_from_a_chat_shows_its_terminal_or_hands_the_session_to_a_new_one() {
     let chat = ToggleFacts {
@@ -254,18 +283,23 @@ fn toggle_from_a_chat_shows_its_terminal_or_hands_the_session_to_a_new_one() {
         terminal_chat_toggle(&open),
         TerminalChatToggle::HandingOff { tab: Some("t-2".into()) }
     );
-    // It ends when its terminal closed or its deadline passed.
+    // It ends when its terminal closed; before the terminal exists, at its deadline.
     assert_eq!(terminal_chat_toggle(&ToggleFacts { hand_off_open: false, ..open.clone() }), resume);
-    assert_eq!(terminal_chat_toggle(&ToggleFacts { now: 160.0, ..open }), resume);
     assert_eq!(
         terminal_chat_toggle(&ToggleFacts { hand_off: Some(stopping), now: 161.0, ..chat.clone() }),
         resume
     );
-    // A chat mid-turn stays: stopping it would cut the turn off.
+    // A terminal that waits for a long turn outlasts the deadline: a second Toggle shows it
+    // and never opens a second terminal on the session.
     assert_eq!(
-        terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }),
-        TerminalChatToggle::Busy
+        terminal_chat_toggle(&ToggleFacts { now: 600.0, busy: true, ..open }),
+        TerminalChatToggle::HandingOff { tab: Some("t-2".into()) }
     );
+    // A chat mid-turn resumes in a terminal at once: the terminal waits for the turn
+    // (acpmux `release_to_watch`), so it is never cut off and the toggle never refuses.
+    assert_eq!(terminal_chat_toggle(&ToggleFacts { busy: true, ..chat.clone() }), resume);
+    let waiting = ToggleFacts { busy: true, now: 1.0e9, ..chat.clone() };
+    assert_eq!(terminal_chat_toggle(&waiting), resume);
     // A terminal's toggle reads none of the chat's facts.
     assert_eq!(
         terminal_chat_toggle(&ToggleFacts { terminal: true, chat: false, busy: true, ..chat }),

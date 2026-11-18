@@ -1,4 +1,5 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
+import { useToolRowCount } from "./toolRowCount";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
@@ -17,6 +18,8 @@ import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { commandSaid } from "./commandActions";
+import { ReadLabel } from "./ReadLabel";
+import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
@@ -65,6 +68,7 @@ export const ToolRow = memo(function ToolRow({
   asRun?: boolean;
 }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -154,7 +158,10 @@ export const ToolRow = memo(function ToolRow({
   const [clipped, setClipped] = useState(false);
   // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
   const images = useMemo(() => toolImages(tool), [tool]);
-  const expandable = hasDetails || clipped || images.length > 0;
+  // A read of one file says its name alone, its full path on hover, and does not open (ReadLabel.tsx),
+  // whatever tool read it, as the Codex app's reads.
+  const read = write || asRun ? undefined : readPath(tool);
+  const expandable = !read && (hasDetails || clipped || images.length > 0);
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -174,7 +181,13 @@ export const ToolRow = memo(function ToolRow({
     () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
     [fold.present, tool, failure],
   );
-  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
+  const words = write ? (
+    <WriteLabel tool={tool} write={write} t={t} />
+  ) : read ? (
+    <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+  ) : (
+    <ToolLabel text={label} />
+  );
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
@@ -278,7 +291,8 @@ export const ToolRow = memo(function ToolRow({
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
-      {fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
+      {/* A read never opens: no body, even with the fold held open (Verbose view, a Find reveal). */}
+      {!read && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (

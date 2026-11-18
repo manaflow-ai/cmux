@@ -77,6 +77,36 @@ pub const INDEXED_KINDS: &[&str] = &[
     "inbox_answered",
     "inbox_read",
     "inbox_removed",
+    // Reads that run per turn, per prompt or per open, each a few records a turn at most: a
+    // chat of a million records answers them from the copies, not its log (Leo, 2026-11-06:
+    // "we need to be able to work with a 1 million event chat ... it's not like you're reading
+    // 1 million events on each turn"). A resent prompt's state (`hub/prompt_ledger.rs`), a
+    // child's offer result at each of its turn ends (`hub/offer_results.rs`, `hub/offers.rs`),
+    // a turn's stop fence (`hub/auto_resume.rs`), the secrets a machine_info call lists
+    // (`hub/machine_info.rs`) and the team messages a chat sent or read (`hub/team_sent.rs`,
+    // `hub/team_information.rs`).
+    "turn_stop_requested",
+    "session_offer",
+    "session_offer_decision",
+    "prompt_stop_requested",
+    "auto_resume_scheduled",
+    "secret_request",
+    "secret_decision",
+    "team_message",
+    "team_message_consumed",
+    "team_message_read",
+    "team_work_received",
+    "team_message_sent",
+    // A chat's process table (`hub/processes.rs`), read on its first touch: the idle sweep's.
+    "background_task_update",
+    "process_update",
+    "stopped",
+    "exited",
+    "host_started",
+    // A withdrawn prompt's end (`hub/withdraw.rs`).
+    "prompt_retracted",
+    "turn_end",
+    "turn_error",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
@@ -229,11 +259,22 @@ pub(super) fn indexed(line: &[u8]) -> bool {
     record_kind(line).is_none_or(|kind| INDEXED_KINDS.iter().any(|k| k.as_bytes() == kind))
 }
 
+/// Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a long
+/// log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
+pub(super) fn test_scan_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
+    }
+}
+
 /// One scan for `kinds`: whether it may take copies, and whether it is strict.
-struct Scan<'a> {
-    kinds: &'a [&'a str],
-    copied: bool,
-    strict: bool,
+pub(super) struct Scan<'a> {
+    pub(super) kinds: &'a [&'a str],
+    pub(super) copied: bool,
+    pub(super) strict: bool,
 }
 
 impl Scan<'_> {
@@ -345,7 +386,7 @@ impl LocalStore {
         Ok(())
     }
 
-    fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
+    pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
 
@@ -358,14 +399,7 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
-        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
-        }
+        test_scan_delay();
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
         if strict {
@@ -383,7 +417,7 @@ impl LocalStore {
     }
 
     /// One segment of [`Self::scan_kinds_in`]; false when `visit` stopped the scan.
-    fn scan_segment(
+    pub(super) fn scan_segment(
         &self,
         id: &str,
         index: u32,

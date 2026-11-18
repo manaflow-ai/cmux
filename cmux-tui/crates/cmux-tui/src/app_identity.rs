@@ -84,7 +84,7 @@ impl AppIdentity {
     }
 
     /// The app bundle around `exe`, if it is a cmux app.
-    fn from_bundle(exe: Option<&Path>) -> Option<Self> {
+    pub(crate) fn from_bundle(exe: Option<&Path>) -> Option<Self> {
         let bundle = exe.and_then(containing_app_bundle)?;
         let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
         let dictionary = info.as_dictionary()?;
@@ -180,20 +180,41 @@ impl AppIdentity {
     /// [`Self::daemon_session`] for the user home `home` (tests).
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session_in(&self, home: &Path) -> Option<String> {
-        let build = self.build();
-        let session = build.app_session()?;
-        // The app moves its folder out of classic's at launch (CmuxNext `StateFolderMove`); a marker not
-        // moved yet (the move kept it, or this CLI runs before the app launched) still counts.
-        let adopted =
-            [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
-                .into_iter()
-                .flatten()
-                .any(|marker| marker.is_file());
-        if adopted {
+        let session = self.build().app_session()?;
+        if self.adopted_legacy_session(home) {
             // `LegacyChannelSession.session`: the old shared daemon session.
             return Some("cmux-app".to_owned());
         }
         Some(session)
+    }
+
+    /// Whether this untagged NIGHTLY, RC or staging app adopted the old
+    /// shared `cmux-app` session, by its record beside its daemon state.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn adopted_legacy_session(&self, home: &Path) -> bool {
+        let build = self.build();
+        // The app moves its folder out of classic's at launch (CmuxNext `StateFolderMove`); a marker not
+        // moved yet (the move kept it, or this CLI runs before the app launched) still counts.
+        [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
+            .into_iter()
+            .flatten()
+            .any(|marker| marker.is_file())
+    }
+
+    /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`, CmuxNext
+    /// `DaemonLauncher.appNames`) for the user home `home`: the build's own
+    /// directory under `~/Library/Application Support/cmux-next`
+    /// ([`BuildIdentity::daemon_state_dir`]), or `None` (cmux-tui's default
+    /// root) for release and for an app that adopted the old shared session.
+    /// The app's daemon and its `cmux link` (whose state directory is
+    /// `<this>/link`) run there.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn daemon_state_dir_in(&self, home: &Path) -> Option<PathBuf> {
+        if self.adopted_legacy_session(home) {
+            return None;
+        }
+        self.build()
+            .daemon_state_dir(&home.join("Library").join("Application Support").join("cmux-next"))
     }
 }
 

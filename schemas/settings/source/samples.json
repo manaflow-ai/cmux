@@ -415,7 +415,9 @@
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
         "file:/Users/Shared/Harbor.png",
-        "folder:/Users/Shared/Wallpapers"
+        "folder:/Users/Shared/Wallpapers",
+        "appearance",
+        "schedule"
       ],
       "refuse": [
         "system:relative/path.heic",
@@ -425,6 +427,26 @@
         "folder:relative",
         "folder:",
         "__not_a_backdrop__",
+        1,
+        true
+      ]
+    },
+    "domain:app_id": {
+      "accept": [
+        "local/web-pane",
+        "local/showcase-newtab",
+        "manaflow-ai/launcher"
+      ],
+      "refuse": [
+        "Foo/Bar",
+        "local/Web",
+        "a/b/c",
+        "launcher",
+        "/b",
+        "a/",
+        "-a/b",
+        "a b/c",
+        "",
         1,
         true
       ]
@@ -439,6 +461,61 @@
         "https://search.example/",
         "search.example",
         "not a url %s",
+        1
+      ]
+    },
+    "domain:backdrop_picture": {
+      "accept": [
+        "desktop",
+        "munch-scream",
+        "system:/System/Library/Desktop Pictures/Sonoma.heic",
+        "file:/Users/Shared/Harbor.png"
+      ],
+      "refuse": [
+        "none",
+        "daily",
+        "appearance",
+        "schedule",
+        "folder:/Users/Shared/Wallpapers",
+        "system:relative/path.heic",
+        "file:",
+        "__not_a_backdrop__",
+        1
+      ]
+    },
+    "domain:backdrop_schedule": {
+      "accept": [
+        {},
+        {"07:00": "munch-scream", "9:30": "desktop", "sunset-30m": "file:/Users/Shared/Night.png", "sunrise+1h": "system:/System/Library/Desktop Pictures/Sonoma.heic", "dusk": "desktop", "dawn+90m": "desktop", "noon": "desktop"}
+      ],
+      "refuse": [
+        "07:00",
+        [],
+        {"24:00": "desktop"},
+        {"07:60": "desktop"},
+        {"7": "desktop"},
+        {"sunset-": "desktop"},
+        {"sunset+30s": "desktop"},
+        {"midnight": "desktop"},
+        {"07:00": "daily"},
+        {"07:00": "folder:/Users/Shared/Wallpapers"},
+        {"07:00": "__not_a_backdrop__"},
+        {"07:00": 1}
+      ]
+    },
+    "domain:backdrop_location": {
+      "accept": [
+        "37.77,-122.42",
+        "-33.87, 151.21",
+        "69.65,18.96"
+      ],
+      "refuse": [
+        "",
+        "37.77",
+        "91,0",
+        "0,181",
+        "north,east",
+        "1,2,3",
         1
       ]
     }

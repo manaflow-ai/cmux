@@ -111,6 +111,10 @@ public struct RootView: View {
         }
         _store = State(initialValue: store)
         self.options = options
+        #if DEBUG
+        // `-cmux-mobile-mac-appearance NAME`: a Mac's appearance frame as a fixture (the chat's look).
+        CmuxMobileMacTheme.shared.applyLaunchFixture()
+        #endif
     }
 
     private enum Destination: Hashable { case welcome, setup, shell }
@@ -237,6 +241,8 @@ public struct RootView: View {
                 open(opened)
             }
             if options.setupPairDemo { await runSetupPairDemo() }
+            // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
+            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
         }
         // Signed in (or out): live data and the team list follow the account.
@@ -467,6 +473,8 @@ public struct RootView: View {
         if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
             coordinator.accept(invite)
         }
+        // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
+        DogfoodReadiness().start(auth: auth, live: coordinator, apiBase: base)
         #endif
     }
 
@@ -777,6 +785,8 @@ private struct LinkSettingsObserver: ViewModifier {
                 // moment) still shows the page: only the background hides it.
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
+                // Relative times stop ticking unseen, and read the time at once on return.
+                MinuteClock.shared.setActive(phase != .background)
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()

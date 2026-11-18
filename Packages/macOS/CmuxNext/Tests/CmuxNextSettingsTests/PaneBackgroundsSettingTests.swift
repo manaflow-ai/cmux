@@ -33,7 +33,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: url)
         let design = DesignSettings()
-        let settings = SettingsController(registry: .standard(), design: design, fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         #expect(design.paneBackgrounds == .shared)

@@ -77,6 +77,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         displays: None,
         hosted: false,
         github: false,
+        desktop_lease: None,
     }
 }
 
@@ -184,7 +185,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
-            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+            (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {
@@ -220,7 +221,7 @@ fn a_launch_without_servers_removes_the_last_mcp_config() {
     let file = root.join("s.json");
     let mut with = super::AgentTools::default();
     with.servers.push(super::McpServer {
-        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        name: crate::acpmux_mcp_names::SERVER_NAME.to_owned(),
         command: "acpmux".into(),
         args: vec![],
         env: vec![],
@@ -276,7 +277,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        servers: vec![server(crate::acpmux_mcp_names::SERVER_NAME), server("cmux-cua")],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -287,7 +288,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     let folded = tools.scoped(&env).for_session("s-allowlist").folded();
     assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
     let acpmux = &folded.servers[0];
-    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert_eq!(acpmux.name, crate::acpmux_mcp_names::SERVER_NAME);
     assert!(
         acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
         "{:?}",
@@ -308,7 +309,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -324,7 +325,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|s| s["name"] == crate::acpmux_mcp::SERVER_NAME)
+        .find(|s| s["name"] == crate::acpmux_mcp_names::SERVER_NAME)
         .unwrap();
     assert_eq!(acpmux["env"]["GH_TOKEN"], "gho_profile", "{acpmux}");
     assert_eq!(acpmux["env"]["GH_CONFIG_DIR"], "/home/u/.config/gh-work", "{acpmux}");
@@ -467,7 +468,7 @@ fn the_github_status_server_reaches_every_harness_kind() {
         ..memory_inputs(&root, None)
     };
     let tools = resolve(&inputs).for_session("s1");
-    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acpmux = crate::acpmux_mcp_names::SERVER_NAME;
     let acp = tools.acp_servers();
     let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
     assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));
@@ -494,6 +495,24 @@ fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
     assert!(on.join("skills/cmux-chat/SKILL.md").is_file());
     assert!(!off.join("skills/cmux-chat").exists());
     assert!(off.join("skills/cmux-browser/SKILL.md").is_file(), "other skills stay");
+}
+
+#[test]
+fn cmux_cua_still_resolves_after_automatic_enrollment() {
+    // Only signing in joined this Mac: its own sessions keep computer use, and no refusal is
+    // recorded for asking.
+    let asked = std::cell::Cell::new(false);
+    assert!(super::computer_use_allowed(
+        || true,
+        || {
+            asked.set(true);
+            false
+        }
+    ));
+    assert!(!asked.get());
+    // Any other join: only with the local control consent.
+    assert!(!super::computer_use_allowed(|| false, || false));
+    assert!(super::computer_use_allowed(|| false, || true));
 }
 
 /// A chat without computer use or the secrets server is not told about their skills: the
@@ -678,5 +697,22 @@ fn a_cloud_machine_session_gets_the_github_mcp_server_with_no_token_in_its_confi
     )
     .unwrap();
     assert!(upstreams.as_array().unwrap().iter().any(|s| s["name"] == name));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session() {
+    let root = std::env::temp_dir().join(format!("acpmux-desktop-lease-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let name = super::DESKTOP_LEASE_SERVER;
+    assert!(resolve(&memory_inputs(&root, None)).servers.iter().all(|s| s.name != name));
+    let lease = root.join("desktop-lease");
+    let inputs = super::Inputs { desktop_lease: Some(lease.clone()), ..memory_inputs(&root, None) };
+    let tools = resolve(&inputs).for_session("s1").for_session("s2");
+    let server = tools.servers.iter().find(|s| s.name == name).expect("the leased-desktop server");
+    assert_eq!(server.command, lease);
+    assert_eq!(server.args, ["mcp"]);
+    let owners: Vec<_> = server.env.iter().filter(|(k, _)| k == "DESKTOP_LEASE_OWNER").collect();
+    assert_eq!(owners, [&("DESKTOP_LEASE_OWNER".to_owned(), "s2".to_owned())]);
     let _ = std::fs::remove_dir_all(&root);
 }

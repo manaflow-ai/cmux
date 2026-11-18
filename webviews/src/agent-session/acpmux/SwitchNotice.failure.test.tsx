@@ -140,3 +140,77 @@ test("a coded refusal written for people keeps its own sentence and has no Detai
   expect(sentence(container)).toBe(`Couldn't start Claude Code: ${text}`);
   expect(details(container)).toBeNull();
 });
+
+/// A start refused because its agent is not signed in on the machine (hq#11225).
+async function renderSignIn(
+  container: HTMLElement,
+  ran: string[],
+  how: { elsewhere: boolean; runsLogin?: boolean; card?: boolean; expired?: true },
+) {
+  const signIn = how.card
+    ? {
+        agent: "cursor" as const,
+        start: async () => ({ loginId: "l", url: "https://cursor.com/login", needsCode: false }),
+        open: () => ran.push("open"),
+        openOnMachine: async () => true,
+        finish: () => new Promise<boolean>(() => {}),
+        apiKey: async () => true,
+        gateway: async () => true,
+        cancel: () => {},
+        reserve: async () => undefined,
+        resend: async () => {},
+      }
+    : undefined;
+  await act(async () => {
+    root ??= createRoot(container);
+    root.render(
+      <SwitchNotice
+        switching={{
+          harness: "cursor",
+          name: "Cursor",
+          phase: "failed",
+          error: "Authentication required",
+          code: "agent_session.sign_in_required",
+          ...(how.expired && { signInExpired: how.expired }),
+        }}
+        onRetry={() => ran.push("retry")}
+        onAction={(action) => ran.push(action)}
+        installs={!how.elsewhere}
+        runsLogin={how.runsLogin ?? false}
+        {...(signIn && { agentSignIn: signIn })}
+      />,
+    );
+  });
+}
+
+test("an agent not signed in on this Mac is named, and Sign in runs its login", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  await renderSignIn(container, ran, { elsewhere: false, runsLogin: true });
+  expect(sentence(container)).toBe("Cursor isn't signed in on this machine.");
+  expect(sentence(container)).not.toContain("agent_session");
+  expect(details(container)?.textContent).toContain("Authentication required");
+  await press(container, "Sign in to Cursor");
+  await press(container, "Retry");
+  expect(ran).toEqual(["signIn", "retry"]);
+});
+
+test("an agent not signed in on another machine leads with that machine's sign-in card", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  await renderSignIn(container, ran, { elsewhere: true, runsLogin: true, card: true, expired: true });
+  expect(sentence(container)).toBe("Cursor's sign-in expired on this machine.");
+  expect(buttons(container)).toEqual(["Sign in to Cursor", "Retry", "Copy error"]);
+  await press(container, "Sign in to Cursor");
+  expect(ran).not.toContain("signIn");
+});
+
+test("another machine with no sign-in for the agent says where to sign in, and runs nothing here", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  await renderSignIn(container, ran, { elsewhere: true, runsLogin: true });
+  expect(buttons(container)).not.toContain("Sign in to Cursor");
+  expect(container.querySelector(".acpmux-host-error-hint")?.textContent).toBe(
+    "Sign it in on this machine, then Retry.",
+  );
+});

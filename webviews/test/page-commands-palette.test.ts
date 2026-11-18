@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
 import { PAPERCUT_CHAT, papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { SESSION_INFO_SHOWN } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 type NativeCall = { method: string; params: Record<string, unknown> };
 
@@ -312,7 +313,7 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         },
       );
       // Each command reveals its section: scrolled to and lit for a moment (sessionInfo.css `[data-revealed]`).
-      const shown = page.locator('aside.acpmux-session-info[data-presence="shown"]');
+      const shown = page.locator(SESSION_INFO_SHOWN);
       await page.evaluate(
         (session) => window.cmuxAcpmuxBridge!.command!(`header:showBackgroundTasks|${session}`),
         PAPERCUT_CHAT,

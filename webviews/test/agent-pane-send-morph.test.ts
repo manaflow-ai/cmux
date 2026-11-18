@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Box = { left: number; top: number; width: number; height: number };
 type Ghost = Box & { kind: string; opacity: number };
@@ -60,7 +61,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     await pane?.close();
   });
 
-  const field = '.acpmux-composer-prompt [contenteditable="true"]';
+  const field = COMPOSER_EDITOR;
 
   /// The pane's dev entry with its mock agent and three earlier turns, so the chat overflows and a
   /// send rises from the latest row; the agent then answers late, as a real one does.

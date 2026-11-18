@@ -21,18 +21,7 @@
 //! (`refuse_watch_filters`).
 
 use super::*;
-
-/// Sorts session summaries newest first, ties by `sessionId` ascending, then by `peer` (this
-/// daemon's own first): a chat here and its copy on a peer keep one order. The summaries are
-/// snapshots, so the order is total while sorting.
-pub(crate) fn sort_session_summaries(list: &mut [Value]) {
-    list.sort_by(|a, b| {
-        updated_ms(b)
-            .cmp(&updated_ms(a))
-            .then_with(|| session_id(a).cmp(session_id(b)))
-            .then_with(|| peer(a).cmp(&peer(b)))
-    });
-}
+pub(crate) use crate::session_order::{PageRow, sort_session_summaries};
 
 /// The session list reply for `params`: `{sessions}` without `limit`,
 /// `{sessions, nextCursor}` with it.
@@ -51,52 +40,6 @@ pub(crate) fn session_list_reply_borrowed(
     let picked = pick_page(sorted, params)?;
     let rows = picked.rows.iter().filter_map(|&at| sorted.get(at)).cloned().collect();
     Ok(page(rows, picked.next))
-}
-
-/// What paging reads of a row: its id, `updatedAt`, `peer` and `status`. A built summary has
-/// them as fields; a row not built yet (`page_first.rs`) has them from the session's metadata or
-/// the peer's mirrored row, so a page is picked before any of its rows is built.
-pub(crate) trait PageRow {
-    fn session_id(&self) -> &str;
-    fn updated_ms(&self) -> u64;
-    fn peer(&self) -> Option<&str>;
-    fn status(&self) -> Option<&str>;
-}
-
-impl<R: PageRow + ?Sized> PageRow for &R {
-    fn session_id(&self) -> &str {
-        (**self).session_id()
-    }
-
-    fn updated_ms(&self) -> u64 {
-        (**self).updated_ms()
-    }
-
-    fn peer(&self) -> Option<&str> {
-        (**self).peer()
-    }
-
-    fn status(&self) -> Option<&str> {
-        (**self).status()
-    }
-}
-
-impl PageRow for Value {
-    fn session_id(&self) -> &str {
-        self.get("sessionId").and_then(Value::as_str).unwrap_or("")
-    }
-
-    fn updated_ms(&self) -> u64 {
-        self.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)
-    }
-
-    fn peer(&self) -> Option<&str> {
-        self.get("peer").and_then(Value::as_str)
-    }
-
-    fn status(&self) -> Option<&str> {
-        self.get("status").and_then(Value::as_str)
-    }
 }
 
 /// The rows a session list request picks of `sorted` (in list order, [`sort_session_summaries`]),

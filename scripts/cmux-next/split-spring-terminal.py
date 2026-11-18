@@ -52,10 +52,25 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
+# (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
+if "--suite=memory-agents" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
+# then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
+if "--suite=renderer-rest" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renderer-rest.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=renderer-rest"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=terminal-throughput`: one large output burst through a NEXT terminal and through standalone Ghostty, MB/s
+# each and their ratio (scripts/cmux-next/terminal-throughput-bench.py; the perf cron's throughput part).
+if "--suite=terminal-throughput" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
@@ -69,6 +84,11 @@ if "--suite=command-pan" in sys.argv:
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=overlay-open`: icon picker and group editor opens, warm, cold and after a sign of intent, and their memory
+# (scripts/cmux-next/overlay-open-bench.py).
+if "--suite=overlay-open" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay-open-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=overlay-open"])
 # `--suite=first-click`: one click on native controls acts while a Chromium page holds the key (first-click-live.py).
 if "--suite=first-click" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-click-live.py")
@@ -89,6 +109,12 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=sidebar-stress`: sidebar scroll, switch, theme switch during a scroll and custom sidebar sections at 20 and
+# 500 workspaces (scripts/cmux-next/sidebar-stress-profiles.py, which runs sidebar-stress-bench.py per profile).
+if "--suite=sidebar-stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-stress-profiles.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-stress"])
 # `--suite=hover-instant`: a sidebar row's hover card, pointer arrival to card, at 10 and 200 workspaces
 # (scripts/cmux-next/hover-instant-bench.py; the sidebar-hover-instant goal).
 if "--suite=hover-instant" in sys.argv:

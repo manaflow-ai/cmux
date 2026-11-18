@@ -93,3 +93,14 @@ public protocol BrowserFreezing: AnyObject {
     @discardableResult
     func setFrozen(_ frozen: Bool) -> Bool
 }
+
+/// A freezing engine that also says whether its page is frozen now, and when a frozen page was lost
+/// (WebKit: `WebKitTab+Freeze`). A WebKit page suspended when its web process ends stays suspended for good
+/// and raises on every later call, so the host replaces it (`BrowserHibernation` discards it into a
+/// hibernated placeholder, restored in a new page when shown).
+public protocol BrowserFreezeReporting: BrowserFreezing {
+    /// Frozen now. A command that had to run (a load, a stop, a zoom) thaws the page outside the host.
+    var isFrozen: Bool { get }
+    /// Called once the frozen page's process ended.
+    var onFrozenPageLost: (@MainActor () -> Void)? { get set }
+}

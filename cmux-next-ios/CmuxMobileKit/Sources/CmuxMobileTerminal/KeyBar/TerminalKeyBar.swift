@@ -250,7 +250,8 @@ struct KeyCapStyle: ButtonStyle {
                     Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .cmuxMobilePressFill(configuration.isPressed,
+                                 in: RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
     }
 }

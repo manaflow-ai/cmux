@@ -9,7 +9,8 @@ public import Foundation
 /// - Reduce Motion: movement (position, size, scale, scroll) is instant;
 ///   opacity changes stay as a short crossfade, at most `MotionFade.crossfade`
 ///   (`MotionScale.quick`, 80 ms; hover feedback is instant); loops stop.
-/// - `normal`: every time constant is 1.5x the `fast` token.
+/// - `normal`: every time constant is 1.5x the `fast` token, up to the cap (``cap``): no motion
+///   that a person waits for ends visibly after 300 ms.
 /// - A live resize (a window edge under the pointer): movement is instant,
 ///   so each frame lays out at the window's size and nothing springs toward
 ///   a size the next frame replaces; fades and loops run as usual.
@@ -41,6 +42,18 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         self.category = category
     }
 
+    /// The longest a motion takes to end visibly at a speed that makes it longer, in seconds. A time
+    /// that the speed would take past the cap is the cap; a time under it is not changed. The cap
+    /// never makes a motion shorter than its token: a token that is longer than the cap at "fast"
+    /// (a Debug Settings override) keeps its own time at every speed. Not under the cap: the
+    /// ambient fades (`MotionFade.isAmbient`), the loops and the marquee, which no one waits for.
+    public static let cap: TimeInterval = 0.3
+    /// The response of the critically damped spring that ends visibly (within 0.5%,
+    /// `SpringParameters.perceivedDuration`) under ``cap``: at 294 ms (1.18 x 0.25 s, simulated at
+    /// 480 Hz). A constant and not a search for the response that ends at the cap, since
+    /// `spring(_:)` runs for every motion.
+    static let capResponse = 0.25
+
     /// This policy deciding for `category`.
     public func `for`(_ category: MotionCategory) -> MotionPolicy {
         var policy = self
@@ -70,18 +83,27 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// The spring for `token` at this speed. Callers still snap when
     /// `animatesMovement` is false; `off` returns the `fast` spring so a
     /// caller that steps anyway never divides by zero. No spring passes its
-    /// target (`MotionSpring.base`).
+    /// target (`MotionSpring.base`). No spring that the speed makes longer ends visibly after ``cap``.
     public func spring(_ token: MotionSpring) -> SpringParameters {
         let base = token.base
-        return speed == .off ? base : base.scaled(by: speed.timeScale)
+        guard speed != .off else { return base }
+        let response = min(base.response * speed.timeScale, max(base.response, Self.capResponse))
+        return SpringParameters(response: response, dampingFraction: base.dampingFraction)
     }
 
     /// Seconds for `token`; 0 means apply at once. Under Reduce Motion a fade
     /// is at most one crossfade long, and hover feedback is instant.
     public func duration(_ token: MotionFade) -> TimeInterval {
         guard animatesFades, !(reduceMotion && (token == .hover || token == .hoverReveal || token == .hoverOut)) else { return 0 }
-        let scaled = token.baseDuration * speed.timeScale
-        return reduceMotion ? min(scaled, MotionFade.crossfade.baseDuration) : scaled
+        let seconds = token.isAmbient ? token.baseDuration * speed.timeScale : scaled(token.baseDuration)
+        return reduceMotion ? min(seconds, MotionFade.crossfade.baseDuration) : seconds
+    }
+
+    /// `seconds` at this speed, never past ``cap`` when the speed makes it longer: how long a fade
+    /// takes, and a timed motion that is no token (the agent cursor's glide, the attention ring's
+    /// arrival swell). 0 at speed "off".
+    public func scaled(_ seconds: TimeInterval) -> TimeInterval {
+        min(seconds * speed.timeScale, max(seconds, Self.cap))
     }
 
     /// Seconds that stand in for `token` when only a timed API exists (NSWindow

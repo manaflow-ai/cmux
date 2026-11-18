@@ -22,9 +22,11 @@ EXECUTABLES = (
     "cmux-tui-linux-x64/bin/cmux-tui",
     "cmux-tui-linux-x64/bin/cmux-tui-hook",
     "cmux-tui-linux-x64/bin/cmux-agent-screen-detection",
+    "cmux-tui-linux-x64/bin/cmux-tui-host",
     "cmux-tui-linux-arm64/bin/cmux-tui",
     "cmux-tui-linux-arm64/bin/cmux-tui-hook",
     "cmux-tui-linux-arm64/bin/cmux-agent-screen-detection",
+    "cmux-tui-linux-arm64/bin/cmux-tui-host",
     "cmux/bin/cmux.js",
     "cmux-relay-darwin-arm64/bin/chatmux-relay",
     "cmux-relay-darwin-x64/bin/chatmux-relay",
@@ -103,6 +105,7 @@ def make_package_fixture(packages: Path) -> None:
                         "bin/cmux-tui",
                         "bin/cmux-tui-hook",
                         "bin/cmux-agent-screen-detection",
+                        *(["bin/cmux-tui-host"] if os_name == "linux" else []),
                         "bin/cmux-tui-ssh/manifest.json",
                         "THIRD_PARTY_LICENSES.md",
                     ],
@@ -110,7 +113,8 @@ def make_package_fixture(packages: Path) -> None:
             )
             + "\n"
         )
-        for binary in ("cmux-tui", "cmux-tui-hook", "cmux-agent-screen-detection"):
+        companions = ("cmux-tui-host",) if os_name == "linux" else ()
+        for binary in ("cmux-tui", "cmux-tui-hook", "cmux-agent-screen-detection", *companions):
             executable = package / "bin" / binary
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("#!/bin/sh\nexit 0\n")

@@ -146,37 +146,6 @@ pub(crate) fn read_key_line(fd: i32) -> Result<zeroize::Zeroizing<String>> {
     Ok(key)
 }
 
-/// Makes this process not dumpable before it holds a person key (cx-0q7o):
-/// on Linux, a same-uid process (an agent the daemon starts) can then not
-/// ptrace it or read its memory through /proc, and the kernel owns its
-/// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
-#[cfg(target_os = "linux")]
-pub(crate) fn not_dumpable() -> std::io::Result<()> {
-    // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
-    // process's dumpable flag.
-    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: PR_GET_DUMPABLE reads this process's flag.
-    if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } != 0 {
-        return Err(std::io::Error::other("PR_GET_DUMPABLE is not 0 after PR_SET_DUMPABLE 0"));
-    }
-    match std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope") {
-        Ok(scope) => tracing::info!("person key: not dumpable; yama ptrace_scope {}", scope.trim()),
-        Err(_) => tracing::info!("person key: not dumpable; yama is not active"),
-    }
-    Ok(())
-}
-
-/// macOS and other Unix: no dumpable flag. A DEV daemon is unsigned and
-/// takes the key at spawn; a Release daemon is hardened-runtime signed,
-/// which refuses a debugger without the get-task-allow entitlement, and
-/// ignores the key descriptor (it enrolls the signed app instead).
-#[cfg(all(unix, not(target_os = "linux")))]
-pub(crate) fn not_dumpable() -> std::io::Result<()> {
-    Ok(())
-}
-
 /// Windows: an inherited handle (`daemon/windows.rs`).
 #[cfg(windows)]
 pub(super) fn read_person_key(fd: i32) -> Option<String> {

@@ -212,6 +212,61 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("window"),
         ..Action::DEFAULT
     },
+    // Catalog request rows (`Action::request`): the app sends the named request, no handler of its own.
+    Action {
+        id: "history.removeSite",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.removeSite", "Remove Site from History…"),
+        keywords: &["history", "privacy", "delete", "forget", "site", "domain", "host"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::SITE_HOST, args::CONFIRM.optional()],
+        cli_name: "history remove-site",
+        is_destructive: true,
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "history.site.remove",
+            params: &[RequestParam { name: "host", source: ParamSource::Argument("host") }],
+        }),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "closed.clear",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.closedClear", "Clear Recently Closed…"),
+        keywords: &["history", "closed", "recently closed", "privacy", "delete", "forget", "clear"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::CONFIRM.optional()],
+        cli_name: "closed clear",
+        is_destructive: true,
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "closed.delete",
+            params: &[RequestParam { name: "all", source: ParamSource::Constant(BindingValue::Bool(true)) }],
+        }),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "closed.delete",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.closedDelete", "Delete Recently Closed Item…"),
+        keywords: &["history", "closed", "recently closed", "privacy", "delete", "forget", "remove"],
+        category: "window",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::CLOSED_ITEM, args::CONFIRM.optional()],
+        cli_name: "closed delete",
+        is_destructive: true,
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "closed.delete",
+            params: &[RequestParam { name: "closed", source: ParamSource::Argument("closed") }],
+        }),
+        ..Action::DEFAULT
+    },
     Action {
         id: "layout.undo",
         group: GROUP,

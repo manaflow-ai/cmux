@@ -2,10 +2,11 @@
 //! logout` is ("expire the current log in"). It asks the hub to revoke this machine's credential
 //! with that credential (`POST /v1/machines/credentials/self/revoke`; the hub drops the machine's
 //! mesh address-book rows with it), then removes the join here: the record is marked revoked,
-//! `meshRelay` leaves config.json, and the credential file is deleted, with `node.wg.key` only
-//! under the WireGuard key lock and never one the cmux link adopted as its own
-//! (`key-adopted.json`, or `key-adopted.<install>.json` archived at a sign-out): its paired peers
-//! know the link by that key alone (`mesh_node_key::adoption_depends`).
+//! `meshRelay` leaves config.json, and the credential file is deleted, with `node.wg.key` when
+//! the join made it ([`NODE_KEY_MADE`]) or the home is a copy, and then only under the WireGuard
+//! key lock and never one the cmux link adopted as its own (`key-adopted.json`, or
+//! `key-adopted.<install>.json` archived at a sign-out): its paired peers know the link by that
+//! key alone (`mesh_node_key::adoption_depends`). A key that was there before the join stays.
 //!
 //! A running daemon's relay reads the credential from its file at every hub call
 //! (`mesh_http.rs` `token`): with the record revoked and then gone, its next heartbeat or inbox
@@ -21,8 +22,11 @@ use std::path::Path;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum HubAnswer {
     Revoked,
-    /// Already revoked or unknown there: the credential is dead either way.
-    AlreadyGone,
+    /// Already revoked (`revoked`: someone revoked it there) or unknown there: the credential
+    /// is dead either way.
+    AlreadyGone {
+        revoked: bool,
+    },
     /// This hub has no machine-side revoke: the person revokes it from a signed-in device.
     Unsupported,
     /// No answer, or one that says nothing about the credential (5xx, 429, unreadable).
@@ -32,25 +36,26 @@ pub(super) enum HubAnswer {
 }
 
 impl HubAnswer {
-    fn label(&self) -> &'static str {
+    pub(super) fn label(&self) -> &'static str {
         match self {
             Self::Revoked => "revoked",
-            Self::AlreadyGone => "already_revoked",
+            Self::AlreadyGone { .. } => "already_revoked",
             Self::Unsupported => "unsupported",
             Self::Unavailable(_) => "unavailable",
             Self::Copy => "not_asked_copy",
         }
     }
 
-    fn revoked(&self) -> bool {
-        matches!(self, Self::Revoked | Self::AlreadyGone)
+    pub(super) fn revoked(&self) -> bool {
+        matches!(self, Self::Revoked | Self::AlreadyGone { .. })
     }
 }
 
 /// Reads the hub's refusal of the self-revoke.
 pub(super) fn classify(error: &cmux_cloud_client::ApiError) -> HubAnswer {
     match (error.status, error.code.as_deref()) {
-        (Some(401), Some("machine.revoked" | "machine.unknown")) => HubAnswer::AlreadyGone,
+        (Some(401), Some("machine.revoked")) => HubAnswer::AlreadyGone { revoked: true },
+        (Some(401), Some("machine.unknown")) => HubAnswer::AlreadyGone { revoked: false },
         // A hub before the self-revoke: no route, or its `{machineId}/revoke` route taking
         // `self` as an id and refusing a machine credential there.
         (Some(401 | 403 | 404 | 405), _) => HubAnswer::Unsupported,
@@ -58,7 +63,7 @@ pub(super) fn classify(error: &cmux_cloud_client::ApiError) -> HubAnswer {
     }
 }
 
-async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
+pub(super) async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
     // Always the hub's word: the local revoked bit is set on any 401 from a mesh call, and by
     // a `--local-only` leave cut short, neither of which proves the hub revoked it.
     let Ok(hub) = origin(Some(record.hub_origin.clone())) else {
@@ -72,6 +77,24 @@ async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
         Ok(_) => HubAnswer::Revoked,
         Err(e) => classify(&cmux_cloud_client::ApiError::from_api(e).await),
     }
+}
+
+/// Written when a join made this machine's node key (no `node.wg.key` was there): a leave
+/// deletes the key only then, never one that was there before the join.
+pub(super) const NODE_KEY_MADE: &str = "machine-join.node-key-made.json";
+
+/// The node key a join in `home` redeems with, made when there is none. A key it made is marked
+/// ([`NODE_KEY_MADE`], after the key, so a stop between keeps the key); one already there is not.
+pub(super) fn node_key_for_join_at(home: &Path) -> Result<crate::cli::mesh_node_key::NodeKeypair> {
+    let existed =
+        std::fs::symlink_metadata(home.join(cmux_link::key_holder::KeyFile::Node.file_name()))
+            .is_ok();
+    let key = crate::cli::mesh_node_key::load_or_create_at(home)?;
+    if !existed {
+        crate::config::private_state_dir(home)?;
+        recovery::write_durable(&home.join(NODE_KEY_MADE), b"{}", true)?;
+    }
+    Ok(key)
 }
 
 /// The WireGuard key lock in `home` when the node key there may be deleted: the key is there,
@@ -90,12 +113,19 @@ fn node_key_removable(home: &Path) -> Result<Option<cmux_link::key_holder::KeyHo
 }
 
 /// Removes the join from `home`: the record marked revoked first (so nothing reads it as
-/// live if this stops part way), then `meshRelay` (only a joined one), then the credential and
-/// the node key, unless the link adopted it or a running process holds it
-/// ([`node_key_removable`]). Returns what it removed. The caller holds the join lock.
-pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> {
+/// live if this stops part way), then `meshRelay` (only the one this join wrote: the join's
+/// credential for the record's hub, [`join_relay_for`]; with no record, none), then the credential and
+/// the node key: one the join made, or a copied home's (`copy`, or a record marked `cloned`:
+/// the original box's key, or the one put in its place), and only when the link did not adopt it
+/// and no running process holds it ([`node_key_removable`]). [`NODE_KEY_MADE`] goes with the key,
+/// so a key kept now (held, adopted) is still the join's for a later leave. Returns what it
+/// removed. The caller holds the join lock.
+pub(super) fn remove_local(home: &std::path::Path, copy: bool) -> Result<Vec<&'static str>> {
     let mut removed = Vec::new();
-    if let Some(mut record) = load_at(home)?
+    let record = load_at(home)?;
+    let copy = copy || record.as_ref().is_some_and(|record| record.cloned);
+    let hub = record.as_ref().map(|record| record.hub_origin.clone());
+    if let Some(mut record) = record
         && !record.revoked
     {
         record.revoked = true;
@@ -106,26 +136,25 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
             true,
         )?;
     }
-    let config_path = home.join("config.json");
-    if config_path.exists() {
-        let mut config = crate::config::Config::load_from(&config_path)?;
-        if config
-            .mesh_relay
-            .as_ref()
-            .is_some_and(|relay| relay.credential.as_deref() == Some("join"))
-        {
-            config.mesh_relay = None;
-            config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
-            removed.push("meshRelay");
-        }
+    if let Some(hub) = hub
+        && remove_relay_at(home, |relay| join_relay_for(relay, &hub))?
+    {
+        removed.push("meshRelay");
     }
+    let made = copy || std::fs::symlink_metadata(home.join(NODE_KEY_MADE)).is_ok();
     // Held until the removal is synced.
-    let key_lock = node_key_removable(home)?;
+    let key_lock = if made { node_key_removable(home)? } else { None };
     let node_key =
         key_lock.as_ref().map(|_| (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"));
-    for (file, label) in [Some((CREDENTIAL_FILE, "credential")), node_key].into_iter().flatten() {
+    let key_gone = node_key.is_some()
+        || std::fs::symlink_metadata(cmux_link::key_holder::KeyFile::Node.path_in(home)).is_err();
+    let marker = key_gone.then_some((NODE_KEY_MADE, ""));
+    for (file, label) in
+        [Some((CREDENTIAL_FILE, "credential")), node_key, marker].into_iter().flatten()
+    {
         match crate::home_fs::remove_file(home.join(file)) {
-            Ok(()) => removed.push(label),
+            Ok(()) if !label.is_empty() => removed.push(label),
+            Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(anyhow::Error::from(e).context(format!("remove {file}"))),
         }
@@ -133,6 +162,45 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
     recovery::sync_ancestors(home)?;
     drop(key_lock);
     Ok(removed)
+}
+
+/// Removes config.json's `meshRelay` from `home` when `ours` says it is the leave's to remove.
+/// True when it removed one.
+fn remove_relay_at(
+    home: &Path,
+    ours: impl FnOnce(&crate::mesh_http::MeshRelayConfig) -> bool,
+) -> Result<bool> {
+    let config_path = home.join("config.json");
+    if !config_path.exists() {
+        return Ok(false);
+    }
+    let mut config = crate::config::Config::load_from(&config_path)?;
+    if !config.mesh_relay.as_ref().is_some_and(ours) {
+        return Ok(false);
+    }
+    config.mesh_relay = None;
+    config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
+    Ok(true)
+}
+
+/// Whether `home`'s config.json holds a `meshRelay` (one it cannot read counts as holding one: a
+/// running relay is never stopped on a guess).
+pub(super) fn relay_configured(home: &Path) -> bool {
+    let config_path = home.join("config.json");
+    if !config_path.exists() {
+        return false;
+    }
+    !matches!(crate::config::Config::load_from(&config_path), Ok(config) if config.mesh_relay.is_none())
+}
+
+/// A person's own `machine leave` with nothing joined: a join's relay left with no record
+/// (the join's credential and no `tokenCommand`, for any hub) goes, as it always did. A
+/// sign-out never takes this path; it removes only the relay its join wrote ([`remove_local`]).
+fn remove_stray_join_relay(home: &Path) -> Result<Vec<&'static str>> {
+    let stray = |relay: &crate::mesh_http::MeshRelayConfig| {
+        relay.credential.as_deref() == Some("join") && relay.token_command.is_empty()
+    };
+    Ok(if remove_relay_at(home, stray)? { vec!["meshRelay"] } else { Vec::new() })
 }
 
 fn leave_error(code: &str, exit: i32, message: String) -> anyhow::Error {
@@ -145,8 +213,8 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     let _lock = join_lock().map_err(|_| store_error())?;
     let home = state_dir();
     let Some(record) = load_at(&home).map_err(|_| store_error())? else {
-        // Nothing joined; a stray joined `meshRelay` still goes.
-        let removed = remove_local(&home).map_err(|_| store_error())?;
+        // Nothing joined; a stray joined `meshRelay` still goes, as the person asked to leave.
+        let removed = remove_stray_join_relay(&home).map_err(|_| store_error())?;
         let out = json!({"left": false, "joined": false, "removed": removed});
         if json_out {
             crate::cli::output::print_json(&out);
@@ -162,7 +230,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     // Refused unless the hub revoked it or the person asked for a local-only leave.
     let refusal = match &answer {
         _ if local_only => None,
-        HubAnswer::Revoked | HubAnswer::AlreadyGone | HubAnswer::Copy => None,
+        HubAnswer::Revoked | HubAnswer::AlreadyGone { .. } | HubAnswer::Copy => None,
         HubAnswer::Unsupported => Some(leave_error(
             "leave.revoke_from_mac",
             3,
@@ -181,7 +249,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     if let Some(refusal) = refusal {
         return Err(refusal);
     }
-    let removed = remove_local(&home).map_err(|_| store_error())?;
+    let removed = remove_local(&home, copy).map_err(|_| store_error())?;
     let daemon = tokio::time::timeout(
         // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),
@@ -211,7 +279,9 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     if let (true, Some(fields)) = (node_key_kept, out.as_object_mut()) {
         fields.insert(
             "nodeKeyKept".into(),
-            json!("the cmux link serves this node key, or a running process holds it"),
+            json!(
+                "this node key was here before the join, the cmux link serves it, or a running process holds it"
+            ),
         );
     }
     if copy {
@@ -227,7 +297,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     } else {
         let hub = match &answer {
             HubAnswer::Revoked => "revoked at the hub".to_owned(),
-            HubAnswer::AlreadyGone => "already revoked at the hub".to_owned(),
+            HubAnswer::AlreadyGone { .. } => "already revoked at the hub".to_owned(),
             HubAnswer::Copy => {
                 "a copy of another machine's join: the hub was not asked, and that machine keeps its join".to_owned()
             }
@@ -259,8 +329,14 @@ mod tests {
     fn a_refusal_says_whether_the_credential_is_dead_or_the_mac_must_revoke() {
         let answer =
             |status: u16, body: &str| classify(&ApiError::from_status(status, body.as_bytes()));
-        assert_eq!(answer(401, r#"{"code":"machine.revoked"}"#), HubAnswer::AlreadyGone);
-        assert_eq!(answer(401, r#"{"code":"machine.unknown"}"#), HubAnswer::AlreadyGone);
+        assert_eq!(
+            answer(401, r#"{"code":"machine.revoked"}"#),
+            HubAnswer::AlreadyGone { revoked: true }
+        );
+        assert_eq!(
+            answer(401, r#"{"code":"machine.unknown"}"#),
+            HubAnswer::AlreadyGone { revoked: false }
+        );
         assert_eq!(answer(404, r#"{"code":"machine.not_found"}"#), HubAnswer::Unsupported);
         assert_eq!(answer(404, "<html>no route</html>"), HubAnswer::Unsupported);
         assert_eq!(
@@ -292,7 +368,7 @@ mod tests {
             true,
         )
         .unwrap();
-        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        node_key_for_join_at(home.path()).unwrap();
         std::fs::write(
             home.path().join("config.json"),
             json!({"defaultHarness": "claude", "meshRelay": {"url": "https://example.com", "credential": "join"}})
@@ -300,7 +376,7 @@ mod tests {
         )
         .unwrap();
         private(&home.path().join("config.json"));
-        let removed = remove_local(home.path()).unwrap();
+        let removed = remove_local(home.path(), false).unwrap();
         assert_eq!(removed, vec!["meshRelay", "credential", "nodeKey"]);
         assert!(!home.path().join(CREDENTIAL_FILE).exists());
         assert!(!home.path().join("node.wg.key").exists());
@@ -310,7 +386,7 @@ mod tests {
         assert!(config.get("meshRelay").is_none(), "{config}");
         assert_eq!(config["defaultHarness"], "claude", "the rest of config.json stays");
         // Again: nothing left to remove, and no error.
-        assert!(remove_local(home.path()).unwrap().is_empty());
+        assert!(remove_local(home.path(), false).unwrap().is_empty());
         // A token-command relay is not the join's and stays.
         std::fs::write(
             home.path().join("config.json"),
@@ -319,15 +395,75 @@ mod tests {
         )
         .unwrap();
         private(&home.path().join("config.json"));
-        assert!(remove_local(home.path()).unwrap().is_empty());
+        assert!(remove_local(home.path(), false).unwrap().is_empty());
         let config: Value =
             serde_json::from_slice(&std::fs::read(home.path().join("config.json")).unwrap())
                 .unwrap();
         assert_eq!(config["meshRelay"]["tokenCommand"][0], "mint");
     }
 
-    /// The node key a cmux link adopted stays, and so does one a running process holds under
-    /// the key lock; once neither is so, a leave takes it.
+    #[test]
+    fn a_leave_deletes_only_a_node_key_its_join_made_and_the_link_did_not_adopt() {
+        let record = |home: &Path| {
+            let record = MachineCredential {
+                credential: "cmm_x".into(),
+                machine_id: "machine_1".into(),
+                hub_origin: "https://example.com".into(),
+                ..Default::default()
+            };
+            recovery::write_durable(
+                &home.join(CREDENTIAL_FILE),
+                &serde_json::to_vec(&record).unwrap(),
+                true,
+            )
+            .unwrap();
+        };
+        let key = |home: &Path| std::fs::read(home.join("node.wg.key")).unwrap();
+        // There before the join: the join redeems with it, and its leave keeps it.
+        let home = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        let before = key(home.path());
+        node_key_for_join_at(home.path()).unwrap();
+        assert!(!home.path().join(NODE_KEY_MADE).exists());
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), before);
+        // Made by the join, then adopted by the link as its only key: kept, and still the
+        // join's ([`NODE_KEY_MADE`] stays with it), so a leave once no adoption depends on it
+        // takes it.
+        let home = tempfile::tempdir().unwrap();
+        node_key_for_join_at(home.path()).unwrap();
+        assert!(home.path().join(NODE_KEY_MADE).exists());
+        let made = key(home.path());
+        std::fs::create_dir_all(home.path().join("link")).unwrap();
+        std::fs::write(home.path().join("link/key-adopted.json"), b"{}").unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
+        assert_eq!(key(home.path()), made);
+        assert!(home.path().join(NODE_KEY_MADE).exists());
+        std::fs::remove_file(home.path().join("link/key-adopted.json")).unwrap();
+        record(home.path());
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(std::fs::read(home.path().join("node.wg.key")).ok(), None);
+        assert!(!home.path().join(NODE_KEY_MADE).exists());
+        // A copied home's key is the original box's (or the one put in its place): it goes,
+        // whether the record is marked cloned or the caller found the copy.
+        for marked in [true, false] {
+            let home = tempfile::tempdir().unwrap();
+            crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+            record(home.path());
+            if marked {
+                let mut copied = load_at(home.path()).unwrap().unwrap();
+                copied.cloned = true;
+                save_at(home.path(), &copied).unwrap();
+            }
+            assert_eq!(remove_local(home.path(), !marked).unwrap(), vec!["credential", "nodeKey"]);
+            assert_eq!(std::fs::read(home.path().join("node.wg.key")).ok(), None);
+        }
+    }
+
+    /// The node key a join made stays while a cmux link adopted it, and while a running process
+    /// holds it under the key lock; once neither is so, a leave takes it.
     #[test]
     fn a_leave_never_deletes_an_adopted_or_held_node_key() {
         use cmux_link::key_holder::KeyHolder;
@@ -347,25 +483,25 @@ mod tests {
         };
         let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
         let home = tempfile::tempdir().unwrap();
-        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        node_key_for_join_at(home.path()).unwrap();
         let made = key(home.path());
         assert!(made.is_some());
         // Adopted by the link: kept.
         std::fs::create_dir_all(home.path().join("link")).unwrap();
         std::fs::write(home.path().join("link/key-adopted.json"), b"{}").unwrap();
         record(home.path());
-        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential"]);
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
         assert_eq!(key(home.path()), made);
         std::fs::remove_file(home.path().join("link/key-adopted.json")).unwrap();
         // Held under the key lock (a running link or transport): kept.
         let held = KeyHolder::acquire(home.path()).unwrap();
         record(home.path());
-        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential"]);
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential"]);
         assert_eq!(key(home.path()), made);
         drop(held);
         // Neither: it goes.
         record(home.path());
-        assert_eq!(remove_local(home.path()).unwrap(), vec!["credential", "nodeKey"]);
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["credential", "nodeKey"]);
         assert_eq!(key(home.path()), None);
     }
 
@@ -376,19 +512,19 @@ mod tests {
     fn a_leave_keeps_a_node_key_an_archived_adoption_names() {
         let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
         let home = tempfile::tempdir().unwrap();
-        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        node_key_for_join_at(home.path()).unwrap();
         let made = key(home.path());
         std::fs::create_dir_all(home.path().join("link")).unwrap();
         let archived = home.path().join("link/key-adopted.inst_a.json");
         std::fs::write(&archived, serde_json::json!({ "key_dir": home.path() }).to_string())
             .unwrap();
-        assert!(remove_local(home.path()).unwrap().is_empty());
+        assert!(remove_local(home.path(), false).unwrap().is_empty());
         assert_eq!(key(home.path()), made);
         // Archived for another home: this home's key goes.
         let other = tempfile::tempdir().unwrap();
         std::fs::write(&archived, serde_json::json!({ "key_dir": other.path() }).to_string())
             .unwrap();
-        assert_eq!(remove_local(home.path()).unwrap(), vec!["nodeKey"]);
+        assert_eq!(remove_local(home.path(), false).unwrap(), vec!["nodeKey"]);
         assert_eq!(key(home.path()), None);
     }
 }

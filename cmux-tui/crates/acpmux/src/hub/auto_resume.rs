@@ -113,6 +113,9 @@ mod first_send;
 /// A chat past its context window: `/compact`, then the continuation.
 mod compact_first;
 
+/// A dead agent's unread steers go into its continuation.
+mod unread_steers;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -437,6 +440,7 @@ impl TurnInfo {
             notice: false,
             persons: false,
             accepted: true,
+            device: None,
         }
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
@@ -1263,7 +1267,13 @@ impl Hub {
             ..PromptOptions::default()
         };
         let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
-        let blocks = vec![json!({"type": "text", "text": continue_text(cut.error, reason)})];
+        let mut text = continue_text(cut.error, reason);
+        // A dead agent took the steers it had not read with it (`unread_steers.rs`). A live one
+        // still holds them and runs them itself (`carried_turn.rs`).
+        if reason == "agent_exited" {
+            text = unread_steers::with_unread(text, &self.unread_steers(&session.id, cut_turn));
+        }
+        let blocks = vec![json!({"type": "text", "text": text})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         self.finish_auto_resume(
             session,
@@ -1326,11 +1336,13 @@ impl Hub {
     /// continues held: back through the earlier attempts at `root` to the turn the connection
     /// first cut. A failed attempt writes no record of its own when the prompts behind it were
     /// already held, so its continuation finds them on the turn before.
-    fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
+    pub(super) fn held_by(&self, session: &Session, root: &str, cut_turn: &str) -> Vec<String> {
         let mut paused: HashMap<String, Vec<String>> = HashMap::new();
         // An attempt's turn, and the turn it continues.
         let mut continues: HashMap<String, String> = HashMap::new();
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Its two kinds only, from the log's copies of them (`store/kind_index.rs`).
+        let kinds = ["queue_paused", "user_message"];
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let Some(turn) = e.msg.get("turnId").and_then(Value::as_str) else { return true };
             match e.kind.as_str() {
                 "queue_paused" => {

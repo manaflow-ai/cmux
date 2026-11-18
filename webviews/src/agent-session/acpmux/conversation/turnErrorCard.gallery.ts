@@ -4,11 +4,14 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, CATALOG, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, CATALOG, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
+/// The 429 acpmux recorded on Leo's coordinator, as its `turn_result` carried it (`errorText`).
+const rateLimit =
+  "API Error: Request rejected (429) \u00b7 This request would exceed your account's rate limit. Please try again later.";
 
 const failed = (error: string, errorCode?: string, fields: Parameters<typeof chat>[1] = {}) =>
   chat(
@@ -19,6 +22,24 @@ const failed = (error: string, errorCode?: string, fields: Parameters<typeof cha
     ],
     fields,
   );
+
+/// One dead turn of the run: the calls it got through before the 429, then its failed summary. The
+/// work matters — the time's line only draws over a turn with something to fold, so a prompt and a
+/// summary alone would show no "Failed after" at all (caught in review of #44475).
+const deadTurn = (workAt: number, endAt: number, durationMs: number) => [
+  activity(
+    [
+      tool("git pull -q --ff-only", "execute", "completed", {
+        description: "Pulled the base",
+        output: "ok\n",
+        exitCode: 0,
+      }),
+      tool("Read webviews/src/pages/settings/Sidebar.tsx", "read", "completed", { output: "…\n" }),
+    ],
+    workAt,
+  ),
+  summary(endAt, { status: "failed", durationMs, toolCount: 2, error: rateLimit }),
+];
 
 /// Claude Code's own /compact, as its `available_commands_update` lists it.
 const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
@@ -79,6 +100,19 @@ export default agentPaneEntry({
       ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
       snapshot: cloudFailed("HTTP 403 Forbidden"),
     },
+    "cloud-no-team-account": {
+      note: "A team Cloud machine whose team has no Codex account: the card names the team's way (cr add), and Use an API key goes on now where the machine signs agents in.",
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      snapshot: cloudFailed("Codex needs a team account on this machine: run cr add codex to add one"),
+    },
+    "trust-pending": {
+      note: "The folder's trust question is open: Trust folder answers it from the card, where the pane may answer for the folder.",
+      snapshot: failed("trust.pending: answer the trust question for the folder first"),
+    },
+    "trust-untrusted": {
+      note: "Not now stands for the folder: Trust folder from the card, as a failed send's card offers it.",
+      snapshot: failed("trust.untrusted: the folder is not trusted"),
+    },
     "agent-closed": {
       note: 'Leo\'s screenshot: "agent process closed" reads as the agent quitting, with Retry and the raw words under Details.',
       snapshot: failed("agent process closed"),
@@ -111,6 +145,21 @@ export default agentPaneEntry({
     "rate-limited": {
       note: "Capacity after the turn did work (Lawrence 2026-10-29): Continue leads and resumes the turn with its context (Return on the focused card), Switch model beside it.",
       snapshot: failed("API Error: 529 overloaded_error"),
+    },
+    // Leo's coordinator looped on 429s for hours and every dead turn read "Worked for Ns", so the
+    // chat looked busy while nothing ran (cmux#24312 gave the card; the time's own line still said
+    // work). A run of dead turns has to read as dead at a glance, before anything is expanded.
+    "failed-run": {
+      note: "A chat whose turns all died on a 429: every time reads Failed after, never Worked for, so a dead chat never looks like it is quietly working.",
+      height: 560,
+      snapshot: chat([
+        user("Land the sidebar fix", 24),
+        ...deadTurn(23.6, 23.4, 38_000),
+        user("Retry the land", 16),
+        ...deadTurn(15.7, 15.5, 41_000),
+        user("Try once more", 8),
+        ...deadTurn(7.8, 7.6, 36_000),
+      ]),
     },
     "rate-limited-before-work": {
       note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",

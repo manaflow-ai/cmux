@@ -69,13 +69,18 @@ def run(app):
                       f"three windows show ({windows(app)['visible']})", "windows"):
         return
     state = order_matches(app, "three new windows")
-    # Select Previous Window raises the back window, Select Next Window the second one: under no-activate
-    # each orders a window front without making it key (WindowActivation .focus).
-    for action, pick in (("selectPreviousWindow", -1), ("selectNextWindow", 1)):
-        raised = windows(app)["z"][pick]
+    # Select Previous / Next Window step through the windows in the order they were opened, from the front
+    # window (no window is key under no-activate). That order is not the z-order, so the run does not say
+    # which window comes: each action orders another window front without making it key (WindowActivation
+    # .focus) and leaves the order of the other two as it was.
+    for action in ("selectPreviousWindow", "selectNextWindow"):
+        was = windows(app)["z"]
         app.action(action)
-        state = order_matches(app, f"{action} raised {raised}")
-        gate.check(state["z"][0] == raised, f"{raised} is in front after {action} ({state['z']})", "windows")
+        state = order_matches(app, f"{action} from {was}")
+        rest = [i for i in was if i != state["z"][0]]
+        gate.check(state["z"][0] != was[0] and state["z"][1:] == rest,
+                   f"{action} brings another window to the front and keeps the other two in order "
+                   f"({was} -> {state['z']})", "windows")
     before = state["z"]
     app.relaunch()
     order_matches(app, "after the relaunch", want=before)

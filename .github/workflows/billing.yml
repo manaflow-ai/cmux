@@ -8,8 +8,7 @@ name: Billing
 # pull_request paths below must equal its pattern lists, in order;
 # tests/test_ci_billing_lane.py fails when they drift.
 #
-# Two jobs, because feat-cmux-next counts every job a pull request can start
-# against ci/steps.toml's [budget] (tests/test_ci_step_table.py):
+# Two jobs, to keep the number of jobs a pull request starts small:
 # - billing (Linux): routes from the diff, then runs every billing web test,
 #   the CMUX_DB_TEST-gated billing tests against Postgres 16 with every
 #   migration applied twice (as ci-web.yml's web-db-migrations does), and the

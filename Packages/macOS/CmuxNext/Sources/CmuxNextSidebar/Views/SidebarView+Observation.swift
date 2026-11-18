@@ -125,6 +125,18 @@ extension SidebarViewComponents {
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
 
+    /// The first run of a new window's rows pass is part of the window's making: its rows show in that turn, in one
+    /// step with no motion, also while the pointer is over the rows. Before a window's
+    /// seed wrote its space, that run was the window's space change, which reloads the list with no condition. The
+    /// window's passes call this after that run, one time for a window (`SidebarSameTurn.observe`); each later change
+    /// that nobody in this window asked for waits while the pointer is over the rows (`SidebarListView.showModelChange`).
+    func showRowsOfTheMaking() {
+        renderNow()
+        guard list.holdsModelChange else { return }
+        list.releaseHeldModelChange()
+        if !list.holdsModelChange { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+    }
+
     /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
     /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
     /// the frame that shows it (Cmd-N's row, SWITCH STALL 6); a later `renderNow` in the turn draws it first.
@@ -178,9 +190,10 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
+        // controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
-            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
+            || lastState?.preferences.hidesControlsUntilHover != state.preferences.hidesControlsUntilHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
@@ -197,6 +210,8 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
+                // A window's first draw (its seed wrote its space) lists a create's row as the reload below does: the row's measure ends here.
+                if lastState == nil { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

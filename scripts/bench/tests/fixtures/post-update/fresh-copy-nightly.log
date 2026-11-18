@@ -1,0 +1,33 @@
+ci-step warm checkout: none (46 GiB free is below the warm floor of 81 GiB (warm slot 40.0 GiB, hard minimum 10.0 GiB; pruned 0 free slots and stale caches; nothing prunable remains and no room for a warm slot)); running cold
+ci-step glaeda mirror: 3158360745a538313549c48457d0a8bef6cfd4b1 is in /Users/Shared/cmux-build-fleet/git/cmux.git; no fetch
+bun 1.4.4 first on PATH (/Users/Shared/cmux-build-fleet/tools/bun-1.4.4, as webviews/package.json pins)
+ci-step perf571-fresh-home-nightly-base-1: scripts/measure/nightly-fresh-launch.sh is the reviewed version at the tip of feat-cmux-next (blob 126742bf90cc)
+ci-step perf571-fresh-home-nightly-base-1: gui-session-v1 step in cmux's console session (launchctl asuser 501)
+ci-step perf571-fresh-home-nightly-base-1: scripts/measure/nightly-fresh-launch.sh rounds=3 at 3158360745a538313549c48457d0a8bef6cfd4b1 nofile=61440
+NFL host cmux23 chip="Apple M6" macOS 27.0 session Aqua
+NFL dmg https://files-next.cmux.com/nightly-next/cmux-nightly-next-macos-arm64-4376000870601.dmg
+hdiutil: WARNING: 'hdiutil attach -nobrowse -readonly -mountpoint ...' is deprecated. Please use 'diskutil image attach --mountOptions nobrowse --readOnly --mountPoint ...' instead.
+ok: Home rendered in a visible window 4.7s after launch
+ok: Home rendered in a visible window 1.1s after launch
+ok: Home rendered in a visible window 1.2s after launch
+NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 4.690522416989552, "phases": {"pre_main": 1214.2, "to_frame": 1123.1, "to_page": 1951.6, "frame": 2337.3, "page": 4288.9, "reveal_home": 4174.7, "harness": 4691}}
+NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 1.143237708020024, "phases": {"pre_main": 16.7, "to_frame": 458.7, "to_page": 552.3, "frame": 475.4, "page": 1027.7, "reveal_home": 1027.7, "harness": 1143}}
+NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 1.1517657920194324, "phases": {"pre_main": 51.1, "to_frame": 617.7, "to_page": -104.1, "frame": 668.8, "page": 564.7, "reveal_home": 564.7, "harness": 1152}}
+ok: Home rendered in a visible window 4.5s after launch
+ok: Home rendered in a visible window 1.4s after launch
+ok: Home rendered in a visible window 0.9s after launch
+NFL-LAUNCH 2 fresh-copy {"exit": null, "rendered_at": 4.512280333001399, "phases": {"pre_main": 1252.2, "to_frame": 1096.4, "to_page": 1902.1, "frame": 2348.6, "page": 4250.7, "reveal_home": 4250.6, "harness": 4512}}
+NFL-LAUNCH 2 same-copy {"exit": null, "rendered_at": 1.3662049999984447, "phases": {"pre_main": 26.6, "to_frame": 399.8, "to_page": 600.3, "frame": 426.4, "page": 1026.7, "reveal_home": 1026.7, "harness": 1366}}
+NFL-LAUNCH 2 warm {"exit": null, "rendered_at": 0.9226895419997163, "phases": {"pre_main": 45.2, "to_frame": 444.1, "to_page": 21.9, "frame": 489.3, "page": 511.2, "reveal_home": 511.2, "harness": 923}}
+ok: Home rendered in a visible window 3.0s after launch
+ok: Home rendered in a visible window 1.1s after launch
+ok: Home rendered in a visible window 0.8s after launch
+NFL-LAUNCH 3 fresh-copy {"exit": null, "rendered_at": 2.9952640410047024, "phases": {"pre_main": 1188.7, "to_frame": 1147.0, "to_page": 340.5, "frame": 2335.7, "page": 2676.2, "reveal_home": 2676.2, "harness": 2995}}
+NFL-LAUNCH 3 same-copy {"exit": null, "rendered_at": 1.1353833749890327, "phases": {"pre_main": 37.6, "to_frame": 417.4, "to_page": 546.0, "frame": 455.0, "page": 1001.0, "reveal_home": 1001.0, "harness": 1135}}
+NFL-LAUNCH 3 warm {"exit": null, "rendered_at": 0.7882162499881815, "phases": {"pre_main": 47.6, "to_frame": 470.8, "to_page": 10.7, "frame": 518.4, "page": 529.1, "reveal_home": 529.1, "harness": 788}}
+NFL-MEDIAN fresh-copy {"n": 3, "pre_main": 1214.2, "to_frame": 1123.1, "to_page": 1902.1, "frame": 2337.3, "page": 4250.7, "harness": 4512}
+NFL-MEDIAN same-copy {"n": 3, "pre_main": 26.6, "to_frame": 417.4, "to_page": 552.3, "frame": 455.0, "page": 1026.7, "harness": 1143}
+NFL-MEDIAN warm {"n": 3, "pre_main": 47.6, "to_frame": 470.8, "to_page": 10.7, "frame": 518.4, "page": 529.1, "harness": 923}
+NFL verdict exit 0
+ci-step perf571-fresh-home-nightly-base-1 exited 0
+ci-step perf571-fresh-home-nightly-base-1 artifact .build/nightly-fresh-launch/report.tgz: sha256:5e7a2feafdb56bc0b8be86a70cc51c39869f91f756cefc2a1036212e9c482ada

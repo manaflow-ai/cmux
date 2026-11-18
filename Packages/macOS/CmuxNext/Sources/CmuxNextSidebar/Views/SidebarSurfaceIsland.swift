@@ -209,6 +209,34 @@ extension SidebarViewComponents {
                 "updatedCard": String(updatedCardView.card != nil)]
     }
 
+    /// Hover timing proofs (scripts/cmux-next/hovercard-delay-live.py, `debug.update_surfaces`):
+    /// "card-point" answers the staged update card's middle in window coordinates (bottom-left
+    /// origin) while it shows, and whether its highlights card shows; "pull-request-badge" gives
+    /// workspace `workspace` a pull request badge with one fixture pull request, as the session tree
+    /// feed would (`off`: takes it back), and answers the badge's middle and whether its card shows.
+    public func debugHoverTimingProbe(_ action: String, workspace: String?, off: Bool) -> [String: String] {
+        func answer(_ point: CGPoint?, shown: Bool) -> [String: String] {
+            ["x": point.map { String(Double($0.x)) } ?? "", "y": point.map { String(Double($0.y)) } ?? "", "shown": String(shown)]
+        }
+        guard action == "pull-request-badge" else {
+            let card = updateCardView
+            let drawn = card.card != nil && card.window != nil && !card.isHiddenOrHasHiddenAncestor
+            return answer(drawn ? card.convert(CGPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil) : nil, shown: card.notesAreShown)
+                .merging(["card": String(drawn)]) { _, new in new }
+        }
+        guard let workspace else { return ["error": "workspace is required"] }
+        let tree = SidebarSessionTree.shared, id = WorkspaceID(workspace)
+        if off {
+            tree.pullRequests[id] = nil
+        } else if tree.pullRequests[id]?.items.isEmpty != false {
+            tree.pullRequests[id] = SidebarPullRequestBadge.combining(items: [SidebarPullRequestItem(
+                url: "https://github.com/example/repo/pull/1", repository: "example/repo", number: 1,
+                title: "Fixture pull request", state: .passing, additions: 12, deletions: 3)])
+        }
+        window?.contentView?.layoutSubtreeIfNeeded()
+        return answer(debugPullRequestBadgeCenterInWindow(workspace: workspace), shown: SidebarPullRequestCardController.shared.isPresented)
+    }
+
     /// Proofs (`debug.update_surfaces {action: "state"}`): which update
     /// pages this sidebar holds now (each is a web page, cx-asynu).
     public func debugUpdateSurfaceState() -> [String: String] {

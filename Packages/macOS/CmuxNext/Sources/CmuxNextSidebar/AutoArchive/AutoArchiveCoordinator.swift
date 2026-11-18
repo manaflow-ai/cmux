@@ -146,7 +146,9 @@ public final class AutoArchiveCoordinator {
         guard !plan.due.isEmpty else { return }
         switch policy.style {
         case .quiet, .groups:
-            try? archive(plan.due.map(\.item))
+            // Nobody here asked for this pass: a refusal is logged, never a toast (Leo, 2026-11-14).
+            guard let store = activeStore() else { return }
+            try? store.automatically { () throws(AutoArchiveRefusal) in try archive(plan.due.map(\.item)) }
         case .suggest:
             suggest(plan.due, days: Int(policy.idleDays.rounded()))
         case .manual, .off:
