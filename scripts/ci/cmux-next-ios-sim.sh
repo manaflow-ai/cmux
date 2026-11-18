@@ -777,7 +777,7 @@ if [[ "$mode" == handoff ]]; then
     # The step's own sign-in session, sealed from the submitter's Mac (cmux-ci run --sign-in agent,
     # hq build-fleet `sign_in`): no worker account file, no password. Only the auto_login launch
     # gets its refresh token, and it is dropped from this shell after the legs.
-    local receipt client nonce data rec_pid=""
+    local receipt client nonce data
     # shellcheck source=scripts/lib/fleet-signin-session.sh
     source scripts/lib/fleet-signin-session.sh
     cmux_fleet_signin_load || { handoff_sim_reason="$CMUX_FLEET_SIGNIN_ERROR"; return 1; }
@@ -785,8 +785,9 @@ if [[ "$mode" == handoff ]]; then
     account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
-    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
-    rec_pid=$!
+    # shellcheck source=scripts/lib/sim-recorder.sh
+    source scripts/lib/sim-recorder.sh
+    sim_recorder_start "$udid" "$out/recording.mp4" "$work/recording.log" "$sims"
     sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
     for leg in auto_login restored; do
       nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
@@ -822,7 +823,7 @@ if [[ "$mode" == handoff ]]; then
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
     cmux_fleet_signin_forget
-    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    sim_recorder_stop
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
   }
