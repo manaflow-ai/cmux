@@ -443,7 +443,7 @@
   border-radius: 999px;
   background: currentColor;
   opacity: 0.35;
-  animation: mt-dot var(--mt-typing-period) var(--cmux-ease-out, linear) infinite;
+  animation: mt-dot var(--mt-typing-period) var(--cmux-ease-out, linear) infinite; /* motion-allow: a loop whose no-token fallback is linear, not the scale ease-out (left as found) */
 }
 
 .mt-typing i:nth-child(2) {

@@ -6,6 +6,7 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+mod control_asks;
 
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
@@ -239,7 +240,7 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -2113,6 +2114,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
+            policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
