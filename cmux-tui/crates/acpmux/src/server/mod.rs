@@ -2568,6 +2568,7 @@ pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;
 mod plan_build;
+mod pr_feedback;
 mod project_new;
 mod prompt_coach;
 pub(crate) mod queue_gauge;

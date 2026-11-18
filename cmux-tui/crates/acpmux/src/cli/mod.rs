@@ -65,6 +65,7 @@ pub mod output;
 pub mod pairing;
 pub mod peer_status;
 pub mod place;
+pub mod pr_feedback;
 pub mod pr_wait;
 pub mod process;
 #[cfg(unix)]

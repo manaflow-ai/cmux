@@ -36,13 +36,13 @@ const GH_TIMEOUT: Duration = Duration::from_secs(45);
 /// The most of one answer that is read.
 const OUTPUT_MAX: u64 = 4 << 20;
 /// How long a waiter that did not get the lock waits before it reads the state again.
-const LOCK_BUSY_STEP: Duration = Duration::from_secs(2);
+pub(crate) const LOCK_BUSY_STEP: Duration = Duration::from_secs(2);
 /// A pull request with no checks yet right after a push is not green: wait this long for them.
 const NO_CHECKS_GRACE_S: u64 = 120;
 /// A head that differs from `--sha` this soon after the wait started is GitHub catching up.
 const HEAD_GRACE_S: u64 = 60;
 /// Wait when a rate limit's reset can not be read, and the cap of the error backoff.
-const LIMIT_FALLBACK_S: u64 = 300;
+pub(crate) const LIMIT_FALLBACK_S: u64 = 300;
 const ERROR_BACKOFF_CAP_S: u64 = 600;
 /// Consecutive failed polls (not rate limits) before the wait gives up with exit 2.
 const MAX_ERRORS: u32 = 6;
@@ -176,7 +176,7 @@ pub(crate) fn repo_of_remote(url: &str) -> Option<String> {
         .then(|| format!("{owner}/{repo}"))
 }
 
-fn now_s() -> u64 {
+pub(crate) fn now_s() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
@@ -188,7 +188,7 @@ pub(crate) struct Ctx {
 
 /// Where the shared state lives: `ACPMUX_PR_WAIT_DIR`, else the user cache folder's
 /// `cmux/pr-wait`. Regenerable: deleting it costs one poll.
-fn state_dir() -> Result<PathBuf> {
+pub(crate) fn state_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("ACPMUX_PR_WAIT_DIR") {
         return Ok(PathBuf::from(dir));
     }
@@ -196,19 +196,37 @@ fn state_dir() -> Result<PathBuf> {
     Ok(cache.join("cmux").join("pr-wait"))
 }
 
-fn read_shared(path: &Path) -> Shared {
+pub(crate) fn read_shared(path: &Path) -> Shared {
     std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
-fn write_shared(path: &Path, shared: &Shared) -> Result<()> {
+pub(crate) fn write_shared(path: &Path, shared: &Shared) -> Result<()> {
     let tmp = path.with_extension(format!("tmp{}", std::process::id()));
     std::fs::write(&tmp, serde_json::to_vec(shared)?)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
+/// Which end of an answer longer than `OUTPUT_MAX` is kept.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Keep {
+    Head,
+    /// A job log's end, where its failure is (`pr_feedback.rs`).
+    Tail,
+}
+
 /// One bounded `gh` run: its stdout on success, else its stderr.
 fn gh(ctx: &Ctx, args: &[&str], deadline: Instant) -> Result<std::result::Result<Vec<u8>, String>> {
+    gh_keeping(ctx, args, deadline, Keep::Head)
+}
+
+/// [`gh`], keeping `keep`'s end of a stdout longer than `OUTPUT_MAX`.
+pub(crate) fn gh_keeping(
+    ctx: &Ctx,
+    args: &[&str],
+    deadline: Instant,
+    keep: Keep,
+) -> Result<std::result::Result<Vec<u8>, String>> {
     // Its output goes to unnamed files, so a large answer never fills a pipe nobody reads yet.
     let (mut out, mut err) = (tempfile::tempfile()?, tempfile::tempfile()?);
     let mut child = cmux_process::Command::new(&ctx.gh)
@@ -227,7 +245,9 @@ fn gh(ctx: &Ctx, args: &[&str], deadline: Instant) -> Result<std::result::Result
         return Ok(Err(format!("gh did not answer in {}s", bound.as_secs())));
     };
     let read = |f: &mut std::fs::File| -> std::io::Result<Vec<u8>> {
-        f.seek(SeekFrom::Start(0))?;
+        let len = f.seek(SeekFrom::End(0))?;
+        let from = if keep == Keep::Tail { len.saturating_sub(OUTPUT_MAX) } else { 0 };
+        f.seek(SeekFrom::Start(from))?;
         let mut buf = Vec::new();
         f.take(OUTPUT_MAX).read_to_end(&mut buf)?;
         Ok(buf)
@@ -281,7 +301,7 @@ fn poll(
 }
 
 /// When the GraphQL limit (`gh pr view`'s) resets, in unix seconds. `rate_limit` costs no quota.
-fn limit_reset(ctx: &Ctx, deadline: Instant) -> Option<u64> {
+pub(crate) fn limit_reset(ctx: &Ctx, deadline: Instant) -> Option<u64> {
     let out =
         gh(ctx, &["api", "rate_limit", "--jq", ".resources.graphql.reset"], deadline).ok()?.ok()?;
     String::from_utf8_lossy(&out).trim().parse().ok()
