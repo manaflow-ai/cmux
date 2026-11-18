@@ -64,14 +64,19 @@ pub(super) struct Record {
     pub made_at: u64,
 }
 
-/// `project` and `project-serve`; `None` on bad usage.
+/// `project`, `project-serve` and `project-pull`; `None` on bad usage.
 pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     let base = ledger.parent()?.join("projected");
     match action {
         "project" => StartCopy::of(flags).map(|copy| start(&copy, &base)),
+        "project-pull" => pull::cli(flags, &base),
         _ => super::projected_serve::cli(flags, &base),
     }
 }
+
+/// `project-pull`: the machine's edits back to this Mac.
+#[path = "projected_pull.rs"]
+mod pull;
 
 /// A refusal in this command's shape: the App copies the folder instead.
 pub(super) fn refused(code: &str, message: impl std::fmt::Display) -> Value {

@@ -49,8 +49,8 @@
 //! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
 //!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
 //!   ([`preflight`], `sync_cli::size_cap`).
-//! - `project ...` (`copy`'s arguments) and `project-serve --mount ID`: the folder as a projection
-//!   the machine mounts, its bytes served from this Mac as the machine reads ([`projected`]).
+//! - `project ...` (`copy`'s arguments), `project-serve --mount ID` and `project-pull`: the folder
+//!   as a projection the machine mounts, served from this Mac, its edits back ([`projected`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -98,7 +98,7 @@ cmux link start-chat reserve|release|warm-spare --request JSON (the session cred
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] [--on-seed-refusal copy|ask] (with --store, the cmux credential on stdin)\n       \
 cmux link start-chat trust --folder FOLDER --acpmux-home PATH\n       \
 cmux link start-chat project --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...\n       \
-cmux link start-chat project-serve --mount ID [--socket PATH] [--once]";
+cmux link start-chat project-serve --mount ID [--socket PATH] [--once]\n       cmux link start-chat project-pull --mount ID [--socket PATH] [--dry-run]";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -200,7 +200,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
         "warm-spare" | "wait-copy" => spare_warm::cli(action, &flags, &ledger),
-        "project" | "project-serve" => projected::cli(action, &flags, &ledger),
+        "project" | "project-serve" | "project-pull" => projected::cli(action, &flags, &ledger),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -1547,8 +1547,8 @@ impl Flags {
             if !flag.starts_with("--") {
                 return None;
             }
-            // The one flag without a value (`project-serve --once`).
-            let value = if flag == "--once" { "true".to_owned() } else { args.next()?.clone() };
+            let bare = matches!(flag.as_str(), "--once" | "--dry-run"); // flags without a value
+            let value = if bare { "true".to_owned() } else { args.next()?.clone() };
             pairs.push((flag.clone(), value));
         }
         Some(Self(pairs))

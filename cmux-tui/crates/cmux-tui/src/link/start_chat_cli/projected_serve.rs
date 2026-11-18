@@ -77,7 +77,7 @@ pub(super) fn cli(flags: &Flags, base: &Path) -> Option<Value> {
 }
 
 /// The plain form of a mount id (as the daemon checks it).
-fn plain_id(id: &str) -> bool {
+pub(super) fn plain_id(id: &str) -> bool {
     (1..=64).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }

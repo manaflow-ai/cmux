@@ -1096,7 +1096,7 @@ impl Drop for Staging {
 }
 
 /// `rwxr-xr-x` back to its bits.
-fn mode_bits(display: &str) -> u32 {
+pub(super) fn mode_bits(display: &str) -> u32 {
     display.chars().take(9).fold(0, |mode, c| (mode << 1) | u32::from(c != '-'))
 }
 

@@ -1,5 +1,5 @@
-//! A projected folder's listing (`cmux link start-chat project`) and the one way its serve loop
-//! opens a listed file.
+//! A projected folder's listing (`cmux link start-chat project`), the one way its serve loop
+//! opens a listed file, and its way back ([`back`], `start-chat project-pull`).
 //!
 //! The listing is the copy's own walk with the copy's own skip rules ([`super::local::list_into`]
 //! by [`Rules::Copy`]), so a projection reaches exactly what a copy reaches. The one difference:
@@ -21,6 +21,10 @@ use anyhow::Context as _;
 use super::local::{LocalFile, LocalSet, Rules, Source, holdable, list_into, permissions_of};
 use super::place;
 use super::skips::{Skips, Why};
+
+/// The machine's edits of a projected folder brought back to this Mac.
+#[path = "projected_back.rs"]
+pub(in crate::link) mod back;
 
 /// What a stat-only listing keeps beside the copy's own ([`LocalSet::stat_only`]).
 #[derive(Debug, Default)]

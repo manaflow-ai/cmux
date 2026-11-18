@@ -215,7 +215,7 @@ impl Dir {
     }
 
     /// Makes the file `name` (it must not exist) with `mode`, for writing.
-    fn create_file(&self, name: &str, mode: u32) -> io::Result<File> {
+    pub(super) fn create_file(&self, name: &str, mode: u32) -> io::Result<File> {
         let c = c_name(name)?;
         // SAFETY: a valid descriptor and C string; the result is checked.
         let fd = check(unsafe {
@@ -350,20 +350,20 @@ impl Dir {
 
     /// Makes the symlink `name` with `text`; `AlreadyExists` when anything
     /// is there.
-    fn symlink(&self, name: &str, text: &str) -> io::Result<()> {
+    pub(super) fn symlink(&self, name: &str, text: &str) -> io::Result<()> {
         let (c, text) = (c_name(name)?, c_name_text(text)?);
         // SAFETY: a valid descriptor and C strings.
         check(unsafe { libc::symlinkat(text.as_ptr(), self.0.as_raw_fd(), c.as_ptr()) }).map(drop)
     }
 
-    fn mkdir(&self, name: &str) -> io::Result<()> {
+    pub(super) fn mkdir(&self, name: &str) -> io::Result<()> {
         let c = c_name(name)?;
         // SAFETY: a valid descriptor and C string.
         check(unsafe { libc::mkdirat(self.0.as_raw_fd(), c.as_ptr(), 0o755) }).map(drop)
     }
 
     /// Renames `name` here to `to_name` in `to`.
-    fn rename(&self, name: &str, to: &Dir, to_name: &str) -> io::Result<()> {
+    pub(super) fn rename(&self, name: &str, to: &Dir, to_name: &str) -> io::Result<()> {
         let (from, dest) = (c_name(name)?, c_name(to_name)?);
         // SAFETY: valid descriptors and C strings.
         check(unsafe {
@@ -372,7 +372,7 @@ impl Dir {
         .map(drop)
     }
 
-    fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
+    pub(super) fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
         let c = c_name(name)?;
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
         // SAFETY: a valid descriptor and C string.
@@ -399,7 +399,7 @@ pub(super) fn parent_of(root: &Dir, relative: &str) -> io::Result<Option<(Dir, S
 }
 
 impl Dir {
-    fn dup(&self) -> io::Result<Self> {
+    pub(super) fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
 
@@ -813,7 +813,7 @@ impl Transaction {
 /// Moves `from_name` in `from` to `to_name` in `to` only if nothing is
 /// there (a hard link, then the old name goes): `AlreadyExists` otherwise.
 /// A file system without hard links falls back to a checked rename.
-fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<()> {
+pub(super) fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<()> {
     let (source, dest) = (c_name(from_name)?, c_name(to_name)?);
     // SAFETY: valid descriptors and C strings.
     let linked = check(unsafe {
