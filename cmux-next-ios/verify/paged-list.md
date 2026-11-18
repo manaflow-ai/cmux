@@ -11,6 +11,7 @@ is `-cmux-mobile-paged-lab DIRECTION:SCENARIO` (`CmuxMobileShell/PagedListLabRoo
 |---|---|---|
 | A page that lands never moves the row being read | The anchor (first row under the reader's top; for an `.up` list at its newest end, the lowest row's bottom, so a change above pushes the older rows up as in Messages) is captured before the snapshot apply and restored after the layout pass that placed it | `test{Down,Up}PageLandsWithoutMovingTheReader*`: row frame from outside, ≤ 0.5 pt, plus the lab probe |
 | A row above the reader that changes height moves nothing | `PagedListLayout` sets `contentOffsetAdjustment` for every self-sizing change of a row that starts above the reader's top. Without it, UIKit's list jumps when you scroll up into rows that had estimated heights | Same tests at the accessibility text size (heights far from the estimate) |
+| A layout pass mid-scroll moves nothing | While a finger or a fling moves the list, each layout pass keeps the row under the reader's top edge where it was drawn when the pass started (a row above that changed out of view, a window move); between passes the scroll moves it. At rest, every pass puts the reader back where the last one left it | `testWindowedHugeListKeepsMemoryBounded` and the stress bench (`frameShift` ≤ 0.5 pt while scrolling under load) |
 | No re-measure flicker | Heights are cached per row value, width and text size. A row that comes back into view takes its height without a SwiftUI sizing pass | Fling tests (frames and hitches in `PAGEDLIST` lines) |
 | No blank edge on a fling | The next page is asked for 2 screens before the edge (`UIScrollView.pagedScreensToEdge`), on every scroll step and after every update | `test*FlingsMeetRowsWithoutHitches`: >90 rows read during flings |
 | `.up` opens at, and stays on, the newest row | Each layout pass of a following list re-pins to the bottom (keyboard, rotation, a sent row, a row that grew). A short list sits at the bottom (top inset). A reader in the middle keeps the bottom edge's distance when the height changes | `testUpStaysOnNewestThroughKeyboardAndSend`, `testUpLiveRowsKeepAReaderAboveInPlace` |
@@ -141,8 +142,9 @@ and a row there that grows grows upward). A `.down` list mid-slide keeps its row
 doing in the worst frame, with a trail of every offset move since the frame before and how the
 measure read it (`c` correction, `o` the list's own move, `U`/`L`/`S` inside an update, a layout pass
 or the layer's layout, `p` a layout adjustment UIKit announced, `d`/`t`/`u` a drag, a resting finger
-or a fling, `n` none of these; `A` is an adjustment announced, `^` one made inside another scroll
-callback). A case fails above 0.5 pt in any frame, or above
+or a fling, `K` UIKit moving the offset further inside the finger's or the fling's own set of it (it
+sizes rows above as they come into view and moves the content by as much: nothing moves on screen),
+`n` none of these; `A` is an adjustment announced, `^` one made inside another scroll callback). A case fails above 0.5 pt in any frame, or above
 10 ms of hitches per second. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,

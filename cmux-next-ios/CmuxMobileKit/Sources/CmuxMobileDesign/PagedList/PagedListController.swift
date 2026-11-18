@@ -194,7 +194,26 @@ final class SwipeProvider {
 /// newest row stays at the bottom (a keyboard, a rotation, a row that grew) and a short `.up` list
 /// sits at the bottom.
 final class PagedListCollectionView: UICollectionView {
+    var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
+    /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
+    /// move the offset further inside it (rows above it sized as they came into view, with the
+    /// content moved by as much), which is its correction, not the finger's or the fling's move.
+    private(set) var offsetRequest: (serial: Int, y: CGFloat)?
+    private var requests = 0
+
+    override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set {
+            let outer = offsetRequest == nil
+            if outer {
+                requests += 1
+                offsetRequest = (requests, newValue.y)
+            }
+            super.contentOffset = newValue
+            if outer { offsetRequest = nil }
+        }
+    }
     /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
     var accessibilityRefresh: (() -> Bool)?
 
@@ -212,6 +231,7 @@ final class PagedListCollectionView: UICollectionView {
     override func layoutSubviews() {
         laying += 1
         defer { laying -= 1 }
+        willLayout?()
         super.layoutSubviews()
         didLayout?()
     }
@@ -322,6 +342,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// Rows that arrived at the newest end under a resting finger: they slide in when it lifts, or
     /// count on the indicator when a drag starts instead.
     private var heldArrivals = 0
+    /// The last offset set whose own part the measure counted as the scroll.
+    private var countedRequest = 0
+    /// While the reader scrolls: the row under the reader's top edge and its top on screen as drawn
+    /// when a layout pass starts.
+    private var passHold: (id: CellID, top: CGFloat)?
 
     init(direction: PagedListDirection, row: @escaping (Item) -> Row, edgeView: @escaping (PagedListEdge, PagedListEnd) -> AnyView) {
         self.direction = direction
@@ -389,6 +414,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             self.probe?.slid?(frames)
         }
         newest.jump = { [weak self] in self?.jumpToNewest() }
+        collectionView.willLayout = { [weak self] in self?.willLayout() }
         collectionView.didLayout = { [weak self] in self?.didLayout() }
         collectionView.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: PagedListCollectionView, _: UITraitCollection) in
             self?.textSizeChanged()
@@ -734,6 +760,34 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView.convert(CGPoint(x: 0, y: collectionView.bounds.maxY - collectionView.adjustedContentInset.bottom), to: nil).y
     }
 
+    /// While the reader scrolls (a finger or a fling), each layout pass keeps the row under the
+    /// reader's top edge where it was drawn: a pass that moves it (rows above that changed height out
+    /// of view, a window that moved) puts it back in the same pass. Between passes the scroll moves
+    /// it, which is the scroll. Updates keep their own anchor; at rest `keepReader` keeps it.
+    private func willLayout() {
+        passHold = nil
+        guard loaded, !updating, !keeping, !followsNewest, !spring.isRunning,
+              collectionView.isTracking || collectionView.isDecelerating else { return }
+        let top = readerTop
+        var best: (id: CellID, minY: CGFloat)?
+        // The cells as drawn: their frames are the last pass's (the layout may already hold the next).
+        for cell in collectionView.visibleCells where cell.frame.maxY > top + 0.5 {
+            guard best == nil || cell.frame.minY < best!.minY,
+                  let indexPath = collectionView.indexPath(for: cell),
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            best = (id, cell.frame.minY)
+        }
+        if let best { passHold = (best.id, best.minY - collectionView.contentOffset.y) }
+    }
+
+    private func holdAcrossPass() {
+        guard let hold = passHold else { return }
+        passHold = nil
+        guard let indexPath = dataSource.indexPath(for: hold.id), let cell = collectionView.cellForItem(at: indexPath) else { return }
+        let delta = (cell.frame.minY - collectionView.contentOffset.y) - hold.top
+        if abs(delta) > 0.25 { correctOffset(by: delta) }
+    }
+
     /// Each layout pass: a short `.up` list sits at the bottom; an `.up` list that follows its newest
     /// row stays on it (keyboard, rotation, a row that grew); otherwise the bottom edge's move is
     /// answered as `pinning` says, and the reader is kept.
@@ -741,6 +795,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard !keeping, !laying else { return }
         laying = true
         defer { laying = false }
+        holdAcrossPass()
         let width = collectionView.bounds.width
         let edgeNow = collectionView.window == nil ? nil : bottomEdge
         let edgeMove: CGFloat? = {
@@ -952,8 +1007,19 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             pendingAdjustment = abs(pendingAdjustment - delta) < 0.5 ? 0 : pendingAdjustment - delta
             note("p", delta)
         } else if userMove {
-            explained += delta
-            note(scrollView.isDragging ? "d" : scrollView.isTracking ? "t" : "u", delta)
+            let kind = scrollView.isDragging ? "d" : scrollView.isTracking ? "t" : "u"
+            if let request = collectionView.offsetRequest {
+                // The set asked for the finger's or the fling's step; what it moved beyond that is
+                // UIKit's (once per set: a callback nested in the same set is all UIKit's).
+                let person = request.serial == countedRequest ? 0 : request.y - (y - delta)
+                countedRequest = request.serial
+                explained += person
+                note(kind, person)
+                if abs(delta - person) > 0.01 { note("K", delta - person) }
+            } else {
+                explained += delta
+                note(kind, delta)
+            }
         } else {
             note("n", delta)
         }
