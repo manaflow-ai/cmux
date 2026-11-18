@@ -346,6 +346,8 @@ try {
     longTasks: number;
     longMs: number;
     shift: number;
+    /// The largest layout shifts after the call: when, how much, and what moved (row ids or classes).
+    shifts: { at: number; value: number; moved: string[] }[];
     sent: string[];
     quiet?: Idle;
     steady?: Idle;
@@ -461,6 +463,7 @@ try {
               longTasks: 0,
               longMs: 0,
               shift: 0,
+              shifts: [] as { at: number; value: number; moved: string[] }[],
               top: -1,
               height: -1,
               reconciled: 0,
@@ -530,9 +533,16 @@ try {
                 value: number;
                 hadRecentInput: boolean;
                 startTime: number;
+                sources?: { node?: Node | null }[];
               }[]) {
                 if (entry.hadRecentInput || entry.startTime < t0) continue;
                 state.shift += entry.value;
+                const moved = (entry.sources ?? []).map(({ node }) => {
+                  const element = node instanceof Element ? node : node?.parentElement;
+                  const row = element?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+                  return row ? `row ${row}` : (element?.className?.toString().split(" ")[0] ?? element?.nodeName ?? "?");
+                });
+                state.shifts.push({ at: entry.startTime - t0, value: entry.value, moved });
                 state.activity = Math.max(state.activity, entry.startTime);
               }
             });
@@ -586,6 +596,7 @@ try {
                   longTasks: state.longTasks,
                   longMs: state.longMs,
                   shift: state.shift,
+                  shifts: state.shifts.sort((a, b) => b.value - a.value).slice(0, 4),
                   attach: attached() ? attached() - t0 : 0,
                   reconciled: state.reconciled ? state.reconciled - t0 : 0,
                   nativeReads: state.nativeReads,
@@ -701,6 +712,11 @@ try {
       ].join(" | "),
     );
     console.log(`  the pane sent for the switch: ${rounds.at(-1)!.sent.join(", ") || "nothing"}`);
+    const shifts = rounds.at(-1)!.shifts;
+    if (shifts.length)
+      console.log(
+        `  its largest layout shifts: ${shifts.map((s) => `${s.value.toFixed(4)} at ${s.at.toFixed(0)} ms (${s.moved.join(", ")})`).join("; ")}`,
+      );
     console.log(`  B's attach page: ${attachPage.events} records, ${(attachPage.bytes / 1024).toFixed(0)} KiB`);
     if (mode) {
       console.log(

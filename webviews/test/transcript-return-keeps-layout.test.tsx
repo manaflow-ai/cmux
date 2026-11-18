@@ -84,9 +84,18 @@ test("a chat shown again measures only its rows that changed while it was away",
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
+  const expanded = new Set<string>();
   const render = (sessionId: string, rows: AcpmuxRow[]) =>
     act(async () => {
-      root.render(<VirtualTranscript rows={rows} registry={registry} sessionId={sessionId} />);
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          registry={registry}
+          sessionId={sessionId}
+          onToggleActivity={() => {}}
+          expanded={expanded}
+        />,
+      );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   const measuredOf = (name: string) => [...measured].filter(([id]) => id.startsWith(`${name}-`)).length;
