@@ -68,7 +68,24 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var pinned: Bool
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from
     /// notification markers; cleared when the workspace is used.
-    public internal(set) var markedUnread: Bool { didSet { noteUnreadChange() } }
+    public internal(set) var markedUnread: Bool {
+        didSet {
+            if markedUnread, !oldValue { markedUnreadGeneration &+= 1 }
+            noteUnreadChange()
+        }
+    }
+    /// Counts the times ``markedUnread`` turned on: each new mark rings again after Dismiss Highlight hid
+    /// an earlier one (``markRing(dismissed:)``). Changes only with ``markedUnread``, which observers follow.
+    @ObservationIgnored public private(set) var markedUnreadGeneration: UInt64 = 0
+
+    /// Mark Workspace as Unread's ring (#44931): on the pane the daemon last focused, as classic marked the
+    /// focused panel, with the mark's generation; nil while unmarked, with no pane, or dismissed through
+    /// `dismissed` (the generation Dismiss Highlight hid; nil: none hidden).
+    public func markRing(dismissed: UInt64?) -> (pane: PaneModel, generation: UInt64)? {
+        guard markedUnread, dismissed.map({ markedUnreadGeneration > $0 }) ?? true,
+              let pane = screens.flatMap(\.panes).max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
+        return (pane, markedUnreadGeneration)
+    }
     /// `home` for the store's home workspace (`workspace-kind-v1`).
     public internal(set) var kind: String?
     /// The app of an app workspace (`app-screens-v1`): its one pane shows the
@@ -116,6 +133,13 @@ public final class WorkspaceModel: Identifiable {
         guard name.hasPrefix("workspace-") else { return false }
         let number = name.dropFirst("workspace-".count)
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
+    }
+
+    /// Whether the sidebar row draws an unread mark (cmux-layout-reducer `sidebar_face.rs` `unread`): marked
+    /// unread by hand, an unread tab, or a tab marked unread or asking for the person. The workspace row
+    /// menu offers Mark as Read or Mark as Unread by it (#44931).
+    public var showsUnreadDot: Bool {
+        markedUnread || unreadCount > 0 || screens.contains { $0.panes.contains { $0.tabs.contains(where: \.showsUnread) } }
     }
 
     /// Tabs with an unread marker, counted from the mirrored tabs, which
