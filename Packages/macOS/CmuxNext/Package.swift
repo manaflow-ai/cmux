@@ -1755,6 +1755,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
+                .product(name: "CmuxScreenKit", package: "CmuxScreenKit"),
             ],
             swiftSettings: uiSwiftSettings
         ),

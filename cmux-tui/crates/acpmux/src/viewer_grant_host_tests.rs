@@ -175,3 +175,52 @@ fn a_call_without_the_ticket_is_refused() {
             .unwrap_err();
     assert_eq!(refused.code, "grant.bad_request");
 }
+
+/// End to end over the person-line calls the Mac Screen host makes for a ticket its consent refused
+/// (`_acpmux/viewer_grant_challenge`, then `_admit` with the viewer's `grant-proof` frame fields): a
+/// forged grant (another key, with or without a registration) and a copied one (a genuine proof
+/// replayed, moved to another session or presented on another viewer's ticket) are never admitted,
+/// and none of them changes the book. The genuine viewer is admitted after each refusal.
+#[test]
+fn the_host_refuses_a_forged_or_copied_grant_end_to_end() {
+    let home = tempfile::tempdir().unwrap();
+    let genuine = Key::new();
+    let forger = Key::new();
+    let c = challenge_for(home.path(), "e2e-1");
+    let frame =
+        json!({"proof": genuine.proof("e2e-1", &c), "registration": genuine.registration()});
+    assert_eq!(
+        admit(home.path(), Some(ACCOUNT), &with(ticket("e2e-1"), frame.clone())).unwrap()["admitted"],
+        true
+    );
+    let book = load(home.path(), Some(ACCOUNT));
+    let refused = |params: Value| admit(home.path(), Some(ACCOUNT), &params).unwrap_err().code;
+
+    // Forged: another key signs; with its own registration it cannot replace the registered key.
+    let c = challenge_for(home.path(), "e2e-2");
+    assert_eq!(
+        refused(with(ticket("e2e-2"), json!({"proof": forger.proof("e2e-2", &c)}))),
+        "grant.bad_signature"
+    );
+    let c = challenge_for(home.path(), "e2e-2");
+    let forged =
+        json!({"proof": forger.proof("e2e-2", &c), "registration": genuine.registration()});
+    assert_eq!(refused(with(ticket("e2e-2"), forged)), "grant.bad_signature");
+
+    // Copied: the s1 frame again (its challenge is spent), in another session, on another viewer.
+    assert_eq!(refused(with(ticket("e2e-1"), frame.clone())), "grant.bad_challenge");
+    challenge_for(home.path(), "e2e-3");
+    assert_eq!(refused(with(ticket("e2e-3"), frame.clone())), "grant.wrong_session");
+    let other = json!({"host": HOST, "session": "e2e-1", "viewer": "9e1d0c4b-1111-4a2b-8c3d-000000000000", "scope": "view"});
+    assert_eq!(refused(with(other, frame)), "grant.wrong_viewer");
+    assert_eq!(load(home.path(), Some(ACCOUNT)).grants, book.grants);
+
+    let c = challenge_for(home.path(), "e2e-4");
+    let later = admit(
+        home.path(),
+        Some(ACCOUNT),
+        &with(ticket("e2e-4"), json!({"proof": genuine.proof("e2e-4", &c)})),
+    )
+    .unwrap();
+    assert_eq!(later["admitted"], true);
+}

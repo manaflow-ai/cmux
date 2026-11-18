@@ -33,6 +33,8 @@ public final class MacScreenHubViewer {
     }
     /// DEV builds (Relay Only): the stream uses only TURN relays.
     @ObservationIgnored var relayOnly = false
+    /// CMUX-572: this Mac's Touch ID grant keys, which answer a host's `grant-challenge`. Nil: none answers.
+    @ObservationIgnored var grantKeys: ViewerGrantKeys?
     /// The signaling the next `MacScreenSession.connect()` takes (once).
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
@@ -49,6 +51,13 @@ public final class MacScreenHubViewer {
     static func ticketSignaling(_ ticket: SessionTicket, hub: DeviceHub) throws -> any ScreenSignaling {
         try TicketSignaling(ticket: ticket.ticket, signalURL: ticket.signalURL, signer: hub.identity,
                             iceServers: hub.iceServers(for: ticket).map(\.config), expectedPeerKey: ticket.peer.signingKey)
+    }
+
+    /// The signaling that answers the host's grant challenge with ``grantKeys`` (a host asks only when its
+    /// consent refused this Mac); unchanged without keys or a signaling that carries grant frames.
+    func answeringGrants(_ signaling: any ScreenSignaling, ticket: SessionTicket, viewer: String) -> any ScreenSignaling {
+        guard let grantKeys, let channel = signaling as? any MacScreenGrantChannel else { return signaling }
+        return MacScreenGrantAnsweringSignaling(inner: channel, ticket: ticket, answer: grantKeys.answer(viewer: viewer, reason: L.grantReason))
     }
 
     /// The signaling for `MacScreenSession.connect()`: once per ticket.
@@ -245,7 +254,7 @@ public final class MacScreenHubViewer {
         approvalExpiry.cancel()
         guard let hub = hub() else { return }
         do {
-            pendingSignaling = try makeSignaling(ticket, hub)
+            pendingSignaling = answeringGrants(try makeSignaling(ticket, hub), ticket: ticket, viewer: hub.identity.id)
         } catch {
             end(ticket.sessionId, reason: MacScreenHubReason.failed.rawValue, on: hub)
             phase = .refused(.other, requested: ticket.scope)

@@ -81,6 +81,7 @@ final class JoinConsentPersonLine: JoinConsentLine {
             .flatMap(JoinConsentRecord.parse)
     }
 
+    func viewerGrant(_ method: String, _ params: [String: Any]) async -> [String: Any]? { await line.call(method, params) }
     func close() { line.close() }
 }
 

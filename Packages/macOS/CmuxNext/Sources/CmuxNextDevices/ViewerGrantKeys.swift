@@ -94,6 +94,11 @@ public struct ViewerGrantKeys: Sendable {
         }.value
     }
 
+    /// Whether this Mac holds a key for `host` and `scope` (read without UI; asks nothing).
+    public func hasKey(host: String, scope: ViewerGrantScope) -> Bool {
+        ((try? keychain.read(Self.account(host: host, scope: scope))) ?? nil) != nil
+    }
+
     /// Forgets the key for `host` and `scope` (the host's copy of the public half is revoked there).
     public func delete(host: String, scope: ViewerGrantScope) {
         _ = keychain.deleteStatus(Self.account(host: host, scope: scope))

@@ -127,6 +127,12 @@ public protocol JoinConsentLine: AnyObject {
     /// nothing and answers nil. A revoke has none.
     func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord?
     func close()
+    /// CMUX-572: one `_acpmux/viewer_grant_*` call (acpmux checks a viewer's Touch ID grant); nil when it failed.
+    func viewerGrant(_ method: String, _ params: [String: Any]) async -> [String: Any]?
+}
+
+public extension JoinConsentLine {
+    func viewerGrant(_ method: String, _ params: [String: Any]) async -> [String: Any]? { nil }
 }
 
 /// SECURITY: what makes a grant stale where its bytes go out (round 15 P1). A grant takes a ticket when it
@@ -518,6 +524,16 @@ public final class JoinConsentModel {
             refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
         }
         return false
+    }
+
+    /// CMUX-572: one `_acpmux/viewer_grant_*` call over a person line of its own, for a Mac Screen ticket
+    /// this Mac's consent refused: acpmux issues the challenge and verifies the viewer's Touch ID proof.
+    /// Only with the Labs switch on and acpmux taking the person's line; a capture fixture answers nothing.
+    public func viewerGrant(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+        guard services.enabled(), !fixtureActive(), let line = await services.openLine() else { return nil }
+        defer { line.close() }
+        guard line.isPerson, let answer = await line.viewerGrant(method, params), !fixtureActive() else { return nil }
+        return answer
     }
 
     /// acpmux refused a team machine's request with `consent_required`: the first one on this Mac

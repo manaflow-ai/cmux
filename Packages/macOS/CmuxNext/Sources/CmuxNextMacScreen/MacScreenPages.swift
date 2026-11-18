@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDevices
 public import CmuxNextWakeups
 import CmuxScreenKit
@@ -421,9 +421,24 @@ public final class MacScreenPages {
 
     /// A device hub device's screen. A tab a person opened with a scope asks
     /// the hub when shown; any other waits at the Connect card.
+    /// CMUX-572: this Mac's Touch ID grant keys for the Macs it views (``MacScreenHubViewer/grantKeys``).
+    var viewerGrantKeys: ViewerGrantKeys?
+
+    /// This Mac's consent for the sessions it serves (``MacScreenHubHost/consentGate``), and the viewer
+    /// grant over acpmux's person line (`call`, one `_acpmux/viewer_grant_*` call) for a ticket it refuses
+    /// and for the Macs this one views.
+    public func useConsent(gate: @escaping @MainActor (SessionTicket) async -> Bool,
+                           grant call: @escaping @MainActor @Sendable (String, [String: Any]) async -> [String: Any]?,
+                           bundleIdentifier: String?, loginKeychain: LoginKeychain) {
+        hubHost.consentGate = gate
+        hubHost.viewerGrant = MacScreenViewerGrantGate(host: { [weak self] in self?.hub?.identity.id }, call: call)
+        viewerGrantKeys = ViewerGrantKeys(bundleIdentifier: bundleIdentifier ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain)
+    }
+
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
+        viewer.grantKeys = viewerGrantKeys
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
         #if DEBUG
