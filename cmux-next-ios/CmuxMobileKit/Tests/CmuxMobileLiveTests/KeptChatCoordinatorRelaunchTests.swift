@@ -22,8 +22,8 @@ private struct NeverAnsweringDialer: MacLinkDialer {
 /// with a fresh cache (nothing in memory) and no link to the Mac. The relaunched tab's
 /// `makeSource` (the one the chat screen's store is built from) opens the chat on its kept
 /// session's acpmux source directly, not a `PendingAgentSource`. That source restores the head's
-/// turns in its init, the real chat screen draws them in its first frame, and when the Mac's
-/// chats come the attach reads after the head's newest seq.
+/// turns in its init, the real chat screen shows them with no link, and when the Mac's chats
+/// come the attach reads after the head's newest seq.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2))) struct KeptChatCoordinatorRelaunchTests {
     typealias Kept = AgentKeptTranscriptTests
@@ -115,11 +115,14 @@ private struct NeverAnsweringDialer: MacLinkDialer {
             if let png = image.pngData() { Attachment.record(png, named: "relaunch-chat-\(name).png") }
             return chat.isLoadingHistory && !chat.hasTurns || chat.awaitsFirstPrompt
         }
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async { continuation.resume() }
-        }
-        let firstSpinner = shot("1-first-frame")
-        #expect(!firstSpinner, "the first frame draws the kept turns, not \"Loading chat…\"")
+        // The store applies the source's restored batch on its own task; a suite running beside this
+        // one on the main actor can delay that task past the first frame, so the first frame itself
+        // is `KeptChatFirstFrameReadBackTests`'s (run on its own). Here: still no link, the screen
+        // shows the head's turns, not "Loading chat…".
+        await Long.waitUntil { chat.hasTurns }
+        let keptSpinner = shot("1-kept-turns-no-link")
+        #expect(!keptSpinner, "the kept turns, not \"Loading chat…\"")
+        #expect(chat.isLoadingHistory, "still no link: the chat has not caught up")
         #expect(chat.turns.last?.id == "t119")
         let headTurns = chat.turns.count
         #expect(headTurns > 0 && headTurns < Kept.keptTurns, "the head's newest turns, not the whole copy")
