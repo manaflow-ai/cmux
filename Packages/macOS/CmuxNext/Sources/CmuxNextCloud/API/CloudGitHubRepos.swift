@@ -225,16 +225,61 @@ public struct CloudGitHubPicker {
         return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }), team)
     }
 
-    /// `github.status`'s `state` and `repos_scope`: `ready`, `not_connected`, or `unavailable` (signed
-    /// out, no App in this deployment, a team policy that disallows GitHub, or no answer).
-    public func status() async -> (state: String, reposScope: String?) {
-        guard let owner = await owner() else { return ("unavailable", nil) }
+    /// `github.status`: ready, not connected, or unavailable and why.
+    public func status() async -> Status {
+        // A saved sign-in still being restored is not signed out: no sign-in to start for it.
+        guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
+        guard let owner = await owner() else { return .unavailable(.unreachable) }
         let (app, scope) = await owner.client.gitHubAppStatus(team: owner.team)
-        switch app {
-        case .ready: return ("ready", scope)
-        case .notConnected: return ("not_connected", nil)
-        case .notConfigured, .unknown: return ("unavailable", nil)
+        return Status(app, reposScope: scope)
+    }
+
+    /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`.
+    public enum Status: Equatable, Sendable {
+        case ready(reposScope: String?)
+        case notConnected
+        case unavailable(Unavailable)
+
+        /// The status route's answer for a signed-in person.
+        public init(_ app: CloudGitHubApp, reposScope: String?) {
+            switch app {
+            case .ready: self = .ready(reposScope: reposScope)
+            case .notConnected: self = .notConnected
+            case .notConfigured: self = .unavailable(.notConfigured)
+            case .unknown: self = .unavailable(.unreachable)
+            }
         }
+
+        /// `ready`, `not_connected` or `unavailable`.
+        public var state: String {
+            switch self {
+            case .ready: "ready"
+            case .notConnected: "not_connected"
+            case .unavailable: "unavailable"
+            }
+        }
+
+        /// `all` or `selected` when ready; nil otherwise.
+        public var reposScope: String? {
+            if case .ready(let scope) = self { return scope }
+            return nil
+        }
+
+        /// Why it is unavailable; nil otherwise.
+        public var reason: Unavailable? {
+            if case .unavailable(let reason) = self { return reason }
+            return nil
+        }
+    }
+
+    /// Why GitHub is unavailable here (`github.status`'s `reason`).
+    public enum Unavailable: String, Equatable, Sendable {
+        /// No cmux account is signed in.
+        case signedOut = "signed_out"
+        /// This deployment has no cmux GitHub App.
+        case notConfigured = "not_configured"
+        /// No answer, or a team policy that disallows GitHub.
+        case unreachable
     }
 
     /// `github.repos.list`.
@@ -250,7 +295,8 @@ public struct CloudGitHubPicker {
         switch CloudGitHubApp(status: status, body: body) {
         case .ready: CloudGitHubApp.configureURL(status: status, body: body).map(Connect.open) ?? .connected
         case .notConnected: nil
-        case .notConfigured, .unknown: .unavailable
+        case .notConfigured: .unavailable(.notConfigured)
+        case .unknown: .unavailable(.unreachable)
         }
     }
 
@@ -262,16 +308,20 @@ public struct CloudGitHubPicker {
         case connected
         /// A connection this picker can't resume is pending (Settings' Connect, another launch's): finish that one.
         case pending
-        /// Signed out, no App here, a team policy that disallows GitHub, or no answer.
-        case unavailable
+        /// Signed out, no App here, a team policy that disallows GitHub, or no answer from the status route.
+        case unavailable(Unavailable)
+        /// The team has no connection and `integration.connect` (or the pending check before it) gave no page.
+        case failed
     }
 
     /// `github.connect` for the team ``owner()`` names (Settings' Connect GitHub asks in the active team, which can be
     /// another one): a connected team's installation settings, where the person adds repositories (More repositories);
     /// a team with no connection, the App's installation page from `integration.connect` in that team.
     public func connect() async -> Connect {
+        // A saved sign-in still being restored is not signed out: no sign-in to start for it.
+        guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
-              let status = await owner.client.person(path) else { return .unavailable }
+              let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
         let client = owner.client
         // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
@@ -279,10 +329,10 @@ public struct CloudGitHubPicker {
             switch await client.gitHubConnectPending() {
             case false?: break
             case true?: return .pending
-            case nil: return .unavailable
+            case nil: return .failed
             }
         }
-        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0) }) else { return .unavailable }
+        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0) }) else { return .failed }
         return .open(page)
     }
 }

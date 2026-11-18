@@ -478,7 +478,7 @@ pub(crate) struct HttpSource {
     replaced: Mutex<Option<Zeroizing<String>>>,
     /// Sent as `x-cmux-team` when set (a machine of a shared team).
     team: Option<String>,
-    client: reqwest::Client,
+    clients: cmux_cloud_client::connect_retry::Clients,
 }
 
 impl HttpSource {
@@ -489,15 +489,16 @@ impl HttpSource {
         team: Option<String>,
     ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(FETCH_TIMEOUT)
-            // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`).
-            .connect_timeout(cmux_cloud_client::connect_retry::CONNECT_TIMEOUT)
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, replaced: Mutex::new(None), team, client })
+        // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
+        // try connects with no connect timeout.
+        let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(FETCH_TIMEOUT)
+                .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        })
+        .map_err(|_| "the HTTP client is unavailable".to_owned())?;
+        Ok(Self { api, credential, replaced: Mutex::new(None), team, clients })
     }
 
     /// Every later fetch uses `token`.
@@ -549,7 +550,8 @@ impl HttpSource {
     ) -> Result<(u16, Value), SourceError> {
         let credential = self.request_credential().await?;
         let mut request = self
-            .client
+            .clients
+            .fast
             .post(format!("{}{path}", self.api))
             .timeout(timeout)
             .bearer_auth(credential.as_str())
@@ -558,7 +560,7 @@ impl HttpSource {
             request = request.header(TEAM_HEADER, team);
         }
         // Sent again only when it did not connect: no byte of it reached the platform.
-        let response = cmux_cloud_client::connect_retry::send(request)
+        let response = cmux_cloud_client::connect_retry::send(&self.clients, request)
             .await
             .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();

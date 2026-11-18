@@ -104,11 +104,9 @@ contact details (`verify/chief-info.md`):
   Live verification against a real Mac app build is in the next section.
 - **B9, a first message to Chief could be lost:** New Message now calls
   `ChiefSession.send`.
-  - Before Chief connects, the message waits in `ChiefOutbox`, a file in
-    Application Support, so it survives a backend swap and a relaunch.
-  - Home's preview reads "Waiting to send: …". Opening Chief shows the reason
-    and offers Keep or Delete.
-  - The message goes out once Chief connects. From then on, the transcript
+  - The Chief outbox that held it on disk until Chief connected was removed
+    (2026-11-14): the message goes through the conversation store, which sends
+    it once that store connects. From then on, the transcript
     shows Delivered, or Not Delivered with retry.
 - **Chief status:** `LiveCoordinator` passes the real reason to
   `ChiefSession.status`. Home's preview and Settings show it.
