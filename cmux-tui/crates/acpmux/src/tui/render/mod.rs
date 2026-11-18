@@ -23,6 +23,8 @@ mod sidebar;
 mod status;
 mod transcript;
 mod transcript_rows;
+#[cfg(all(test, unix))]
+mod window_tests;
 pub(crate) use cache::TranscriptCache;
 pub use transcript_rows::transcript_rows;
 use transcript_rows::{transcript_rows_range, working_row};

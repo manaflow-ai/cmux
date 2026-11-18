@@ -21,6 +21,8 @@ pub(crate) struct TranscriptCache {
     /// tool loop do not need highlighting again when a new chunk arrives.
     markdown: std::collections::HashMap<usize, Vec<Row>>,
     pub rows: Vec<Row>,
+    /// Transcript items laid out (wrapped) so far, every frame together.
+    pub(crate) items_wrapped: usize,
 }
 
 impl TranscriptCache {
@@ -72,6 +74,7 @@ impl TranscriptCache {
             self.rows.truncate(self.prefix_rows);
         }
         if split > self.prefix_items {
+            self.items_wrapped += split - self.prefix_items;
             let rows = transcript_rows_range(
                 t,
                 width,
@@ -88,6 +91,7 @@ impl TranscriptCache {
             self.prefix_rows = self.rows.len();
         }
         self.markdown.retain(|&item, _| item >= split);
+        self.items_wrapped += t.items.len() - split;
         let rows = transcript_rows_range(
             t,
             width,
