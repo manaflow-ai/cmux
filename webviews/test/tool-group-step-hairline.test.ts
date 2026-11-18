@@ -53,14 +53,16 @@ await requireBrowserLane("tool-group-step-hairline.test.ts", async () => {
           await group.click();
           const box = page.locator(`${ROW} .cv-run-scroll`);
           await box.waitFor();
-          await page.waitForFunction(
-            (row) =>
-              document
-                .querySelector(`${row} [data-tool-group-items]`)
-                ?.parentElement?.getAnimations()
-                .every((each) => each.playState !== "running"),
-            ROW,
-          );
+          // The fold over: the opened body's `.cv-fold` (an ancestor of the items, not their parent)
+          // no longer clips, and nothing under it still animates.
+          await page.waitForFunction((row) => {
+            const fold = document.querySelector(`${row} [data-tool-group-items]`)?.closest(".cv-fold");
+            return (
+              !!fold &&
+              !fold.hasAttribute("data-fold-clip") &&
+              fold.getAnimations({ subtree: true }).every((each) => each.playState !== "running")
+            );
+          }, ROW);
           const corner = (await box.boundingBox())!;
           // Near the box's top-left: the floating jump-to-latest button can sit over its centre.
           await page.mouse.move(corner.x + 12, corner.y + 12);
