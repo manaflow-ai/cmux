@@ -176,6 +176,16 @@ pub(super) fn ended(conn: &Conn, ended: Result<(), tokio::task::JoinError>) {
     }
 }
 
+/// `_acpmux/lagged` for `dropped` hub events this connection's fan-out fell behind on. A watcher
+/// that asked for peer row batches is told its watch lost notices too (`watch: true`): it follows
+/// the list from its cursor for them, a batch's close among them (`peer_rows_changed`). Every
+/// other connection gets the note as before.
+fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
+    let watch =
+        conn.peer_row_batches.load(Ordering::SeqCst) && conn.watch_all.load(Ordering::SeqCst);
+    if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     /// A chat id with this prefix panics the fan-out task at its first delivery: no shared state,
@@ -187,14 +197,4 @@ pub(super) mod tests {
             panic!("fan-out test panic for {session}");
         }
     }
-}
-
-/// `_acpmux/lagged` for `dropped` hub events this connection's fan-out fell behind on. A watcher
-/// that asked for peer row batches is told its watch lost notices too (`watch: true`): it follows
-/// the list from its cursor for them, a batch's close among them (`peer_rows_changed`). Every
-/// other connection gets the note as before.
-fn lagged(conn: &Conn, dropped: u64) -> serde_json::Value {
-    let watch =
-        conn.peer_row_batches.load(Ordering::SeqCst) && conn.watch_all.load(Ordering::SeqCst);
-    if watch { json!({"dropped": dropped, "watch": true}) } else { json!({"dropped": dropped}) }
 }
