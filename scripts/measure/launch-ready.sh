@@ -55,8 +55,11 @@
 #                must reopen the old copy's last front. Only head is measured.
 #   daemon=cold  before each measured launch the side's kept daemons end, as a reboot ends them (state kept, daemon
 #                cold): the launch must still reopen the last front. Default daemon=warm
-#   snapshot=unknown  as daemon=cold, and the daemon's workspace registry (workspace-registry.sqlite3*) is removed from
-#                the home first: the launch snapshot names workspaces the daemon does not know, so Home
+#   snapshot=unknown  the launch snapshot's front workspace no longer exists in the daemon (same session, same registry
+#                id, so not foreign): the priming launch leaves a tab in front (front=tab, the default here); its launch
+#                snapshot file (cmuxNext.launchSnapshotPath.<session>) and defaults are kept; one more launch closes that
+#                workspace through the control socket (closeWorkspace, launch-ready-seed.py --close-workspace KEY);
+#                then, before each measured launch, the kept snapshot and defaults are put back. Expects Home
 # Per side: LR-SURFACE SIDE first=<home|tabs> home_page_drawn=N/M, the surface the launches showed first; an A/B whose
 # arms differ there prints LR-SURFACE-DIFF ...: not like for like.
 set -uo pipefail
@@ -99,6 +102,7 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   case_args_ok "$base" "$session" || exit 2
+  if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
   echo "LR case case=${LR_CASE:-none} daemon=$LR_DAEMON snapshot=$LR_SNAPSHOT front=${LR_FRONT:-as-left}"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
@@ -164,6 +168,7 @@ main() {
     if [[ "$LR_CASE" == update ]]; then old_copy "$out" "$side" || rc=1; fi
     if [[ -n "$LR_FRONT" ]]; then front_prime "$out" "$side" || rc=1; else probe "$out" "$side" prime 10 0 || rc=1; fi
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
+    if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
   done
   if [[ "$LR_CASE" == update ]]; then sides=(head); fi
   for ((i = 1; i <= runs; i++)); do
@@ -173,6 +178,7 @@ main() {
         old_copy "$out" "$side" && probe "$out" "$side" "old$i" 6 0 || rc=1
       fi
       if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
+      if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_restore "$out" "$side" || rc=1; fi
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
@@ -206,8 +212,8 @@ probe() {
   if [[ "$LR_STATE" == bare ]]; then rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"; fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
-  # daemon=cold and snapshot=unknown: a measured launch finds no daemon running (and, for unknown, no registry).
-  if [[ "$label" == run* && ( "${LR_DAEMON:-warm}" == cold || "${LR_SNAPSHOT:-own}" == unknown ) ]]; then
+  # daemon=cold: a measured launch finds no daemon running.
+  if [[ "$label" == run* && "${LR_DAEMON:-warm}" == cold ]]; then
     cold_daemon "$out" "$side" "$label" || return 1
   fi
   load="$(load_1m)"
@@ -345,12 +351,10 @@ front_prime() {
 }
 
 # cold_daemon OUT SIDE LABEL: daemon=cold: every process still running from SIDE's copy (the daemons a quit keeps)
-# ends, TERM then KILL after 10 s, as a reboot ends them. snapshot=unknown also removes the daemon's workspace
-# registry (workspace-registry.sqlite3 and its -wal, -shm) from SIDE's home, so the launch snapshot's workspaces are
-# ones the daemon does not know. Prints LR-COLD. Only this run's copy and home: paths reach awk through ENVIRON, as
-# in quiesce_left.
+# ends, TERM then KILL after 10 s, as a reboot ends them. Prints LR-COLD. Only this run's copy: the path reaches awk
+# through ENVIRON, as in quiesce_left.
 cold_daemon() {
-  local out="$1" side="$2" pids n=0 forgot=0 file files
+  local out="$1" side="$2" pids n=0
   pids="$(ps -axo pid=,command= | LR_DIR="$out/$side/" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
   if [[ -n "$pids" ]]; then
     n="$(echo "$pids" | wc -l | tr -d ' ')"
@@ -358,14 +362,53 @@ cold_daemon() {
     for _ in $(seq 100); do ps -p "$(echo $pids | tr ' ' ,)" >/dev/null || break; sleep 0.1; done
     kill -9 $pids 2>/dev/null
   fi
-  if [[ "${LR_SNAPSHOT:-own}" == unknown ]]; then
-    files="$(find "$out/home-$side/h" -type f \( -name workspace-registry.sqlite3 -o -name 'workspace-registry.sqlite3-*' \) 2>/dev/null)"
-    while IFS= read -r file; do
-      [[ -n "$file" ]] && rm -f "$file" && forgot=$((forgot + 1))
-    done <<<"$files"
-  fi
-  echo "LR-COLD $side $3 stopped=$n registry_files_removed=$forgot"
-  [[ "${LR_SNAPSHOT:-own}" != unknown || "$forgot" -gt 0 ]] || { echo "LR-FAIL $side $3 snapshot=unknown found no registry to remove"; return 1; }
+  echo "LR-COLD $side $3 stopped=$n"
+}
+
+# unknown_seed OUT SIDE: snapshot=unknown's state. The priming launch left a tab in front of workspace KEY (its row's
+# front). Its launch snapshot file (the defaults' cmuxNext.launchSnapshotPath.<session>) and SIDE's defaults plist are
+# kept beside the home; one more launch (label forget) closes KEY through the control socket and stays up until the
+# probe quits it; then unknown_restore puts the kept files back: the snapshot names KEY, with the same session and
+# registry id, and the daemon no longer has it. As the console user: the app saves the snapshot owner-only.
+unknown_seed() {
+  local out="$1" side="$2" key snap launch status probed
+  key="$(python3 -I -c 'import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+print(next(((r.get("front") or {}).get("workspace") or "" for r in reversed(rows) if r["side"] == sys.argv[2] and r["label"] == "prime"), ""))' \
+    "$out/runs.jsonl" "$side")"
+  snap="$(launch_snapshot_path "$out/home-$side/defaults.plist")"
+  [[ -n "$key" && -n "$snap" ]] || { echo "LR-FAIL $side snapshot=unknown: no front workspace ($key) or launch snapshot ($snap)"; return 1; }
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/cp -p "$snap" "$out/home-$side/unknown-snapshot.keep" || return 1
+  cp -p "$out/home-$side/defaults.plist" "$out/home-$side/unknown-defaults.keep" || return 1
+  printf '%s\n' "$snap" >"$out/home-$side/unknown-snapshot.path"
+  rm -f "$LR_SOCKETS/$side.sock"
+  probe "$out" "$side" forget 20 0 >"$out/forget-$side.probe" &
+  launch=$!
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
+    --close-workspace "$key" --stay 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-UNKNOWN $side /"
+  status=${PIPESTATUS[0]}
+  wait "$launch"; probed=$?
+  cat "$out/forget-$side.probe"
+  unknown_restore "$out" "$side" && [[ "$status" == 0 && "$probed" == 0 ]]
+}
+
+# unknown_restore OUT SIDE: puts unknown_seed's kept launch snapshot and defaults back, before each measured launch.
+unknown_restore() {
+  local out="$1" side="$2" snap
+  snap="$(cat "$out/home-$side/unknown-snapshot.path" 2>/dev/null)"
+  [[ -n "$snap" ]] || { echo "LR-FAIL $side snapshot=unknown has no kept snapshot"; return 1; }
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/cp -p "$out/home-$side/unknown-snapshot.keep" "$snap" \
+    && cp -p "$out/home-$side/unknown-defaults.keep" "$out/home-$side/defaults.plist"
+}
+
+# launch_snapshot_path PLIST: the value of the defaults plist's cmuxNext.launchSnapshotPath.<session> key, or nothing.
+launch_snapshot_path() {
+  python3 -I -c 'import plistlib, sys
+try:
+    data = plistlib.load(open(sys.argv[1], "rb"))
+except (OSError, ValueError):
+    data = {}
+print(next((v for k, v in data.items() if k.startswith("cmuxNext.launchSnapshotPath.") and isinstance(v, str)), ""))' "$1"
 }
 
 # case_args_ok BASE SESSION: the restore case arguments (LR_STATE, LR_CASE, LR_DAEMON, LR_SNAPSHOT, LR_FRONT) combine.
@@ -375,6 +418,8 @@ case_args_ok() {
   fi
   [[ "$LR_CASE" != update || -n "$1" ]] || { echo "case=update needs base= (the old copy), with dmg=build" >&2; return 1; }
   [[ -z "$LR_FRONT" || "$2" == small ]] || { echo "front= seeds the priming launch's front: it takes no session=$2" >&2; return 1; }
+  [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
+    || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
   return 0
 }
 
