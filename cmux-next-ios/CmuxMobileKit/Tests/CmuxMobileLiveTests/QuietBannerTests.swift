@@ -86,6 +86,22 @@ import Testing
         #expect(live.banner == nil, "no \"Connected\" for a banner that never showed")
     }
 
+    /// A link whose wait ran out while the app was away gets a fresh wait on foreground: coming
+    /// back shows the cached screen, not "Can't connect" or a banner (`restartQuiet`).
+    @Test func foregroundStartsTheWaitAgain() async throws {
+        let store = rig.emptyStore()
+        let live = await connected(store, PerMacDialer())
+        defer { live.stop() }
+        live.bannerQuietFor = .milliseconds(200)
+        _ = try drop(live)
+        await rig.settle { store.macConnection["m1"] == .failed("Offline") }
+        #expect(live.banner != nil, "past the bound the outage speaks")
+        live.bannerQuietFor = .seconds(60)
+        live.foreground()
+        #expect(live.banner == nil, "foreground starts the wait again, got \(String(describing: live.banner))")
+        #expect(store.macConnection["m1"] != .failed("Offline"), "no Can't connect on return, got \(String(describing: store.macConnection["m1"]))")
+    }
+
     @Test func aLostNetworkSaysOfflineOnlyAfterTheBound() async throws {
         let store = rig.emptyStore()
         let live = await connected(store, PerMacDialer())
