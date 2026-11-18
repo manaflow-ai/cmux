@@ -33,7 +33,7 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
   const BAR = 1.2;
   /// The phases held to the bar on this branch; every phase is printed. Stream is held by
   /// lane/transcript-view-o-window-b, an older page (prepend) by lane/transcript-view-o-window-c.
-  const HELD: readonly Phase[] = ["step"];
+  const HELD: readonly Phase[] = ["step", "stream"];
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   beforeAll(async () => {
