@@ -28,6 +28,8 @@ public struct PagedListLabRoot: View {
     let clean: Bool
     /// `agentchats:SCENARIO`: the Chats list itself (``AgentChatsGallery``) instead of the lab's rows.
     let agentChats: String?
+    /// `cloudchats:SCENARIO`: a Cloud machine's chats (``CloudChatsGallery``).
+    let cloudChats: String?
     @State private var model: PagedListModel<PagedLabItem>
     @State private var hud = PagedLabHUD()
     @State private var probe = PagedListProbe()
@@ -40,6 +42,7 @@ public struct PagedListLabRoot: View {
         }
         let parts = (value("-cmux-mobile-paged-lab") ?? "down:normal").split(separator: ":").map(String.init)
         agentChats = parts.first == "agentchats" ? (parts.count > 1 ? parts[1] : "pages") : nil
+        cloudChats = parts.first == "cloudchats" ? (parts.count > 1 ? parts[1] : "fast") : nil
         let direction = PagedListDirection(rawValue: parts.first ?? "down") ?? .down
         let scenario = PagedLabScenario(rawValue: parts.count > 1 ? parts[1] : "normal") ?? .normal
         self.direction = direction
@@ -54,6 +57,8 @@ public struct PagedListLabRoot: View {
     public var body: some View {
         if let agentChats {
             AgentChatsGallery(scenario: agentChats).preferredColorScheme(scheme)
+        } else if let cloudChats {
+            CloudChatsGallery(scenario: cloudChats, scheme: scheme, clean: clean)
         } else {
             lab
         }

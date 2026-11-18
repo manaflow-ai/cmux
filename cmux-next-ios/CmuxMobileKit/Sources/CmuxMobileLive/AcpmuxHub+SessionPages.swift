@@ -118,6 +118,7 @@ extension AcpmuxHub {
     private func restStopped(on connection: AcpmuxConnection, listed: Set<String>, firstPage: Set<String>, after pages: Int, timeout: Duration) async {
         guard !Task.isCancelled, !(await connection.isClosed), self.connection === connection else { return }
         log.error("acpmux list rest stopped after \(pages, privacy: .public) pages")
+        listRestStopped = true
         sessions = sessions.filter { listed.contains($0.key) || toldSinceWatch.contains($0.key) }
         onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
         await seedPending(connection, requestTimeout: timeout, among: listed.subtracting(firstPage))

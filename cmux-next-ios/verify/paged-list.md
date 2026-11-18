@@ -33,11 +33,19 @@ is `-cmux-mobile-paged-lab DIRECTION:SCENARIO` (`CmuxMobileShell/PagedListLabRoo
 
 ## Screens
 
-| Screen | Direction | State |
-|---|---|---|
-| Agent Chats (`AgentChatsScreen`) | down | **On PagedList.** Older chats load as you scroll; the Show Older Chats button is gone. The edge shows a failure with Try Again instead of an alert |
-| Agent chat transcript / Chief (`ChatTranscriptList`) | up | **Shares the paging measure** (`pagedScreensToEdge(.up)`). It keeps its own layout for off-main native rows, with the same anchor rules. Next: make `PagedListController`'s layout pluggable and move the transcript's controller onto it |
-| Cloud machine chats (`CloudChatsScreen`) | down | Next: replace "Show Older Chats" (`CloudChatList.pageSize`) with PagedList |
-| Feed (`FeedCollection`, `UITableView`) | down | Next: it reads all events today. Page it from the Mac's `hasMore` (`LiveFeed+FullReply`), keeping its table and swipe code until a PagedList port shows equal frame numbers on the FeedStress bench |
-| Workspaces list | down | Not paged (it lists all workspaces). Move it to PagedList when the Mac pages it |
-| Terminal scrollback | up | Not a list (the Mac holds the scrollback window) |
+Survey of every list in `cmux-next-ios/` that pages, could page, or grows live (2026-11-17), in
+migration order: where PagedList clearly applies and the change is small comes first.
+
+| # | Screen | Direction | State |
+|---|---|---|---|
+| 1 | Agent Chats (`AgentChatsScreen`) | down | **On PagedList.** Older chats load as you scroll; the Show Older Chats button is gone. The edge shows a failure with Try Again instead of an alert |
+| 2 | Cloud machine chats (`CloudMachineChatsList` in `CloudChatsScreen`) | down | **On PagedList.** A page of 100 more of the chats the hub holds shows as you scroll (`CloudChatList.pageSize`); Show Older Chats is gone. While the hub still reads older chats (CMUX-563 pages) the end spins; if that read stopped (`AcpmuxHub.listRestStopped`) the end offers Try Again, which reconnects. Gallery `-cmux-mobile-paged-lab cloudchats:SCENARIO`, tests `UITests/CloudChatsPagedListUITests.swift` |
+| 3 | Chief Home conversations (`ConversationsHome` / `MacHomeList`) | down | Next candidate. A SwiftUI `List` of every conversation, re-sorted live as messages land. Not paged by the Mac today; PagedList would keep the reader in place when a conversation moves to the top. Needs its swipe buttons and menus (`HomeRowSwipeButtons`, `HomeRowMenu`) ported to `PagedListAction`s and context menus |
+| 4 | Feed (`FeedCollection`, `UITableView`) | down | Already pages older events back from its disk spill (`FeedStore.loadOlder`, 30 rows before the end) and keeps its own off-main row layouts. Keep its table and swipe code until a PagedList port shows equal frame numbers on the FeedStress bench; then page it from the Mac's `hasMore` (`LiveFeed+FullReply`) |
+| 5 | Workspaces list (`WorkspacesCollection`) | down | Not paged (it lists all workspaces, already a `UICollectionView` list with a height cache). Move it to PagedList when the Mac pages it |
+| 6 | Agent chat transcript / Chief (`ChatTranscriptList`) | up | Not migrated: it lays rows out off the main thread (`ChatTranscriptLayout`, markdown while streaming). **Shares the paging measure** (`pagedScreensToEdge(.up)`) and the same anchor rules. Next: make `PagedListController`'s layout pluggable and move the transcript's controller onto it |
+| — | Artifacts (`ArtifactsBrowser`, terminal `ArtifactsSheet`) | — | Not paged: a session's artifacts, bounded and filtered on the phone |
+| — | Cloud machines, Cloud automations, the Cloud chats machine picker (`CloudMachinesScreen`, `CloudAutomationsScreen`, `CloudChatsScreen`) | — | Not paged: a team's machines and automations, tens of rows, no growth while open |
+| — | Diff (`DiffCodeList`) | — | Not a paged list: one file's lines, with its own virtualized layout |
+| — | Settings pages, sheets and pickers | — | Static lists |
+| — | Terminal scrollback | up | Not a list (the Mac holds the scrollback window) |

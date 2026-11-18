@@ -6,6 +6,8 @@ import CmuxMobileNotifications
 import CmuxSpinner
 import SwiftUI
 
+private let theme = CmuxMobileTheme.standard
+
 /// Native navigation over the paired Mac's Cloud directory. Chat rendering and
 /// interaction remain the existing AgentChatScreen and AcpmuxSessionSource.
 struct CloudChatsScreen: View {
@@ -216,7 +218,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var starting = false
     @State private var startFailed = false
     @State private var startError = ""
-    /// How many of the machine's chats the list draws, newest first (Show Older Chats adds a page).
+    /// How many of the machine's chats the list draws, newest first (a page more as the reader nears
+    /// the end). Kept over a reconnect, so Try Again at the end comes back to the same rows.
     @State private var shown = CloudChatList.pageSize
 
     var body: some View {
@@ -230,30 +233,10 @@ private struct CloudMachineChatsScreen: View {
                                            description: Text("This chat is no longer listed on this Cloud machine."))
                 } else {
                     let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
-                    List {
-                        ForEach(listed.rows, id: \.id) { chat in
-                            Button { selectedSession = chat.id } label: {
-                                VStack(alignment: .leading) {
-                                    Text(chat.name.isEmpty ? chat.harness : chat.name)
-                                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
-                                        Text(prompt).lineLimit(2).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        if listed.hasOlder {
-                            Section {
-                                Button("Show Older Chats") { shown += CloudChatList.pageSize }
-                                    .accessibilityIdentifier("cloudChats.more")
-                            }
-                        }
-                    }
-                    .overlay {
-                        if relay.hub.sessions.isEmpty {
-                            ContentUnavailableView("No chats", systemImage: "bubble.left",
-                                                   description: Text("Tap New Chat to start one on this Cloud machine."))
-                        }
-                    }
+                    CloudMachineChatsList(rows: listed.rows.map(CloudChatsListItem.init), hasOlder: listed.hasOlder,
+                                          listWhole: relay.hub.listWhole,
+                                          restStopped: relay.hub.listRestStopped, shown: $shown,
+                                          select: { selectedSession = $0 }, reconnect: { refresh += 1 })
                 }
             } else if let cause = failure {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
@@ -261,6 +244,7 @@ private struct CloudMachineChatsScreen: View {
                 CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
             }
         }
+        .background(theme.colors.bg.color.ignoresSafeArea())
         .navigationTitle(machine.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -334,6 +318,103 @@ private struct CloudMachineChatsScreen: View {
                 startFailed = true
             }
         }
+    }
+}
+
+/// A Cloud machine's chats on the shared infinite-scroll list (``PagedList``, verify/paged-list.md),
+/// newest first: a page more of the chats the hub holds shows as the reader nears the end (no Show
+/// Older Chats button), and rows that land or move never shift the row being read. While the hub
+/// still reads the machine's older chats the end spins; if that read stopped short, the end offers
+/// Try Again (a reconnect). Apart from the screen, so its DEBUG gallery (``CloudChatsGallery``) draws
+/// the same view on fixed chats.
+struct CloudMachineChatsList: View {
+    let rows: [CloudChatsListItem]
+    let edge: PagedListEdge
+    let more: @MainActor () -> Void
+    let select: @MainActor (String) -> Void
+    let reconnect: @MainActor () -> Void
+    var probe: PagedListProbe?
+
+    /// `rows`: the chats shown (`shown` of them, newest first); `hasOlder`: the hub holds more.
+    init(rows: [CloudChatsListItem], hasOlder: Bool, listWhole: Bool, restStopped: Bool, shown: Binding<Int>,
+         select: @escaping @MainActor (String) -> Void, reconnect: @escaping @MainActor () -> Void,
+         probe: PagedListProbe? = nil) {
+        self.rows = rows
+        edge = Self.edge(hasOlder: hasOlder, listWhole: listWhole, restStopped: restStopped)
+        // One page per drawn list: the list asks on every scroll step near the end.
+        let next = shown.wrappedValue + CloudChatList.pageSize
+        more = hasOlder ? { if shown.wrappedValue < next { shown.wrappedValue = next } } : {}
+        self.select = select
+        self.reconnect = reconnect
+        self.probe = probe
+    }
+
+    /// More chats held than shown: `.more`. All shown: the end once the hub read the whole list,
+    /// Try Again if its read stopped short, else a spinner while it reads.
+    static func edge(hasOlder: Bool, listWhole: Bool, restStopped: Bool) -> PagedListEdge {
+        if hasOlder { return .more }
+        if listWhole { return .end }
+        return restStopped ? .failed(String(localized: "Couldn't load older chats.")) : .loading
+    }
+
+    var body: some View {
+        PagedList(direction: .down, items: rows, phase: .loaded, edge: edge,
+                  loadMore: more, retry: { [reconnect] in reconnect() }) { item in
+            Button { select(item.id) } label: {
+                CloudChatRow(item: item)
+            }
+            .buttonStyle(.cmuxPressFill)
+            .accessibilityIdentifier("cloudChats.row.\(item.id)")
+        } empty: {
+            ContentUnavailableView("No chats", systemImage: "bubble.left",
+                                   description: Text("Tap New Chat to start one on this Cloud machine."))
+        }
+        .pagedIdentifier("cloudChats.list")
+        .pagedProbe(probe)
+    }
+}
+
+/// One Cloud chat as its row draws it (the row's height is cached per value).
+struct CloudChatsListItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let prompt: String?
+
+    init(id: String, title: String, prompt: String?) {
+        self.id = id
+        self.title = title
+        self.prompt = prompt
+    }
+
+    init(_ session: AcpmuxSession) {
+        self.init(id: session.id, title: session.name.isEmpty ? session.harness : session.name,
+                  prompt: session.lastPrompt.flatMap { $0.isEmpty ? nil : $0 })
+    }
+}
+
+struct CloudChatRow: View {
+    let item: CloudChatsListItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .font(theme.type.rowTitle)
+                .foregroundStyle(theme.colors.label.color)
+            if let prompt = item.prompt {
+                Text(prompt)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2.color)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .contentShape(.rect)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(uiColor: .separator)).frame(height: 1 / 3).padding(.leading, 16)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 #endif
