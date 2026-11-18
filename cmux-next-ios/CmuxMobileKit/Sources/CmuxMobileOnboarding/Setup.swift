@@ -33,8 +33,9 @@ public struct SetupFlow: View {
     /// Signs out to Welcome, to start over with another account.
     let signOut: () -> Void
     let finish: () -> Void
-    /// The first-agent page's task: setup ends and Chief opens with it.
-    let startChat: (String) -> Void
+    /// The first-agent page's task and the Mac the page named (nil: none online): setup ends
+    /// and Chief opens with it.
+    let startChat: (String, String?) -> Void
     @State private var path: [Step]
     /// `steps` as of the latest update. A page's `next` can run on a copy of
     /// this view from before the plan was fixed (the fleet's push probe: plan
@@ -50,7 +51,7 @@ public struct SetupFlow: View {
         personalPicked: @escaping () -> Void = {},
         teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
         initialStep: Step? = nil,
-        startChat: @escaping (String) -> Void = { _ in },
+        startChat: @escaping (String, String?) -> Void = { _, _ in },
         finish: @escaping () -> Void
     ) {
         self.steps = steps
@@ -166,10 +167,11 @@ public struct SetupFlow: View {
         case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
         case .firstChat:
-            FirstChatStep(onlineMac: store.activeTeam?.macs.first(where: \.isOnline)?.name,
+            let mac = store.activeTeam?.macs.first(where: \.isOnline)
+            FirstChatStep(onlineMac: mac?.name,
                           start: { prompt in
                               log.info("setup: first agent task chosen")
-                              startChat(prompt)
+                              startChat(prompt, mac?.id)
                           },
                           skip: {
                               log.info("setup: first agent skipped")
@@ -179,6 +181,9 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
+        // Only the page on top moves on: a second tap mid-push, or a demo command a page under
+        // the top one also hears, would push the next page twice.
+        guard (path.last ?? steps.first) == step || (step == .team && path.last == .createTeam) else { return }
         let steps = plan ?? self.steps
         let next = Self.step(after: step, in: steps)
         let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"

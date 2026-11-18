@@ -76,7 +76,7 @@ public struct FirstChatDestination: Equatable, Sendable {
     public var subtitle: String {
         switch kind {
         case .online(let mac): "Chief starts it on \(mac) and tells you when it needs you."
-        case .waiting: "Your Mac isn't online yet. Pick a task and it waits in Chief until your Mac connects."
+        case .waiting: "Your Mac isn't online yet. Pick a task; it waits in Chief's message field for you to send once your Mac connects."
         }
     }
 

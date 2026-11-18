@@ -843,34 +843,32 @@ final class ShellModel {
         }
     }
 
-    /// Setup's "Start your first agent": the task goes to the Chief of the Mac
-    /// this phone shows, and Home opens on that Chief. With no Mac shown yet, or
-    /// a send that cannot reach it, the task waits in Chief's composer instead
-    /// (nothing is lost, and the person sends it once the Mac is online).
-    func startFirstChat(_ text: String) {
+    /// Setup's "Start your first agent": Home opens on Chief at once, and the task goes to the
+    /// Chief of the Mac the page named (focused first, since Chief follows the focused Mac). With
+    /// no Mac online, or a send that cannot reach it, the task waits in Chief's message field
+    /// instead: nothing is lost, and the person sends it once the Mac is online.
+    func startFirstChat(_ text: String, macID: String?) {
         tab = .home
+        homePath = NavigationPath(chiefConversation: nil)
         guard let live else {
             // Mock data: the mock Chief answers.
             ChiefSources.shared.mac.sendKeepingDraft(text: text)
-            homePath = NavigationPath(chiefConversation: nil)
             return
         }
-        guard let mac = live.focusedMacID else {
-            ChiefSources.shared.mac.keepForNextScreen(text)
-            homePath = NavigationPath(chiefConversation: nil)
+        guard let macID else {
+            ChiefSources.shared.mac.keepUnsent(text: text)
             return
         }
-        // task-owner: one send to the focused Mac's Chief, then Home shows it (the draft keeps it otherwise)
+        if live.focusedMacID != macID { live.select(macID: macID) }
+        // task-owner: one send to the named Mac's Chief; the composer keeps the task otherwise
         sendingToChief = true
         Task { @MainActor [weak self] in
-            let sent = await live.sendToChief(text, on: mac)
+            let sent = await live.sendToChief(text, on: macID)
             guard let self else { return }
             self.sendingToChief = false
-            if !sent {
-                ChiefSources.shared.mac.keepForNextScreen(text)
-                self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief yet. Your task is in Chief's message field.")
-            }
-            self.homePath = NavigationPath(chiefConversation: nil)
+            guard !sent else { return }
+            ChiefSources.shared.mac.keepUnsent(text: text)
+            self.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't reach Chief yet. Your task is in Chief's message field.")
         }
     }
 

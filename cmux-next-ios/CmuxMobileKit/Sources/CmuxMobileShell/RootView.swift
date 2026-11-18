@@ -167,8 +167,9 @@ public struct RootView: View {
                             personalPicked: { live?.selectPersonal() },
                             teamCreated: teamCreated,
                             initialStep: setupInitialStep,
-                            startChat: { prompt in
+                            startChat: { prompt, mac in
                                 firstChat.prompt = prompt
+                                firstChat.macID = mac
                                 setupComplete = true
                                 setupFinished = true
                             }
@@ -378,7 +379,10 @@ public struct RootView: View {
         setupPlan = steps
         log.info("setup plan: \(String(describing: steps), privacy: .public)")
         // Nothing to set up (one team, a Mac online, notifications decided).
-        if steps.isEmpty, destination == .setup { setupComplete = true }
+        if steps.isEmpty, destination == .setup {
+            setupComplete = true
+            if !options.forceSetup { setupFinished = true }
+        }
     }
 
     private func syncTeams() {
@@ -438,7 +442,7 @@ public struct RootView: View {
         shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
         setupFinished = false
-        firstChat.prompt = nil
+        _ = firstChat.take()
         asksNotifications = nil
         if auth.isMock {
             // The next account starts on Home, not in this one's workspace.
@@ -581,11 +585,13 @@ public struct RootView: View {
 @MainActor
 final class FirstChatHandoff {
     var prompt: String?
+    /// The Mac the first-agent page named, nil when none was online.
+    var macID: String?
 
-    /// The task, once: a rebuilt shell never sends it twice.
-    func take() -> String? {
-        defer { prompt = nil }
-        return prompt
+    /// The task and its Mac, once: a rebuilt shell never sends it twice.
+    func take() -> (prompt: String, macID: String?)? {
+        defer { prompt = nil; macID = nil }
+        return prompt.map { ($0, macID) }
     }
 }
 
@@ -664,7 +670,7 @@ struct ShellView: View {
         )
         .ignoresSafeArea()
         // Setup's last page picked a task: Chief gets it and opens on Home.
-        .task { if let prompt = firstChat?.take() { shell.startFirstChat(prompt) } }
+        .task { if let task = firstChat?.take() { shell.startFirstChat(task.prompt, macID: task.macID) } }
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
         #endif
