@@ -63,4 +63,21 @@ struct CloudSectionNewWorkspaceTests {
         #expect(cloudAfter == cloudBefore, "the Cloud machine got a workspace: \(cloudAfter)")
         #expect(newTabs.isEmpty, "it ran Cmd-N's New Workspace instead")
     }
+    /// The issue's other half: a terminal in Cloud comes from Ctrl-` (New Terminal Tab) inside a Cloud workspace, which
+    /// makes its tab on the daemon owning the focused pane (`TabLifecycle.newTerminal`, `AppServices.daemon(for:)`) under
+    /// that workspace's key: the Cloud machine's, never this Mac's.
+    @Test func ctrlBacktickInACloudWorkspaceTargetsTheCloudMachine() throws {
+        let services = UnopenedCloudMachinesTests.services()
+        let cloud = CloudTestLink.session(id: "vm-cloud-terminal", status: .running, name: "vm-cloud-terminal", mainWork: services.mainWork)
+        services.machines.add(cloud)
+        let pane = PaneSnapshot(id: PaneID(rawValue: 7), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7), title: "chat")])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
+        cloud.daemon.store.apply(snapshot: DaemonTree(registryID: "s-vm-cloud-terminal", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-cloud-terminal"), name: "Cloud chat", screens: [screen]),
+        ]))
+        let model = try #require(cloud.daemon.store.workspaces.first?.screens.first?.panes.first)
+
+        #expect(services.daemon(for: model) === cloud.daemon, "a new terminal there would open on \(services.daemon(for: model).machineID)")
+        #expect(services.workspaceKey(of: model)?.rawValue == "ws-cloud-terminal")
+    }
 }
