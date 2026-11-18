@@ -20,7 +20,7 @@ struct CmuxMobileApp: App {
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
         ClassicLeftovers.cleanUpIfDue()
-        // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
+        // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
