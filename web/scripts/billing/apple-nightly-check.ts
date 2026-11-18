@@ -11,7 +11,9 @@
 //
 // Env: APPLE_IAP_KEY_ID, APPLE_IAP_ISSUER_ID, APPLE_IAP_PRIVATE_KEY (the
 // In-App Purchase key the server uses); delivery also reads
-// APPLE_NOTIFICATIONS_HEALTH_TOKEN. Secrets are sent only to Apple and to the
+// APPLE_NOTIFICATIONS_HEALTH_TOKEN, and APPLE_IAP_PRODUCTION_RELEASED (`1`
+// once the app has its first App Store release; until then a Production 401
+// with a working Sandbox is a neutral note, not a failure). Secrets are sent only to Apple and to the
 // health URL, never printed. Writes a Markdown summary to GITHUB_STEP_SUMMARY
 // when set. Exit 0 pass, 1 check failed, 2 usage or missing configuration.
 
@@ -24,6 +26,7 @@ import {
   appleClientForNightly,
   checkAppleDelivery,
   checkServerApi,
+  sandboxAcceptsKey,
   type DeliveryReport,
   type ServerApiReport,
 } from "../../services/billing/apple/nightlyCheck";
@@ -54,13 +57,14 @@ if (!bundleId) fail("--bundle-id is required");
 const credentials = appleServerApiCredentials(process.env);
 if (!credentials) fail("APPLE_IAP_KEY_ID, APPLE_IAP_ISSUER_ID and APPLE_IAP_PRIVATE_KEY are required");
 
-const client = appleClientForNightly(new AppStoreServerAPIClient(
+const apiClient = (target: "Production" | "Sandbox") => new AppStoreServerAPIClient(
   credentials.privateKey,
   credentials.keyId,
   credentials.issuerId,
   bundleId,
-  environment === "Production" ? Environment.PRODUCTION : Environment.SANDBOX,
-));
+  target === "Production" ? Environment.PRODUCTION : Environment.SANDBOX,
+);
+const client = appleClientForNightly(apiClient(environment));
 
 function summarize(lines: string[]) {
   const text = lines.join("\n") + "\n";
@@ -84,6 +88,10 @@ if (check === "delivery") {
     client,
     environment,
     timeoutMs: timeoutSeconds * 1000,
+    productionLock: {
+      sandboxAccepts: () => sandboxAcceptsKey(apiClient("Sandbox"), Date.now()),
+      released: process.env.APPLE_IAP_PRODUCTION_RELEASED?.trim() === "1",
+    },
     clock: { now: () => Date.now(), wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
     readHealth: async (uuid) => {
       const url = new URL(healthUrl);
@@ -102,8 +110,10 @@ if (check === "delivery") {
     },
   });
   save(report);
+  if (report.note) console.log(`::notice title=Apple delivery (${environment})::${report.note}`);
+  const verdict = report.lockedUntilRelease ? "locked until the first App Store release (neutral)" : report.ok ? "pass" : "FAIL";
   summarize([
-    `### Apple delivery round trip: ${bundleId}, ${environment}: ${report.ok ? "pass" : "FAIL"}`,
+    `### Apple delivery round trip: ${bundleId}, ${environment}: ${verdict}`,
     "",
     `| Step | Result |`,
     `| --- | --- |`,
@@ -112,6 +122,7 @@ if (check === "delivery") {
     `| Notification UUID | ${report.notificationUuid ?? "none"} |`,
     `| Recorded in apple_notifications | ${report.recorded ? `yes, received ${report.receivedAt}, processed ${report.processedAt ?? "not yet"}` : "no"} |`,
     `| Elapsed | ${(report.elapsedMs / 1000).toFixed(1)} s |`,
+    ...(report.note ? ["", `**Note:** ${report.note}`] : []),
     ...(report.failure ? ["", `**Failure:** ${report.failure}`] : []),
   ]);
   process.exit(report.ok ? 0 : 1);

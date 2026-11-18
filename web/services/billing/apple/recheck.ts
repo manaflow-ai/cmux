@@ -9,11 +9,13 @@
 // paths that already retry durably: notifications (and the history
 // backfill) through the ledger, and the time-based lapse sweep, which now
 // expires a row only when Apple agrees, Apple has no status for it, or the
-// Server API is not configured.
+// Server API is not configured (or its Production host is locked until the
+// app's first App Store release, productionAccess.ts).
 
 import { isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
 import { appleStatusGrantsAt } from "./entitlement";
+import { isProductionLocked, productionAccessOf } from "./productionAccess";
 import type { AppleIapDependencies } from "./service";
 import {
   appleSubscriptionStateFrom,
@@ -60,23 +62,32 @@ export type AppleRefreshOutcome =
   /** The lookup or its verification failed; nothing is known. */
   | { readonly kind: "error" }
   /** Not asked: no Server API, an unsigned environment, or no budget left. */
-  | { readonly kind: "skipped" };
+  | { readonly kind: "skipped" }
+  /**
+   * Production refuses the key until the app's first App Store release
+   * (productionAccess.ts): nothing is known, and callers act as without the
+   * Server API.
+   */
+  | { readonly kind: "locked" };
 
 type AppleAnswer =
   | { readonly kind: "state"; readonly state: AppleSubscriptionState; readonly transaction: Parameters<typeof appleTransactionRowFrom>[0] }
   | { readonly kind: "unknown" }
-  | { readonly kind: "error" };
+  | { readonly kind: "error" }
+  | { readonly kind: "locked" };
 
 /** Apple's verified current state for one subscription. */
 async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Promise<AppleAnswer> {
   const environment = target.environment;
   if (!deps.serverApi || !isSignedAppleEnvironment(environment)) return { kind: "error" };
+  const access = environment === "Production" ? productionAccessOf(deps) : null;
   try {
     const snapshot = await deps.serverApi.subscriptionStatus({
       originalTransactionId: target.originalTransactionId,
       bundleId: target.bundleId,
       environment,
     });
+    access?.markOk(target.bundleId);
     if (!snapshot) return { kind: "unknown" };
     const transaction = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
     if (transaction.originalTransactionId !== target.originalTransactionId || transaction.bundleId !== target.bundleId) {
@@ -94,6 +105,7 @@ async function askApple(target: RecheckTarget, deps: AppleIapDependencies): Prom
   } catch (error) {
     // An unknown product can never grant here; Apple's answer is final.
     if (error instanceof AppleStateError) return { kind: "unknown" };
+    if (await isProductionLocked(access, error, target.bundleId)) return { kind: "locked" };
     console.warn("apple_iap.status_lookup_failed", {
       metric: "apple_iap.status_lookup_failed",
       originalTransactionId: target.originalTransactionId,
@@ -118,9 +130,11 @@ export async function refreshSubscriptionFromApple(
   if (!deps.serverApi || !isSignedAppleEnvironment(target.environment) || budget.remaining <= 0) {
     return { kind: "skipped" };
   }
+  // Known locked this run: do not spend a call (or the budget) on it again.
+  if (target.environment === "Production" && deps.productionAccess?.isLocked(target.bundleId)) return { kind: "locked" };
   budget.remaining -= 1;
   const answer = await askApple(target, deps);
-  if (answer.kind === "error") return answer;
+  if (answer.kind === "error" || answer.kind === "locked") return answer;
   const now = deps.now();
   if (answer.kind === "unknown" || !appleStatusGrantsAt(answer.state, now)) {
     await deps.store.markAppleChecked(target.originalTransactionId, now);
@@ -214,8 +228,9 @@ export async function runRenewalCheck(
   for (const row of rows) {
     if (budget.remaining <= 0) break;
     const outcome = await refreshOrError(row, deps, budget);
-    // An unsigned environment is never asked; it must not block the rows after it.
-    if (outcome.kind === "skipped") continue;
+    // An unsigned environment is never asked, and a Production still locked
+    // until release cannot answer; neither blocks the rows after it.
+    if (outcome.kind === "skipped" || outcome.kind === "locked") continue;
     checked += 1;
     if (outcome.kind === "error") failures += 1;
     if (outcome.kind === "granting" && endsLater(outcome.write.current, row)) extended += 1;
@@ -257,6 +272,9 @@ async function lapseDecision(
       return "recovered";
     case "not_granting":
     case "unknown":
+    // Production cannot answer before the first release: expire on Apple's
+    // last signed state, as without the Server API. Never a grant.
+    case "locked":
       return "expire";
     default:
       return endsAt.getTime() < now.getTime() - APPLE_MAX_LAPSE_DEFER_MS ? "expire" : "defer";

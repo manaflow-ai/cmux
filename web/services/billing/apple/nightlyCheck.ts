@@ -7,6 +7,13 @@
 //   (app/api/cron/apple-notifications/health) that the ledger recorded it.
 // - api: the key authenticates and a known subscription has a status.
 //
+// Until the app's first App Store release, Apple's Production host answers a
+// bodyless 401 for a key the Sandbox accepts (productionAccess.ts). The
+// Production delivery check then probes the Sandbox with the same key: if it
+// answers, the night reports a neutral note instead of a failure, until an
+// operator records the release (repo variable APPLE_IAP_PRODUCTION_RELEASED=1),
+// after which the same 401 is red. A Sandbox 401 is always a credential error.
+//
 // Every dependency is injected, including the clock, so the tests drive the
 // whole wait without Apple, a network or real time.
 
@@ -62,6 +69,18 @@ export type DeliveryReport = {
   readonly processedAt: string | null;
   readonly elapsedMs: number;
   readonly failure: string | null;
+  /** Production answered 401 while the Sandbox accepts the key and no release is recorded. */
+  readonly lockedUntilRelease: boolean;
+  /** A neutral note for the summary (the locked state), or null. */
+  readonly note: string | null;
+};
+
+/** How a Production 401 is told apart from a bad key. */
+export type ProductionLockCheck = {
+  /** Whether the Sandbox accepts the same key for the same bundle; throws when it cannot tell. */
+  sandboxAccepts(): Promise<boolean>;
+  /** An operator recorded the first App Store release (APPLE_IAP_PRODUCTION_RELEASED=1). */
+  readonly released: boolean;
 };
 
 export type ServerApiReport = {
@@ -79,6 +98,59 @@ function describeError(error: unknown): string {
     return `App Store Server API HTTP ${error.httpStatusCode}${code}${error.errorMessage ? `: ${error.errorMessage}` : ""}`;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof APIException && error.httpStatusCode === 401;
+}
+
+/**
+ * The Sandbox probe: reads the last hour of notification history (an empty
+ * answer is fine). True when Apple answered, false on its 401; any other
+ * failure throws, since it says nothing about the key.
+ */
+export async function sandboxAcceptsKey(
+  api: { getNotificationHistory(paginationToken: string | null, request: { startDate: number; endDate: number }): Promise<unknown> },
+  nowMs: number,
+): Promise<boolean> {
+  try {
+    await api.getNotificationHistory(null, { startDate: nowMs - 60 * 60 * 1000, endDate: nowMs });
+    return true;
+  } catch (error) {
+    if (isUnauthorized(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Explains a 401 from requesting the Production TEST notification: null for a
+ * failure as before, or the locked state. Never hides a Sandbox 401.
+ */
+async function explainProductionUnauthorized(
+  error: unknown,
+  environment: string,
+  lock: ProductionLockCheck | undefined,
+): Promise<{ readonly failure: string | null; readonly note: string | null } | null> {
+  if (environment !== "Production" || !lock || !isUnauthorized(error)) return null;
+  let accepted: boolean;
+  try {
+    accepted = await lock.sandboxAccepts();
+  } catch (probeError) {
+    return { failure: `Production answered HTTP 401 and the Sandbox probe failed: ${describeError(probeError)}`, note: null };
+  }
+  if (!accepted) {
+    return { failure: "Production answered HTTP 401 and the Sandbox refused the key too: the In-App Purchase key is wrong or revoked", note: null };
+  }
+  if (lock.released) {
+    return {
+      failure: "Production answered HTTP 401 although APPLE_IAP_PRODUCTION_RELEASED=1 says the app is released; the Sandbox accepts the key, so check the key's access to the released app",
+      note: null,
+    };
+  }
+  return {
+    failure: null,
+    note: "Production answered HTTP 401 and the Sandbox accepts the key: Apple locks the Production App Store Server API until the app's first App Store release. Not a failure until APPLE_IAP_PRODUCTION_RELEASED=1 is set.",
+  };
 }
 
 /** Adapts the library client: Apple's "not found yet" and rate limits become empty polls. */
@@ -250,6 +322,8 @@ export async function checkAppleDelivery(input: {
   /** How long the ledger may take to show it once Apple delivered (default 1 min). */
   readonly ledgerTimeoutMs?: number;
   readonly intervalMs?: number;
+  /** Tells a Production 401 before the first release from a bad key; without it every 401 fails. */
+  readonly productionLock?: ProductionLockCheck;
 }): Promise<DeliveryReport> {
   const { client, readHealth, clock, environment } = input;
   const intervalMs = input.intervalMs ?? 10_000;
@@ -262,18 +336,22 @@ export async function checkAppleDelivery(input: {
     receivedAt: null,
     processedAt: null,
   };
-  const report = (failure: string | null): DeliveryReport => ({
+  const report = (failure: string | null, note: string | null = null): DeliveryReport => ({
     ok: failure === null,
     environment,
     ...state,
     elapsedMs: clock.now() - started,
     failure,
+    lockedUntilRelease: failure === null && note !== null,
+    note,
   });
 
   let token: string;
   try {
     token = await client.requestTestNotification();
   } catch (error) {
+    const locked = await explainProductionUnauthorized(error, environment, input.productionLock);
+    if (locked) return report(locked.failure, locked.note);
     return report(`requesting a TEST notification failed: ${describeError(error)}`);
   }
   const deliveryFailure = await waitForAppleDelivery(

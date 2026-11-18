@@ -13,6 +13,14 @@ name: Billing nightly
 #   notifications serves both environments of the App Store app), then reads
 #   GET /api/cron/apple-notifications/health?uuid= to confirm the ledger
 #   recorded it. Production delivery is what paying customers depend on.
+#   Until the app's first App Store release Apple answers every Production
+#   call with a bodyless 401, even for a key the Sandbox accepts. The job then
+#   probes the Sandbox with the same key: if it answers, the Production job
+#   passes with a neutral note ("locked until the first App Store release");
+#   if the Sandbox refuses too, it is a red credential error. After the first
+#   release an operator sets the repository variable
+#   APPLE_IAP_PRODUCTION_RELEASED=1, and from then on a Production 401 is red
+#   (docs/billing/ios-in-app-purchases.md, "After the first App Store release").
 # - apple-api: the In-App Purchase key authenticates and a known Sandbox
 #   subscription (vars.APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID) has a status.
 # - storekit: the StoreKit simulator suite (BillingStoreKitTests) lives with
@@ -39,6 +47,10 @@ name: Billing nightly
 #   CMUX_NOTIFY_TOKEN: the notify-only token cloud-vm-canary.yml uses.
 #   Variable APPLE_IAP_HEALTH_ORIGINAL_TRANSACTION_ID: a Sandbox subscription
 #     of com.cmux.app to look up (apple-api skips without it).
+#   Variable APPLE_IAP_PRODUCTION_RELEASED: `1` once com.cmux.app has its
+#     first App Store release (see apple-delivery above). The nightly's key is
+#     an In-App Purchase key, which cannot read App Store Connect, so an
+#     operator records the release here.
 #
 # Real Sandbox purchases with a tester account need a device and are a manual
 # release checklist item (docs/billing/ios-in-app-purchases.md), not this job.
@@ -117,6 +129,7 @@ jobs:
           APPLE_IAP_PRIVATE_KEY: ${{ secrets.APPLE_IAP_PRIVATE_KEY }}
           APPLE_NOTIFICATIONS_HEALTH_TOKEN: ${{ secrets.APPLE_NOTIFICATIONS_HEALTH_TOKEN }}
           ENVIRONMENT: ${{ matrix.environment }}
+          APPLE_IAP_PRODUCTION_RELEASED: ${{ vars.APPLE_IAP_PRODUCTION_RELEASED }}
           HEALTH_URL: ${{ vars.BILLING_NIGHTLY_HEALTH_URL || 'https://cmux.com/api/cron/apple-notifications/health' }}
         run: |
           bun scripts/billing/apple-nightly-check.ts delivery \
