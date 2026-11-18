@@ -2702,16 +2702,25 @@ def test_every_github_file_is_placed_by_the_helper_walk() -> None:
     )
 
 
+def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
+    # The same walk as the scripts/ci helpers: these run only in dispatched
+    # or scheduled workflows, which a pull request's CI never runs.
+    for path in (
+        # The cmux-tui legs restore and record their warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml) on Linux
+        # runners only: the aarch64-apple-darwin leg is cross-built there.
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
+    ):
+        assert module.classify_files([path]) == areas(), path
+
+
 def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route() -> None:
     for path in (
         # CLI/ names it.
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
-        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
-        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
         # scripts/cmux-next/swap-binary.sh and its Mac test run it (#46110).
