@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import Foundation
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
@@ -120,5 +121,28 @@ public final class CloudAgentCredentials {
                         push: @escaping CloudAgentCredentialRefresher.Push) -> UUID? {
         chosen[ChatKey(machine: machine, chat: chat)] = nil
         return refresher.track(credential, push: push)
+    }
+
+    /// A chat that moved onto `machine` (Move to Cloud, Move to Another Machine): its agent there gets the credential a new
+    /// chat there starts on (``launchCredential(chat:machine:harness:model:)``, so Cloud first use's pick for `harness`),
+    /// through `push` (`agent-session-credentials`: the machine's acpmux starts the agent again on it and resumes the chat),
+    /// and a ChatGPT plan token is kept fresh. False only when a credential was read and did not reach the machine; no pick,
+    /// an unreadable one, or a daemon that takes none leaves the machine's own route, as at a start.
+    public func moved(chat: String, machine: String, harness: String?, push: @escaping CloudAgentCredentialRefresher.Push) async -> Bool {
+        guard let credential = try? await launchCredential(chat: chat, machine: machine, harness: harness) else { return true }
+        switch await push(credential.env) {
+        case .delivered:
+            started(chat: chat, machine: machine, on: credential, push: push)
+            return true
+        case .gone: return true
+        case .failed: return false
+        }
+    }
+
+    /// ``moved(chat:machine:harness:push:)`` to the moved chat's tab `surface` on its machine, over the owner answer of `links`.
+    public func moved(chat: String, machine: String, harness: String?, surface: UInt64, links: CloudMachineLinks,
+                      endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async -> Bool {
+        await moved(chat: chat, machine: machine, harness: harness,
+                    push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: links.ownerLink, reconnect: nil, endpoint: endpoint))
     }
 }
