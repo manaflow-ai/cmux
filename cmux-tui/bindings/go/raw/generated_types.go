@@ -8601,6 +8601,67 @@ func (value *ReattachViewResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type RemoteHostAppPermissions struct {
+	Accessibility   Presence[bool] `json:"-"`
+	ScreenRecording Presence[bool] `json:"-"`
+}
+
+func (value RemoteHostAppPermissions) MarshalJSON() ([]byte, error) {
+	type wire RemoteHostAppPermissions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Accessibility.IsAbsent() {
+		delete(object, "accessibility")
+	} else if value.Accessibility.IsNull() {
+		object["accessibility"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Accessibility.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RemoteHostAppPermissions.Accessibility: %w", err)
+		}
+		object["accessibility"] = encodedField
+	}
+	if value.ScreenRecording.IsAbsent() {
+		delete(object, "screen_recording")
+	} else if value.ScreenRecording.IsNull() {
+		object["screen_recording"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.ScreenRecording.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RemoteHostAppPermissions.ScreenRecording: %w", err)
+		}
+		object["screen_recording"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *RemoteHostAppPermissions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode RemoteHostAppPermissions: expected object")
+	}
+	var fields struct {
+		Accessibility   Presence[bool] `json:"accessibility"`
+		ScreenRecording Presence[bool] `json:"screen_recording"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode RemoteHostAppPermissions: %w", err)
+	}
+	type wire RemoteHostAppPermissions
+	var decoded wire
+	decoded.Accessibility = fields.Accessibility
+	decoded.ScreenRecording = fields.ScreenRecording
+	*value = RemoteHostAppPermissions(decoded)
+	return nil
+}
+
 type RemoteHostAppResult struct {
 	HostPID uint32 `json:"host_pid"`
 	Secret  string `json:"secret"`

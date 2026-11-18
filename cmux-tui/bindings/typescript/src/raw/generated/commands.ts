@@ -2144,6 +2144,7 @@ export type RemoteHostCallResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface RemoteHostConfigRequest extends CmuxRequestBase {
   cmd: "remote-host-config";
+  "app_permissions"?: (T.RemoteHostAppPermissions) | null;
   "computer_use"?: (boolean) | null;
   "headless"?: (boolean) | null;
   "screen_sharing"?: (boolean) | null;

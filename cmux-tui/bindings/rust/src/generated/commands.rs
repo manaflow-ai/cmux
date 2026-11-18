@@ -3075,6 +3075,8 @@ pub type RemoteHostCallResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RemoteHostConfigRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_permissions: Optional<T::RemoteHostAppPermissions>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub computer_use: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub headless: Optional<bool>,

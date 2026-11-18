@@ -4073,6 +4073,58 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "pid", true, "1")
 	})
+	t.Run("RemoteHostAppPermissions.Accessibility", func(t *testing.T) {
+		var missing RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Accessibility.IsAbsent() {
+			t.Fatal("Accessibility did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "accessibility", false, "")
+		var nullValue RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{\"accessibility\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Accessibility.IsNull() {
+			t.Fatal("Accessibility did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "accessibility", true, "null")
+		var presentValue RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{\"accessibility\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Accessibility.Get(); !ok {
+			t.Fatal("Accessibility did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "accessibility", true, "true")
+	})
+	t.Run("RemoteHostAppPermissions.ScreenRecording", func(t *testing.T) {
+		var missing RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.ScreenRecording.IsAbsent() {
+			t.Fatal("ScreenRecording did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "screen_recording", false, "")
+		var nullValue RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{\"screen_recording\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.ScreenRecording.IsNull() {
+			t.Fatal("ScreenRecording did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "screen_recording", true, "null")
+		var presentValue RemoteHostAppPermissions
+		if err := json.Unmarshal([]byte("{\"screen_recording\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.ScreenRecording.Get(); !ok {
+			t.Fatal("ScreenRecording did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "screen_recording", true, "true")
+	})
 	t.Run("RenderCursor.Color", func(t *testing.T) {
 		var missing RenderCursor
 		if err := json.Unmarshal([]byte("{\"blink\":true,\"style\":\"block\",\"visible\":true,\"x\":1,\"y\":1}"), &missing); err == nil {
@@ -31757,6 +31809,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "params", true, "{\"value\":true}")
 	})
+	t.Run("RemoteHostConfigRequest.AppPermissions", func(t *testing.T) {
+		var missing RemoteHostConfigRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.AppPermissions.IsAbsent() {
+			t.Fatal("AppPermissions did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "app_permissions", false, "")
+		var nullValue RemoteHostConfigRequest
+		if err := json.Unmarshal([]byte("{\"app_permissions\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.AppPermissions.IsNull() {
+			t.Fatal("AppPermissions did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "app_permissions", true, "null")
+		var presentValue RemoteHostConfigRequest
+		if err := json.Unmarshal([]byte("{\"app_permissions\":{}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.AppPermissions.Get(); !ok {
+			t.Fatal("AppPermissions did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "app_permissions", true, "{}")
+	})
 	t.Run("RemoteHostConfigRequest.ComputerUse", func(t *testing.T) {
 		var missing RemoteHostConfigRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -31834,6 +31912,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("ScreenSharing did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "screen_sharing", true, "true")
+	})
+	t.Run("RemoteHostConfigOptions.AppPermissions", func(t *testing.T) {
+		var missing RemoteHostConfigOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.AppPermissions.IsAbsent() {
+			t.Fatal("AppPermissions did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "app_permissions", false, "")
+		var nullValue RemoteHostConfigOptions
+		if err := json.Unmarshal([]byte("{\"app_permissions\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.AppPermissions.IsNull() {
+			t.Fatal("AppPermissions did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "app_permissions", true, "null")
+		var presentValue RemoteHostConfigOptions
+		if err := json.Unmarshal([]byte("{\"app_permissions\":{}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.AppPermissions.Get(); !ok {
+			t.Fatal("AppPermissions did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "app_permissions", true, "{}")
 	})
 	t.Run("RemoteHostConfigOptions.ComputerUse", func(t *testing.T) {
 		var missing RemoteHostConfigOptions
@@ -65415,8 +65519,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1811
-	generatedOptionalNullableFieldCount    = 1275
+	generatedFieldShapeCount               = 1815
+	generatedOptionalNullableFieldCount    = 1279
 	generatedRequiredNullableFieldCount    = 172
 	generatedOptionalNonnullableFieldCount = 364
 	generatedRequiredFieldCount            = 1607

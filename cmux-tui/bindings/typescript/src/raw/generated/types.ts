@@ -885,6 +885,11 @@ export type ReattachViewResult = {
   "state": SizeState;
 };
 
+export type RemoteHostAppPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
+};
+
 export type RemoteHostAppResult = {
   "host_pid": number;
   "secret": string;

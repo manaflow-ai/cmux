@@ -1532,6 +1532,15 @@ pub struct ReattachViewResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RemoteHostAppPermissions {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub accessibility: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_recording: Optional<bool>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteHostAppResult {
     pub host_pid: u32,

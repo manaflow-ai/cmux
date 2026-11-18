@@ -24907,9 +24907,10 @@ func (value *RemoteHostCallOptions) UnmarshalJSON(data []byte) error {
 
 // RemoteHostConfigRequest is the exact remote-host-config wire payload.
 type RemoteHostConfigRequest struct {
-	ComputerUse   Presence[bool] `json:"-"`
-	Headless      Presence[bool] `json:"-"`
-	ScreenSharing Presence[bool] `json:"-"`
+	AppPermissions Presence[RemoteHostAppPermissions] `json:"-"`
+	ComputerUse    Presence[bool]                     `json:"-"`
+	Headless       Presence[bool]                     `json:"-"`
+	ScreenSharing  Presence[bool]                     `json:"-"`
 }
 
 func (value RemoteHostConfigRequest) MarshalJSON() ([]byte, error) {
@@ -24921,6 +24922,18 @@ func (value RemoteHostConfigRequest) MarshalJSON() ([]byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
 		return nil, err
+	}
+	if value.AppPermissions.IsAbsent() {
+		delete(object, "app_permissions")
+	} else if value.AppPermissions.IsNull() {
+		object["app_permissions"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.AppPermissions.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RemoteHostConfigRequest.AppPermissions: %w", err)
+		}
+		object["app_permissions"] = encodedField
 	}
 	if value.ComputerUse.IsAbsent() {
 		delete(object, "computer_use")
@@ -24966,15 +24979,17 @@ func (value *RemoteHostConfigRequest) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode RemoteHostConfigRequest: expected object")
 	}
 	var fields struct {
-		ComputerUse   Presence[bool] `json:"computer_use"`
-		Headless      Presence[bool] `json:"headless"`
-		ScreenSharing Presence[bool] `json:"screen_sharing"`
+		AppPermissions Presence[RemoteHostAppPermissions] `json:"app_permissions"`
+		ComputerUse    Presence[bool]                     `json:"computer_use"`
+		Headless       Presence[bool]                     `json:"headless"`
+		ScreenSharing  Presence[bool]                     `json:"screen_sharing"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode RemoteHostConfigRequest: %w", err)
 	}
 	type wire RemoteHostConfigRequest
 	var decoded wire
+	decoded.AppPermissions = fields.AppPermissions
 	decoded.ComputerUse = fields.ComputerUse
 	decoded.Headless = fields.Headless
 	decoded.ScreenSharing = fields.ScreenSharing
@@ -24985,9 +25000,10 @@ func (value *RemoteHostConfigRequest) UnmarshalJSON(data []byte) error {
 type RemoteHostConfigResult = JSONValue
 
 type RemoteHostConfigOptions struct {
-	ComputerUse   Presence[bool] `json:"-"`
-	Headless      Presence[bool] `json:"-"`
-	ScreenSharing Presence[bool] `json:"-"`
+	AppPermissions Presence[RemoteHostAppPermissions] `json:"-"`
+	ComputerUse    Presence[bool]                     `json:"-"`
+	Headless       Presence[bool]                     `json:"-"`
+	ScreenSharing  Presence[bool]                     `json:"-"`
 }
 
 func (value RemoteHostConfigOptions) MarshalJSON() ([]byte, error) {
@@ -24999,6 +25015,18 @@ func (value RemoteHostConfigOptions) MarshalJSON() ([]byte, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
 		return nil, err
+	}
+	if value.AppPermissions.IsAbsent() {
+		delete(object, "app_permissions")
+	} else if value.AppPermissions.IsNull() {
+		object["app_permissions"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.AppPermissions.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode RemoteHostConfigOptions.AppPermissions: %w", err)
+		}
+		object["app_permissions"] = encodedField
 	}
 	if value.ComputerUse.IsAbsent() {
 		delete(object, "computer_use")
@@ -25044,15 +25072,17 @@ func (value *RemoteHostConfigOptions) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode RemoteHostConfigOptions: expected object")
 	}
 	var fields struct {
-		ComputerUse   Presence[bool] `json:"computer_use"`
-		Headless      Presence[bool] `json:"headless"`
-		ScreenSharing Presence[bool] `json:"screen_sharing"`
+		AppPermissions Presence[RemoteHostAppPermissions] `json:"app_permissions"`
+		ComputerUse    Presence[bool]                     `json:"computer_use"`
+		Headless       Presence[bool]                     `json:"headless"`
+		ScreenSharing  Presence[bool]                     `json:"screen_sharing"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode RemoteHostConfigOptions: %w", err)
 	}
 	type wire RemoteHostConfigOptions
 	var decoded wire
+	decoded.AppPermissions = fields.AppPermissions
 	decoded.ComputerUse = fields.ComputerUse
 	decoded.Headless = fields.Headless
 	decoded.ScreenSharing = fields.ScreenSharing
