@@ -173,6 +173,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `cu-driver-bench.sh` | Computer-use driver bench v2 in a macOS 26 VM (VM bring-up stage). | HQ#7146 G3a | 2026-11-08 | active |
 | `cu-driver-eval` | Computer-use driver eval: every input route and driver build on test apps. | HQ#7146 G3a/G3b | 2026-11-13 | active |
 | `cu-driver-eval.sh` | Fleet entry for cu-driver-eval (input-ab suite). | HQ#7146 G3a | 2026-11-08 | active |
+| `cmux-cua-patch-tests.sh` | The legacy Computer Use helper's Rust unit tests (cmux-cua-core, cmux-cua-platform-macos) with cmux's patches from any ref applied, on a fleet Mac. | ask-3cf710da4e | 2026-11-18 | active |
 | `cua-takeover.sh` | False takeovers and latency of the computer-use takeover detector. | - | 2026-11-04 | active |
 
 ## Browser and CEF
