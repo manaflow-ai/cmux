@@ -458,14 +458,29 @@ def named_workspace(name):
     return None, []
 
 
-def focus_terminal():
-    """Shows the typed terminal's workspace and gives its pane the keyboard; returns what has it (debug.focus)."""
+def focus_terminal(tries=5):
+    """Shows the typed terminal's workspace and gives its pane the keyboard; returns what has it (debug.focus).
+
+    Tries again while no terminal is the first responder (an agent chat the load just opened can keep the window's
+    keyboard): a measure with the keys going nowhere records no probe rows, which read as a missing number, not a slow
+    one. The report keeps `tries` and `terminal_focused`."""
     ws, pane = LOAD["terminal_ws"], LOAD.get("stress_pane") or LOAD.get("terminal_pane")
-    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
-    if pane:
-        rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"})
-    time.sleep(0.5)  # focus settles
-    return focus_report()
+    report = {}
+    for attempt in range(1, tries + 1):
+        went = rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        focus = rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"}) if pane else None
+        time.sleep(0.5)  # focus settles
+        report = focus_report()
+        focused = any("TerminalSurfaceView" in str(r) for r in report["first_responders"])
+        if focused:
+            break
+        note(f"{SESSION}: focus try {attempt}: no terminal has the keyboard ({report['first_responders']})")
+        if attempt == 1:
+            # What the app says it did and has: the whole debug.focus report, the two replies, the shown workspace.
+            results.setdefault("focus_failures", []).append({
+                "session": SESSION, "round": ROUND, "workspace": ws, "pane": pane,
+                "goToWorkspace": went, "pane_focus": focus, "debug_focus": rpc("debug.focus")})
+    return dict(report, tries=attempt, terminal_focused=focused)
 
 
 def focus_report():
@@ -584,8 +599,10 @@ def run_session(session, backdrop="default"):
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
         global ROUND
-        for ROUND in range(opts.rounds):
-            for phase in opts.phases.split(","):
+        # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
+        # so an idle round after a load round would measure under load.
+        for phase in opts.phases.split(","):
+            for ROUND in range(opts.rounds):
                 for surface in surfaces:
                     if surface == "dock" and phase != "idle":
                         continue
