@@ -248,10 +248,14 @@ function pointOf(root: HTMLElement, node: Node, offset: number, edge: "start" | 
   return edge === "start" ? { line, char: 0 } : { line: line - 1, char: Number.POSITIVE_INFINITY };
 }
 
-/** The selected text before or after the lines, as the browser's range reads it: untrimmed, so a
- *  selection that starts or ends on a space copies it. */
+/** The selected text before or after the lines, as the browser copies it: read through the
+ *  selection (as the chat's copy reads a chip's text, conversation/chipCopy.ts), so text a person
+ *  cannot select (a button's label, the poster line, the diff's file name) is left out and a block
+ *  keeps its line end, where the range's own text would run them together. Untrimmed, so a selection
+ *  that starts or ends on a space copies it. The person's selection is put back as it was. */
 function outside(range: Range, root: HTMLElement, side: "before" | "after"): string {
-  const part = root.ownerDocument.createRange();
+  const document = root.ownerDocument;
+  const part = document.createRange();
   if (side === "before") {
     part.setStart(range.startContainer, range.startOffset);
     part.setEndBefore(root);
@@ -259,7 +263,25 @@ function outside(range: Range, root: HTMLElement, side: "before" | "after"): str
     part.setStartAfter(root);
     part.setEnd(range.endContainer, range.endOffset);
   }
-  return part.toString();
+  const selection = document.getSelection();
+  if (!selection || selection.rangeCount === 0 || !selection.anchorNode || !selection.focusNode) return part.toString();
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+  const kept = selection.getRangeAt(0);
+  const forward = kept.startContainer === anchorNode && kept.startOffset === anchorOffset;
+  try {
+    selection.setBaseAndExtent(part.startContainer, part.startOffset, part.endContainer, part.endOffset);
+    // Less the line end where it meets the lines (the block it leaves, or the one the lines start):
+    // the copy puts one there. WebKit reads a selection that ends just above the lines as that alone.
+    const text = selection.toString();
+    return side === "before" ? text.replace(/\n$/, "") : text.replace(/^\n/, "");
+  } finally {
+    // A forward selection gets its own range back (whoever holds it still holds the selection's);
+    // a backward one, its anchor and focus.
+    if (forward) {
+      selection.removeAllRanges();
+      selection.addRange(kept);
+    } else selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
 }
 
 interface RowProps {
