@@ -18,7 +18,9 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public var identity: String? = nil
 
     public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
+    /// This iPhone has no network. No Retry: there is nothing to retry until the network comes
+    /// back, and then the links redial by themselves (`LiveCoordinator.networkPathChanged`).
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline")
     public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
     public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }

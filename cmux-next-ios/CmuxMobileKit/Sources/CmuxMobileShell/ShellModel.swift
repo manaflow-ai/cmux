@@ -712,6 +712,7 @@ final class ShellModel {
         case "connected"?: return .connected
         case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
+        case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         case "signed-out"?: return .signedOut

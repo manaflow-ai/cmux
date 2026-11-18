@@ -67,6 +67,17 @@ public struct CloudMachine: Identifiable, Hashable, Sendable {
     public var keep: Bool
 
     public var title: String { name ?? id }
+
+    /// What a person's action changes: a held action is done once a read shows these differ.
+    struct Settings: Equatable, Sendable {
+        var status: Status
+        var name: String?
+        var size: Size
+        var idleSeconds: Int
+        var keep: Bool
+    }
+
+    var settings: Settings { Settings(status: status, name: name, size: size, idleSeconds: idleSeconds, keep: keep) }
     public var idlePauseMinutes: Int { idleSeconds / 60 }
 
     /// The Mac's idle auto-pause choices (`CloudMachine.idlePauseChoices`), in minutes; 0 is Off.
@@ -222,8 +233,43 @@ public final class CloudMachinesModel {
     public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
-    /// The last action's note ("Waiting for your approval in the Feed.").
-    public var notice: String?
+    /// Actions held for the person's approval in the Feed, by the machine or snapshot they act on
+    /// (`newMachineID` for a machine being made). Its row says "Waiting for approval" in place of
+    /// its status (no alert) until a read shows the change, another action on it starts, or
+    /// `approvalShownFor` passes.
+    public private(set) var awaitingApproval: [String: HeldAction] = [:]
+
+    /// An action held for approval: what it acts on as it was, to see when the change lands.
+    public struct HeldAction: Equatable, Sendable {
+        /// The machine's settings when it was asked (nil: a new machine, or a snapshot's action).
+        var before: CloudMachine.Settings?
+        /// The machines listed when it was asked: one more means a new machine was made.
+        var knownIDs: Set<String>
+        var since: Date
+    }
+
+    /// The `awaitingApproval` key of a machine being made.
+    public static let newMachineID = "new"
+    /// How long a held action reads "Waiting for approval" with no change seen.
+    static let approvalShownFor: TimeInterval = 15 * 60
+    @ObservationIgnored var now: () -> Date = Date.init
+
+    /// Whether `id`'s row reads "Waiting for approval".
+    public func isAwaitingApproval(_ id: String) -> Bool { awaitingApproval[id] != nil }
+
+    /// Drops held actions a read shows done (the machine changed or is gone, a new machine came),
+    /// and those older than `approvalShownFor`.
+    private func settleHeldActions() {
+        guard !awaitingApproval.isEmpty else { return }
+        let ids = Set(machines.map(\.id))
+        let now = now()
+        let next = awaitingApproval.filter { id, held in
+            guard now.timeIntervalSince(held.since) < Self.approvalShownFor else { return false }
+            if let before = held.before { return machine(id)?.settings == before }
+            return ids.isSubset(of: held.knownIDs)
+        }
+        if next != awaitingApproval { awaitingApproval = next }
+    }
 
     @ObservationIgnored private let account: @MainActor () -> AccountCloud?
     @ObservationIgnored var newKey: () -> String = { UUID().uuidString.lowercased() }
@@ -272,6 +318,7 @@ public final class CloudMachinesModel {
                 cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
             } while cursor != nil && rows.count < 1000
             machines = rows
+            settleHeldActions()
             // A plan or snapshot read that fails keeps the list (the page hides what it lacks).
             plan = (try? await planned).flatMap(CloudMachinePlan.parse) ?? plan
             if let value = try? await saved { snapshots = CloudMachineSnapshot.list(value) }
@@ -390,7 +437,8 @@ public final class CloudMachinesModel {
             rollback?()
         }
         busyID = id
-        notice = nil
+        if awaitingApproval[id] != nil { awaitingApproval[id] = nil }
+        let held = HeldAction(before: machine(id)?.settings, knownIDs: Set(machines.map(\.id)), since: now())
         defer { busyID = nil }
         do {
             let value = try await work(account)
@@ -404,7 +452,8 @@ public final class CloudMachinesModel {
             restore()
         } catch let failure as AccountCloud.Failure where failure.code == "approval.pending" {
             restore()
-            notice = String(localized: "Approve it in your Feed to finish.")
+            // Not a failure: the row says it waits for approval, quietly, with no alert.
+            awaitingApproval[id] = held
         } catch {
             restore()
             failure = Self.message(error)
@@ -434,7 +483,8 @@ public final class CloudMachinesModel {
 extension CloudMachinesModel {
     /// The page with fixed machines, plan and snapshots, for screenshots
     /// (`-cmux-mobile-recovery-gallery cloudmachines`). Its actions go nowhere.
-    public static func gallery(now: Date = .now) -> CloudMachinesModel {
+    /// `held`: "Nightly evals" and a new machine wait for approval in the Feed (their rows say so).
+    public static func gallery(now: Date = .now, held: Bool = false) -> CloudMachinesModel {
         let http = ChiefCloudHTTP(base: URL(fileURLWithPath: "/dev/null"), accessToken: { _ in "" })
         let model = CloudMachinesModel { AccountCloud(http: http) }
         model.skipsLoad = true
@@ -462,6 +512,13 @@ extension CloudMachinesModel {
                                  status: "ready", createdAt: ago(86_400 * 4), archiveOf: "Old staging box", archiveUntil: now.addingTimeInterval(86_400 * 26)),
         ]
         model.phase = .loaded
+        if held {
+            let known = Set(model.machines.map(\.id))
+            model.awaitingApproval = [
+                "vm_gallery0000000000002": HeldAction(before: model.machine("vm_gallery0000000000002")?.settings, knownIDs: known, since: now),
+                newMachineID: HeldAction(before: nil, knownIDs: known, since: now),
+            ]
+        }
         return model
     }
 }
