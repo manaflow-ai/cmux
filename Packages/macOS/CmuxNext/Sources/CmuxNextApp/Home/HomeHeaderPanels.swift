@@ -78,20 +78,12 @@ enum HomeHeaderPanels {
 
     /// The cluster's buttons for `context` (only the ``HomeHeaderPanel/alwaysShown`` ones while Debug
     /// Settings > Home > Home header panel toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
-    static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
+    /// No context: a bare launch's first frame (stage 0, before `AppServices`), a local Chief's buttons, off and without shortcuts.
+    static func items(_ context: HomeHeaderPanelContext?, panels: [HomeHeaderPanel] = all,
                       enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
-        let registry = context.services.registry
-        return panels.filter { (enabled || $0.alwaysShown) && $0.isShown(context) }.map { panel in
+        panels.filter { (enabled || $0.alwaysShown) && context.map($0.isShown) != false }.map { panel in
             HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(),
-                                shortcut: registry.shortcutDisplay(for: panel.action), isOn: panel.isOpen(context))
-        }
-    }
-
-    /// A bare launch's first frame (stage 0, before `AppServices`): the buttons a local Chief's page
-    /// shows, off and without shortcuts (only their tooltips name one), as the page draws them at the swap.
-    static func launchItems(panels: [HomeHeaderPanel] = all, enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
-        panels.filter { enabled || $0.alwaysShown }.map { panel in
-            HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(), isOn: false)
+                                shortcut: context?.services.registry.shortcutDisplay(for: panel.action), isOn: context.map(panel.isOpen) ?? false)
         }
     }
 
