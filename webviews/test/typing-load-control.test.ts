@@ -42,6 +42,13 @@ test("light fixture includes the summary in the model row count used by the 100k
   }
 });
 
+test("full-chat readiness uses the model total and ready signal, not the mounted window", async () => {
+  const { modelReady } = await import("../src/agent-session/acpmux/loadDebug");
+  expect(modelReady({ rows: 100002, last_prompt_seq: 100001 }, 33334)).toBe(true);
+  expect(modelReady({ rows: 100002, last_prompt_seq: 100001 }, 33335)).toBe(false);
+  expect(modelReady({ rows: 100002, last_prompt_seq: null }, 33334)).toBe(false);
+});
+
 test("typing load emits the requested tool lines, exposes progress and stops without another delta", async () => {
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
   const { typingLoad } = await import("../src/agent-session/acpmux/typingLoadDebug");

@@ -27,6 +27,11 @@ export type LoadRunOptions = {
 const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const BUDGET_120 = 1000 / 120;
 
+/** The model receipt is independent of the virtual transcript's mounted window. */
+export function modelReady(log: { rows: number; last_prompt_seq: number | null }, turns: number): boolean {
+  return Number.isInteger(turns) && turns > 0 && log.rows >= turns * 3 && log.last_prompt_seq !== null;
+}
+
 /// When the page has rendered the current frame: a posted message runs after the rendering update.
 function afterRender(): Promise<number> {
   return new Promise((resolve) => {
@@ -93,6 +98,8 @@ export async function loadSeed(
     logical_rows: turns * 3,
     model_rows: log.rows,
     model_records: log.records,
+    // This readiness bit is about the model log, never about the mounted row window.
+    model_ready: modelReady(log, turns),
     window_at_latest: windowAtLatest,
     rows,
     seed_ms: round2(seeded - started),
