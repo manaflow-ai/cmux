@@ -1,6 +1,6 @@
 //! Agents that work and change no durable state write nothing.
 //!
-//! Lawrence's daemon, 2026-11-10 (826 workspaces, 170 agents, nobody at the
+//! A large session, 2026-11-10 (826 workspaces, 170 agents, nobody at the
 //! keyboard): 64 % of the journal rows were `agent.state.changed`, about 3.3 a
 //! second, 2,146 bytes each, 612 MB a day, each one a registry commit. A tool
 //! call, a notification or a hook cmux has no name for moves no durable state:
