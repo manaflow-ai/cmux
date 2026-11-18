@@ -106,9 +106,9 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
                 keys.append(row.id)
             }
         }
-        // The model hands every result each version: reading them and indexing the old ones by id is
-        // the one pass over N (no row is configured or measured for it).
-        listWork.walked(rows.count + self.rows.count)
+        // The model hands every result each version: mapping them to rows and ids is the one pass over N
+        // (an index update; no row is configured or measured for it). The diff adds the ids it hashed.
+        listWork.walked(rows.count)
         let oldRows = self.rows
         let oldKeys = rowKeys
         self.rows = rows
@@ -125,72 +125,25 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
         table.tile()
     }
 
-    /// Moves the table from `oldKeys` to `rowKeys` in place; false when a full reload is the
-    /// same work (nothing kept) or the keys are not unique.
+    /// Moves the table from `oldKeys` to `rowKeys` in place (`ListIDDiff`); false when a full reload is
+    /// the same work (nothing kept) or a changed key repeats.
     private func apply(from oldKeys: [String], oldRows: [DisplayRow]) -> Bool {
-        guard !oldKeys.isEmpty, !rowKeys.isEmpty else { return false }
-        var oldIndexByKey: [String: Int] = [:]
-        oldIndexByKey.reserveCapacity(oldKeys.count)
-        for (i, key) in oldKeys.enumerated() {
-            guard oldIndexByKey.updateValue(i, forKey: key) == nil else { return false }
-        }
-        // The kept rows in their new order, by old index: the longest increasing run of them stays
-        // put, and every other kept row moves (a remove and an insert).
-        var keptNew: [Int] = []
-        var keptOld: [Int] = []
-        var seen = Set<String>(minimumCapacity: rowKeys.count)
-        for (i, key) in rowKeys.enumerated() {
-            guard seen.insert(key).inserted else { return false }
-            if let old = oldIndexByKey[key] {
-                keptNew.append(i)
-                keptOld.append(old)
-            }
-        }
-        guard !keptOld.isEmpty else { return false }
-        var removed = IndexSet(integersIn: 0..<oldKeys.count)
-        var inserted = IndexSet(integersIn: 0..<rowKeys.count)
-        for k in Self.longestIncreasingRun(keptOld) {
-            removed.remove(keptOld[k])
-            inserted.remove(keptNew[k])
-        }
-        if !removed.isEmpty || !inserted.isEmpty {
+        guard let diff = ListIDDiff.between(oldKeys, rowKeys) else { return false }
+        listWork.walked(diff.hashed)
+        if !diff.removed.isEmpty || !diff.inserted.isEmpty {
             // No animation: rows land in place, as a reload drew them.
             table.beginUpdates()
             // Removals name old rows; insertions name the rows' final places.
-            if !removed.isEmpty { table.removeRows(at: removed, withAnimation: []) }
-            if !inserted.isEmpty { table.insertRows(at: inserted, withAnimation: []) }
+            if !diff.removed.isEmpty { table.removeRows(at: IndexSet(diff.removed), withAnimation: []) }
+            if !diff.inserted.isEmpty { table.insertRows(at: IndexSet(diff.inserted), withAnimation: []) }
             table.endUpdates()
         }
         // A kept row that is mounted is configured again only if what it draws changed.
-        var changed = IndexSet()
-        table.enumerateAvailableRowViews { _, row in
-            guard rows.indices.contains(row), !inserted.contains(row), let old = oldIndexByKey[rowKeys[row]] else { return }
-            if !Self.drawsSame(oldRows[old], rows[row]) { changed.insert(row) }
-        }
-        if !changed.isEmpty { table.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0)) }
+        var mounted: [Int] = []
+        table.enumerateAvailableRowViews { _, row in mounted.append(row) }
+        let changed = diff.rowsToReconfigure(mounted) { old, new in !Self.drawsSame(oldRows[old], rows[new]) }
+        if !changed.isEmpty { table.reloadData(forRowIndexes: IndexSet(changed), columnIndexes: IndexSet(integer: 0)) }
         return true
-    }
-
-    /// Indexes into `values` of one longest strictly increasing subsequence.
-    static func longestIncreasingRun(_ values: [Int]) -> [Int] {
-        var tails: [Int] = []
-        var previous = [Int](repeating: -1, count: values.count)
-        for (i, value) in values.enumerated() {
-            var low = 0, high = tails.count
-            while low < high {
-                let mid = (low + high) / 2
-                if values[tails[mid]] < value { low = mid + 1 } else { high = mid }
-            }
-            if low > 0 { previous[i] = tails[low - 1] }
-            if low == tails.count { tails.append(i) } else { tails[low] = i }
-        }
-        var run: [Int] = []
-        var i = tails.last ?? -1
-        while i >= 0 {
-            run.append(i)
-            i = previous[i]
-        }
-        return run.reversed()
     }
 
     private static func headerKey(_ sectionID: String) -> String { "\u{1}header:\(sectionID)" }
