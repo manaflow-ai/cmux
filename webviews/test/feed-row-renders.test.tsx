@@ -252,7 +252,9 @@ test("a scroll step in a windowed feed mounts the rows coming into view and rend
   await feed.run(async () => {
     Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 600 });
     scroller.dispatchEvent(new window.Event("scroll"));
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Until the window has moved: a row it did not hold before is mounted (one frame at a time).
+    for (let frame = 0; frame < 60 && feed.rows().every((row) => before.has(rowItem(row))); frame++)
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
   });
   const after = feed.rows().map(rowItem);
   const entered = after.filter((id) => !before.has(id)).length;
