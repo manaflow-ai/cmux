@@ -276,8 +276,8 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
         calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        # The head (a pull request's call, a push's call without release-notary), then the base.
-        self.assertEqual(len(calls), 3, calls)
+        # The head (one call for a pull request and a push), then the base.
+        self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
                 # getconf, not nproc: a mini (macOS) has no GNU coreutils.
