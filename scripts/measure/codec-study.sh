@@ -49,7 +49,7 @@ case "$(uname -s)-$(uname -m)" in
 esac
 export UV_CACHE_DIR="$work/uv-cache" UV_PYTHON_INSTALL_DIR="$work/uv-python" UV_NO_CONFIG=1 UV_PYTHON_PREFERENCE=only-managed
 uv_tar="$work/$uv_asset.tar.gz"
-curl -fsSL --retry 3 -o "$uv_tar" "https://github.com/astral-sh/uv/releases/download/0.13.4/$uv_asset.tar.gz" ||
+curl -fsSL --retry 3 --retry-all-errors -o "$uv_tar" "https://github.com/astral-sh/uv/releases/download/0.13.4/$uv_asset.tar.gz" ||
   { echo "CODEC-STUDY-ERROR could not fetch uv"; exit 4; }
 got=$(shasum -a 256 "$uv_tar" 2>/dev/null || sha256sum "$uv_tar")
 [[ "${got%% *}" == "$uv_sha" ]] || { echo "CODEC-STUDY-ERROR uv sha256 ${got%% *}, want $uv_sha"; exit 4; }

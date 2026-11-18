@@ -67,7 +67,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 /// `run`'s result and the allocations it made on this thread.
-fn allocations_of<T>(run: impl FnOnce() -> T) -> (T, u64) {
+pub(super) fn allocations_of<T>(run: impl FnOnce() -> T) -> (T, u64) {
     let outer = COUNTED.with(|count| count.replace(Some(0)));
     let value = run();
     let made = COUNTED.with(|count| count.replace(outer)).unwrap_or(0);
@@ -220,7 +220,7 @@ fn the_first_list_workspaces_answer_builds_each_node_one_time_at_60_workspaces()
     check(&cost_of(60));
 }
 
-/// The person's session. Not in a default run: each create of a unit-test session checks its delta
+/// A large session. Not in a default run: each create of a unit-test session checks its delta
 /// against the whole tree, so the test's own session of 826 workspaces takes long to make.
 ///
 ///     cargo test --locked -p cmux-tui-core --lib -- list_workspaces_cost --include-ignored --nocapture

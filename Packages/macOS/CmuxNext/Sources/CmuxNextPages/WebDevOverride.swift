@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import os
 
 /// The live web loop of every cmux NEXT build (plans/cmux-next/web-live-reload.md): `web-dev.json`
 /// next to `cmux-next.json` points the app's web surfaces at a loopback Vite server (hot reload)
@@ -30,6 +31,13 @@ import CmuxNextCompat
 /// file (Leo, 2026-11-05: "you should be able to just change your app without going through all
 /// this hoopla"); Settings > General > cmux Live (`updates.liveWebReload`, on by default,
 /// ``setAllowed(_:)``) turns it off without editing it.
+///
+/// Recovery, so a layer cannot lock anyone out (Leo, 2026-11-14: "I want people to not accidentally
+/// soft lock themselves and like have good recovery options or whatever"): a page or agent pane
+/// served from an overlay install that fails to load, ends, or never speaks while shown
+/// (``OverlayStartCheck``) refuses that install in memory, once, so every page reloads bundled, and
+/// ``WebDevOverrideWatcher/onFallBack`` turns the layer off. `--no-customizations` (``ignoreThisRun()``) serves no layer
+/// for one run.
 public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// The Vite server pages load from, nil for none.
     public var server: PageDevServer?
@@ -67,31 +75,105 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// the projection window and Gallery Stage ask.
     public static let isEnabled = true
 
-    /// What the watcher read from `web-dev.json`, and `updates.liveWebReload` (``setAllowed(_:)``),
-    /// on until the settings say otherwise: one lock for both.
-    private nonisolated struct Held: Sendable {
+    /// One overlay install: its folder and its `manifest.json` bytes (``stamp``). A page that did not
+    /// start from it names it (``overlayDidNotStart(_:page:why:)``), so a newer install is tried anew.
+    public nonisolated struct OverlayInstall: Sendable, Equatable {
+        public var overlay: URL
+        public var stamp: Data?
+
+        public init(overlay: URL, stamp: Data?) {
+            self.overlay = overlay
+            self.stamp = stamp
+        }
+    }
+
+    /// The install this override serves pages from, nil when it serves none: no overlay, a refused
+    /// one, or a server, which wins for the files it serves (its pages are a dev loop, not an install).
+    public var servedInstall: OverlayInstall? {
+        guard let overlay, refusal == nil, server == nil else { return nil }
+        return OverlayInstall(overlay: overlay, stamp: stamp)
+    }
+
+    /// What the watcher read from `web-dev.json`, `updates.liveWebReload` (``setAllowed(_:)``), on
+    /// until the settings say otherwise, a launch that ignores every layer (``ignoreThisRun()``) and
+    /// the install a page did not start from: one lock for all.
+    nonisolated struct Held: Sendable {
         var read = WebDevOverride()
         var allowed = true
+        var ignoredThisRun = false
+        /// The install a page or agent pane did not start from, and why: refused in memory, as an
+        /// overlay for another web ABI is, until another install (a new stamp) replaces it.
+        var notStarted: (install: OverlayInstall, reason: String)?
+
+        /// The override in force: empty while cmux Live is off or this run ignores layers; the read
+        /// one otherwise, refused when its install did not start.
+        var inForce: WebDevOverride {
+            guard allowed, !ignoredThisRun else { return WebDevOverride() }
+            var value = read
+            if value.refusal == nil, let notStarted, let overlay = value.overlay,
+               notStarted.install == OverlayInstall(overlay: overlay, stamp: value.stamp) {
+                value.refusal = notStarted.reason
+            }
+            return value
+        }
+
+        /// Refuses `install` for this run; false when it is not the one served now (it already fell
+        /// back, a newer install replaced it, or nothing serves it): one fallback per install.
+        mutating func fallBack(from install: OverlayInstall, reason: String) -> Bool {
+            guard inForce.servedInstall == install else { return false }
+            notStarted = (install, reason)
+            return true
+        }
     }
 
     private static let state = Mutex(Held())
 
-    /// Whether cmux Live (`updates.liveWebReload`) lets `web-dev.json` apply.
-    public static var isAllowed: Bool { state.withLock { $0.allowed } }
+    /// Whether cmux Live (`updates.liveWebReload`) lets `web-dev.json` apply, and this run does not
+    /// ignore it (``ignoreThisRun()``).
+    public static var isAllowed: Bool { state.withLock { $0.allowed && !$0.ignoredThisRun } }
 
-    /// The override in force: what the watcher read from `web-dev.json`, or empty while
-    /// cmux Live is off.
+    /// Whether this run ignores every layer (`--no-customizations`, ``ignoreThisRun()``).
+    public static var isIgnoredThisRun: Bool { state.withLock { $0.ignoredThisRun } }
+
+    /// The override in force: what the watcher read from `web-dev.json`, or empty while cmux Live is
+    /// off or this run ignores it. An install a page did not start from is refused.
     public static var current: WebDevOverride {
-        state.withLock { $0.allowed ? $0.read : WebDevOverride() }
+        state.withLock { $0.inForce }
     }
 
     /// Follows the cmux Live setting (`updates.liveWebReload`): off ignores `web-dev.json`
     /// without editing it. A change reloads every page and agent pane from where it now loads.
     @MainActor public static func setAllowed(_ on: Bool) {
+        change { $0.allowed = on }
+    }
+
+    /// This run ignores `web-dev.json` whatever cmux Live says, and edits no file: the launch for a
+    /// UI that is itself broken (`--no-customizations`, `CMUX_NO_CUSTOMIZATIONS=1`). The next launch
+    /// without it serves the layers again.
+    @MainActor public static func ignoreThisRun() {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("this run ignores every customization layer")
+        change { $0.ignoredThisRun = true }
+    }
+
+    /// A page or agent pane served from `install` did not start (`why`: its load failed, its process
+    /// ended, or its page code never answered): every page reloads from the bundle at once, and
+    /// ``WebDevOverrideWatcher/onFallBack`` turns the layer off. Once per install; false when nothing changed.
+    @MainActor @discardableResult
+    public static func overlayDidNotStart(_ install: OverlayInstall, page: String, why: String) -> Bool {
+        let reason = "\(page) did not start: \(why)"
+        guard state.withLock({ $0.fallBack(from: install, reason: reason) }) else { return false }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").error("overlay fell back to the bundled pages: \(reason, privacy: .public)")
+        WebDevOverrideWatcher.reloadPages()
+        WebDevOverrideWatcher.shared.onFallBack?(reason)
+        return true
+    }
+
+    /// Applies `edit` and reloads every page when the override in force changed.
+    @MainActor private static func change(_ edit: (inout Held) -> Void) {
         let reload = state.withLock { held in
-            guard held.allowed != on else { return false }
-            held.allowed = on
-            return held.read.isActive
+            let before = held.inForce
+            edit(&held)
+            return held.inForce != before
         }
         if reload { WebDevOverrideWatcher.reloadPages() }
     }

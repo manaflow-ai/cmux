@@ -122,3 +122,20 @@ fn a_replay_of_the_primary_screen_is_unchanged_after_a_program_left() {
     assert_eq!(mirror.active_screen(), Screen::Primary);
     assert_eq!(mirror.plain_text().unwrap(), source.plain_text().unwrap());
 }
+
+#[test]
+fn bounded_recovery_text_keeps_short_primary_history_under_alternate_screen() {
+    let mut source = terminal_with(100, 30, &shell_then_program(3_000, "\x1b[?1049h"));
+    let text = source.recovery_text_bounded(1 << 20).unwrap().expect("bounded recovery text");
+    assert!(text.contains("history 00000 before the editor"), "old primary history was lost");
+    assert!(text.contains("history 02999 before the editor"), "new primary history was lost");
+    assert!(text.contains("~ editor line one"), "alternate screen was lost");
+}
+
+#[test]
+fn bounded_recovery_text_preserves_blank_lines_but_not_carriage_returns() {
+    let mut term = terminal_with(40, 8, b"one\r\ntwo\r\n\r\ncarriage\r");
+    let text = term.recovery_text_bounded(1 << 20).unwrap().expect("bounded recovery text");
+    assert!(text.contains("one\ntwo\n\ncarriage"), "blank lines were collapsed: {text:?}");
+    assert!(!text.ends_with("carriage\n"), "a carriage return became a newline: {text:?}");
+}

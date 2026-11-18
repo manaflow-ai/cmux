@@ -38,7 +38,7 @@ import Testing
         scope.setOverride(ThemeSpec(theme), input: input, animated: false)
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
-        let home = MacScreenHomeView(host: MacScreenShareHost(work: BackgroundWork()), actions: MacScreenHomeActions())
+        let home = MacScreenHomeView(host: MacScreenShareHost(), actions: MacScreenHomeActions())
         home.frame = root.bounds
         home.autoresizingMask = [.width, .height]
         root.addSubview(home)

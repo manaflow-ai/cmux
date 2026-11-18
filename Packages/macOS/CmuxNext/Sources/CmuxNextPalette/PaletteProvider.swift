@@ -19,6 +19,10 @@ public protocol PaletteProvider: AnyObject {
     /// Items over time, for a source that shows a first list and a fuller one later (a notice
     /// row while a slow source answers, then its rows). Nil: `items()` once.
     func itemUpdates() -> AsyncStream<[PaletteItem]>?
+    /// Follows the provider's source while its page is open: `changed` runs on each change after this call (a
+    /// workspace created or renamed while Cmd-P shows), and the page reads the provider's rows again. Returns a
+    /// token the page keeps while it is open; dropping it ends the follow. Nil: the rows never change while open.
+    func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject?
 }
 
 extension PaletteProvider {
@@ -26,6 +30,7 @@ extension PaletteProvider {
     public var immediateItems: [PaletteItem]? { nil }
     public var refreshesOnOpen: Bool { false }
     public func itemUpdates() -> AsyncStream<[PaletteItem]>? { nil }
+    public func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { nil }
 }
 
 /// A provider over a fixed item list (extensions, tests, custom actions).

@@ -113,17 +113,17 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
-        # resolve and post are declared light jobs (.github/runners.json hosted_light_jobs): hosted
-        # Ubuntu on attempt 1, then the reconciled pool. On 2026-11-02 post sat on the pool's saturated
-        # 4 vCPU size behind hundreds of jobs for one status write.
+        # resolve and post are light jobs: the reconciled Blacksmith pool on every attempt. They took
+        # hosted Ubuntu on attempt 1 until 2026-11-18, when GitHub-hosted runners left them queued
+        # for hours (cmux#45735).
         light = {"resolve", "post"}
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key in light:
             with self.subTest(light=key):
                 runner = runner_text(doc["jobs"][key])
-                self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
-                self.assertTrue(runner.endswith(
-                    "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
+                self.assertNotIn(f"cmux-next-fast-gates.yml#{key}", declared)
+                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runner)
+                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
         # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
         # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
@@ -1401,6 +1401,8 @@ def shell_scripts(folder: Path) -> list[Path]:
 
 
 QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'')
+# A job whose runs-on can name a Mac: a macOS label or pool, or a nightly signing Mac.
+MAC_RUNS_ON = re.compile(r"'macos-\d|MACOS_RUNNER|RUNNER_POOLS\)\.macos|CI_NIGHTLY_|glaeda-nightly")
 
 
 def bare_timeout_calls(text: str) -> list[tuple[int, str]]:
@@ -1454,6 +1456,26 @@ class CiScriptsCallPortableTimeout(unittest.TestCase):
         self.assertEqual(len(bare_timeout_calls('out="$(FOO=1 gtimeout 9 cmd)"\n')), 1)
         self.assertEqual(bare_timeout_calls('# timeout 5 cmd\necho "no result in a timeout"\nbun test --timeout 5\n'
                                             'bash "$ci_timeout" 5 cmd\necho "$f: its own retry; timeout budget"\n'), [])
+
+    def test_no_mac_workflow_step_calls_timeout_bare(self):
+        # nightly-next-one's "Ask main's nightly-next tick at notarization" ran `timeout 60 gh workflow run ...`
+        # and exited 127 on a signing Mac with no GNU timeout (runs 43715748978, 43717516369); continue-on-error hid
+        # it, so the next nightly never set up during notarization. A `command -v timeout` on the line guards it.
+        offenders = []
+        for workflow_path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            jobs = (yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+            for job_id, job in jobs.items():
+                if not isinstance(job, dict) or not MAC_RUNS_ON.search(str(job.get("runs-on", ""))):
+                    continue
+                for step in job.get("steps") or []:
+                    run = step.get("run") if isinstance(step, dict) else None
+                    if not isinstance(run, str):
+                        continue
+                    for _, line in bare_timeout_calls(run):
+                        if "command -v timeout" not in line:
+                            offenders.append(f"{workflow_path.name} {job_id} [{step.get('name')}]: {line[:160]}")
+        self.assertEqual(offenders, [], "macOS runners have no `timeout`: run the command through "
+                         "`bash scripts/ci/timeout.sh [--kill-after=D] SECONDS CMD...` instead")
 
 
 class WebviewsChecksGate(unittest.TestCase):

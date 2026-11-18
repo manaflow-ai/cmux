@@ -4,8 +4,21 @@ public import Foundation
 /// other than ids decode leniently: a missing or differently typed optional
 /// field is nil, so a newer server never breaks an older app.
 
+/// A device's platform. `linux` is a Linux desktop that hosts its screen
+/// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
-    case macos, ios
+    case macos, ios, linux
+
+    /// Whether a device of this platform hosts a screen another device views: a Mac or a Linux
+    /// desktop, never an iPhone. The iPhone's Screen Sharing list asks this (the Mac app's own
+    /// models say the same in `hostsScreenThisMacViews`), and the switch is exhaustive, so a new
+    /// platform says here whether it hosts.
+    public var hostsScreen: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.

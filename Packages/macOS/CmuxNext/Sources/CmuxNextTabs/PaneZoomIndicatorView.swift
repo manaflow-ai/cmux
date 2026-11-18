@@ -68,7 +68,7 @@ public final class PaneZoomIndicatorView: NSView {
         isHidden = elsewhere || model?.zoomsSelected != true
         guard !isHidden else { return 0 }
         if surface == nil {
-            let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.buttonCornerRadius + Self.padding)
+            let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.buttonCornerRadius + Self.padding, tone: .neutralGlass(.transient))
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             addSubview(glass, positioned: .below, relativeTo: button)
@@ -86,10 +86,22 @@ public final class PaneZoomIndicatorView: NSView {
         return hit
     }
 
+    /// The button's frame in an indicator with `bounds`: the bounds less the glass's padding. Nil
+    /// when the bounds have no room for it (a hidden indicator has no size): the inset of a rect
+    /// smaller than the inset is the null rect, whose origin is infinite. AppKit does not keep that
+    /// frame: the button lands far outside its pane.
+    static func buttonFrame(in bounds: NSRect) -> NSRect? {
+        let frame = bounds.insetBy(dx: padding, dy: padding)
+        return frame.isNull ? nil : frame
+    }
+
     override public func layout() {
         super.layout()
-        surface?.frame = bounds
-        button.frame = bounds.insetBy(dx: Self.padding, dy: Self.padding)
+        // No room for the button: the frames wait for a size.
+        if let frame = Self.buttonFrame(in: bounds) {
+            surface?.frame = bounds
+            button.frame = frame
+        }
         button.layer?.cornerRadius = Metrics.buttonCornerRadius
         button.contentTintColor = performWithTheme { Palette.litGlyph }
     }
@@ -99,8 +111,26 @@ public final class PaneZoomIndicatorView: NSView {
         needsLayout = true
     }
 
+    /// The layout that shows the pane has it zoomed, or has it not (`PaneContentChrome.setPaneShownZoomed`): the
+    /// pane's zoom marks take it now. The strip's model gets the zoom (``TabStripModel/zoomsSelected``), the pane lays
+    /// out again (it places this indicator, and its strip gives up the trailing controls' width), and `controls`
+    /// applies the pane's state again in this call: its own observation of the model runs a turn later.
+    public func show(zoomed: Bool, controls: (any PaneControlsRefreshing)?) {
+        guard let model, model.zoomsSelected != zoomed else { return }
+        model.zoomsSelected = zoomed
+        superview?.needsLayout = true
+        controls?.refresh()
+    }
+
     @objc private func pressed() {
         guard let model, let id = model.selectedID ?? model.tabs.first?.id else { return }
         model.send(.toggleZoom(id))
     }
+}
+
+/// The owner of a pane's trailing controls (the App's `PaneToolbar`): it applies the pane's state to them again, now.
+@MainActor
+public protocol PaneControlsRefreshing: AnyObject {
+    /// Applies the pane's state to the controls again.
+    func refresh()
 }

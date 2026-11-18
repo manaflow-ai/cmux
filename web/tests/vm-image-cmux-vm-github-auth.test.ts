@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { daemonUnit, storeProfileScript } from "../scripts/cmux-vm-image/bake";
 import { GH_SHIM, GITHUB_GITCONFIG, GITHUB_SHIM_DIR, ghShimScript, githubAuthFiles, githubGitconfig } from "../scripts/cmux-vm-image/github-auth";
 import { bakedPrograms, CURRENT_BIN, readInputsLock } from "../scripts/cmux-vm-image/lock";
@@ -133,5 +134,18 @@ describe("smoke programs-run", () => {
   test("gh anywhere else is a problem, the store's gh included", () => {
     expect(programProblems(lock, answer(`${CURRENT_BIN}/gh`)).join("\n")).toContain(`expected ${GH_SHIM}`);
     expect(programProblems(lock, answer("/usr/bin/gh")).join("\n")).toContain("gh: resolves to /usr/bin/gh");
+  });
+});
+
+describe("the host's copy for machines updated in place", () => {
+  // cmux-host github_wiring.rs makes these files again at `cmux host run`: its texts must stay the bake's.
+  const rust = readFileSync(fileURLToPath(new URL("../../cmux-tui/crates/cmux-host/src/github_wiring.rs", import.meta.url)), "utf8");
+  const raw = (name: string) => new RegExp(`pub const ${name}: &str = r#"([\\s\\S]*?)"#;`).exec(rust)?.[1];
+  test("each managed file's text is the bake's, byte for byte", () => {
+    expect(raw("GH_SHIM_TEXT")).toBe(ghShimScript());
+    expect(raw("GITCONFIG_TEXT")).toBe(githubGitconfig());
+    expect(raw("STORE_PROFILE_TEXT")).toBe(storeProfileScript());
+    expect(rust).toContain(`pub const GH_SHIM: &str = "${GH_SHIM}";`);
+    expect(rust).toContain(`pub const GITHUB_GITCONFIG: &str = "${GITHUB_GITCONFIG}";`);
   });
 });

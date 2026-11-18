@@ -1126,16 +1126,21 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
     let c = events.batches[0].changes.as_array().unwrap();
-    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
-    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert_eq!([&c[0]["kind"], &c[0]["resource"]], ["upsert", "workspace"], "{c:?}");
     assert!(c[0].get("event").is_none());
-    // Then the new workspace's sidebar document item and the document
-    // revision (sidebar-doc-v1).
+    // Then the new workspace's sidebar document item, the document revision
+    // (sidebar-doc-v1: the document decides the place) and the personal
+    // placement that follows it.
     assert!(
-        c[2..].iter().all(|change| change["kind"] == "state_upsert"
-            && matches!(change["resource"].as_str(), Some("sidebar_item" | "sidebar_doc"))),
+        c[1..].iter().all(|change| change["kind"] == "state_upsert"
+            && matches!(
+                change["resource"].as_str(),
+                Some("sidebar_item" | "sidebar_doc" | "workspace_placement")
+            )),
         "{c:?}"
     );
+    let placements = c.iter().filter(|change| change["resource"] == "workspace_placement").count();
+    assert_eq!(placements, 1, "{c:?}");
     assert_eq!(
         registry
             .connection
@@ -1498,6 +1503,7 @@ fn viewport_screen() -> RegistryScreen {
                 ),
             ],
         },
+        floating: Vec::new(),
     }
 }
 
@@ -1598,6 +1604,7 @@ fn terminal_topology_patch() -> ResourcePatch {
                 zoomed_pane: None,
                 auto_layout: None,
                 viewport: RegistryViewport::default(),
+                floating: Vec::new(),
             }),
             ResourceChange::UpsertPane(RegistryPane {
                 public_id: pane.clone(),
@@ -1689,6 +1696,7 @@ fn commit_browser_topology(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -2933,6 +2941,7 @@ fn commit_browser_topology_unchecked(
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3030,6 +3039,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::UpsertPane(RegistryPane {
                         public_id: second_pane.clone(),
@@ -3098,6 +3108,7 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         zoomed_pane: None,
                         auto_layout: None,
                         viewport: RegistryViewport::default(),
+                        floating: Vec::new(),
                     }),
                     ResourceChange::TombstonePane { pane_id: second_pane },
                 ],

@@ -12,6 +12,13 @@
 //! - `peers_ms`: from the spawn until every peer's rows are listed;
 //! - `attachUs`: the pane's attach to the god chat (`waitLogs: false`, 400 records, 128 KiB),
 //!   [`ROUNDS`] times: p50, p95 and max;
+//! - the attach flood, which no timing moves (`GOD-FLOOD`, [`flood_json`]): the peer rows'
+//!   `_acpmux/session_changed` notices queued for the test's client from the peers' lists to the
+//!   end of those attaches (`attachNoticesAhead`), the most one list queued
+//!   (`attachNoticesAheadMax`), and their bytes per list (`noticeBytesPerPeerList`). The peers'
+//!   proxies carry no link until the client watches, and a change of one peer row after the
+//!   attaches ends the window ([`flood_end`]). `attachUs` waits on these notices: with none ahead
+//!   an attach takes about 1 ms;
 //! - `scrollPageUs`: the pane's scroll up through the god chat, [`ROUNDS`] older pages
 //!   (`_acpmux/events` before the oldest seq held, 400 records, 128 KiB); `deepScrollUs`: a jump
 //!   to the middle of its history, [`DEEP_ROUNDS`] times;
@@ -53,6 +60,14 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
+    // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
+    "ACPMUX_CHURN_ROWS",
+    "ACPMUX_CHURN_SECS",
+    "ACPMUX_CHURN_EVERY_MS",
+    "ACPMUX_CHURN_CPUS",
+    "ACPMUX_CHURN_BUSY",
+    "ACPMUX_CHURN_FOLLOW",
+    "ACPMUX_CHURN_ARENAS",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -238,6 +253,70 @@ struct Rpc {
     /// Bytes read so far, and the longest line: what a prompt's notices weigh.
     read_bytes: u64,
     longest_line: u64,
+    /// The peer rows' `_acpmux/session_changed` notices read, but for the marker's
+    /// ([`MARKER_KINDS`]): how many, their bytes, and how many of each peer; and the events
+    /// dropped.
+    flood: Flood,
+}
+
+/// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read, and the hub events
+/// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
+/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it.
+#[derive(Clone, Default)]
+struct Flood {
+    notices: u64,
+    bytes: u64,
+    by_peer: BTreeMap<String, u64>,
+    dropped: u64,
+}
+
+impl Flood {
+    /// What was read since `before`, a copy of this taken earlier.
+    fn since(&self, before: &Flood) -> Flood {
+        let by_peer = self
+            .by_peer
+            .iter()
+            .map(|(p, n)| (p.clone(), n - before.by_peer.get(p).unwrap_or(&0)))
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        Flood {
+            notices: self.notices - before.notices,
+            bytes: self.bytes - before.bytes,
+            by_peer,
+            dropped: self.dropped - before.dropped,
+        }
+    }
+
+    /// Every flood notice queued for the client: those it read and those its fan-out dropped.
+    fn queued(&self) -> u64 {
+        self.notices + self.dropped
+    }
+
+    /// Their bytes: those read, and the dropped ones at the mean of the ones read.
+    fn queued_bytes(&self) -> u64 {
+        let mean = self.bytes as f64 / self.notices.max(1) as f64;
+        (self.bytes as f64 + mean * self.dropped as f64).round() as u64
+    }
+}
+
+/// The record kind of the change the test makes to one peer row once the attaches are done
+/// ([`flood_end`]): the daemon's one notice loop takes it after every list before it, so its
+/// notice is the last of theirs this client reads.
+const MARKER_KIND: &str = "rules";
+
+/// The records `Hub::set_rules` appends, the marker's last: neither is a flood notice, and no
+/// fixture row changes so.
+const MARKER_KINDS: [&str; 2] = ["permission_chat_allowance", MARKER_KIND];
+
+/// A peer row's `_acpmux/session_changed`: its peer and record kind.
+fn peer_change(v: &Value) -> Option<(&str, &str)> {
+    if v["method"] != "_acpmux/session_changed" {
+        return None;
+    }
+    let params = &v["params"];
+    let peer = params["peer"].as_str()?;
+    let kind = params["recordKind"].as_str().or_else(|| params["kind"].as_str()).unwrap_or("");
+    Some((peer, kind))
 }
 
 impl Rpc {
@@ -253,6 +332,7 @@ impl Rpc {
             line: String::new(),
             read_bytes: 0,
             longest_line: 0,
+            flood: Flood::default(),
         }
     }
 
@@ -301,7 +381,19 @@ impl Rpc {
         assert!(n > 0, "the daemon closed the socket");
         self.read_bytes += n as u64;
         self.longest_line = self.longest_line.max(self.line.len() as u64);
-        Ok(serde_json::from_str(&std::mem::take(&mut self.line)).unwrap())
+        let line = std::mem::take(&mut self.line);
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if let Some((peer, kind)) = peer_change(&v)
+            && !MARKER_KINDS.contains(&kind)
+        {
+            self.flood.notices += 1;
+            self.flood.bytes += line.len() as u64;
+            *self.flood.by_peer.entry(peer.to_owned()).or_default() += 1;
+        }
+        if v["method"] == "_acpmux/lagged" {
+            self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+        }
+        Ok(v)
     }
 
     /// The first line, kept or read now, that `pred` takes; the others read meanwhile are kept.
@@ -346,28 +438,60 @@ fn is_response(v: &Value, id: u64) -> bool {
 struct Proxy {
     port: u16,
     links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>>,
+    /// The listener new connections go to: [`Proxy::repoint`] moves it to a restarted peer.
+    backend: Arc<std::sync::atomic::AtomicU16>,
+    /// Connections it carried to the peer: each is one link, which reads the peer's list.
+    carried: Arc<std::sync::atomic::AtomicU64>,
 }
+
+/// Held shut, a [`Proxy`] takes connections but carries none to its peer until it opens: no
+/// peer's list reaches the daemon before the test's client watches the list.
+type Gate = tokio::sync::watch::Receiver<bool>;
 
 impl Proxy {
     async fn start(backend: u16) -> Self {
+        Self::gated(backend, tokio::sync::watch::channel(true).1).await
+    }
+
+    async fn gated(backend: u16, gate: Gate) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let links: Arc<std::sync::Mutex<Vec<tokio::task::AbortHandle>>> = Arc::default();
-        let held = links.clone();
+        let backend = Arc::new(std::sync::atomic::AtomicU16::new(backend));
+        let carried = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (held, to, count) = (links.clone(), backend.clone(), carried.clone());
         tokio::spawn(async move {
             while let Ok((mut client, _)) = listener.accept().await {
+                let (to, count, mut gate) = (to.clone(), count.clone(), gate.clone());
                 let task = tokio::spawn(async move {
+                    // A gate whose sender is gone stays as it was: shut, it carries nothing.
+                    if gate.wait_for(|open| *open).await.is_err() {
+                        return;
+                    }
+                    let backend = to.load(std::sync::atomic::Ordering::SeqCst);
                     let Ok(mut server) =
                         tokio::net::TcpStream::connect(("127.0.0.1", backend)).await
                     else {
                         return;
                     };
+                    count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
                 });
                 held.lock().unwrap().push(task.abort_handle());
             }
         });
-        Self { port, links }
+        Self { port, links, backend, carried }
+    }
+
+    /// Connections carried to the peer so far.
+    fn carried(&self) -> u64 {
+        self.carried.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    // Only the churn lab (Linux) moves a proxy.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    fn repoint(&self, backend: u16) {
+        self.backend.store(backend, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn cut(&self) {
@@ -378,8 +502,9 @@ impl Proxy {
 }
 
 /// `shape.peers` hubs in this process, each listing `shape.peer_rows` chats, served with a peer
-/// token behind a [`Proxy`]: the `peers` of the daemon's config and the proxies.
-async fn peers(shape: &Shape, scratch: &Path) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
+/// token behind a [`Proxy`] held shut by `gate`: the `peers` of the daemon's config, the proxies
+/// and the hubs.
+async fn peers(shape: &Shape, scratch: &Path, gate: Gate) -> (Value, Vec<Proxy>, Vec<Arc<Hub>>) {
     let (mut config, mut proxies, mut hubs) = (serde_json::Map::new(), vec![], vec![]);
     for p in 0..shape.peers {
         let name = format!("peer{p:02}");
@@ -398,7 +523,7 @@ async fn peers(shape: &Shape, scratch: &Path) -> (Value, Vec<Proxy>, Vec<Arc<Hub
         let backend = listener.local_addr().unwrap().port();
         let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
         tokio::spawn(serve_ws_with(hub.clone(), listener, "tok".into(), auth));
-        let proxy = Proxy::start(backend).await;
+        let proxy = Proxy::gated(backend, gate.clone()).await;
         config.insert(
             name,
             json!({"url": format!("ws://127.0.0.1:{}", proxy.port), "token": "tok",
@@ -435,6 +560,11 @@ impl Daemon {
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
         }
+        // glibc malloc's arena count for the daemon (the churn lab's `ACPMUX_CHURN_ARENAS`): RSS
+        // that a cap shrinks is memory the allocator kept, not memory the daemon holds.
+        if let Ok(arenas) = std::env::var("ACPMUX_CHURN_ARENAS") {
+            command.env("MALLOC_ARENA_MAX", arenas);
+        }
         let spawned = Instant::now();
         let mut child = command.spawn().unwrap();
         // Observe bind from a client too: moving an internal gauge alone cannot improve this
@@ -452,6 +582,22 @@ impl Daemon {
         }
         let socket_connect_us = micros(spawned);
         Self { child, socket, spawned, socket_connect_us }
+    }
+
+    /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
+    #[cfg(target_os = "linux")]
+    fn cpu_seconds(&self) -> f64 {
+        let stat =
+            std::fs::read_to_string(format!("/proc/{}/stat", self.child.id())).unwrap_or_default();
+        // The fields after the command name, which is in parentheses and may hold spaces, taken
+        // by position: some before utime are negative (`tpgid` is -1 with no terminal).
+        let rest = stat.rsplit_once(')').map_or("", |(_, r)| r);
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        // utime and stime are fields 14 and 15; `rest` starts at field 3, the state.
+        let field = |n: usize| fields.get(n - 3).and_then(|f| f.parse::<u64>().ok()).unwrap_or(0);
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1);
+        (field(14) + field(15)) as f64 / hz as f64
     }
 
     /// `VmRSS` and `VmHWM` of the daemon, in bytes.
@@ -510,6 +656,60 @@ impl Daemon {
     }
 }
 
+/// How long the client waits for the marker's notice after the attaches.
+const MARKER_WAIT: Duration = Duration::from_secs(120);
+
+/// The end of the attach-flood window: a change of `peer`'s first row on its hub, whose
+/// `_acpmux/session_changed` the client then reads up to. The daemon's one notice loop applies
+/// the peers' lists and announces each list's rows before it takes the next notice, and every
+/// list was taken before this (the caller saw every row listed), so every notice the lists queued
+/// for this connection comes before the marker's: what the client read from the window's start
+/// (`from`) to the marker does not depend on when it read them. None, and why, when no marker
+/// came.
+fn flood_end(rpc: &mut Rpc, hub: &Hub, peer: &str, from: &Flood) -> Result<Flood, Value> {
+    let id = format!("{peer}-00000");
+    let Some(row) = hub.sessions().into_iter().find(|s| s.id == id) else {
+        return Err(json!(format!("no row {id} on {peer}'s hub")));
+    };
+    hub.set_rules(&row, Some(json!({"default": "approve"})));
+    let deadline = Some(Instant::now() + MARKER_WAIT);
+    let got = rpc.wait_note_until(|v| peer_change(v) == Some((peer, MARKER_KIND)), deadline);
+    rpc.writer.set_read_timeout(Some(STEP)).unwrap();
+    rpc.notes.clear();
+    got.map_err(|e| json!({"marker": MARKER_KIND, "io": e.to_string()}))?;
+    Ok(rpc.flood.since(from))
+}
+
+/// The attach-flood numbers of one start, which no timing changes: the peer rows'
+/// `_acpmux/session_changed` notices queued for the client from the first peer list's arrival to
+/// the end of the attach loop (`attachNoticesAhead`: every one an attach in that loop can wait
+/// behind), the most of them one peer's list queued (`attachNoticesAheadMax`: what an attach that
+/// lands just after that list waits behind), and their bytes over the lists that arrived
+/// (`noticeBytesPerPeerList`, `peerLists`: links the proxies carried to a peer, one list each).
+/// Queued counts the ones the connection's fan-out dropped when it fell behind the hub's
+/// broadcast (`noticesDropped`, told as `_acpmux/lagged`): which of them are dropped moves with
+/// timing, their sum with the ones read does not. Dropped ones are weighed at the mean of those
+/// read.
+fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
+    let Ok(w) = window else {
+        return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
+                      "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
+                      "noticesRead": null, "noticesDropped": null,
+                      "floodError": window.as_ref().err()});
+    };
+    let bytes = w.queued_bytes();
+    json!({
+        "attachNoticesAhead": w.queued(),
+        "attachNoticesAheadMax": w.by_peer.values().max().copied().unwrap_or(0),
+        "noticeBytes": bytes,
+        "noticeBytesPerPeerList": bytes.checked_div(lists),
+        "peerLists": lists,
+        "noticesRead": w.notices,
+        "noticesDropped": w.dropped,
+        "floodError": null,
+    })
+}
+
 /// Every peer connected and its rows listed: `peers` connected and `rows` remote sessions.
 fn peers_listed(rpc: &mut Rpc, peers: usize, rows: usize) -> bool {
     let Ok(status) = rpc.call("_acpmux/status", json!({})) else { return false };
@@ -542,6 +742,50 @@ fn write_config(home: &Path, peers: Value) {
     std::fs::write(home.join("config.json"), config.to_string()).unwrap();
 }
 
+/// [`attach_rounds`]' attaches: the time of each that answered, the last reply, the failures
+/// and the first one's error, and the flood notices read ahead of each reply.
+struct Attaches {
+    attaches: Vec<u64>,
+    attach: Result<Value, Value>,
+    attach_errors: u64,
+    attach_error: Value,
+    read_ahead: Vec<u64>,
+}
+
+/// The pane's open of the god chat, [`ROUNDS`] times: a page of its newest records. One that
+/// fails is counted, not timed.
+fn attach_rounds(rpc: &mut Rpc, god: &str) -> Attaches {
+    let mut a = Attaches {
+        attaches: vec![],
+        attach: Ok(Value::Null),
+        attach_errors: 0,
+        attach_error: Value::Null,
+        read_ahead: vec![],
+    };
+    for _ in 0..ROUNDS {
+        let before = rpc.flood.notices;
+        let attached = Instant::now();
+        a.attach = rpc.call(
+            "_acpmux/attach",
+            json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
+                   "maxBytes": PAGE_BYTES}),
+        );
+        let us = micros(attached);
+        a.read_ahead.push(rpc.flood.notices - before);
+        match &a.attach {
+            Ok(_) => a.attaches.push(us),
+            Err(e) => {
+                a.attach_errors += 1;
+                if a.attach_error.is_null() {
+                    a.attach_error = e.clone();
+                }
+            }
+        }
+        rpc.notes.clear();
+    }
+    a
+}
+
 /// One home's run: its numbers, and its heap profile's path when one was asked for.
 async fn run(shape: Shape, dhat: bool) -> Value {
     let scratch = std::env::temp_dir().join(format!("god-{}-{}", shape.name, std::process::id()));
@@ -552,7 +796,10 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let written = Instant::now();
     let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
     let write_ms = ms(written);
-    let (peer_config, proxies, _hubs) = peers(&shape, &scratch).await;
+    let (gate, shut) = tokio::sync::watch::channel(false);
+    let (peer_config, proxies, hubs) = peers(&shape, &scratch, shut).await;
+    // peer00's hub, whose row change marks the end of the attach-flood window (`flood_end`).
+    let marker = hubs.first().cloned();
     let proxies = Arc::new(proxies);
     write_config(&home, peer_config);
     // What the fixture (and the config) put in the home, before the daemon starts.
@@ -575,31 +822,20 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let first_list_ms = ms(daemon.spawned);
         let listed =
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
+        // The peers' lists reach the daemon only now that this client watches, so every notice
+        // they queue is this client's to read.
+        let flood_from = rpc.flood.clone();
+        gate.send_replace(true);
         let peers_ms = wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(daemon.spawned));
 
-        // The pane's open of the god chat, again and again: a page of its newest records. One
-        // that fails is counted, not timed.
-        let (mut attaches, mut attach) = (vec![], Ok(Value::Null));
-        let (mut attach_errors, mut attach_error) = (0u64, Value::Null);
-        for _ in 0..ROUNDS {
-            let attached = Instant::now();
-            attach = rpc.call(
-                "_acpmux/attach",
-                json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
-                       "maxBytes": PAGE_BYTES}),
-            );
-            let us = micros(attached);
-            match &attach {
-                Ok(_) => attaches.push(us),
-                Err(e) => {
-                    attach_errors += 1;
-                    if attach_error.is_null() {
-                        attach_error = e.clone();
-                    }
-                }
-            }
-            rpc.notes.clear();
-        }
+        let Attaches { attaches, attach, attach_errors, attach_error, read_ahead } =
+            attach_rounds(&mut rpc, &god);
+        let window = match &marker {
+            Some(hub) => flood_end(&mut rpc, hub, "peer00", &flood_from),
+            None => Err(json!("no peer to mark the window's end")),
+        };
+        let lists = cutter.iter().map(Proxy::carried).sum::<u64>();
+        let flood = flood_json(&window, lists);
 
         // The pane's scroll up: each page the one before the oldest record held. At the chat's
         // start it begins again from the attach's page, so a short chat gives as many pages.
@@ -804,6 +1040,14 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "socketConnectUs": socket_connect_us,
             "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
             "attachErrors": attach_errors, "attachError": attach_error,
+            "attachNoticesAhead": flood["attachNoticesAhead"],
+            "attachNoticesAheadMax": flood["attachNoticesAheadMax"],
+            "noticeBytesPerPeerList": flood["noticeBytesPerPeerList"],
+            "flood": flood,
+            // Timed, for reading beside `attachUs`: the notices read ahead of each attach's reply,
+            // summed and the most for one. They move with when the loop starts.
+            "attachNoticesReadAhead": read_ahead.iter().sum::<u64>(),
+            "attachNoticesReadAheadMax": read_ahead.iter().max(),
             "scrollPageUs": spread(&scrolls), "scrollWraps": scroll_wraps,
             "scrollError": scroll_error,
             "deepScrollUs": spread(&deeps), "deepScrollError": deep_error,
@@ -900,6 +1144,8 @@ fn attribute(path: &Path) -> Value {
         gbk: u64,
         tb: u64,
         tbk: u64,
+        // Held when the profile was written (the daemon's exit): what a run left behind.
+        eb: u64,
         leaf_gb: u64,
         leaf_gbk: u64,
         inner: BTreeMap<String, u64>,
@@ -920,6 +1166,7 @@ fn attribute(path: &Path) -> Value {
         site.gbk += gbk;
         site.tb += pp["tb"].as_u64().unwrap_or(0);
         site.tbk += pp["tbk"].as_u64().unwrap_or(0);
+        site.eb += pp["eb"].as_u64().unwrap_or(0);
         // The library frame that asked (serde_json, imbl, String), below the allocator's own.
         let inner = frames
             .iter()
@@ -936,7 +1183,7 @@ fn attribute(path: &Path) -> Value {
     let row = |(name, s): (&String, &Site)| {
         let mut inner: Vec<(&String, &u64)> = s.inner.iter().collect();
         inner.sort_by_key(|(_, b)| std::cmp::Reverse(**b));
-        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "totalBytes": s.tb,
+        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "endBytes": s.eb, "totalBytes": s.tb,
                "totalBlocks": s.tbk, "leafPeakBytes": s.leaf_gb, "leafPeakBlocks": s.leaf_gbk,
                "via": inner.into_iter().take(3).map(|(f, b)| json!([f, b])).collect::<Vec<_>>()})
     };
@@ -946,12 +1193,16 @@ fn attribute(path: &Path) -> Value {
     by_total.sort_by_key(|(_, s)| std::cmp::Reverse(s.tb));
     let mut by_leaf: Vec<(&String, &Site)> = sites.iter().filter(|(_, s)| s.leaf_gb > 0).collect();
     by_leaf.sort_by_key(|(_, s)| std::cmp::Reverse(s.leaf_gb));
+    let mut by_end: Vec<(&String, &Site)> = sites.iter().collect();
+    by_end.sort_by_key(|(_, s)| std::cmp::Reverse(s.eb));
     json!({
         "peakBytes": peak,
         "leafPeakBytes": leaves,
         "byPeak": by_peak.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "byTotal": by_total.into_iter().take(top).map(row).collect::<Vec<_>>(),
         "leavesBySite": by_leaf.into_iter().take(top).map(row).collect::<Vec<_>>(),
+        "endBytes": sites.values().map(|s| s.eb).sum::<u64>(),
+        "byEnd": by_end.into_iter().take(top).map(row).collect::<Vec<_>>(),
     })
 }
 
@@ -969,6 +1220,7 @@ async fn god_and_small_homes_in_one_harness() {
         };
         let result = run(shape, dhat).await;
         println!("GOD-BASELINE {result}");
+        println!("GOD-FLOOD {}", flood_line(&result));
         let restart_ms = result["restartChatAttachMs"].as_u64().unwrap_or(u64::MAX);
         assert!(
             restart_ms <= 2_000,
@@ -1042,6 +1294,42 @@ async fn god_and_small_homes_in_one_harness() {
     }
 }
 
+/// One home's `GOD-FLOOD` line: its shape and [`flood_json`]'s numbers, which no timing moves.
+fn flood_line(result: &Value) -> Value {
+    let mut line = json!({"shape": result["shape"], "peers": result["peers"],
+                          "peerRows": result["peerRows"]});
+    for (k, v) in result["flood"].as_object().into_iter().flatten() {
+        line[k] = v.clone();
+    }
+    line
+}
+
+/// The attach flood of the god home's peers (26 x 400 rows) over a small home, pinned: each row
+/// of each peer's list reaches the watching client as one `_acpmux/session_changed` ahead of the
+/// attaches, none twice, one list per peer. A change that sends more or fewer of them fails
+/// here; one that means to (a list sent as one notice, say) moves these numbers with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_attach_flood_is_one_notice_per_peer_row() {
+    let god = Shape::god();
+    let shape =
+        Shape { name: "flood", peers: god.peers, peer_rows: god.peer_rows, ..Shape::small() };
+    let result = run(shape.clone(), false).await;
+    let line = flood_line(&result);
+    println!("GOD-FLOOD {line}");
+    let (peers, rows) = (shape.peers as u64, shape.peer_rows as u64);
+    assert_eq!(line["floodError"], Value::Null, "{line}");
+    assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
+    assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
+    assert_eq!(line["attachNoticesAheadMax"], json!(rows), "one list's rows: {line}");
+    // Each notice carries its row's summary, 3,327 bytes of the fixture's 75 keys: 1,330,733 a
+    // list on the Linux pool, every run. Within 1%: dropped notices are weighed at the mean.
+    let per_list = line["noticeBytesPerPeerList"].as_u64().unwrap_or(0);
+    assert!(
+        (1_317_426..=1_344_040).contains(&per_list),
+        "a list's notices are {per_list} bytes, not 1,330,733 (1%): {line}"
+    );
+}
+
 /// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
 /// ignored while detecting a daemon restart regression. Rendering is measured by the app driver.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1051,4 +1339,236 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
     assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
     let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
     assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
+}
+
+/// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
+/// rows and the same peer token, so the link that reconnects to it cannot follow its cursor and
+/// reads the whole list, as from a peer that restarted or an older daemon without the follow.
+#[cfg(target_os = "linux")]
+struct RestartingPeer {
+    name: String,
+    rows: usize,
+    auth: Arc<PeerAuth>,
+    serving: Option<tokio::task::AbortHandle>,
+}
+
+#[cfg(target_os = "linux")]
+impl RestartingPeer {
+    /// A new run of the peer's hub on a new port: the port.
+    async fn start(&mut self) -> u16 {
+        if let Some(old) = self.serving.take() {
+            old.abort();
+        }
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Memory;
+        let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        for i in 0..self.rows {
+            let meta = god_fixture::peer_meta(&self.name, i);
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(cfg, store);
+        let listener = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let auth = WsAuth { local_app: None, peer: Some(self.auth.clone()) };
+        self.serving =
+            Some(tokio::spawn(serve_ws_with(hub, listener, "tok".into(), auth)).abort_handle());
+        port
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Pins thread `pid` (0: the calling thread) to the first `cpus` CPUs.
+#[cfg(target_os = "linux")]
+fn pin(pid: i32, cpus: usize) {
+    // SAFETY: a zeroed cpu_set_t is an empty set; CPU_SET writes within it.
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        for cpu in 0..cpus {
+            libc::CPU_SET(cpu, &mut set);
+        }
+        libc::sched_setaffinity(pid, std::mem::size_of::<libc::cpu_set_t>(), &set);
+    }
+}
+
+/// Pins every thread of process `pid` to the first `cpus` CPUs: `sched_setaffinity` on a pid
+/// sets only its main thread, and a thread started later inherits from the thread that starts it,
+/// so each running thread is set (`/proc/PID/task`), twice in case one started during the first.
+#[cfg(target_os = "linux")]
+fn pin_process(pid: u32, cpus: usize) {
+    for _ in 0..2 {
+        let tasks = std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten();
+        for tid in tasks.filter_map(|t| t.file_name().to_str()?.parse::<i32>().ok()) {
+            pin(tid, cpus);
+        }
+    }
+}
+
+/// The hub's notice channel under a peer that cannot follow (2026-11-15, after cmux#42095 closed):
+/// bounded by notices (4,096), not bytes. Each of its links reads its whole list again, and the
+/// hub's one notice loop applies lists one at a time. Measured: the bytes of lists the loop had not
+/// taken yet (`gauges.peerLists`, now and at peak) and the daemon's RSS, while the peer's link is
+/// cut and the peer restarted every `ACPMUX_CHURN_EVERY_MS` for `ACPMUX_CHURN_SECS`, with the
+/// daemon alone pinned to `ACPMUX_CHURN_CPUS` CPUs shared with `ACPMUX_CHURN_BUSY` busy threads
+/// (a starved daemon, as at a load average of 125-256 on Leo's Mac); the peer runs free.
+/// `ACPMUX_CHURN_FOLLOW=1` cuts without a restart, so the link follows: the control.
+/// Manual, on Linux CI:
+/// `cargo test -p acpmux --release --test god_daemon whole_lists -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "manual: a churn lab; run on Linux CI"]
+async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
+    let rows: usize = env_or("ACPMUX_CHURN_ROWS", 4_000);
+    let secs: u64 = env_or("ACPMUX_CHURN_SECS", 60);
+    let every = Duration::from_millis(env_or("ACPMUX_CHURN_EVERY_MS", 500));
+    let cpus: usize = env_or("ACPMUX_CHURN_CPUS", 1);
+    let busy: usize = env_or("ACPMUX_CHURN_BUSY", 8);
+    let follow = std::env::var("ACPMUX_CHURN_FOLLOW").is_ok_and(|v| v == "1");
+
+    let scratch = std::env::temp_dir().join(format!("god-churn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape = Shape { peers: 0, ..Shape::small() };
+    god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    let peer_home = scratch.join("peer-0");
+    std::fs::create_dir_all(&peer_home).unwrap();
+    let auth = Arc::new(PeerAuth::create(&peer_home).unwrap());
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&peer_home)).unwrap();
+    let mut peer = RestartingPeer { name: "peer00".into(), rows, auth, serving: None };
+    let proxy = Arc::new(Proxy::start(peer.start().await).await);
+    write_config(
+        &home,
+        json!({"peer00": {"url": format!("ws://127.0.0.1:{}", proxy.port), "token": "tok",
+                          "peerToken": token.trim()}}),
+    );
+
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "churn-bench"}}))
+        .unwrap();
+    assert!(wait_listed(&mut rpc, 1, rows).is_some(), "the peer was never listed");
+    let (rss_listed, _) = daemon.rss();
+    let cpu_listed = daemon.cpu_seconds();
+
+    // The daemon starved: pinned with busy threads on its CPUs.
+    pin_process(daemon.child.id(), cpus);
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let spinners: Vec<_> = (0..busy)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                pin(0, cpus);
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            })
+        })
+        .collect();
+
+    // The churn: cut (and restart) the peer every `every`; sample the gauge meanwhile.
+    let cuts = {
+        let proxy = proxy.clone();
+        let stop = stop.clone();
+        tokio::spawn(async move {
+            let mut cuts = 0u64;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                if !follow {
+                    proxy.repoint(peer.start().await);
+                }
+                proxy.cut();
+                cuts += 1;
+                tokio::time::sleep(every).await;
+            }
+            (cuts, peer)
+        })
+    };
+    let sampled = tokio::task::spawn_blocking(move || {
+        let started = Instant::now();
+        let (mut peak_bytes, mut peak_lists, mut samples) = (0u64, 0u64, 0u64);
+        while started.elapsed() < Duration::from_secs(secs) {
+            std::thread::sleep(Duration::from_millis(500));
+            let Ok(status) = rpc.call("_acpmux/status", json!({})) else { continue };
+            let lists = &status["gauges"]["peerLists"];
+            peak_bytes = peak_bytes.max(lists["bytes"].as_u64().unwrap_or(0));
+            peak_lists = peak_lists.max(lists["lists"].as_u64().unwrap_or(0));
+            let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+            let at = started.elapsed().as_millis() as u64;
+            // One short line per sample, as it is read: a CI log cuts long lines, and a run that
+            // stalls still shows where.
+            println!("CHURN-RSS {at} {} {} {}", lists["lists"], lists["bytes"], rss / 1_048_576);
+            samples += 1;
+        }
+        (rpc, peak_bytes, peak_lists, samples)
+    })
+    .await
+    .unwrap();
+    let (mut rpc, sampled_bytes, sampled_lists, samples) = sampled;
+    let (rss_churned, _) = daemon.rss();
+    let cpu_churn = daemon.cpu_seconds() - cpu_listed;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+    let (cuts, _peer) = cuts.await.unwrap();
+
+    // Unstarved: until every list waiting is taken.
+    let drained = Instant::now();
+    let (mut drain_ms, mut reads) = (None, 0u64);
+    while drained.elapsed() < STEP {
+        let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+        let rss = status["gauges"]["memory"]["rssBytes"].as_u64().unwrap_or(0);
+        // About one line a second.
+        if reads % 10 == 0 {
+            println!(
+                "CHURN-DRAIN {} {} {}",
+                ms(drained),
+                status["gauges"]["peerLists"]["lists"],
+                rss / 1_048_576
+            );
+        }
+        reads += 1;
+        if status["gauges"]["peerLists"]["lists"] == 0 && peers_listed(&mut rpc, 1, rows) {
+            drain_ms = Some(ms(drained));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
+    let (rss_end, peak_rss) = daemon.rss();
+    drop(rpc);
+    daemon.stop();
+    let heap = profile.as_deref().map(attribute);
+    let lists = &status["gauges"]["peerLists"];
+    let result = json!({
+        "rows": rows, "secs": secs, "everyMs": every.as_millis() as u64, "cpus": cpus,
+        "busy": busy, "follow": follow, "cuts": cuts,
+        "peakLists": lists["peakLists"], "peakBytes": lists["peakBytes"],
+        "sampledPeakLists": sampled_lists, "sampledPeakBytes": sampled_bytes,
+        "drainMs": drain_ms,
+        "rssListed": rss_listed, "rssChurned": rss_churned, "rssEnd": rss_end, "peakRss": peak_rss,
+        // The daemon's CPU seconds over the churn (with no busy threads, its cost; with them, its share).
+        "cpuChurnS": cpu_churn,
+        "samples": samples,
+        "arenas": std::env::var("ACPMUX_CHURN_ARENAS").ok(),
+        "heapEndBytes": heap.as_ref().map(|h| h["endBytes"].clone()),
+        "heapPeakBytes": heap.as_ref().map(|h| h["peakBytes"].clone()),
+    });
+    println!("CHURN {result}");
+    for (list, rows) in heap.iter().flat_map(|h| [("END", &h["byEnd"]), ("PEAK", &h["byPeak"])]) {
+        for row in rows.as_array().into_iter().flatten() {
+            println!(
+                "CHURN-HEAP-{list} {} {} {} {}",
+                row["endBytes"], row["peakBytes"], row["totalBytes"], row["site"]
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
 }

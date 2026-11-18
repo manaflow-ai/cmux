@@ -61,6 +61,12 @@ const paths: Record<string, ReactNode> = {
       <path d="M3.9 12.5c.9-1.5 2.4-2.3 4.1-2.3s3.2.8 4.1 2.3" />
     </>
   ),
+  key: (
+    <>
+      <circle cx="5.2" cy="10.8" r="3" />
+      <path d="m7.3 8.7 6-6M11.2 4.8l1.6 1.6M9.6 6.4l1.2 1.2" />
+    </>
+  ),
   "square.stack": (
     <>
       <rect x="3.2" y="5" width="9.6" height="8.6" rx="1.6" />
@@ -130,6 +136,33 @@ const paths: Record<string, ReactNode> = {
       <path d="m10.3 10.3 3.6 3.6" />
     </>
   ),
+  // The app areas What's New and the Updated popover group changes under (changelog/SheetPage.tsx
+  // AREA_SYMBOLS; Leo 2026-11-14 on the popover's blobby cloud and its blank Other: "theese are kinda
+  // crappy looking icons and stuff").
+  cloud: <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3Z" />,
+  command: (
+    <path d="M6 6H4.5A1.5 1.5 0 1 1 6 4.5V6Zm4 0V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 4h1.5a1.5 1.5 0 1 1-1.5 1.5V10Zm-4 0v1.5A1.5 1.5 0 1 1 4.5 10H6ZM6 6h4v4H6Z" />
+  ),
+  macwindow: (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 5.8h12.4M3.9 4.3h.01M5.5 4.3h.01" />
+    </>
+  ),
+  "rectangle.tabs": (
+    <>
+      <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
+      <path d="M1.8 6.2h12.4M6 2.8v3.4M10.2 2.8v3.4" />
+    </>
+  ),
+  "ellipsis.circle": (
+    <>
+      <circle cx="8" cy="8" r="6.2" />
+      <circle cx="5.2" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r=".85" fill="currentColor" stroke="none" />
+      <circle cx="10.8" cy="8" r=".85" fill="currentColor" stroke="none" />
+    </>
+  ),
   "icloud.and.arrow.down": (
     <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
@@ -184,6 +217,17 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   "arrow.up.to.line": <path d="M3.4 2.6h9.2M8 13.4V5.4M4.8 8.4 8 5.2l3.2 3.2" />,
+  // Settings > Models: a chip with its pins.
+  cpu: (
+    <>
+      <rect x="4" y="4" width="8" height="8" rx="1.4" />
+      <rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".5" />
+      <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
+    </>
+  ),
+  // The overflow menu of a row (Settings > Models connections).
+  ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
+  plus: <path d="M8 3v10M3 8h10" />,
   "arrow.down.to.more": <path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M4 13.4h.01M8 13.4h.01M12 13.4h.01" />,
 };
 

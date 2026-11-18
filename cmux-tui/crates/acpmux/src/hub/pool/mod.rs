@@ -233,6 +233,20 @@ pub struct PrewarmRequest {
     /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
     /// (`trust::web_session_level`), also for the folder picked when the hint names none.
     pub trust_web: bool,
+    /// What the chat this hint serves will ask on its `session/new` (a Cloud chat's start,
+    /// cmux#45953), so the entry is keyed as that chat's own start keys it.
+    pub shape: PrewarmShape,
+}
+
+/// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
+/// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
+/// credential (`_meta.acpmux.credentials`, this machine's own socket only). An entry warmed with a
+/// credential is hinted only: never a spare or a last-used entry, which outlive the hint.
+#[derive(Debug, Clone, Default)]
+pub struct PrewarmShape {
+    pub model: Option<String>,
+    pub workspace_id: Option<String>,
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -352,8 +366,11 @@ impl Hub {
         draft: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<PoolSpec, RpcError> {
-        let spawn = self.spawn_profile_for(draft, profile, defaults_env).await?;
+        // The credential goes into the spawn as the session's own would (`spawn_profile_read`),
+        // so the key's auth fingerprint below hashes it: only the same credential matches.
+        let spawn = self.spawn_profile_with(draft, profile, defaults_env, credential).await?;
         let sha = match &draft.preset {
             Some(name) => self
                 .config
@@ -379,7 +396,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
-            machine: crate::login_env::machine_stamp(),
+            machine: crate::vault::machine_stamp(),
             prompt_suggestions: suggestions_at_start(
                 &spawn,
                 crate::claude_stdio::prompt_suggestions::enabled_in_settings,
@@ -397,19 +414,22 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
-        self.pool_spec_in(harness, preset, cwd, None).await
+        self.pool_spec_in(harness, preset, cwd, None, &PrewarmShape::default()).await
     }
 
     /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
     /// that session's model request) asks for that model and may also start in the home folder
-    /// off macOS (`protected_folders::spare_refusal`).
+    /// off macOS (`protected_folders::spare_refusal`). `shape`: what a hinted chat's own
+    /// `session/new` will name (its pinned model, workspace and credential), as that start reads them.
     async fn pool_spec_in(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         cwd: PathBuf,
         spare: Option<Option<String>>,
+        shape: &PrewarmShape,
     ) -> Result<PoolSpec, RpcError> {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -448,10 +468,13 @@ impl Hub {
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: match (spawn_model, spare) {
-                (false, _) => None,
-                (true, Some(model)) => model,
-                (true, None) => start_model(),
+            // A model the chat pins is its spawn model, as `session/new` takes a request's
+            // (`model_pinned`, lifecycle.rs).
+            model_request: match (spawn_model, spare, &shape.model) {
+                (false, ..) => None,
+                (true, Some(model), _) => model,
+                (true, None, Some(pinned)) => Some(pinned.clone()),
+                (true, None, None) => start_model(),
             },
             cwd,
             agent_session_id: None,
@@ -465,7 +488,8 @@ impl Hub {
             // agent started with the same ones has the same key, so the chat can take it.
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
-        self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
+        draft.workspace_id = shape.workspace_id.clone();
+        self.pool_spec_for(&draft, &r.profile, &r.defaults.env, shape.credential.as_ref()).await
     }
 
     /// `_acpmux/prewarm`: accepted at once; after the debounce, the newest
@@ -500,7 +524,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, shape, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -511,7 +535,7 @@ impl Hub {
                 return Ok(None);
             }
             hub.wait_startup().await;
-            let spec = hub.pool_spec(harness, preset, cwd).await?;
+            let spec = hub.pool_spec_in(harness, preset, cwd, None, &shape).await?;
             if trust_gate && let Some(paths) = hub.trust_gate() {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
@@ -765,6 +789,7 @@ impl Hub {
         meta: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Option<String> {
         // MDM's off as this claim begins: its one read, first, before any await or pool lock
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
@@ -788,9 +813,11 @@ impl Hub {
         {
             return None;
         }
-        let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
+        let spec = self.pool_spec_for(meta, profile, defaults_env, credential).await.ok()?;
         loop {
-            let took = lock(&self.pool.pool).take(&spec.key);
+            // A credentialed start (cmux#45953) never ends another key's entry: only one
+            // warmed with its own credential is its, and the folder's spare stays.
+            let took = lock(&self.pool.pool).take_or_keep(&spec.key, credential.is_none());
             match took {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
@@ -818,7 +845,7 @@ impl Hub {
                     // A delivery or revocation since its key was made (also
                     // while this claim waited on its start): a cold start
                     // reads the machine's secrets afresh.
-                    if p.key.machine != crate::login_env::machine_stamp() {
+                    if p.key.machine != crate::vault::machine_stamp() {
                         tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
                         self.pool_discard(vec![p]);
                         return None;

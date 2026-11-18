@@ -1,0 +1,1703 @@
+{
+ "schema": 1,
+ "about": "manaflow-ai/cmux's diff-triggered reliability checklist. Each item names a trigger readable from a diff (changed paths, or added/removed lines matching a regex in the files `in` names), the check a reviewer answers, and the incidents behind it. A reviewer runs only the items whose trigger fires. Made from cmuxterm-hq docs/handbook/ pattern pages and docs/compendium/; read from the PR's base, never its head. Validator and tuner: leo-workspace tools/review_checklist.py (lint, match, fires).",
+ "items": [
+  {
+   "id": "RC01",
+   "title": "A record written by the previous release still loads",
+   "check": "When a stored type changes (a field added, renamed or retyped, an enum case added), does a journal row, snapshot, outbox entry or settings blob the shipped release wrote still load? New fields need #[serde(default)] or decodeIfPresent, renames an alias, and a test that loads a fixture in the old shape.",
+   "trigger": {
+    "paths": [
+     "cmux-tui/crates/acpmux/src/hub/journal_restore.rs",
+     "cmux-tui/crates/acpmux/src/hub/store_load.rs",
+     "cmux-tui/crates/acpmux/src/hub/restore_point.rs",
+     "cmux-tui/crates/acpmux/src/hub/restore_writer.rs",
+     "cmux-tui/crates/acpmux/src/hub/queue_restore.rs",
+     "cmux-tui/crates/acpmux/src/hub/outbox.rs",
+     "cmux-tui/crates/acpmux/src/hub/ledger/store.rs",
+     "cmux-tui/crates/acpmux/src/hub/hosts/journal.rs",
+     "cmux-tui/crates/acpmux/src/hub/peer_snapshot/disk.rs",
+     "cmux-tui/spec/session-journal.md"
+    ],
+    "diff": [
+     "#\\[serde\\((default|rename|alias|tag|untagged|deny_unknown_fields|skip_serializing_if|flatten)",
+     "\\bdecodeIfPresent\\(|init\\(from decoder|enum CodingKeys\\b",
+     "\\b(schema_version|SCHEMA_VERSION|user_version|PRAGMA user_version)\\b"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/reader-knows-only-the-current-shape.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/version-pins-drift.md",
+    "https://github.com/manaflow-ai/cmux/pull/44525",
+    "https://github.com/manaflow-ai/cmux/commit/9b130dcc20d61dbcb1203d0383bd49c522aa6a40"
+   ],
+   "source": "cmuxterm-hq docs/handbook/reader-knows-only-the-current-shape.md"
+  },
+  {
+   "id": "RC02",
+   "title": "A peer one release older still talks to this one",
+   "check": "Does a peer a release older (the shipped iOS app, a Cloud machine's daemon, a Mac on last night's NIGHTLY) still work against this protocol change, and the reverse? New fields are optional on both sides, new behaviour is gated on a negotiated version or capability, never on an exact build hash.",
+   "trigger": {
+    "paths": [
+     "cmux-tui/spec/api-compat*.json",
+     "cmux-tui/spec/sdk-schema.json",
+     "cmux-tui/spec/resource-operations-v2.json",
+     "cmux-tui/bindings/*/generated/*",
+     "cmux-tui/crates/cmux-pane-protocol/src/*",
+     "cmux-tui/crates/cmux-cloud-wire/src/*",
+     "cmux-tui/crates/cmux-rd-proto/src/*",
+     "cmux-tui/crates/chatmux-relay/src/relay_wire.rs",
+     "Native/DiffSidecar/src/protocol.rs"
+    ],
+    "diff": [
+     "\\b(MUX_PROTOCOL_VERSION|PROTOCOL_VERSION|protocol_version|relay_protocol_version)\\b",
+     "\\b(build_id|BUILD_ID|same_build|build_hash)\\b"
+    ],
+    "in": [
+     "*.rs",
+     "*.swift",
+     "*.ts"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/build-identity-is-not-protocol-compatibility.md",
+    "https://github.com/manaflow-ai/cmux/pull/44328",
+    "https://github.com/manaflow-ai/cmux/pull/43770"
+   ],
+   "source": "cmuxterm-hq docs/handbook/build-identity-is-not-protocol-compatibility.md"
+  },
+  {
+   "id": "RC03",
+   "title": "Settings keys and their generated copies",
+   "check": "Was settings-schema.json regenerated with scripts/cmux-next/gen-settings-sources.py from schemas/settings/source on today's base (not an older one), with each new key's strings and docs reference, and does a removed key move to retired-keys.json instead of vanishing?",
+   "trigger": {
+    "paths": [
+     "schemas/settings/*",
+     "scripts/cmux-next/gen-settings-sources.py",
+     "cmux-tui/crates/cmux-config/src/schema/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/settings-export-from-an-older-base.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/derived-file-left-behind.md",
+    "https://github.com/manaflow-ai/cmux/pull/40382",
+    "https://github.com/manaflow-ai/cmux/pull/40460",
+    "https://github.com/manaflow-ai/cmux/pull/40499",
+    "https://github.com/manaflow-ai/cmux/pull/42955",
+    "https://github.com/manaflow-ai/cmux/pull/43022",
+    "https://github.com/manaflow-ai/cmux/pull/43507",
+    "https://github.com/manaflow-ai/cmux/pull/43562"
+   ],
+   "source": "cmuxterm-hq docs/handbook/settings-export-from-an-older-base.md"
+  },
+  {
+   "id": "RC04",
+   "title": "A default a person gets changes",
+   "check": "Does this change a default a person gets (a setting's default, a toggle, a debug flag that ships on)? Quote Leo's words for it in the PR, and when it removes a behaviour, add the test that fails if it comes back.",
+   "trigger": {
+    "diff": [
+     "\\\"default\\\"\\s*:\\s*(true|false|\\\"|-?\\d)",
+     "\\b(isEnabledByDefault|enabledByDefault|defaultEnabled|default_enabled|DEFAULT_ENABLED|defaultOn|default_on)\\b",
+     "\\bdefault(Value)?\\s*:\\s*(true|false)\\b"
+    ],
+    "in": [
+     "schemas/settings/source/*",
+     "Packages/*/Sources/*",
+     "cmux-tui/crates/*/src/*",
+     "webviews/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift",
+     "*/generated/*",
+     "*/Generated/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/fix-undone-by-a-default.md",
+    "https://github.com/manaflow-ai/cmux/pull/22826",
+    "https://github.com/manaflow-ai/cmux/pull/23390",
+    "https://github.com/manaflow-ai/cmux/pull/23412",
+    "https://github.com/manaflow-ai/cmux/pull/35087",
+    "https://github.com/manaflow-ai/cmux/pull/39585"
+   ],
+   "source": "cmuxterm-hq docs/handbook/fix-undone-by-a-default.md"
+  },
+  {
+   "id": "RC05",
+   "title": "Swift binds an FFI symbol the pinned release may lack",
+   "check": "Does Swift call or declare an FFI export that the release in Packages/macOS/CmuxNext/app-ffi-pin.json does not have yet? A new export lands first with no Swift caller, its caller after the re-pin; a binding missing from the pinned library traps at launch.",
+   "trigger": {
+    "paths": [
+     "Packages/macOS/CmuxNext/app-ffi-pin.json",
+     "cmux-tui/crates/cmux-app-ffi/*",
+     "cmux-tui/crates/cmux-rd-ffi/*",
+     "cmux-tui/crates/cmux-layout-reducer-ffi/*",
+     "scripts/cmux-next/check-app-ffi-pin.sh",
+     "scripts/cmux-next/ffi_caller_ratchet.py"
+    ],
+    "diff": [
+     "\\bcmux_[a-z]+_[a-z0-9_]+\\("
+    ],
+    "in": [
+     "Packages/*.swift"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/app-code-binds-ahead-of-its-pin.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/version-pins-drift.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/guard-causes-the-harm.md",
+    "https://github.com/manaflow-ai/cmux/pull/40159",
+    "https://github.com/manaflow-ai/cmux/pull/45479",
+    "https://github.com/manaflow-ai/cmux/pull/42817",
+    "https://github.com/manaflow-ai/cmux/pull/40097",
+    "https://github.com/manaflow-ai/cmux/pull/40711"
+   ],
+   "source": "cmuxterm-hq docs/handbook/app-code-binds-ahead-of-its-pin.md"
+  },
+  {
+   "id": "RC06",
+   "title": "A wait with no deadline",
+   "check": "Does each new wait (a lock, a channel receive, a child process, a continuation, a subprocess) have a deadline, and does reaching it end the work and name the step it stopped in, each step's time and the budget?",
+   "trigger": {
+    "diff": [
+     "\\.recv\\(\\)\\.await",
+     "\\.lock\\(\\)\\.await",
+     "\\bwaitUntilExit\\(\\)",
+     "(child|proc|process)\\.wait\\(\\)",
+     "\\b(semaphore|group)\\.wait\\(\\)",
+     "\\bwith(Checked|Unsafe)(Throwing)?Continuation\\b",
+     "\\bsubprocess\\.(run|check_output|check_call|call)\\((?!.*timeout)"
+    ],
+    "in": [
+     "*.rs",
+     "*.swift",
+     "scripts/ci/*.py"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift",
+     "scripts/measure/*",
+     "scripts/bench/*",
+     "scripts/journeys/*",
+     "scripts/gallery-matrix/*",
+     "scripts/cmux-next/*-live.py",
+     "scripts/cmux-next/*-bench.py",
+     "scripts/cmux-next/bench_*",
+     "tests/passkeys/*",
+     "scripts/fuzz/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/wait-with-no-deadline.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/timeout-hides-where-it-stopped.md",
+    "https://github.com/manaflow-ai/cmux/pull/37036",
+    "https://github.com/manaflow-ai/cmux/pull/39753",
+    "https://github.com/manaflow-ai/cmux/pull/41804",
+    "https://github.com/manaflow-ai/cmux/pull/41885",
+    "https://github.com/manaflow-ai/cmux/pull/42177",
+    "https://github.com/manaflow-ai/cmux/pull/42296",
+    "https://github.com/manaflow-ai/cmux/pull/42663",
+    "https://github.com/manaflow-ai/cmux/pull/42958",
+    "https://github.com/manaflow-ai/cmux/pull/43544",
+    "https://github.com/manaflow-ai/cmux/pull/43546",
+    "https://github.com/manaflow-ai/cmux/pull/44260"
+   ],
+   "source": "cmuxterm-hq docs/handbook/wait-with-no-deadline.md"
+  },
+  {
+   "id": "RC07",
+   "title": "A cache or map that grows with use",
+   "check": "Does every new cache, map, set or queue that gains an entry per chat, session, request or event have a bound (a size cap, a TTL, eviction when its owner ends), with a test that shows it stays bounded at thousands of entries?",
+   "trigger": {
+    "diff": [
+     "(?i)\\b\\w*(cache|memo|seen|pending|inflight|by_id|by_key)\\w*\\s*[:=]\\s*(std::collections::)?(HashMap|BTreeMap|HashSet|IndexMap|DashMap|LruCache|VecDeque|Vec<|\\[[A-Z][\\w.]*\\s*:|Set<|new Map|new Set|NSCache|Dictionary)"
+    ],
+    "in": [
+     "*.rs",
+     "*.swift",
+     "*.ts",
+     "*.tsx"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/cache-grows-without-bound.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/memory-grows-without-bound.md",
+    "https://github.com/manaflow-ai/cmux/pull/41526"
+   ],
+   "source": "cmuxterm-hq docs/handbook/cache-grows-without-bound.md"
+  },
+  {
+   "id": "RC08",
+   "title": "Web colours, motion and radii outside the design tokens",
+   "check": "Does the change use only tokens (var(--cmux-...) colours, --cmux-motion-* durations and easings, radius tokens) with no literal fallback, does a new surface add its files to TOKEN_ONLY_FILES in webviews/scripts/check-design-tokens.ts, and does it ship gallery variants?",
+   "trigger": {
+    "diff": [
+     "(?<![\\w&/])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\\b(?!\\w)",
+     "\\b(rgba?|hsla?|oklch|oklab|color-mix)\\(",
+     "\\b(transition|animation)(-duration)?\\s*:[^;{}]*\\b\\d+(\\.\\d+)?m?s\\b",
+     "cubic-bezier\\(",
+     "border-radius\\s*:\\s*[1-9]|borderRadius\\s*:\\s*['\\\"]?[1-9]"
+    ],
+    "in": [
+     "webviews/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift",
+     "webviews/src/gallery/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/motion-and-colour-drift-outside-tokens.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/feature-thrown-in-without-design.md",
+    "https://github.com/manaflow-ai/cmux/pull/42934",
+    "https://github.com/manaflow-ai/cmux/pull/40326",
+    "https://github.com/manaflow-ai/cmux/pull/43516",
+    "https://github.com/manaflow-ai/cmux/pull/44731",
+    "https://github.com/manaflow-ai/cmux/pull/44136"
+   ],
+   "source": "cmuxterm-hq docs/handbook/motion-and-colour-drift-outside-tokens.md"
+  },
+  {
+   "id": "RC09",
+   "title": "Native colour, material or motion, and the window chrome",
+   "check": "Does it add a colour, material or animation outside CmuxNextDesignTokens and MotionPolicy, or change what the sidebar list, its footer or the titlebar row paints? A chrome change needs Leo's words in a Chrome-Look-OK: trailer and ChromeLayerColorTests still passing; a window identity change keeps NSWindow.title in step with the custom title.",
+   "trigger": {
+    "paths": [
+     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TitlebarView.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView*.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/*",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowTitlebar.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/*",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/*",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/*Footer*"
+    ],
+    "diff": [
+     "\\b(NS|UI)?Color\\(\\s*(red|white|srgbRed|displayP3Red|hue|calibratedRed|deviceRed)\\s*:",
+     "\\.(ultraThin|thin|regular|thick|ultraThick)Material\\b|NSVisualEffectView",
+     "\\bwithAnimation\\(\\s*\\.|\\.animation\\(\\s*\\.(easeIn|easeOut|easeInOut|linear|spring|interactiveSpring|bouncy|smooth|snappy)",
+     "\\bCABasicAnimation\\(|\\bNSAnimationContext\\.runAnimationGroup"
+    ],
+    "in": [
+     "Packages/*/Sources/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/look-change-repainted-the-chrome.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/custom-chrome-diverges-from-native-window-identity.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/motion-and-colour-drift-outside-tokens.md",
+    "https://github.com/manaflow-ai/cmux/pull/39984",
+    "https://github.com/manaflow-ai/cmux/pull/41047",
+    "https://github.com/manaflow-ai/cmux/pull/44303",
+    "https://github.com/manaflow-ai/cmux/pull/44221"
+   ],
+   "source": "cmuxterm-hq docs/handbook/look-change-repainted-the-chrome.md"
+  },
+  {
+   "id": "RC10",
+   "title": "An unsafe block with no stated invariant",
+   "check": "Does every new unsafe block and unsafe impl carry a // SAFETY: comment that says why it is sound (bounds, lifetime, fd or handle owner, thread count, the callee's contract), each pub unsafe fn a # Safety section, and is a safe fn that relies on its caller keeping a condition marked unsafe?",
+   "trigger": {
+    "diff": [
+     "\\bunsafe\\s*(\\{|impl\\b|fn\\b|extern\\b)"
+    ],
+    "in": [
+     "*.rs"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/unsafe-with-no-stated-invariant.md",
+    "https://github.com/manaflow-ai/cmux/pull/45020",
+    "https://github.com/manaflow-ai/cmux/pull/45036"
+   ],
+   "source": "cmuxterm-hq docs/handbook/unsafe-with-no-stated-invariant.md"
+  },
+  {
+   "id": "RC11",
+   "title": "A shell script inside a string",
+   "check": "Is there a test that runs this exact embedded script string (the shipped one, not a copy) under /bin/sh and checks its result, so a quoting or syntax slip fails CI instead of quietly returning nothing?",
+   "trigger": {
+    "diff": [
+     "[\\\"'](/bin/)?(ba|z)?sh[\\\"']\\s*,\\s*[\\\"']-l?c[\\\"']",
+     "Command::new\\(\\s*\\\"(/usr)?(/bin/)?(ba|z)?sh\\\"\\s*\\)",
+     "[\\\"'`](/bin/)?(ba|z)?sh -l?c ",
+     "\\b(launchPath|executableURL)\\b.*\\\"/bin/(ba|z)?sh\\\""
+    ],
+    "in": [
+     "*.rs",
+     "*.swift",
+     "*.ts",
+     "*.tsx"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/shell-in-a-string-never-runs.md",
+    "https://github.com/manaflow-ai/cmux/pull/39069",
+    "https://github.com/manaflow-ai/cmux/pull/39612"
+   ],
+   "source": "cmuxterm-hq docs/handbook/shell-in-a-string-never-runs.md"
+  },
+  {
+   "id": "RC12",
+   "title": "A caller-controlled value expanded in a workflow script",
+   "check": "Is a value a PR author or caller controls (PR title or branch, a comment body, a dispatch input, a step output built from them) expanded with ${{ }} inside a run: script? Pass it through env: and quote it.",
+   "trigger": {
+    "diff": [
+     "^(?!\\s*(-\\s*)?(if|name|with|[\\w-]+)\\s*:)(?=.*\\$\\{\\{\\s*(github\\.event\\.(pull_request|issue|comment|review|head_commit|commits|workflow_run|discussion)\\b|github\\.head_ref|inputs\\.|steps\\.[\\w-]+\\.outputs\\.))",
+     "^\\s*(-\\s*)?run\\s*:.*\\$\\{\\{\\s*(github\\.event\\.|github\\.head_ref|inputs\\.|steps\\.)"
+    ],
+    "in": [
+     ".github/workflows/*",
+     ".github/actions/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/untrusted-value-in-shell.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/13383"
+   ],
+   "source": "cmuxterm-hq docs/handbook/untrusted-value-in-shell.md"
+  },
+  {
+   "id": "RC13",
+   "title": "New user-facing text: catalog, locales and word budget",
+   "check": "Does each new user-facing string go through its catalog with every locale filled (no English placeholder), and stay within its kind's budget (scripts/cmux-next/check-ui-text-budget.py): a status one short line, an empty state a few words and its one action, an error its cause and one next step?",
+   "trigger": {
+    "paths": [
+     "*.xcstrings"
+    ],
+    "diff": [
+     "\\bString\\(localized:",
+     "\\bLocalizedStringResource\\("
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "cmux-next-ios/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/ui-text-says-only-what-you-can-act-on.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/user-facing-state-contradicts-or-dead-ends.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/13302",
+    "https://github.com/manaflow-ai/cmux/pull/15677",
+    "https://github.com/manaflow-ai/cmux/pull/16669",
+    "https://github.com/manaflow-ai/cmux/pull/20066",
+    "https://github.com/manaflow-ai/cmux/pull/38249",
+    "https://github.com/manaflow-ai/cmux/pull/41030",
+    "https://github.com/manaflow-ai/cmux/pull/41496"
+   ],
+   "source": "cmuxterm-hq docs/handbook/ui-text-says-only-what-you-can-act-on.md"
+  },
+  {
+   "id": "RC14",
+   "title": "A raw error reaches the screen",
+   "check": "Can a caught error's raw text (localizedDescription, an enum case name, a transport code, a CLI flag) reach a toast, banner, card or composer notice? Show plain words and one next step, and keep the raw cause in the log.",
+   "trigger": {
+    "diff": [
+     "\\.localizedDescription\\b",
+     "String\\(describing:\\s*error\\)",
+     "\\\\\\(error\\)",
+     "\\$\\{\\s*(e|err|error)(\\.message)?\\s*\\}",
+     "\\b(err|error)\\.message\\b",
+     "String\\(\\s*(e|err|error)\\s*\\)"
+    ],
+    "in": [
+     "webviews/src/*",
+     "Packages/*/Sources/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/raw-error-text-in-the-ui.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/error-with-no-next-step.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/user-facing-state-contradicts-or-dead-ends.md",
+    "https://github.com/manaflow-ai/cmux/pull/41975",
+    "https://github.com/manaflow-ai/cmux/pull/41984",
+    "https://github.com/manaflow-ai/cmux/pull/41990",
+    "https://github.com/manaflow-ai/cmux/pull/33271",
+    "https://github.com/manaflow-ai/cmux/pull/43879"
+   ],
+   "source": "cmuxterm-hq docs/handbook/raw-error-text-in-the-ui.md"
+  },
+  {
+   "id": "RC15",
+   "title": "A connection state the person can do nothing about",
+   "check": "Does a new reconnecting, retrying, connecting or offline state stay hidden for its first 10 s (useConnectionQuiet, NoticeTiming.connectionQuiet, QuietStatusGate) unless it carries the one button that fixes it, with the cached content still drawn meanwhile?",
+   "trigger": {
+    "diff": [
+     "(?i)\\b(reconnecting|connecting\\s*(…|\\.\\.\\.)|retrying|not connected|offline)\\b"
+    ],
+    "in": [
+     "webviews/src/*",
+     "Packages/*/Sources/*",
+     "*.xcstrings"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/connection-state-with-no-action-or-bound.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/notice-for-a-blip.md",
+    "https://github.com/manaflow-ai/cmux/pull/41998",
+    "https://github.com/manaflow-ai/cmux/pull/43307"
+   ],
+   "source": "cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md"
+  },
+  {
+   "id": "RC16",
+   "title": "Per-change cost grows with the number of sessions or rows",
+   "check": "When one row, chat or tab changes, does any pass walk the whole list (sessions, workspaces, panes, transcript rows) between the event and the frame? The cost stays flat from 100 to 3,000 items (SidebarLongListScaleTests, the god-vs-small bench) and long lists stay virtualized.",
+   "trigger": {
+    "paths": [
+     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/*Store*.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/*Model*.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/*List*.swift",
+     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/*Section*.swift"
+    ],
+    "diff": [
+     "\\bfor\\s+(\\(?\\w+(,\\s*\\w+)?\\)?)\\s+in\\s+[\\w.&()]*\\b(sessions|workspaces|chats|panes|rows|tabs|entries)\\b",
+     "\\b(sessions|workspaces|chats|panes|rows|tabs)\\.(sorted|filter|map|reduce|first\\(where)"
+    ],
+    "in": [
+     "Packages/macOS/CmuxNext/Sources/*",
+     "webviews/src/agent-session/*",
+     "cmux-tui/crates/acpmux/src/hub/*",
+     "cmux-tui/crates/cmux-tui-core/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/perf-regresses-on-degenerate-sessions.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/unvirtualized-long-lists.md",
+    "https://github.com/manaflow-ai/cmux/pull/40162",
+    "https://github.com/manaflow-ai/cmux/pull/39293",
+    "https://github.com/manaflow-ai/cmux/pull/39850",
+    "https://github.com/manaflow-ai/cmux/pull/41527",
+    "https://github.com/manaflow-ai/cmux/pull/41580",
+    "https://github.com/manaflow-ai/cmux/pull/41806",
+    "https://github.com/manaflow-ai/cmux/pull/45366"
+   ],
+   "source": "cmuxterm-hq docs/handbook/perf-regresses-on-degenerate-sessions.md"
+  },
+  {
+   "id": "RC17",
+   "title": "A keystroke renders more than the composer",
+   "check": "Does a keystroke in the composer still commit only the composer's subtree (Composer, MemoComposer, ComposerFrame and below), with no store write, context value or prop change that re-renders the rows, header or transcript?",
+   "trigger": {
+    "paths": [
+     "webviews/src/agent-session/acpmux/composer/*",
+     "webviews/src/*Composer*.tsx"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/keystroke-renders-only-the-composer.md",
+    "https://github.com/manaflow-ai/cmux/pull/43138",
+    "https://github.com/manaflow-ai/cmux/pull/43510",
+    "https://github.com/manaflow-ai/cmux/pull/44439",
+    "https://github.com/manaflow-ai/cmux/pull/45733",
+    "https://github.com/manaflow-ai/cmux/pull/45791",
+    "https://github.com/manaflow-ai/cmux/pull/45821"
+   ],
+   "source": "cmuxterm-hq docs/handbook/keystroke-renders-only-the-composer.md"
+  },
+  {
+   "id": "RC18",
+   "title": "A chat's first frame is not its final frame",
+   "check": "Does the first frame with rows already have its final sizes: media drawn from its stored width and height, no late measure that pushes rows, no row key change that remounts, and a chat switched away and back still drawn at its size?",
+   "trigger": {
+    "paths": [
+     "webviews/src/agent-session/acpmux/rows/*"
+    ],
+    "diff": [
+     "\\buse(Layout)?Effect\\(",
+     "\\b(Resize|Intersection|Mutation)Observer\\b",
+     "\\bscroll(Top|To|By|Height|IntoView)\\b",
+     "<(img|video)\\b",
+     "\\bkey=\\{"
+    ],
+    "in": [
+     "webviews/src/agent-session/acpmux/rows/*",
+     "webviews/src/agent-session/acpmux/conversation/*",
+     "webviews/src/agent-session/acpmux/subagents/*",
+     "webviews/src/agent-session/acpmux/*.tsx"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/chat-render-review-checklist.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/media-without-stored-size.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/first-render-reads-an-uncached-input.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/hidden-page-keeps-its-frame.md",
+    "https://github.com/manaflow-ai/cmux/pull/43281",
+    "https://github.com/manaflow-ai/cmux/pull/43327",
+    "https://github.com/manaflow-ai/cmux/pull/43986",
+    "https://github.com/manaflow-ai/cmux/pull/44017",
+    "https://github.com/manaflow-ai/cmux/pull/44439",
+    "https://github.com/manaflow-ai/cmux/pull/45859"
+   ],
+   "source": "cmuxterm-hq docs/handbook/chat-render-review-checklist.md"
+  },
+  {
+   "id": "RC19",
+   "title": "An async result lands after its intent ended",
+   "check": "Can this async work's result land after a newer intent replaced it (a later click, a closed tab, a cancelled create, a newer revision)? Fence it by generation, task identity or revision, re-check after each await, and say what a cancelled create leaves behind.",
+   "trigger": {
+    "diff": [
+     "\\bTask(\\.detached)?\\s*(\\(priority:[^)]*\\))?\\s*\\{",
+     "\\.task\\s*(\\(id:[^)]*\\))?\\s*\\{",
+     "\\btokio::spawn\\("
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "cmux-tui/crates/*/src/*",
+     "webviews/src/*",
+     "cmux-next-ios/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/late-answer-applied-after-its-intent-ended.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/report-applied-after-a-newer-answer.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/42134",
+    "https://github.com/manaflow-ai/cmux/pull/42144",
+    "https://github.com/manaflow-ai/cmux/pull/19112",
+    "https://github.com/manaflow-ai/cmux/pull/19977",
+    "https://github.com/manaflow-ai/cmux/pull/13156",
+    "https://github.com/manaflow-ai/cmux/pull/44605"
+   ],
+   "source": "cmuxterm-hq docs/handbook/late-answer-applied-after-its-intent-ended.md"
+  },
+  {
+   "id": "RC20",
+   "title": "A lifecycle actor and per-chat state",
+   "check": "What does this updater, reaper, restart or takeover do to a turn, upload or chat in flight at that moment (wait, skip or end it, and say so)? And does every folder or record made per chat or session have a reaper that frees it once its owner ends, with a test that a live owner's state stays?",
+   "trigger": {
+    "paths": [
+     "cmux-tui/crates/acpmux/src/hub/pool/reaper.rs",
+     "cmux-tui/crates/cmux-tui-core/src/mux/terminal_reap*",
+     "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/sys/unix/host_reaper.rs",
+     "cmux-tui/crates/acpmux/src/hub/auto_resume/*",
+     "web/services/vms/reaper.ts"
+    ],
+    "diff": [
+     "(?i)\\bfn\\s+\\w*(reap|janitor|sweep|prune|evict|take_?over|restart_daemon|gc)\\w*\\s*[<(]",
+     "\\bfunc\\s+\\w*([rR]eap|[jJ]anitor|takeOver|TakeOver|restartDaemon|RestartDaemon)\\w*\\s*\\(",
+     "\\bcreate_dir_all\\(.*\\b(chat|session|turn|upload|worktree)"
+    ],
+    "in": [
+     "cmux-tui/crates/*/src/*",
+     "Packages/*/Sources/*",
+     "workers/*",
+     "web/services/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/lifecycle-actor-races-user-work.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/chat-state-outlives-the-chat.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/herd-on-recovery.md",
+    "https://github.com/manaflow-ai/cmux/pull/35597",
+    "https://github.com/manaflow-ai/cmux/pull/37256",
+    "https://github.com/manaflow-ai/cmux/pull/37280",
+    "https://github.com/manaflow-ai/cmux/pull/37367",
+    "https://github.com/manaflow-ai/cmux/pull/37444",
+    "https://github.com/manaflow-ai/cmux/pull/42370",
+    "https://github.com/manaflow-ai/cmux/pull/42608",
+    "https://github.com/manaflow-ai/cmux/pull/45782"
+   ],
+   "source": "cmuxterm-hq docs/handbook/lifecycle-actor-races-user-work.md"
+  },
+  {
+   "id": "RC21",
+   "title": "A guessable name in a shared temp folder",
+   "check": "Does a file or folder go into /tmp or $TMPDIR under a name another account can guess? Create it exclusively (mkstemp, mktemp, tempfile, mkdir 0700) in a folder of its own; set -C (noclobber) is not exclusive creation.",
+   "trigger": {
+    "diff": [
+     "[\\\"'`]/tmp/[^\\\"'`\\s]*(\\$|\\{|%|\\\\\\()",
+     "\\$\\{?TMPDIR\\}?/[^\\s\\\"']*\\$",
+     "\\benv::temp_dir\\(\\)\\.join\\(",
+     "\\bos\\.tmpdir\\(\\)",
+     "\\bset -C\\b|\\bnoclobber\\b"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift",
+     "scripts/measure/*",
+     "scripts/bench/*",
+     "scripts/journeys/*",
+     "scripts/gallery-matrix/*",
+     "scripts/cmux-next/*-live.py",
+     "scripts/cmux-next/*-bench.py",
+     "scripts/cmux-next/bench_*",
+     "tests/passkeys/*",
+     "scripts/fuzz/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/noclobber-is-not-exclusive-creation.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/private-dir.md",
+    "https://github.com/manaflow-ai/cmux/pull/41306",
+    "https://github.com/manaflow-ai/cmux/pull/41323",
+    "https://github.com/manaflow-ai/cmux/pull/41336",
+    "https://github.com/manaflow-ai/cmux/pull/41809",
+    "https://github.com/manaflow-ai/cmux/pull/41862"
+   ],
+   "source": "cmuxterm-hq docs/handbook/noclobber-is-not-exclusive-creation.md"
+  },
+  {
+   "id": "RC22",
+   "title": "State another process or a restart reads, written whole and durable",
+   "check": "Is state that another process or the next start reads written whole (a temp file, fsync, rename, then a directory fsync, as state::write_private_synced does), through the home's opened handle rather than a path re-resolved after its check, and acknowledged only once the write is durable?",
+   "trigger": {
+    "diff": [
+     "\\b(std::|tokio::)?fs::(write|rename|copy)\\(",
+     "\\bFile::create\\(",
+     "\\bOpenOptions::new\\(\\)",
+     "\\.write\\(to:\\s*[^,)]+(,\\s*(atomically|options):)?"
+    ],
+    "in": [
+     "cmux-tui/crates/acpmux/src/*",
+     "cmux-tui/crates/acpmux-*/src/*",
+     "cmux-tui/crates/cmux-tui-core/src/*",
+     "cmux-tui/crates/cmux-link/src/*",
+     "cmux-tui/crates/cmux-config/src/*",
+     "cmux-tui/crates/cmux-tui/src/*",
+     "Packages/macOS/CmuxNext/Sources/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/rename-without-directory-sync.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/state-file-read-half-written.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/write-by-path-after-its-check.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/ack-before-the-write.md",
+    "https://github.com/manaflow-ai/cmux/pull/39120",
+    "https://github.com/manaflow-ai/cmux/pull/41372",
+    "https://github.com/manaflow-ai/cmux/pull/41462",
+    "https://github.com/manaflow-ai/cmux/pull/41697",
+    "https://github.com/manaflow-ai/cmux/pull/42003",
+    "https://github.com/manaflow-ai/cmux/pull/42352",
+    "https://github.com/manaflow-ai/cmux/pull/40357",
+    "https://github.com/manaflow-ai/cmux/pull/42526",
+    "https://github.com/manaflow-ai/cmux/pull/38585"
+   ],
+   "source": "cmuxterm-hq docs/handbook/rename-without-directory-sync.md"
+  },
+  {
+   "id": "RC23",
+   "title": "A workflow's path filter misses a test's input",
+   "check": "Does every file a test in this workflow reads (an imported helper, a fixture, a script it runs) sit under the workflow's paths: filter? A PR that changes only an unlisted input runs no check and merges green (scripts/ci/workflow_paths_cover_inputs.py).",
+   "trigger": {
+    "diff": [
+     "^\\s*paths(-ignore)?\\s*:",
+     "^\\s*-\\s*['\\\"]?!?[\\w.*/{}-]+/\\*\\*?(\\.[\\w*]+)?['\\\"]?\\s*$"
+    ],
+    "in": [
+     ".github/workflows/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/test-input-outside-the-path-filter.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/pr-only-workflow-has-no-base-verdict.md",
+    "https://github.com/manaflow-ai/cmux/pull/43251",
+    "https://github.com/manaflow-ai/cmux/pull/43477",
+    "https://github.com/manaflow-ai/cmux/pull/45420"
+   ],
+   "source": "cmuxterm-hq docs/handbook/test-input-outside-the-path-filter.md"
+  },
+  {
+   "id": "RC24",
+   "title": "A workflow job added, renamed or removed",
+   "check": "Does every test or guard that names this workflow's jobs (tests/test_ci_runner_pool_reconcile.py, tests/workflow_jobs.py callers) still match, ideally by deriving the list from the workflow, and does a renamed or removed helper keep no caller in tests/ or scripts/?",
+   "trigger": {
+    "diff": [
+     "^  (?!(push|pull_request|pull_request_target|workflow_dispatch|workflow_call|workflow_run|schedule|merge_group|release|issue_comment|repository_dispatch|check_suite|group|cancel-in-progress|contents|actions|checks|statuses|pull-requests|id-token|issues|packages|deployments)\\s*:)[A-Za-z0-9_-]+:\\s*$"
+    ],
+    "in": [
+     ".github/workflows/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/hand-kept-job-list-drifts.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/public-name-removed-with-callers.md",
+    "https://github.com/manaflow-ai/cmux/pull/36559",
+    "https://github.com/manaflow-ai/cmux/pull/40750",
+    "https://github.com/manaflow-ai/cmux/pull/41459",
+    "https://github.com/manaflow-ai/cmux/pull/41817",
+    "https://github.com/manaflow-ai/cmux/pull/42602",
+    "https://github.com/manaflow-ai/cmux/pull/41133",
+    "https://github.com/manaflow-ai/cmux/pull/45259"
+   ],
+   "source": "cmuxterm-hq docs/handbook/hand-kept-job-list-drifts.md"
+  },
+  {
+   "id": "RC25",
+   "title": "A scheduled or dispatched workflow edited off the default branch",
+   "check": "Does it change a schedule, workflow_dispatch or workflow_run job? GitHub runs those from main's copy, so a feat-cmux-next edit does nothing until main has it; land the main twin too or name it in a Main-Twin: trailer.",
+   "trigger": {
+    "diff": [
+     "^\\s*(schedule|workflow_dispatch|workflow_run|repository_dispatch)\\s*:",
+     "^\\s*-\\s*cron\\s*:"
+    ],
+    "in": [
+     ".github/workflows/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/workflow-edited-where-it-does-not-run.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/39221",
+    "https://github.com/manaflow-ai/cmux/pull/43781",
+    "https://github.com/manaflow-ai/cmux/pull/43866",
+    "https://github.com/manaflow-ai/cmux/pull/18896"
+   ],
+   "source": "cmuxterm-hq docs/handbook/workflow-edited-where-it-does-not-run.md"
+  },
+  {
+   "id": "RC26",
+   "title": "A workflow job that reads a secret",
+   "check": "Does a job that reads a secret declare the environment that holds it (otherwise the secret reads empty and the step goes green around a 403), run on the credentialed runner route, and never run a fork's code with it (pull_request_target, workflow_run)?",
+   "trigger": {
+    "diff": [
+     "\\$\\{\\{\\s*secrets\\.(?!GITHUB_TOKEN\\b)",
+     "^\\s*environment\\s*:",
+     "\\bsecrets\\s*:\\s*inherit\\b"
+    ],
+    "in": [
+     ".github/workflows/*",
+     ".github/actions/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/secret-read-outside-its-environment.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/hand-kept-job-list-drifts.md",
+    "https://github.com/manaflow-ai/cmux/pull/41459",
+    "https://github.com/manaflow-ai/cmux/pull/41817"
+   ],
+   "source": "cmuxterm-hq docs/handbook/secret-read-outside-its-environment.md"
+  },
+  {
+   "id": "RC27",
+   "title": "A concurrency group one stuck run can hold",
+   "check": "Can one run that never starts or never ends (a runner label with no pool, an environment waiting on approval) hold this concurrency group so every later run queues or cancels behind it? Key the group so unrelated runs do not share it, and say what frees a stuck holder.",
+   "trigger": {
+    "diff": [
+     "^\\s*concurrency\\s*:",
+     "^\\s*cancel-in-progress\\s*:",
+     "^\\s*group\\s*:\\s*\\S"
+    ],
+    "in": [
+     ".github/workflows/*",
+     ".github/actions/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/stuck-run-holds-concurrency-group.md",
+    "https://github.com/manaflow-ai/cmux/pull/41344",
+    "https://github.com/manaflow-ai/cmux/pull/42277",
+    "https://github.com/manaflow-ai/cmux/pull/42474",
+    "https://github.com/manaflow-ai/cmux/pull/43103",
+    "https://github.com/manaflow-ai/cmux/pull/43155"
+   ],
+   "source": "cmuxterm-hq docs/handbook/stuck-run-holds-concurrency-group.md"
+  },
+  {
+   "id": "RC28",
+   "title": "The app starts a process from Swift",
+   "check": "Does app logic reach Rust by starting the bundled cmux CLI or another process instead of the FFI or the daemon socket, and can that start, its pipe write or its wait run on the main thread? A spawn that must stay passes the daemon's environment (CMUX_TUI_STATE_DIR, the build tag) so a tagged build reads the same state.",
+   "trigger": {
+    "diff": [
+     "\\b(ProcessRunner|SSHProcessRunner|PhoneProcessRunner|ChildProcess|PipeFeed)\\b",
+     "\\b(Foundation\\.)?Process\\(\\)",
+     "\\.waitUntilExit\\(\\)",
+     "\\bposix_spawn\\w*\\("
+    ],
+    "in": [
+     "Packages/*/Sources/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/swift-spawns-the-cli.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/daemon-only-env-the-cli-misses.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/hangs-and-crashes-reach-users-unseen.md",
+    "https://github.com/manaflow-ai/cmux/pull/39998",
+    "https://github.com/manaflow-ai/cmux/pull/40268"
+   ],
+   "source": "cmuxterm-hq docs/handbook/swift-spawns-the-cli.md"
+  },
+  {
+   "id": "RC29",
+   "title": "Keyboard focus moves without the person",
+   "check": "Can this move keyboard focus without a key or click of the person's (a load finishing, a reload, a window coming forward)? A focus move follows their action through the focus routes (scripts/cmux-next/check-focus-routes.py) and never takes the keys from a composer or terminal they are typing in.",
+   "trigger": {
+    "diff": [
+     "\\bmakeFirstResponder\\(",
+     "\\bmakeKey(AndOrderFront)?\\(",
+     "\\bNSApp\\.activate\\(",
+     "\\.activate\\(options:",
+     "\\.focus\\(\\s*(\\{[^}]*\\})?\\s*\\)",
+     "\\bautoFocus\\b"
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "webviews/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/unprompted-focus-move.md",
+    "https://github.com/manaflow-ai/cmux/pull/44305",
+    "https://github.com/manaflow-ai/cmux/pull/44450"
+   ],
+   "source": "cmuxterm-hq docs/handbook/unprompted-focus-move.md"
+  },
+  {
+   "id": "RC30",
+   "title": "Layout width that depends on the scroller style",
+   "check": "Does a width here change with the scroller style (legacy or overlay scrollers, a mouse plugged in, Universal Control)? Use the overlay scroll view or a stable gutter so rows do not shrink and grow by a scrollbar's width (scripts/cmux-next/check-scrollbars.sh).",
+   "trigger": {
+    "diff": [
+     "\\bNSScrollView\\(\\)|:\\s*NSScrollView\\b",
+     "\\bscrollerStyle\\b",
+     "\\b(hasVerticalScroller|autohidesScrollers)\\b",
+     "\\bscrollbar-gutter\\b"
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "webviews/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/layout-width-depends-on-scroller-style.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/perf-footguns.md"
+   ],
+   "source": "cmuxterm-hq docs/handbook/layout-width-depends-on-scroller-style.md"
+  },
+  {
+   "id": "RC31",
+   "title": "Pixels scaled or handed off in the wrong colour space",
+   "check": "Does it scale an image in gamma-encoded sRGB (use cmux-image-linear, or a // gamma: allow <why> comment), or hand video frames across without tagging matrix, range and primaries the way the viewer decodes them?",
+   "trigger": {
+    "paths": [
+     "cmux-tui/crates/cmux-codecs/src/*",
+     "cmux-tui/crates/cmux-image-linear/src/*"
+    ],
+    "diff": [
+     "\\bimageops::|\\.thumbnail(_exact)?\\(|\\.resize(_exact|_to_fill)\\(|\\bfast_image_resize\\b",
+     "(?i)\\b(bt\\.?709|bt\\.?601|color_?range|full_?range|video_?range|colou?r_?primaries|transfer_characteristics|matrix_coefficients|kCVImageBufferYCbCrMatrix)\\b"
+    ],
+    "in": [
+     "*.rs",
+     "*.swift"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/image-scaled-in-srgb.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/color-handed-off-untagged.md",
+    "https://github.com/manaflow-ai/cmux/pull/44971",
+    "https://github.com/manaflow-ai/cmux/pull/44978"
+   ],
+   "source": "cmuxterm-hq docs/handbook/image-scaled-in-srgb.md"
+  },
+  {
+   "id": "RC32",
+   "title": "Page globals and page storage in the webviews",
+   "check": "Does product code read a browser global by its bare name (read it through window so a test environment can define it), and does a choice the person makes in an agent page persist through the host's settings file rather than localStorage, which the agent pages lose on restart?",
+   "trigger": {
+    "diff": [
+     "(?<![\\w.$])(innerHeight|innerWidth|outerHeight|outerWidth|devicePixelRatio)\\b",
+     "\\b(localStorage|sessionStorage)\\.(setItem|getItem|removeItem)\\("
+    ],
+    "in": [
+     "webviews/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/test-env-missing-a-page-global.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/viewer-choice-in-launch-storage.md",
+    "https://github.com/manaflow-ai/cmux/pull/39922",
+    "https://github.com/manaflow-ai/cmux/pull/28901",
+    "https://github.com/manaflow-ai/cmux/pull/43272"
+   ],
+   "source": "cmuxterm-hq docs/handbook/viewer-choice-in-launch-storage.md"
+  },
+  {
+   "id": "RC33",
+   "title": "What an App Store reviewer sees on a fresh install",
+   "check": "Does it change what a reviewer sees on a fresh install with no Mac (a screen, a gate, a permission prompt, a purchase, a link or an entitlement)? Then .github/workflows/ios-review-gate.yml covers it in this PR (AppReviewGateUITests' reviewer path and dead-control walk) and is green before any submission.",
+   "trigger": {
+    "paths": [
+     "cmux-next-ios/*Info.plist",
+     "cmux-next-ios/*.entitlements",
+     "cmux-next-ios/AppStoreReview/*",
+     "Packages/iOS/CmuxMobileBilling/*",
+     ".github/workflows/ios-review-gate.yml",
+     "cmux-next-ios/UITests/AppReviewGateUITests.swift"
+    ],
+    "diff": [
+     "\\b(SKStoreReviewController|requestReview|Product\\.purchase|AppStore\\.(sync|showManage)|ATTrackingManager|requestAuthorization|requestRecordPermission|requestAccess\\(for:)",
+     "\\bUIApplication\\.shared\\.open\\(|\\bopenURL\\b",
+     "\\bNS(Camera|Microphone|LocationWhenInUse|PhotoLibrary|Contacts|LocalNetwork|UserTracking)UsageDescription\\b"
+    ],
+    "in": [
+     "cmux-next-ios/*",
+     "Packages/iOS/*",
+     "Packages/Shared/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/app-review-rejections.md",
+    "https://github.com/manaflow-ai/cmux/pull/40351"
+   ],
+   "source": "cmuxterm-hq docs/handbook/app-review-rejections.md"
+  },
+  {
+   "id": "RC34",
+   "title": "A surface kept in its language is ported",
+   "check": "Does this move or rewrite a surface that .github/language-boundaries.toml keeps in its language (iMessage Home and the Chief transcript in Swift, chat UI in web, acpmux and cmux-tui in Rust)? A port needs Lawrence's or Leo's words, and new logic goes into Rust.",
+   "trigger": {
+    "paths": [
+     ".github/language-boundaries.toml",
+     "webviews/src/pages/home-messages/*",
+     "webviews/src/pages/home-channels/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/broad-port-deletes-a-native-surface.md",
+    "https://github.com/manaflow-ai/cmux/pull/23780",
+    "https://github.com/manaflow-ai/cmux/pull/37736",
+    "https://github.com/manaflow-ai/cmux/pull/37777",
+    "https://github.com/manaflow-ai/cmux/pull/40381"
+   ],
+   "source": "cmuxterm-hq docs/handbook/broad-port-deletes-a-native-surface.md"
+  },
+  {
+   "id": "RC35",
+   "title": "Main actor isolation",
+   "check": "Is a pure value type pinned to @MainActor when it should be nonisolated, can assumeIsolated run where a callback (KVO, a C callback, a notification) arrives off the actor and trap, and is there any DispatchQueue.main.sync or whole-snapshot work per keystroke on the main actor?",
+   "trigger": {
+    "diff": [
+     "\\bassumeIsolated\\b",
+     "\\bDispatchQueue\\.main\\.sync\\b",
+     "@MainActor\\s+(public\\s+|internal\\s+)?(final\\s+)?(struct|enum)\\b",
+     "\\bnonisolated\\(unsafe\\)",
+     "@preconcurrency\\b"
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "cmux-next-ios/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/hangs-and-crashes-reach-users-unseen.md",
+    "https://github.com/manaflow-ai/cmux/pull/13295",
+    "https://github.com/manaflow-ai/cmux/pull/13219",
+    "https://github.com/manaflow-ai/cmux/pull/13155",
+    "https://github.com/manaflow-ai/cmux/pull/13429",
+    "https://github.com/manaflow-ai/cmux/pull/15445"
+   ],
+   "source": "cmuxterm-hq docs/handbook/before-you-ship.md"
+  },
+  {
+   "id": "RC36",
+   "title": "A manifest changes without every lockfile it feeds",
+   "check": "Does a dependency or version change in this manifest update every lockfile it feeds (each tracked Cargo.lock whose workspace builds the crate, bun.lock beside package.json, Package.resolved), so scripts/cmux-next/cargo-locks.py check and every --locked build pass?",
+   "trigger": {
+    "diff": [
+     "^\\s*[\\w-]+\\s*=\\s*(\\{[^}]*\\b(version|path|git)\\s*=|\\\"[\\^~=<>]?\\d)",
+     "^\\s*\\\"(@?[\\w./-]+)\\\"\\s*:\\s*\\\"(\\^|~|workspace:|npm:|\\d)",
+     "\\.package\\(\\s*(url|path|name):"
+    ],
+    "in": [
+     "*Cargo.toml",
+     "*package.json",
+     "*Package.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/one-manifest-many-lockfiles.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/version-pins-drift.md",
+    "https://github.com/manaflow-ai/cmux/pull/31462",
+    "https://github.com/manaflow-ai/cmux/pull/31717",
+    "https://github.com/manaflow-ai/cmux/pull/40883",
+    "https://github.com/manaflow-ai/cmux/pull/40898",
+    "https://github.com/manaflow-ai/cmux/pull/42133",
+    "https://github.com/manaflow-ai/cmux/pull/42257",
+    "https://github.com/manaflow-ai/cmux/pull/42800"
+   ],
+   "source": "cmuxterm-hq docs/handbook/one-manifest-many-lockfiles.md"
+  },
+  {
+   "id": "RC37",
+   "title": "The build downloads from a host we do not run",
+   "check": "Does the build or a dependency's manifest now fetch from a third-party host (a tarball, a git dependency, a Zig package URL, a toolchain download)? Each gets a pinned copy on ours and the build fails by name when the copy is missing (scripts/ci/zig_package_mirror.py check).",
+   "trigger": {
+    "paths": [
+     "*build.zig.zon"
+    ],
+    "diff": [
+     "\\bgit\\s*=\\s*\\\"https?://",
+     "\\.package\\(\\s*url:",
+     "https?://(?!(github\\.com/manaflow-ai|[\\w.-]*cmux\\.(com|dev)|localhost|127\\.0\\.0\\.1))[\\w.-]+\\.[a-z]{2,}/\\S*\\.(tar\\.gz|tgz|tar\\.xz|tar\\.zst|zip|dmg|pkg)\\b"
+    ],
+    "in": [
+     "*Cargo.toml",
+     "*Package.swift",
+     "scripts/*",
+     ".github/workflows/*",
+     "*.sh",
+     "*build.rs"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/build-fetches-from-third-party-host.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/upstream-outage-fails-the-build.md",
+    "https://github.com/manaflow-ai/cmux/pull/38592",
+    "https://github.com/manaflow-ai/cmux/pull/39415",
+    "https://github.com/manaflow-ai/cmux/pull/41286"
+   ],
+   "source": "cmuxterm-hq docs/handbook/build-fetches-from-third-party-host.md"
+  },
+  {
+   "id": "RC38",
+   "title": "A CI script that only runs on GNU, or an unset variable read as zero",
+   "check": "Does a CI script call a GNU-only tool or flag where a macOS runner runs it (timeout outside scripts/ci/timeout.sh, sed -i with no suffix, date -d, readlink -f, grep -P), read a variable a workflow cleanup removed under set -u, or compare vars.X to '0' so an unset variable reads as zero?",
+   "trigger": {
+    "diff": [
+     "(^|[;&|(]\\s*|\\bthen\\s+|\\bdo\\s+)\\s*g?timeout\\s+(-\\w+\\s+)*\\d",
+     "\\bsed\\s+-i\\s+['\\\"]",
+     "\\bdate\\s+(-u\\s+)?-d\\b",
+     "\\breadlink\\s+-f\\b",
+     "\\bgrep\\s+-\\w*P",
+     "\\bvars\\.\\w+\\s*[!=]=\\s*'0?'"
+    ],
+    "in": [
+     "scripts/*",
+     ".github/workflows/*",
+     ".github/actions/*",
+     "*.sh"
+    ],
+    "exclude": [
+     "scripts/ci/timeout.sh"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/gnu-tool-missing-on-a-mac-runner.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/unset-var-reads-as-zero.md",
+    "https://github.com/manaflow-ai/cmux/pull/43761",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/compendium/nightly-and-apple.md"
+   ],
+   "source": "cmuxterm-hq docs/handbook/gnu-tool-missing-on-a-mac-runner.md"
+  },
+  {
+   "id": "RC39",
+   "title": "A test that waits on the clock or times a busy runner",
+   "check": "Does a test sleep on the wall clock and then assert or change state, or assert that something took under N ms? Wait for the signal (a fake clock, an event, a polled condition with a deadline) and count work instead of timing it on a shared runner (scripts/check-test-determinism.py).",
+   "trigger": {
+    "diff": [
+     "\\b(Thread\\.sleep|usleep|std::thread::sleep|thread::sleep|tokio::time::sleep|Task\\.sleep|asyncAfter)\\b",
+     "\\bsetTimeout\\(\\s*[\\w(){}=>\\s]*,\\s*[1-9]\\d*\\s*\\)",
+     "\\btime\\.sleep\\(\\s*0*\\.?[1-9]",
+     "\\b(elapsed|duration)\\w*(\\(\\))?\\s*<=?\\s*[\\w.(]*(milliseconds|seconds|from_millis|from_secs|\\d+\\s*\\))"
+    ],
+    "in": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/wall-clock-sleep-races.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/timing-on-a-busy-host.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/test-reads-unsettled-setup.md",
+    "https://github.com/manaflow-ai/cmux/pull/41338",
+    "https://github.com/manaflow-ai/cmux/pull/41340",
+    "https://github.com/manaflow-ai/cmux/pull/41350",
+    "https://github.com/manaflow-ai/cmux/pull/41354",
+    "https://github.com/manaflow-ai/cmux/pull/40919",
+    "https://github.com/manaflow-ai/cmux/pull/41236",
+    "https://github.com/manaflow-ai/cmux/pull/41258",
+    "https://github.com/manaflow-ai/cmux/pull/39250",
+    "https://github.com/manaflow-ai/cmux/pull/41052",
+    "https://github.com/manaflow-ai/cmux/pull/41627"
+   ],
+   "source": "cmuxterm-hq docs/handbook/wall-clock-sleep-races.md"
+  },
+  {
+   "id": "RC40",
+   "title": "A test that leans on the host's setup",
+   "check": "Does the test read the host's HOME, the real defaults suite, the global git identity, or a tool only agent hosts have? Give it its own HOME, CFFIXED_USER_HOME, defaults suite and temp dir, so it passes under env -i on a bare runner.",
+   "trigger": {
+    "diff": [
+     "\\bUserDefaults\\.standard\\b",
+     "\\bhomeDirectoryForCurrentUser\\b|\\bNSHomeDirectory\\(\\)",
+     "\\b(dirs|home)::home_dir\\(\\)|\\bos\\.homedir\\(\\)|\\bPath\\.home\\(\\)|expanduser\\(",
+     "git config --global|\\bGIT_CONFIG_GLOBAL\\b"
+    ],
+    "in": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/test-leans-on-host-setup.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/temp-repo-git-maintenance.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/41386",
+    "https://github.com/manaflow-ai/cmux/pull/41666",
+    "https://github.com/manaflow-ai/cmux/pull/41716",
+    "https://github.com/manaflow-ai/cmux/pull/10440",
+    "https://github.com/manaflow-ai/cmux/pull/14688",
+    "https://github.com/manaflow-ai/cmux/pull/13225"
+   ],
+   "source": "cmuxterm-hq docs/handbook/test-leans-on-host-setup.md"
+  },
+  {
+   "id": "RC41",
+   "title": "A failure that a release build does not log",
+   "check": "Will the lines that explain this failure show in a NIGHTLY or release build's log? Step and failure lines log at notice or above, outside #if DEBUG, and keep the underlying error and its stage, not only its type name.",
+   "trigger": {
+    "diff": [
+     "\\b[lL]ogger\\.(debug|info|trace)\\(",
+     "^\\s*#if DEBUG\\b",
+     "\\bdebugPrint\\(|\\bprint\\(\\s*\\\""
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "cmux-next-ios/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/diagnostic-below-release-log-level.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/failure-drops-its-reason.md",
+    "https://github.com/manaflow-ai/cmux/pull/43634",
+    "https://github.com/manaflow-ai/cmux/pull/42400",
+    "https://github.com/manaflow-ai/cmux/pull/43043"
+   ],
+   "source": "cmuxterm-hq docs/handbook/diagnostic-below-release-log-level.md"
+  },
+  {
+   "id": "RC42",
+   "title": "A keychain item another build must read and delete",
+   "check": "Can a different build (NIGHTLY, DEV, an update with another signature) read, replace and delete this keychain item? Cover sign-in on build A, an update to build B, then sign-out and sign-in on B (InstallKeyAcrossBuildsTests).",
+   "trigger": {
+    "diff": [
+     "\\bSecItem(Add|Update|Delete|CopyMatching)\\b",
+     "\\bkSecAttr(AccessGroup|Synchronizable|Accessible|Service|Account)\\b",
+     "\\bkSecUseDataProtectionKeychain\\b"
+    ],
+    "in": [
+     "Packages/*/Sources/*",
+     "cmux-next-ios/*",
+     "vendor/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/keychain-item-another-build-cannot-delete.md",
+    "https://github.com/manaflow-ai/cmux/pull/43592"
+   ],
+   "source": "cmuxterm-hq docs/handbook/keychain-item-another-build-cannot-delete.md"
+  },
+  {
+   "id": "RC43",
+   "title": "Code under a platform or feature cfg no PR check compiles",
+   "check": "Does a PR check compile every configuration this touches (Linux and macOS, --no-default-features, each feature the fleet or nightly builds), so dead code or a missing import under one cfg is not first found red on the base (scripts/ci/cmux-tui-rust-check.sh)?",
+   "trigger": {
+    "diff": [
+     "#\\[cfg\\(\\s*(not\\(\\s*)?(target_os|feature|target_arch)\\b",
+     "#\\[cfg\\(\\s*(all|any)\\(",
+     "^\\s*\\[features\\]",
+     "\\bdefault-features\\s*=\\s*false\\b"
+    ],
+    "in": [
+     "*.rs",
+     "*Cargo.toml"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/build-config-no-pr-check-compiles.md",
+    "https://github.com/manaflow-ai/cmux/pull/39739",
+    "https://github.com/manaflow-ai/cmux/pull/42440",
+    "https://github.com/manaflow-ai/cmux/pull/43668",
+    "https://github.com/manaflow-ai/cmux/pull/43689"
+   ],
+   "source": "cmuxterm-hq docs/handbook/build-config-no-pr-check-compiles.md"
+  },
+  {
+   "id": "RC44",
+   "title": "A reply that copies a whole growing list",
+   "check": "Does a daemon reply copy a whole list that grows with use (chats, processes, mirrored peer rows)? Page it with a cursor and limit so no client-path reply passes a page at thousands of chats (server/reply_size_tests.rs), and a hit cap says so by name instead of dropping rows quietly.",
+   "trigger": {
+    "paths": [
+     "cmux-tui/crates/acpmux/src/cli/list_read.rs",
+     "cmux-tui/crates/acpmux/src/server/list_reply.rs",
+     "cmux-tui/crates/acpmux/src/server/chats.rs",
+     "cmux-tui/crates/acpmux/src/server/chats/*",
+     "cmux-tui/crates/acpmux/src/server/fanout.rs",
+     "cmux-tui/crates/acpmux/src/server/inventory_watch.rs"
+    ],
+    "diff": [
+     "_acpmux/(watch|sessions|list)\\b",
+     "\\blimit\\b.*\\b(None|usize::MAX|u32::MAX|unwrap_or\\()"
+    ],
+    "in": [
+     "cmux-tui/crates/acpmux/src/*",
+     "cmux-tui/crates/acpmux-*/src/*",
+     "cmux-tui/crates/cmux-tui-core/src/*"
+    ],
+    "exclude": [
+     "*_tests.rs",
+     "*/tests/*",
+     "*Tests/*",
+     "*/test/*",
+     "*.test.ts",
+     "*.test.tsx",
+     "*/test_*.py",
+     "*/UITests/*",
+     "*/fixtures/*",
+     "*/tests.rs",
+     "*Tests.swift"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/whole-list-reply-near-frame-cap.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/silent-cap.md",
+    "https://github.com/manaflow-ai/cmux/pull/37038",
+    "https://github.com/manaflow-ai/cmux/pull/41559",
+    "https://github.com/manaflow-ai/cmux/pull/44339"
+   ],
+   "source": "cmuxterm-hq docs/handbook/whole-list-reply-near-frame-cap.md"
+  },
+  {
+   "id": "RC45",
+   "title": "A failure that a script or step reports as success",
+   "check": "Can this step or script end green after its work failed (|| true, continue-on-error, check=False, a swallowed exception, a nonempty output from a producer that failed)? A script exits nonzero on failure, and a skipped or unreadable result reads as unknown, never as a pass.",
+   "trigger": {
+    "diff": [
+     "\\|\\|\\s*true\\b",
+     "^\\s*continue-on-error\\s*:\\s*true",
+     "\\bcheck\\s*=\\s*False\\b",
+     "except\\s+(Exception|BaseException|OSError)?\\s*(as\\s+\\w+)?\\s*:\\s*(pass|return\\b|continue)?\\s*$",
+     "\\.catch\\(\\s*\\(\\)\\s*=>\\s*(\\{\\s*\\}|undefined|null)\\s*\\)"
+    ],
+    "in": [
+     "scripts/ci/*",
+     "scripts/cmux-next/*",
+     "tests/*",
+     ".github/workflows/*",
+     ".github/actions/*",
+     "webviews/src/*",
+     "Packages/*/Sources/*"
+    ],
+    "exclude": [
+     "scripts/measure/*",
+     "scripts/bench/*",
+     "scripts/journeys/*",
+     "scripts/gallery-matrix/*",
+     "scripts/cmux-next/*-live.py",
+     "scripts/cmux-next/*-bench.py",
+     "scripts/cmux-next/bench_*",
+     "tests/passkeys/*",
+     "scripts/fuzz/*"
+    ]
+   },
+   "incidents": [
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/probe-reads-failure-as-pass.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/gate-passes-on-absence-of-refusal.md",
+    "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md",
+    "https://github.com/manaflow-ai/cmux/pull/16174",
+    "https://github.com/manaflow-ai/cmux/pull/12105",
+    "https://github.com/manaflow-ai/cmux/pull/17615",
+    "https://github.com/manaflow-ai/cmux/pull/16427",
+    "https://github.com/manaflow-ai/cmux/pull/21302"
+   ],
+   "source": "cmuxterm-hq docs/handbook/gate-passes-on-absence-of-refusal.md"
+  }
+ ]
+}

@@ -84,7 +84,7 @@ fn keeper(
 /// from it, never from this process's environment: launchd starts `serve`
 /// without the app's `CMUX_TUI_STATE_DIR`, which a Nightly or tagged build sets
 /// to its own directory. None for a link on any other state directory.
-pub(super) fn hub_socket(state_dir: &Path) -> Option<PathBuf> {
+pub(crate) fn hub_socket(state_dir: &Path) -> Option<PathBuf> {
     if state_dir.file_name()? != "link" {
         return None;
     }
@@ -199,7 +199,10 @@ fn log_event(event: &KeeperEvent) {
         KeeperEvent::Waiting(_) => {}
         KeeperEvent::Started => eprintln!("cmux link: Cloud tunnel starting"),
         KeeperEvent::Ready => eprintln!("cmux link: Cloud tunnel ready"),
-        KeeperEvent::Ended(status) => eprintln!("cmux link: Cloud tunnel ended: {status:?}"),
+        // The team it asked for: "no mesh" is that team's answer.
+        KeeperEvent::Ended(status, team) => {
+            eprintln!("cmux link: Cloud tunnel ended: {status:?} (team {team})");
+        }
         KeeperEvent::Stopped(why) => eprintln!("cmux link: Cloud tunnel stopped: {why}"),
         KeeperEvent::Held => eprintln!("cmux link: another process serves the Cloud tunnel"),
         KeeperEvent::Unstarted(why) => eprintln!("cmux link: Cloud tunnel not started: {why}"),
