@@ -86,8 +86,13 @@ and the remembered Mac per team was lost.
 | Feed items | App Support `Feed/<user>.json` | private (agent names, places, turn text) | yes | **deleted** (and cleared in memory) | kept on disk |
 | Feed read marks | App Support `Feed/read-<user>.json` | low (event ids) | **yes** | kept | one shared `read.json` |
 | Workspace snapshots | App Support `cmux-mobile-live/snapshot-<user>.json` | private (workspace titles, folders) | yes | deleted | same |
-| Unsent Chief messages | App Support `cmux-mobile-chief-outbox.json` | private (message text, images) | no | **discarded** | kept: the next account would send them |
+| Unsent Chief messages from builds before the outbox was removed (2026-11-17) | App Support `cmux-mobile-chief-outbox.json`, `cmux-mobile-cloud-chief-outbox.json` | private (message text, images) | no | **left on disk, unread** | same |
 | Diff "viewed" marks | UserDefaults `cmuxMobile.diff.viewed` | low (file paths with a diff fingerprint) | no | kept | kept |
+
+Open: the Chief outbox files an earlier build wrote stay in Application Support. Nothing reads,
+sends or deletes them now, so another account never sees them in the app, but they hold that
+account's unsent text until the app is deleted. Deleting them is a follow-up (a new delete of user
+files is a risk:high change).
 
 Open: the diff "viewed" marks hold file paths and are not per account yet. They
 only mark a diff that matches path and content, so another account sees no

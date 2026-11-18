@@ -2,6 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { SwapDemo, type SwapDemoProps } from "./MotionDemos";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 // The new panel is interactive on the frame of the click: a card in it takes a click at once.
 const swapAndClick: Play = async (ctx) => {
@@ -25,7 +26,7 @@ export default componentEntry<SwapDemoProps>({
     anchorMovePx: { value: 0, reason: "The swap animates the new panel's paint, never the layout around it." },
     settleMaxMs: {
       value: 300,
-      reason: "Every look and the tab highlight end within the 240 ms ceiling after the click frame.",
+      reason: `Every look and the tab highlight end within the ${MOTION_MS.large} ms ceiling after the click frame.`,
     },
   },
   covers: ["ui/motion/ViewSwap.tsx", "ui/motion/MotionDemos.tsx#SwapDemo"],
@@ -37,9 +38,13 @@ export default componentEntry<SwapDemoProps>({
       props: { look: "slide" },
       play: swapAndClick,
     },
-    fade: { note: "Fade in over 120 ms.", props: { look: "fade" }, play: swapAndClick },
+    fade: { note: `Fade in over ${MOTION_MS.micro} ms.`, props: { look: "fade" }, play: swapAndClick },
     sweep: { note: "Shown at once; an accent band crosses it once.", props: { look: "sweep" }, play: swapAndClick },
-    wipe: { note: "A slanted edge reveals it over 180 ms.", props: { look: "wipe" }, play: swapAndClick },
+    wipe: {
+      note: `A slanted edge reveals it over ${MOTION_MS.standard} ms.`,
+      props: { look: "wipe" },
+      play: swapAndClick,
+    },
     none: { note: "Before: the panel changes in one frame.", props: { look: "none" }, play: swapAndClick },
   },
 });

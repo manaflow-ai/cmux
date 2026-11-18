@@ -167,6 +167,8 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// The verified app's own grants (memory only; the app reports them again on connect).
+    app_permissions: Mutex<Option<super::AppPermissions>>,
 }
 
 #[derive(Default)]
@@ -259,6 +261,13 @@ impl RemoteHostSupervisor {
         Ok(self.status())
     }
 
+    /// The verified app's own Screen Recording and Accessibility, for `status()`'s
+    /// `app.permissions`. Never saved, never starts or stops the host, never touches the switches.
+    pub(crate) fn set_app_permissions(&self, permissions: super::AppPermissions) -> Value {
+        *lock(&self.inner.app_permissions) = Some(permissions);
+        self.status()
+    }
+
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
         // Held only for admission and start: the request itself never serializes other calls.
@@ -296,6 +305,10 @@ impl RemoteHostSupervisor {
             "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
+        // The app's own grants: the ones that matter where no cmux Remote is bundled.
+        if let Some(permissions) = *lock(&self.inner.app_permissions) {
+            fields.insert("app".into(), json!({"permissions": permissions.status()}));
+        }
         match &*lock(&self.inner.state) {
             State::Running(connection) => {
                 fields.insert("state".into(), json!("running"));
@@ -1002,6 +1015,50 @@ mod tests {
             closed: (Mutex::new(false), Condvar::new()),
             quit: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    #[test]
+    fn app_permissions_show_in_status_and_never_reach_config_or_the_switches() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let root =
+            std::env::temp_dir().join(format!("cmux-rh-app-perms-{}-{nanos}", std::process::id()));
+        let paths = super::Paths {
+            runtime: root.join("run"),
+            state: root.join("state"),
+            scope: "stest".into(),
+            daemon_socket: root.join("d.sock"),
+        };
+        let supervisor = super::RemoteHostSupervisor::default();
+        *super::lock(&supervisor.inner.paths) = Some(paths.clone());
+        assert!(supervisor.status().get("app").is_none(), "nothing reported yet");
+
+        let status = supervisor.set_app_permissions(crate::remote_host::AppPermissions {
+            screen_recording: Some(true),
+            accessibility: Some(false),
+        });
+        assert_eq!(
+            status["app"],
+            json!({"permissions": {"screen_recording": true, "accessibility": false}})
+        );
+        // No switch moved, no host started, nothing saved.
+        assert_eq!(status["state"], "off");
+        assert_eq!(
+            status["config"],
+            json!({"computer_use": false, "screen_sharing": false, "headless": true})
+        );
+        assert!(!paths.config().exists(), "app permissions are memory only");
+
+        // A switch change saves the switches only and keeps the app's grants in status.
+        let status = supervisor.set_config(&json!({"headless": false})).unwrap();
+        assert_eq!(status["app"]["permissions"]["screen_recording"], true);
+        let saved: Value = serde_json::from_slice(&std::fs::read(paths.config()).unwrap()).unwrap();
+        assert_eq!(
+            saved,
+            json!({"computer_use": false, "screen_sharing": false, "headless": false})
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
