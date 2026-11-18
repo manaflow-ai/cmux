@@ -24,8 +24,72 @@ struct NewTabSpareContextTests {
     }
 
     @Test func theParkedSpareDrawsTheFocusedPanesContextBeforeCmdT() async throws {
+        try await Self.withAPreparedSpare("cn-spare-context") { services, pane, spare, _ in
+            // Cmd-T adopts it, and the screen it drew is the screen the tab gets: no remount after the key.
+            let drawn = Self.screen(spare.model.newTab)
+            NewTabPage.open(in: pane, seed: nil)
+            #expect(services.newTabSpares.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
+            #expect(Self.screen(spare.model.newTab) == drawn, "the adoption changed the screen the spare drew before the key")
+            #expect(!spare.model.newTabPrepared, "after Cmd-T the context is the tab's: its handshake may name its folder")
+        }
+    }
+
+    /// The key's own work for a page that the pool prepared. The prepare gave the parked page the context that a
+    /// Cmd-T in its window gives, and the page draws it. So the key's own turn must not send the page that context
+    /// again: not the folder that the page draws and not the bar's places (the larger part of the context: the open
+    /// tabs, the workspaces, the folders, the recent pages). And the key shows its tab one time in its own turn: each
+    /// more show runs the pane's whole show again (the old tab's withdraw, the tab strip's sync, the content view).
+    ///
+    /// What this holds and what it does not: the scripts are those that the adopted page's own view was given in
+    /// the key's call, which has no suspension, so no other page and no other suite adds to them. The shows are the
+    /// app's own spans `switch.view` in that same call. A show at a frame after the key is not counted here: the
+    /// span names no pane, and the suites share the main actor, so a count over a suspension is not this pane's
+    /// alone. Nothing changes between the prepare and the key in this test: a field that changed must still reach
+    /// the page, and no row here holds that.
+    @Test func cmdTSendsAPreparedSpareNoContextThatItDrawsAndShowsItsTabOnce() async throws {
+        try await Self.withAPreparedSpare("cn-spare-key-work") { services, pane, spare, keyPage in
+            let folder = try #require(keyPage.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }, "the key's page has no folder")
+            var scripts: [String] = []
+            spare.evaluateScript = { scripts.append($0) }
+            let counted = Self.spans("switch.view") { NewTabPage.open(in: pane, seed: nil) }
+            try #require(services.newTabSpares.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
+            let selectedPage = pane.stripModel.selectedID.flatMap { services.agentTabs.existingView($0.rawValue) }
+            try #require(selectedPage === spare, "the pane's new tab does not have the parked spare as its page")
+            let shows = try #require(counted, "the count of the key's shows is not whole")
+            let drawnAgain = scripts.filter { $0.contains(folder) || $0.contains("\"omnibar\"") }
+            print("key-work-of-test: NewTabSpareContextTests: \(scripts.count) scripts in the key's turn of \(scripts.map(\.utf8.count)) bytes, "
+                + "\(drawnAgain.count) with the context that the page draws, \(shows) shows in the key's turn")
+            #expect(drawnAgain.isEmpty,
+                    "the key sent the prepared page \(drawnAgain.count) scripts with the context that it draws (\(drawnAgain.map(\.utf8.count)) bytes)")
+            #expect(shows == 1, "the key showed its pane's selection \(shows) times in its own turn")
+        }
+    }
+
+    /// The count of the app's spans `name` that `body` makes (`BenchSpans` has them while a bench records). `body`
+    /// has no suspension, so the count is of `body` alone. A bench of another suite that records now (the suites
+    /// share the main actor) keeps its record: this starts no second one. nil when the ring of spans filled
+    /// meanwhile, so the count is not whole.
+    private static func spans(_ name: String, in body: () -> Void) -> Int? {
+        let had = BenchSpans.spans.count
+        BenchSpans.mark("test.probe")
+        let another = BenchSpans.spans.count > had
+        if !another { BenchSpans.begin() }
+        defer { if !another { _ = BenchSpans.end() } }
+        let before = BenchSpans.spans.filter { $0.name == name }.count
+        body()
+        let after = BenchSpans.spans
+        BenchSpans.mark("test.probe")
+        guard BenchSpans.spans.count > after.count else { return nil }
+        return after.filter { $0.name == name }.count - before
+    }
+
+    /// The app with one parked spare that the pool prepared: an inert page stands in for the web page, the pool's
+    /// own parking, fitting and context work run, and the spare draws the context that a Cmd-T in the focused
+    /// terminal pane gives. `body` gets that pane, the spare and the key's context.
+    static func withAPreparedSpare(_ install: String,
+                                   _ body: (AppServices, PaneController, AgentPaneView, AgentPaneNewTab) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
-            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-context")
+            services.agentTabs.localHost = AgentSessionRef.host(installID: install)
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             try await PasswordManagerRouteTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
             let controller = try #require(services.windows.active)
@@ -102,13 +166,7 @@ struct NewTabSpareContextTests {
                 "the parked spare draws cwd \(spare.model.newTab?.cwd ?? "nil"), home \(spare.model.newTab?.home ?? "nil"); "
                     + "Cmd-T gives cwd \(keyPage.cwd ?? "nil"), home \(keyPage.home ?? "nil")"
             })
-
-            // Cmd-T adopts it, and the screen it drew is the screen the tab gets: no remount after the key.
-            let drawn = Self.screen(spare.model.newTab)
-            NewTabPage.open(in: pane, seed: nil)
-            #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
-            #expect(Self.screen(spare.model.newTab) == drawn, "the adoption changed the screen the spare drew before the key")
-            #expect(!spare.model.newTabPrepared, "after Cmd-T the context is the tab's: its handshake may name its folder")
+            try await body(services, pane, spare, keyPage)
         }
     }
 }
