@@ -327,7 +327,12 @@ private struct CloudMachineChatsScreen: View {
 struct CloudMachineChatsList: View {
     let rows: [CloudChatsListItem]
     let edge: PagedListEdge
-    let more: @MainActor () -> Void
+    let hasOlder: Bool
+    /// How many chats show; a page more when the reader nears the end.
+    @Binding var shown: Int
+    /// The `shown` this list was drawn with: the list asks on every scroll step near the end, and
+    /// one drawn list adds one page.
+    let drawnShown: Int
     let select: @MainActor (String) -> Void
     let reconnect: @MainActor () -> Void
     var probe: PagedListProbe?
@@ -336,9 +341,9 @@ struct CloudMachineChatsList: View {
          reconnect: @escaping @MainActor () -> Void, probe: PagedListProbe? = nil) {
         rows = state.rows
         edge = state.edge
-        // One page per drawn list: the list asks on every scroll step near the end.
-        let next = shown.wrappedValue + CloudChatList.pageSize
-        more = state.hasOlder ? { if shown.wrappedValue < next { shown.wrappedValue = next } } : {}
+        hasOlder = state.hasOlder
+        _shown = shown
+        drawnShown = shown.wrappedValue
         self.select = select
         self.reconnect = reconnect
         self.probe = probe
@@ -346,7 +351,7 @@ struct CloudMachineChatsList: View {
 
     var body: some View {
         PagedList(direction: .down, items: rows, phase: .loaded, edge: edge,
-                  loadMore: more, retry: { [reconnect] in reconnect() }) { item in
+                  loadMore: { showMore() }, retry: { reconnect() }) { item in
             Button { select(item.id) } label: {
                 CloudChatRow(item: item)
             }
@@ -392,6 +397,14 @@ struct CloudChatsListState: Equatable {
         if hasOlder { return .more }
         if listWhole { return .end }
         return restStopped ? .failed(String(localized: "Couldn't load older chats.")) : .loading
+    }
+}
+
+extension CloudMachineChatsList {
+    /// One page more of the chats held, once per drawn list.
+    func showMore() {
+        let next = drawnShown + CloudChatList.pageSize
+        if hasOlder, shown < next { shown = next }
     }
 }
 
