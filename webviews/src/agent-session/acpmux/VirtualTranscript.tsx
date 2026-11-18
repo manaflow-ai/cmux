@@ -1921,11 +1921,23 @@ function TranscriptView({
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below), the offset it last read and the
-  /// one it handled.
+  /// one it handled. Made in the first render, before the rows' observer (`observer` below), so its read
+  /// runs first in a frame's ResizeObserver callbacks.
+  const guardRead = useRef<() => void>(() => {});
   const frameGuard = useRef<{ guard: FrameGuard | undefined; seen: number | undefined; handled: number | undefined }>({
     guard: undefined,
     seen: undefined,
     handled: undefined,
+  });
+  frameGuard.current.guard ??= new FrameGuard({
+    read: () => guardRead.current(),
+    // An offset handled a frame ago has had its scroll event by now (or never gets one).
+    frame: () => {
+      frameGuard.current.handled = undefined;
+    },
+    node: () => (transcriptMounted.current ? ref.current : null),
+    idleMs: SCROLL_GUARD_IDLE_MS,
+    observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
   });
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
@@ -4932,9 +4944,22 @@ function TranscriptView({
         viewport.height === height &&
         viewport.width === width &&
         scrolledTo.current.top - live > UNSEEN_READER_MOVE_PX;
+      // A parked view whose live offset is neither the last one handled nor the last one the transcript
+      // wrote or committed (`scrollRef`, which its own writes set): a move nobody here made, a step of the
+      // reader's scroll whose event has not come yet (a scrollbar thumb, which sends no wheel or key, a
+      // fling's frame). Anchored from the handled offset instead, a pass that measured rows in between
+      // put the view back where the step began: the row on screen stood still for a frame while the
+      // offset went on, then leapt (transcript-scroll-up MODE=drag, a whole step every other frame).
+      const unhandledMove =
+        !followingRef.current &&
+        !unmeasured &&
+        Math.abs(scrolledTo.current.top - live) > 0.5 &&
+        Math.abs(scrollRef.current.top - live) > 0.5;
       const readerLeft =
         !clamped &&
-        (unseenReaderMove || (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
+        (unseenReaderMove ||
+          unhandledMove ||
+          (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
       if (readerLeft) follow(false);
       if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
@@ -6104,23 +6129,11 @@ function TranscriptView({
     }
     state.seen = node.scrollTop;
   };
-  const armFrameGuard = () => {
-    const state = frameGuard.current;
-    state.guard ??= new FrameGuard({
-      read: () => {
-        const node = ref.current;
-        if (node && transcriptMounted.current) guardOffset(node);
-      },
-      // An offset handled a frame ago has had its scroll event by now (or never gets one).
-      frame: () => {
-        state.handled = undefined;
-      },
-      node: () => (transcriptMounted.current ? ref.current : null),
-      idleMs: SCROLL_GUARD_IDLE_MS,
-      observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
-    });
-    state.guard.arm();
+  guardRead.current = () => {
+    const node = ref.current;
+    if (node && transcriptMounted.current) guardOffset(node);
   };
+  const armFrameGuard = () => frameGuard.current.guard?.arm();
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     armFrameGuard();
     pacing.scrolled();

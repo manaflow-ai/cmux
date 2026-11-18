@@ -41,6 +41,17 @@ export class FrameGuard {
     this.now = options.now ?? (() => performance.now());
     this.requestFrame = options.requestFrame ?? ((callback) => requestAnimationFrame(callback));
     this.cancelFrame = options.cancelFrame ?? ((handle) => cancelAnimationFrame(handle));
+    this.observer = this.makeObserver();
+  }
+
+  /// Made at once: ResizeObserver callbacks run in the order their observers were made, and the guard's
+  /// read must come before a row measure's commit in the same frame, which places the rows from the
+  /// offset it last handled (a guard made after the transcript's row observer read the step a measure
+  /// had already put back: a drag's row stood still a frame, then leapt).
+  private makeObserver() {
+    return this.options.observer?.(() => {
+      if (!this.stopped) this.options.read();
+    });
   }
 
   /// Frames the guard has asked for and not yet run (0 or 1).
@@ -57,9 +68,7 @@ export class FrameGuard {
   arm(): void {
     this.stopped = false;
     this.moved();
-    this.observer ??= this.options.observer?.(() => {
-      if (!this.stopped) this.options.read();
-    });
+    this.observer ??= this.makeObserver();
     // This frame too, when it can: an observation made now is delivered before this frame paints.
     if (this.observer) this.watch();
     if (this.handle !== undefined) return;
