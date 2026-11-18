@@ -160,6 +160,8 @@ import Testing
             errorLog: fixture.errorLog,
             canRegisterSystemWideHotkey: { _ in false }
         )
+        model.startObserving()
+        await spin(until: { model.hasLoadedBindings })
 
         await model.assign(
             stroke: ShortcutStroke(key: ";", command: true),
@@ -167,10 +169,9 @@ import Testing
         )
         #expect(model.validationMessage(for: .showHideAllWindows) != nil)
 
+        // No direct prune: the binding update from the store has to clear it.
         await model.clearBinding(for: .markWorkspaceDone)
-        model.pruneConflictRejections()
-
-        #expect(model.validationMessage(for: .showHideAllWindows) == nil)
+        await spin(until: { model.validationMessage(for: .showHideAllWindows) == nil })
     }
 
     /// The same rule from the other side: a context-scoped action cannot take the keystroke the
