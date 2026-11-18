@@ -394,6 +394,7 @@ struct PaneZoomMarkFrameTests {
         shown.left.presentsPage = false
         try #require(shown.layoutZooms, "SETUP: the layout model does not have the store's zoom after the page's time")
         shown.layOut()
+        try #require(shown.exitZoom == nil, "SETUP: the Exit Zoom control shows before the screen's next pass")
         shown.screen.applyPresentation()
         shown.layOut()
         try #require(shown.shows(shown.left) && !shown.shows(shown.right), "SETUP: the screen does not show the zoomed pane alone after the page's time")
