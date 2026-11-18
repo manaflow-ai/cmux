@@ -37,7 +37,7 @@ import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
-import { stepProbe } from "./toolGroupRowModel";
+import { sameList, stepProbe } from "./toolGroupRowModel";
 import { DisclosureChevron } from "./DisclosureChevron";
 import { useRevealPins, useStepWindow, windowedSteps } from "./stepWindow";
 
@@ -251,19 +251,7 @@ function StepList({
 /// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
 /// that is this one group (`folded`: text followed it) stays closed too, one summary line between
 /// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
-/// any call runs.
-export function ToolGroupRow({
-  kind,
-  items,
-  disclosureKey,
-  folded = false,
-  findTitle,
-  inherits,
-  closedBy,
-  foldId,
-  onLoadFold,
-  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
-}: {
+type GroupProps = {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
@@ -279,7 +267,42 @@ export function ToolGroupRow({
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
   /// drawn on its own before a call joined it to this group.
   thoughtId?: (n: number) => string;
-}) {
+};
+
+/// A group's line shows the same: its items the same objects (the transcript replaces only the call a
+/// chunk changed, direct.ts), the same links, and thought ids that name the same thoughts (TurnRows.tsx
+/// makes a new `thoughtId` each draw over one row id and count, so the first id says which).
+const sameGroup = (a: GroupProps, b: GroupProps): boolean =>
+  a.kind === b.kind &&
+  a.disclosureKey === b.disclosureKey &&
+  a.folded === b.folded &&
+  a.findTitle === b.findTitle &&
+  a.foldId === b.foldId &&
+  a.onLoadFold === b.onLoadFold &&
+  sameList(a.items, b.items) &&
+  sameList(a.inherits, b.inherits) &&
+  sameList(a.closedBy, b.closedBy) &&
+  (a.thoughtId === b.thoughtId ||
+    (a.thoughtId !== undefined && b.thoughtId !== undefined && a.thoughtId(0) === b.thoughtId(0)));
+
+/// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs. Memoized on what it shows (`sameGroup`), so a chunk streamed to another group in
+/// the row draws this one again never.
+export const ToolGroupRow = memo(function ToolGroupRow({
+  kind,
+  items,
+  disclosureKey,
+  folded = false,
+  findTitle,
+  inherits,
+  closedBy,
+  foldId,
+  onLoadFold,
+  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
+}: GroupProps) {
   const t = useT();
   const reveal = useContext(FindReveal);
   const showFindTitle = Boolean(findTitle && reveal?.needle && foldFind(findTitle).includes(reveal.needle));
@@ -413,4 +436,4 @@ export function ToolGroupRow({
       )}
     </>
   );
-}
+}, sameGroup);

@@ -213,7 +213,8 @@ for (const list of lists) {
     const acpmuxPerf = await perf();
     await fresh();
     const items = list.items(1_000);
-    await draw(list.node(items));
+    // A copy, as the transcript hands each draw its own snapshot: `items` changes in place below.
+    await draw(list.node([...items]));
     await list.open?.();
     acpmuxPerf.enabled = true;
     try {
