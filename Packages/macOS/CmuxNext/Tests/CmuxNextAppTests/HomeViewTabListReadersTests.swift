@@ -14,16 +14,22 @@ import Testing
 /// A NEW TAB AND THE HOME VIEW's WATCH OF THE PERSON's AGENTS.
 ///
 /// A home view of a Chief conversation with no message yet shows the person's agents (the first-run glance). Its
-/// watch (`HomeHostView`, `agentsWatch`) reads the tab list of each pane of each workspace in ONE observation, shown
-/// or not. One new tab in one pane then cancels each registration of that observation, and the next turn reads the
-/// whole session again: the cost of one New Tab key grows with the session (`CmdTTabListReadersTests` holds the same
-/// rule for three app-lifetime services).
+/// watch (`HomeHostView`, `agentsWatch`) read the tab list of each pane of each workspace in ONE observation, shown
+/// or not. One new tab in one pane then cancelled each registration of that observation, and the next turn read the
+/// whole session again: the cost of one New Tab key grew with the session (`CmdTTabListReadersTests` holds the same
+/// rule for three app-lifetime services). Now the watch has a feed with one observation for each workspace
+/// (`HomeAgentGlances.feed(while:)`), and the view's stream reads the feed's one cell.
 ///
 /// The count (`ObservationWakes`, no clock): a new terminal tab in each of a few workspaces, one at a time, by the
 /// store's intent as the key does it. A terminal with no agent changes no glance, so it must wake no observation
 /// made in the home view's file, and an observation of one workspace's agents wakes for its own workspace only. The
 /// rows print each observation that a new tab woke, by the place where it was made, for a session of 2 and of 60
 /// workspaces side by side: a place whose count grows with the session is seen at once.
+///
+/// The feed moves its cell in a task of its own, after the write: the count of the write does not have the wake of
+/// the view's stream. So the view is made under a counter of its own. Each task that the view makes, and each task
+/// made in one of them (the feed's, each workspace's), counts there: a move of the cell is one wake of the view's
+/// stream in that counter.
 ///
 /// Limits: the count has the streams, trackings and loops that record themselves in `ObservationWakes`; a SwiftUI
 /// body is not in it. The rows do not count what the New Tab places feed does for each open New Tab page (it is no
@@ -32,6 +38,9 @@ import Testing
 struct HomeViewTabListReadersTests {
     private static let conversation = "conv_local"
     private static func key(_ workspace: Int) -> String { "home-readers-ws-\(workspace)" }
+    /// The place where the view's stream of the agents is made (`HomeHostView`, `agentsWatch`). When that line
+    /// moves, row 2 is red (it wants a wake at this place): then give the new line here.
+    private static let agentsStream = "CmuxNextApp/HomeHostView.swift:299"
     /// The keep-awake services this suite started (the app has one, for its lifetime).
     private static var kept: [KeepAwakeService] = []
 
@@ -70,6 +79,12 @@ struct HomeViewTabListReadersTests {
         var shownAfter: [String] = []
         /// The tab that got an agent (`firstTerminalGetsAnAgent`).
         var agentTab = ""
+        /// The tab that had an agent before the view was made (`agentBefore`).
+        var agentBefore = ""
+        /// The wakes of the view's stream of the agents in the view's own counter, after the view's first turns
+        /// and after the changes.
+        var streamBefore = 0
+        var streamAfter = 0
         var lastSeq: UInt64 = 0
     }
 
@@ -107,8 +122,10 @@ struct HomeViewTabListReadersTests {
 
     /// The app as `CmdTTabListReadersTests` makes it (a whole window of a session of `workspaces` workspaces, the
     /// last one shows, with the two services the app delegate starts), and a home view of `chief`'s conversation.
-    /// Then `change`, each write under its own counter.
-    private static func run(workspaces: Int, chief: Chief, change: Change, viewInAWindow: Bool = false) async throws -> Run {
+    /// Then `change`, each write under its own counter. `agentBefore`: the first terminal of the last workspace
+    /// has an agent before the view is made.
+    private static func run(workspaces: Int, chief: Chief, change: Change, viewInAWindow: Bool = false,
+                            agentBefore: Bool = false) async throws -> Run {
         _ = NSApplication.shared
         // No Home caches folder is set, so the Home service keeps its caches in a temporary folder of its own:
         // the Home store's durable copy is this run's, never a real Chief's.
@@ -159,8 +176,21 @@ struct HomeViewTabListReadersTests {
         try #require(controller.workspaceContent).contentView.layoutSubtreeIfNeeded()
 
         // The home view, as the app makes it for a Chief conversation. In no window, or the content of a window of
-        // its own that is not on a screen.
-        let view = HomeHostView(services: services, conversation: conversation)
+        // its own that is not on a screen. It is made under a counter of its own (the suite's head comment).
+        var agentBeforeTab = ""
+        if agentBefore {
+            let tab = try #require(store.workspaces.first { $0.key?.rawValue == key(workspaces) }?.screens.first?.panes.first?.tabs.first,
+                                   "fixture: the last workspace has no tab")
+            tab.setAgent(AgentStatus(surface: tab.surface, state: .working, source: "hook", agent: "codex", updatedAtMs: 1_000))
+            try #require(tab.agent != nil, "fixture: the tab of the last workspace got no agent")
+            agentBeforeTab = tab.id
+        }
+        let viewWakes = ObservationWakes()
+        var made: HomeHostView?
+        ObservationWakes.$current.withValue(viewWakes) {
+            made = HomeHostView(services: services, conversation: conversation)
+        }
+        let view = try #require(made, "fixture: no home view")
         view.frame = NSRect(x: 0, y: 0, width: 600, height: 700)
         var viewWindow: NSWindow?
         if viewInAWindow {
@@ -177,6 +207,8 @@ struct HomeViewTabListReadersTests {
         run.lastSeq = listed.lastSeq
         run.glancesBefore = glanceCount(services)
         run.shownBefore = view.transcript.firstRun.agents.map(\.id)
+        run.agentBefore = agentBeforeTab
+        run.streamBefore = viewWakes.bySite[agentsStream] ?? 0
         var woken: [ObjectIdentifier: (place: String, workspaces: Int)] = [:]
         var wakesByPlace: [String: Int] = [:]
         // At most four workspaces, spread over the session; two are enough to see a reader of more than one.
@@ -213,6 +245,7 @@ struct HomeViewTabListReadersTests {
         run.changed = numbers.count
         run.glancesAfter = glanceCount(services)
         run.shownAfter = view.transcript.firstRun.agents.map(\.id)
+        run.streamAfter = viewWakes.bySite[agentsStream] ?? 0
         for observer in woken.values {
             var place = run.places[observer.place] ?? Place()
             place.instances += 1
@@ -256,19 +289,32 @@ struct HomeViewTabListReadersTests {
         for (size, session) in [(2, small), (60, large)] {
             let wide = session.places.filter { $0.key.contains("HomeAgentGlances.swift") && ($0.value.most > 1 || $0.value.instances > session.changed) }
             #expect(wide.isEmpty, "with \(size) workspaces an observation of the agents woke for more than its own workspace: \(wide.keys.sorted())")
+            // The feed is armed: one observation of the agents woke for each changed workspace, not fewer.
+            let armed = session.places.filter { $0.key.contains("HomeAgentGlances.swift") }.values.reduce(0) { $0 + $1.instances }
+            #expect(armed == session.changed, "with \(size) workspaces \(armed) observations of the agents woke for \(session.changed) changed workspaces")
+            // The view's stream of the agents, in the view's own counter: no new tab ran it.
+            print("HomeViewTabListReadersTests: row 1: \(size) workspaces: the wakes of the view's stream of the agents \(session.streamBefore) -> \(session.streamAfter)")
+            #expect(session.streamAfter == session.streamBefore,
+                    "with \(size) workspaces the new tabs woke the view's stream of the agents: \(session.streamBefore) -> \(session.streamAfter) wakes")
         }
     }
 
     /// Row 2, what must stay: a terminal that gets an agent's report is one more glance of the person's agents, and
     /// the home view of a Chief with no message lists it (the first-run panel's agents). The view is the content of
-    /// a window. This row also proves that the watch of rows 1 and 3 is armed in this scene.
+    /// a window. This row also proves that the watch of rows 1 and 3 is armed in this scene. The second workspace
+    /// has an agent before the view is made: the view lists it from its first turns (the feed's first items), then
+    /// both, in the order of the workspaces. The report is one wake of the view's stream in the view's own counter:
+    /// so row 1's count can see that stream.
     @Test func aTerminalThatGetsAnAgentWakesTheHomeViewOfAnEmptyChief() async throws {
-        let run = try await Self.run(workspaces: 2, chief: .empty, change: .firstTerminalGetsAnAgent, viewInAWindow: true)
+        let run = try await Self.run(workspaces: 2, chief: .empty, change: .firstTerminalGetsAnAgent, viewInAWindow: true, agentBefore: true)
         Self.printPlaces("row 2, a terminal gets an agent, \(Chief.empty.rawValue), the home view in a window", small: run, large: run, sizes: (2, 2))
         #expect(run.glancesAfter == run.glancesBefore + 1, "the agents' glances went from \(run.glancesBefore) to \(run.glancesAfter)")
-        print("HomeViewTabListReadersTests: row 2: the home view lists the agents \(run.shownBefore) -> \(run.shownAfter); the tab with the agent = \(run.agentTab)")
-        #expect(run.shownBefore.isEmpty, "fixture: the home view lists the agents \(run.shownBefore) before a terminal has one")
-        #expect(run.shownAfter == [run.agentTab], "the home view lists the agents \(run.shownAfter) after the report, want [\(run.agentTab)]")
+        print("HomeViewTabListReadersTests: row 2: the home view lists the agents \(run.shownBefore) -> \(run.shownAfter); the tab with the agent = \(run.agentTab); "
+            + "the tab with an agent before the view = \(run.agentBefore); the wakes of the view's stream of the agents \(run.streamBefore) -> \(run.streamAfter)")
+        #expect(run.shownBefore == [run.agentBefore], "the home view lists the agents \(run.shownBefore) at its start, want [\(run.agentBefore)]")
+        #expect(run.shownAfter == [run.agentTab, run.agentBefore],
+                "the home view lists the agents \(run.shownAfter) after the report, want [\(run.agentTab), \(run.agentBefore)]")
+        #expect(run.streamAfter > run.streamBefore, "the report did not wake the view's stream of the agents: \(run.streamBefore) -> \(run.streamAfter) wakes")
     }
 
     /// Row 3, a control that only prints: the same new terminal tabs with a home view whose Chief has one message
