@@ -15,7 +15,7 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { memo, useContext, useState } from "react";
+import { memo, useContext, useMemo, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration, spanDuration } from "../conversation/turns";
@@ -64,16 +64,17 @@ export function TasksSection({
   const [showFinished, setShowFinished] = useState(false);
   // The finished row opens its list as one motion with the sections under it (foldMotion.ts).
   const finishedFold = useFoldMotion<HTMLDivElement>(showFinished, () => 0);
-  const { running, finished } = splitCommands(commands);
-  const now = useNow(running.length > 0);
+  // Split and sorted when the commands change, never on the second's tick: a running command's time
+  // ticks in its own leaf (CommandTime), so the clock draws neither this section nor its rows.
+  const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
   const scheduledNow = useScheduledClock(scheduled);
-  const { active, finished: ended } = splitScheduled(scheduled, Math.max(now, scheduledNow));
+  const { active, finished: ended } = useMemo(() => splitScheduled(scheduled, scheduledNow), [scheduled, scheduledNow]);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
   /// Whether a click on a row shows the call that started it: the loaded transcript holds that call.
   const shows = (call: string | undefined) => !!call && !!onShowCall && (calls?.has(call) ?? false);
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => (
+  const row = (command: BackgroundCommand, time: string | number | undefined, state?: string, enters = false) => (
     // Keyed by the call that started it: when the registry lists a command only the transcript
     // knew, its id turns into the registry's, and a key by id remounted the row (Leo: "why does
     // it FLICKER").
@@ -101,10 +102,14 @@ export function TasksSection({
     />
   );
   // The ended commands and scheduled items as one list, latest first.
-  const finishedRows = [
-    ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
-    ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
-  ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity));
+  const finishedRows = useMemo(
+    () =>
+      [
+        ...finished.map((command) => ({ at: command.endedAt ?? command.startedAt, command })),
+        ...ended.map((entry) => ({ at: entry.status.endedAt, entry })),
+      ].sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity)),
+    [finished, ended],
+  );
   return (
     <div data-section="tasks">
       {(running.length > 0 || active.length > 0) && (
@@ -112,10 +117,9 @@ export function TasksSection({
           {running.map((command) =>
             row(
               command,
-              // A task only the transcript knows may not say when it started.
-              command.startedAt !== undefined
-                ? formatDuration(Math.max(0, now - command.startedAt))
-                : t(COMMAND_STATE.running),
+              // Its start, which its time counts from; a task only the transcript knows may not say
+              // when it started.
+              command.startedAt ?? t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
             ),
@@ -156,8 +160,8 @@ export function TasksSection({
   );
 }
 
-/// A command's row, its own memo boundary: the clock draws it only while its time moves, and a change
-/// to another command, a wakeup or the list's scroll leaves it alone.
+/// A command's row, its own memo boundary: the clock never draws it (a running one's time is its own
+/// leaf, CommandTime), and a change to another command, a wakeup or the list's scroll leaves it alone.
 const CommandRow = memo(function CommandRow({
   command,
   time,
@@ -170,7 +174,8 @@ const CommandRow = memo(function CommandRow({
   onPlayed,
 }: {
   command: BackgroundCommand;
-  time: string | undefined;
+  /// What its time says: words, or (a number) the start a running one's time counts from.
+  time: string | number | undefined;
   state?: string;
   enters: boolean;
   local: boolean;
@@ -212,7 +217,11 @@ const CommandRow = memo(function CommandRow({
       >
         <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
         <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-        {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
+        {typeof time === "number" ? (
+          <CommandTime since={time} />
+        ) : (
+          time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />
+        )}
         {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
       </button>
       {command.state === "running" && command.processId && onStop && (
@@ -221,6 +230,15 @@ const CommandRow = memo(function CommandRow({
     </li>
   );
 }, sameValue);
+
+/// How long a running command has run, from `since` (the session's clock): the one part of its row
+/// the second's clock draws. `now` pins it (a gallery, a test).
+export function CommandTime({ since, now: fixed }: { since: number; now?: number }) {
+  const own = useNow(fixed === undefined);
+  return (
+    <Clock className="acpmux-session-info-task__time" text={formatDuration(Math.max(0, (fixed ?? own) - since))} />
+  );
+}
 
 /// A wakeup's or cron job's row, its own memo boundary with the words it draws.
 const ScheduledRow = memo(function ScheduledRow({
