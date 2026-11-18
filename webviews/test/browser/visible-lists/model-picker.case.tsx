@@ -8,6 +8,8 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ModelPicker } from "../../../src/agent-session/acpmux/ModelPicker";
 import type { ModelPickerProps } from "../../../src/agent-session/acpmux/modelPickerLayout";
+import { modelFilterTimes } from "../../../src/agent-session/acpmux/modelSearch";
+import { acpmuxPerf } from "../../../src/agent-session/acpmux/perf";
 import { caseItems, type VisibleListCase } from "./case";
 
 type Catalog = ModelPickerProps["catalog"];
@@ -56,6 +58,8 @@ function CaseModelPicker({ n }: { n: number }) {
 
 const modelPickerCase: VisibleListCase = {
   async mount(root, n) {
+    // The filter's own time per key: a script turns acpmuxPerf on (the bench leaves it off).
+    (window as unknown as { __modelFilter: unknown }).__modelFilter = { perf: acpmuxPerf, times: modelFilterTimes };
     flushSync(() => createRoot(root).render(<CaseModelPicker n={n} />));
     // Cmd-Ctrl-M opens the picker, as from the keyboard.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }));

@@ -15,15 +15,7 @@ await requireBrowserLane("visible-lists-model-picker.browser.test.ts", async () 
   const { startVisibleLists } = await import("./support/visibleLists");
   let server: VisibleListsServer | undefined;
   beforeAll(async () => {
-    // bun test sets NODE_ENV=test, and the build's JSX would then be the dev runtime's (jsxDEV) over
-    // React's production build: the harness builds as the bench does, in production.
-    const nodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    try {
-      server = await startVisibleLists();
-    } finally {
-      process.env.NODE_ENV = nodeEnv;
-    }
+    server = await startVisibleLists();
   });
   afterAll(async () => {
     await server?.stop();

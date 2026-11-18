@@ -37,6 +37,7 @@ import { useHarnessUpdates } from "./harnessUpdateList";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
+import { ModelSearchIndex } from "./modelSearch";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
@@ -779,17 +780,25 @@ export function ModelPicker(props: ModelPickerProps) {
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
+  // The search's keys, made once per catalog (and pane language) while the picker is open: a key
+  // then filters with them, typing on filters the last matches (modelSearch.ts).
+  const searchIndex = useMemo(
+    () =>
+      modelsNeeded
+        ? new ModelSearchIndex(
+            harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry)),
+            (entry) => choicesFor(entry, lang),
+            (entry) => entry.name,
+          )
+        : undefined,
+    [modelsNeeded, harnesses, offered, lang],
+  );
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (!modelsNeeded) return owner;
-    if (searching) {
-      const searchable = harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry));
-      // searchModels' matches, in its order, without its per-key copies of each harness's list.
-      for (const entry of searchable) {
-        const { latest, older } = sectionsFor(entry, lang);
-        for (const list of [latest, older])
-          for (const model of list) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
-      }
+    if (searching && searchIndex) {
+      // searchModels' matches, in its order, from the index's keys (nothing made per model per key).
+      for (const row of searchIndex.find(parsed)) owner.set(row.model, row.entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && !needsSetup(entry))
@@ -812,12 +821,12 @@ export function ModelPicker(props: ModelPickerProps) {
     harnesses,
     olderOpen,
     parsed,
+    searchIndex,
     searching,
     selected,
     starredView,
     runsHere,
     needsSetup,
-    offered,
     harness,
     lang,
   ]);
