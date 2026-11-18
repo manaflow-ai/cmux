@@ -36,12 +36,6 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
-    /// Whether a machine is dedicated: it runs agents with no per-session
-    /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
-    /// sandbox only for a session whose caller asked, once the Cloud API said
-    /// the caller owns that VM. `off` refuses that on the machine; `on` (the
-    /// default off a Mac) stops refusing. Nothing on the machine turns the
-    /// boundary on. Shows whether cmux created the VM. `vm-host` still works.
     /// Where a new chat on Auto would start, and why; changes nothing. This
     /// machine, a joined machine or Cloud, weighed like `pick` plus the
     /// folder's size, battery, lid, sleep, network and what the work needs
@@ -64,6 +58,12 @@ pub enum PeerCmd {
         #[arg(long)]
         running: Option<String>,
     },
+    /// Whether a machine is dedicated: it runs agents with no per-session
+    /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
+    /// sandbox only for a session whose caller asked, once the Cloud API said
+    /// the caller owns that VM. `off` refuses that on the machine; `on` (the
+    /// default off a Mac) stops refusing. Nothing on the machine turns the
+    /// boundary on. Shows whether cmux created the VM. `vm-host` still works.
     #[command(name = "dedicated", alias = "vm-host")]
     VmHost {
         /// A machine you added; omit for this machine.
