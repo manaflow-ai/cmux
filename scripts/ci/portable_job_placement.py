@@ -48,6 +48,11 @@ take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minute
 (NIGHTLY_WAIT_SECONDS shortens that)
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
+LINUX_ALL_OR_NONE=1 places every fleet-Linux job or none: the cmux-tui tree's musl legs take one
+label from one runs-on, so fewer idle fleet runners than legs would queue the rest behind them.
+FLEET_WAIT_NEEDS_MEMBER=1 waits for fleet capacity only while an online Linux runner carries
+FLEET_LINUX (busy is fine: it frees, or the floor refills): a fleet with no online member (its
+VMs cannot boot) cannot place anything in the window, so the jobs take Blacksmith at once.
 REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
 capacity observation, including after the admission wait expires. The trusted
 runner-state document supplies that observation when its source timestamp is at
@@ -202,7 +207,9 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
         linux_free = max(0, idle - queued_on(snapshot, linux))
-        if problem or not linux_members or linux_free == 0:
+        wanted = [job for job in jobs if job not in mac_first]
+        short = env.get("LINUX_ALL_OR_NONE") == "1" and linux_free < len(wanted)
+        if problem or not linux_members or linux_free == 0 or short:
             linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)[:linux_free]
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
@@ -260,6 +267,14 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not placed:
         return done(f"`{route}` has no idle runner beyond its queue ({idle} idle, {queued_on(snapshot, route)} queued)")
     return done(f"{', '.join(placed)} take free mini(s) on `{route}`", route, placed)
+
+
+def fleet_member_online(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether an online Linux runner carries FLEET_LINUX, idle or busy."""
+    linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    return bool(linux) and any(
+        runner.get("status") == "online" and str(runner.get("os", "")).lower() == "linux"
+        and linux in pool.runner_labels(runner) for runner in runners or [])
 
 
 def delimited(jobs: Sequence[str]) -> str:
@@ -363,6 +378,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # overflow immediately; it must never queue every job on an owned label.
         if wait_seconds and (runners is None or pool.snapshot_problem(snapshot, now)):
             wait_seconds = 0
+        needs_member = env.get("FLEET_WAIT_NEEDS_MEMBER") == "1"
+        if wait_seconds and needs_member and not fleet_member_online(env, runners):
+            wait_seconds = 0
         stop = time.monotonic() + wait_seconds
         placed = decide(env, runners, snapshot, now)
         wanted = set((env.get("JOBS") or "").split())
@@ -380,6 +398,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             # API, a stale snapshot) ends the wait, as an unread first read does:
             # waiting out the rest of the three minutes cannot place anything.
             if runners is None or pool.snapshot_problem(snapshot, now):
+                break
+            if needs_member and not fleet_member_online(env, runners):
                 break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)
