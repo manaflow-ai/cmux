@@ -77,6 +77,8 @@ EXEMPT = {
         "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "codesigns published tree binaries with the OS's /usr/bin/codesign; compiles nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
         "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",

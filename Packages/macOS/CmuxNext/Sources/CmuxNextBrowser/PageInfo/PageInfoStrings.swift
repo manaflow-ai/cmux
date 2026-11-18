@@ -74,7 +74,6 @@ nonisolated enum PageInfoStrings {
 
     // Cookies
     static var cookiesHeader: String { String(localized: "pageInfo.cookies.header", defaultValue: "Cookies and site data", table: "PageInfo", bundle: .module) }
-    static var cookiesDescription: String { String(localized: "pageInfo.cookies.description", defaultValue: "Cookies and other site data are used to remember you, for example to sign you in or to personalize ads.", table: "PageInfo", bundle: .module) }
     static var thirdPartyCookies: String { String(localized: "pageInfo.cookies.thirdParty", defaultValue: "Third-party cookies", table: "PageInfo", bundle: .module) }
     static var thirdPartyBlocked: String { String(localized: "pageInfo.cookies.thirdPartyBlocked", defaultValue: "Blocked by this browser engine", table: "PageInfo", bundle: .module) }
     static var manageSiteData: String { String(localized: "pageInfo.cookies.manage", defaultValue: "Manage on-device site data", table: "PageInfo", bundle: .module) }

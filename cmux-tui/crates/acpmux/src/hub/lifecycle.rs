@@ -111,10 +111,12 @@ impl Hub {
             disallowed_tools,
             checked_cwd,
             additional_directories,
+            stop_condition,
             person,
             wait_start,
             throwaway,
             require_asking,
+            credential,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -125,6 +127,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
+        // A harness installed since the catalog loaded serves this start (`rediscover.rs`).
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (
@@ -293,6 +297,10 @@ impl Hub {
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
+        // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
+        // (`stop_condition.rs`); the session/new answer says whether it was kept.
+        meta.stop_condition =
+            stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -305,16 +313,26 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let claimable = fixed_id.is_none()
+        let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
+            && meta.stop_condition.is_none()
             && checked_cwd.is_none();
-        let pooled =
-            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
+        // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
+        // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
+        // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
+        let pooled = if shaped {
+            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref()).await
+        } else {
+            None
+        };
+        // Only a shape with no credential of its own is remembered for a spare or the last-used
+        // role: those start with no credential, so they never hold one.
+        let claimable = shaped && credential.is_none();
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -378,6 +396,8 @@ impl Hub {
             meta.throwaway = throwaway;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
+            // Before the session is published, so its first spawn already has it; memory only.
+            *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -535,7 +555,7 @@ impl Hub {
             let cfg = self.config.read().await;
             // Any policy narrower than approve-all, however the chat got it, holds or the chat is
             // not created (`policy_mode.rs` `require_enforced`).
-            super::policy_mode::require_enforced(&session.meta(), &cfg)?;
+            super::policy_mode::require_enforced_as(&session.meta(), &cfg, true)?;
             self.note_unenforced_policy(&session, &cfg);
             Ok(())
         })
@@ -631,10 +651,42 @@ impl Hub {
         if session.stops.load(Ordering::SeqCst) != stops || session.purging.load(Ordering::SeqCst) {
             return Err(stopped_while_starting());
         }
+        // A start its policy refused, with nothing it depends on changed since, fails as it did and
+        // starts nothing (`policy_mode.rs` `RefusalLatch`): no harness, no log line per wake.
+        let refusal_key = super::policy_mode::refusal_key(
+            &session.meta(),
+            self.config.read().await.permission_policy,
+            &profile.launch_digest,
+        );
+        // Only while nothing of the chat still runs: an agent or host a failed stop left behind is
+        // reached below, which ends or adopts it and holds it to the policy again (review F1).
+        if let Some(e) = session.policy_refusal.held(&refusal_key) {
+            let child = session.child.lock().await.clone();
+            let alive = match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            };
+            if !alive && !Self::host_record_live(&session.id) {
+                return Err(e);
+            }
+        }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
             Ok(child) => child,
+            Err(e) if super::policy_mode::is_unenforceable(&e) => {
+                // Keyed by the chat as the refused start left it (its agent reports its mode).
+                let key = super::policy_mode::refusal_key(
+                    &session.meta(),
+                    self.config.read().await.permission_policy,
+                    &profile.launch_digest,
+                );
+                if session.policy_refusal.hold(key, &e) {
+                    tracing::warn!(session = %session.id, "not started until its policy, mode or harness changes or the person writes to it: {}", e.message);
+                }
+                self.wake_ended(session, wake, Some(&e));
+                return Err(e);
+            }
             Err(e) => {
                 self.wake_ended(session, wake, Some(&e));
                 return Err(e);
@@ -1244,6 +1296,8 @@ impl Hub {
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
+            // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
+            plan.args.extend(super::stop_condition::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
@@ -1354,7 +1408,14 @@ impl Hub {
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,
-            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            Err(e) => {
+                // An agent CLI that refuses to start signed out exits before it answers
+                // `initialize` ("agent process closed (grok): Authentication required"): typed
+                // the same as a `session/new` auth_required, so the start names it (hq#11225).
+                let mut e = Self::explain_start_failure(session, e).await;
+                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                return Err(e);
+            }
         };
         let supports_load = init
             .get("agentCapabilities")
@@ -1517,7 +1578,13 @@ impl Hub {
                 .await
             {
                 Ok(v) => v,
-                Err(e) => return Err(Self::explain_start_failure(session, e).await),
+                Err(e) => {
+                    // An agent with no sign-in answers with ACP's auth_required: typed, so the
+                    // start names the agent and its sign-in, not a bare refusal (hq#11225).
+                    let mut e = Self::explain_start_failure(session, e).await;
+                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    return Err(e);
+                }
             };
             let sid = res
                 .get("sessionId")

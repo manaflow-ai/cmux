@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   const update = (update: Record<string, unknown>) => ({
@@ -266,9 +267,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        const toggle = page.locator("button.acpmux-session-info-toggle");
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor({ timeout: 10_000 });
-        const selector = "aside.acpmux-session-info";
+        const selector = SESSION_INFO;
         if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);
@@ -380,9 +381,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        const toggle = page.locator("button.acpmux-session-info-toggle");
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor({ timeout: 10_000 });
-        const selector = "aside.acpmux-session-info";
+        const selector = SESSION_INFO;
         if ((await page.locator(selector).count()) === 0) await toggle.click({ force: true });
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);

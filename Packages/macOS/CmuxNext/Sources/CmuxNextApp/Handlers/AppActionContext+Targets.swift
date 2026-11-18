@@ -146,7 +146,7 @@ extension AppActionContext {
             guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
             return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
         }
-        for window in services.windows.controllers {
+        for window in services.windows.controllersActingFirst { // two windows can show one tab: the person's
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
                 if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }
@@ -190,6 +190,12 @@ extension AppActionContext {
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuseQuietly(RefusalStrings.noTab(id.rawValue)) }
         return (tab, pane.pane)
+    }
+
+    /// The pane the invocation names when no window shows it (a workspace parked off screen), else nil.
+    func parkedPane(_ invocation: ActionInvocation) -> PaneModel? {
+        guard let target = explicitTarget(invocation, kinds: [.pane]), let model = targetPane(target.id, invocation) else { return nil }
+        return services.paneController(for: model) == nil ? model : nil
     }
 
     /// The pane `id` names, as `targetTab` finds a tab; callers refuse.

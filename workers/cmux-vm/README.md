@@ -194,8 +194,9 @@ and live-provider validation remain separate work.
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429). A production product tenant has no machine-count
 cap: its machines are metered and cmux-platform's team spending cap is the stop.
-Dev/test tenants (every tenant off production) keep 20 live VMs, paused ones
-too; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
+Dev/test tenants (every tenant off production) keep 300 live VMs (NEXT Max's
+machines kept, so a plan is the stop there), paused ones
+too; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
@@ -609,3 +610,12 @@ staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or
 update the environment's Hyperdrive config before deploying; the workflow header
 lists the GitHub environments and the secrets each needs.
+
+The staging database fault switch (`src/db/fault.ts`) holds a share of queries
+for a set time inside a window of at most an hour: `latency` then runs them,
+`stall` then fails them as a database that stopped answering. It is the Worker
+secret `CMUX_VM_DB_FAULT`, off unless set, read only where `ENVIRONMENT` is
+`staging`, and it turns itself off at the window's end. Set it with
+`cmux-vm.yml` action `db-fault-staging` (`db_fault`: the JSON, or `off`); the
+Cloud chaos suite's database-stall scenario does. Each held query logs
+`cmux-vm database fault` with its operation.

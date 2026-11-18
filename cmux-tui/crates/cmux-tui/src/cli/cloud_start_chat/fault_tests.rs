@@ -274,3 +274,50 @@ fn a_prompt_on_stdin_is_not_read_before_the_gates() {
     // stdin, which the test harness leaves open.
     assert_eq!(super::run_if_requested(&global, &rest), Some(2));
 }
+
+/// A turn that did not finish names the step it stopped in from its own record: the relay's connect, the relay's
+/// events before the kill, ssh's resume after it, or ssh's events.
+#[test]
+fn a_turn_that_stopped_names_its_step_from_the_record() {
+    use crate::carrier::fault::FaultPlan;
+    let caps = json!({"routes": ["relay", "ssh"], "faults": ["kill-route"]});
+    let plan = FaultPlan::new(relay_after(3), vec![Route::Relay, Route::Ssh], &caps).unwrap();
+    let ok = json!({"route": "relay", "phase": "connect", "outcome": "ok"});
+    let bad = json!({"route": "relay", "phase": "connect", "outcome": "error"});
+    let kill = json!({"route": "relay", "at_ms": 9});
+    let resumed = json!({"route": "ssh", "phase": "resume", "outcome": "ok"});
+    let refused = json!({"route": "ssh", "phase": "resume", "outcome": "error"});
+    for (record, step) in [
+        (json!({"kill": null, "resumes": []}), "relay connect"),
+        (json!({"kill": null, "resumes": [bad]}), "relay connect"),
+        (json!({"kill": null, "resumes": [ok]}), "relay events"),
+        (json!({"kill": kill, "resumes": [ok]}), "ssh resume"),
+        (json!({"kill": kill, "resumes": [ok, refused]}), "ssh resume"),
+        (json!({"kill": kill, "resumes": [ok, resumed]}), "ssh events"),
+    ] {
+        assert_eq!(super::turn_step(&record, &plan), step, "{record}");
+    }
+}
+
+/// A drill whose turn never ends stops at its deadline with the record so far, which names the step it stopped in
+/// and how long the turn ran: the relay's events, here, since the stream never sends one.
+#[test]
+fn a_turn_past_its_deadline_names_the_step_it_stopped_in() {
+    let mut fake = Fake { email: Some(PROBE), asked: Vec::new() };
+    let request = request(&["--prompt", "count", "--wait", "--timeout", "1"]);
+    let relay = FakeCarrier { events: turn(6), stall_after: Some(0), ..FakeCarrier::default() };
+    let (routes, _) = routes_of(vec![relay, FakeCarrier::default()]);
+    let outcome = start(
+        &mut fake,
+        &request,
+        relay_after(3),
+        Some("1"),
+        || this_build(Ok(())),
+        move |_, _, _, _| Ok(Box::new(routes) as Box<dyn EventRoutes>),
+    );
+    let (error, exit) = error_of(&outcome);
+    assert_eq!((error["code"].as_str(), exit), (Some("carrier_fault.timeout"), 2), "{error}");
+    assert_eq!(error["details"]["stopped_in"], "relay events", "{error}");
+    assert!(error["details"]["turn_ms"].as_u64().is_some_and(|ms| ms >= 900), "{error}");
+    assert_eq!(error["details"]["timeout_ms"], 1_000, "{error}");
+}

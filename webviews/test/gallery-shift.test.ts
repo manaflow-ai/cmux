@@ -3,6 +3,8 @@ import { Window } from "happy-dom";
 import { judgeStep } from "../src/gallery/play";
 import {
   REST_FRAMES,
+  afterEachPaint,
+  type PaintClock,
   bottomFoldOf,
   isExpansionShift,
   sampleBoxes,
@@ -233,4 +235,85 @@ test("a wait step's shift and anchor moves do not fail the play; an action step'
   };
   expect(judgeStep({ ...measured, action: "wait" }).status).toBe("pass");
   expect(judgeStep({ ...measured, action: "click" }).status).toBe("fail");
+});
+
+/** A frame loop by hand: `frame()` runs the frame's callbacks, `paint()` the tasks posted from them. */
+function handClock() {
+  let callbacks: ((time: number) => void)[] = [];
+  let tasks: (() => void)[] = [];
+  let input: (() => void) | null = null;
+  const clock: PaintClock = {
+    requestAnimationFrame: (callback) => callbacks.push(callback),
+    cancelAnimationFrame: () => {
+      callbacks = [];
+    },
+    afterThisFrame: (then) => {
+      tasks.push(then);
+    },
+    onInput: (listener) => {
+      input = listener;
+      return () => {
+        input = null;
+      };
+    },
+  };
+  return {
+    clock,
+    frame() {
+      const now = callbacks;
+      callbacks = [];
+      for (const callback of now) callback(0);
+    },
+    paint() {
+      const now = tasks;
+      tasks = [];
+      for (const task of now) task();
+    },
+    input: () => input?.(),
+    /** A page's own frame callback, added after the tracker's (an observer-driven lift). */
+    alsoThisFrame: (callback: () => void) => {
+      callbacks.push(callback);
+    },
+  };
+}
+
+test("afterEachPaint reads once a frame, after the frame's callbacks, not in them", () => {
+  const hand = handClock();
+  let lift = 0;
+  const seen: number[] = [];
+  const stop = afterEachPaint(hand.clock, () => {
+    seen.push(lift);
+  });
+  hand.alsoThisFrame(() => {
+    lift = 46;
+  });
+  hand.frame();
+  expect(seen).toEqual([]);
+  hand.paint();
+  expect(seen).toEqual([46]);
+  hand.frame();
+  hand.paint();
+  expect(seen).toEqual([46, 46]);
+  stop();
+  hand.frame();
+  hand.paint();
+  expect(seen).toEqual([46, 46]);
+});
+
+test("afterEachPaint: input before the read runs it first; a read the next frame overtook is dropped", () => {
+  const hand = handClock();
+  let state = "painted";
+  const seen: string[] = [];
+  afterEachPaint(hand.clock, () => {
+    seen.push(state);
+  });
+  hand.frame();
+  hand.input();
+  state = "after input";
+  hand.paint();
+  expect(seen).toEqual(["painted"]);
+  hand.frame();
+  hand.frame();
+  hand.paint();
+  expect(seen).toEqual(["painted", "after input"]);
 });

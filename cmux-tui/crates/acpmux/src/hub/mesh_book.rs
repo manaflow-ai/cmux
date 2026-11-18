@@ -169,7 +169,7 @@ impl Hub {
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
     /// stops.
     #[cfg(feature = "hub-carrier")]
-    pub(crate) fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
+    pub fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
     }
 
@@ -178,6 +178,13 @@ impl Hub {
     #[cfg(feature = "hub-carrier")]
     pub(crate) fn mesh_book_machine(&self, key: &str) -> Option<String> {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines.get(key).cloned()
+    }
+
+    /// Each of this person's other machines the book lists: `(daemonId, host)`.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
     }
 
     /// Replace the hub rows: watching clients hear each one that appeared, changed or left, and

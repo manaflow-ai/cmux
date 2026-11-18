@@ -59,4 +59,17 @@ struct MachineCatalogPublishRequestTests {
             #expect(throws: (any Error).self) { try decoder.decode(DaemonIdentity.self, from: Data((prefix + field).utf8)) }
         }
     }
+
+    /// The device symbol the owner's daemon names (`machine_symbol`, cmux-device-kind) reaches the sidebar
+    /// header; an older daemon, an empty or a mistyped value leave it unknown and the identity still decodes.
+    @Test func identityCarriesTheMachineSymbol() throws {
+        let prefix = #"{"app":"cmux-tui","protocol":12,"generation":"boot""#
+        let decoder = JSONDecoder()
+        let known = try decoder.decode(DaemonIdentity.self, from: Data((prefix + #", "machine_symbol":"macmini"}"#).utf8))
+        #expect(known.machineSymbol == "macmini")
+        for field in ["}", #", "machine_symbol":""}"#, #", "machine_symbol":7}"#] {
+            let other = try decoder.decode(DaemonIdentity.self, from: Data((prefix + field).utf8))
+            #expect(other.machineSymbol == nil)
+        }
+    }
 }
