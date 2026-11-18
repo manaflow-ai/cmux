@@ -107,7 +107,7 @@ describe("motion scale", () => {
 
   test("the scale, zero, vars, loops, delays and marked lines pass", () => {
     const pass = [
-      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 240ms; }",
+      ".a { transition: opacity 80ms, transform 120ms, height 180ms, width 240ms; }", // motion-allow: scanner fixture, a raw literal
       ".a { transition: opacity 0s; animation-duration: 0.01ms !important; }",
       ".a { transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out); }",
       ".a { transition: opacity var(--cmux-motion-micro, 120ms); }",
@@ -117,7 +117,7 @@ describe("motion scale", () => {
       ".a { animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite; }",
       ".a { animation: breathe 1.4s ease-out infinite alternate; animation-duration: 1.3s; }",
       // Delays: the second time of a shorthand, and the delay properties.
-      ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }",
+      ".a { transition: opacity 80ms ease 350ms; transition-delay: 350ms; animation-delay: -0.8s; }", // motion-allow: scanner fixture, a raw literal
       ".a { transition: width 1s linear; } /* motion-allow: playback progress, not a transition */",
       "/* transition: opacity 150ms; a comment is no style */",
     ];
