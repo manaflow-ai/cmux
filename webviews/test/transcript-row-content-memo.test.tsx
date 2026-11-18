@@ -9,12 +9,14 @@ import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE } from "../src/agent-session/acpmux/conversation/turns";
 import type { RowProps } from "../src/agent-session/acpmux/rows/rowProps";
-import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
-import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
-import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { ACTIVITY_LINE } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
+const { RowContent } = await importWithDom(() => import("../src/agent-session/acpmux/VirtualTranscript"));
+const { sameRowFrame } = await importWithDom(() => import("../src/agent-session/acpmux/virtualTranscriptModel"));
+const { MessageRow } = await importWithDom(() => import("../src/agent-session/acpmux/rows/MessageRow"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

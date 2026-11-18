@@ -7,9 +7,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
-import { activityText } from "../src/agent-session/acpmux/conversation/chatFind";
-import { webSources } from "../src/agent-session/acpmux/conversation/webSourceList";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { activityText } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/chatFind"));
+const { webSources } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/webSourceList"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
