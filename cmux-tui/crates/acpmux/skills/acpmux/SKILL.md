@@ -93,10 +93,19 @@ a compaction), use `acpmux search` (the `transcript_search` tool from a chat),
 never a grep over a transcript: one call, newest first, each hit with its
 session, turn, line, time, role and the text around it, unescaped.
 
+Then read the hit itself, never the transcript file: `acpmux search --show
+SESSION:LINE` (the `transcript_read` tool: `{session, line}` from the hit, its
+`subagent` and `host` when it names them) prints the message at that line whole
+and two messages each side; `--before`/`--after N` take more, `--no-tools`
+leaves tool calls out, `--show SESSION --turn N` reads a whole turn. Bounded
+(32 KiB of text unless `--max-bytes` says more), so it is safe on a huge chat.
+
 ```bash
 acpmux search "four agent pages" --session self            # this chat, compacted turns included
 acpmux search "merge_hold" --machine all --since 2d            # every session here and on every peer
 acpmux --json search "root cause" --session coord --role assistant
+acpmux search --show e8f63fd9-94e8-4878-bcd4-704659aba1f2:120034 --after 4   # a hit, whole
+acpmux search --show self --turn 412 --no-tools                # that turn's prompt and replies
 ```
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`

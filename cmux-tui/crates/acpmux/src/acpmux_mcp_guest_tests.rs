@@ -10,7 +10,18 @@ fn names(tools: &Value) -> Vec<String> {
 fn a_guest_gets_the_tools_that_need_no_session_and_new_and_machines() {
     assert_eq!(
         names(&tools(&tools_with_artifacts(false))),
-        ["send", "ls", "last", "info", "search", "send_status", "machines", "new"]
+        [
+            "send",
+            "ls",
+            "last",
+            "info",
+            "search",
+            "transcript_search",
+            "transcript_read",
+            "send_status",
+            "machines",
+            "new"
+        ]
     );
     let signed_in = names(&tools(&tools_with_artifacts(true)));
     for artifact in artifacts::TOOLS {
