@@ -3,6 +3,24 @@
 use super::*;
 use cmux_json::JsonSet as _;
 
+/// What one agent report commits and what it leaves in memory
+/// (`Mux::prepare_agent_report`).
+struct PreparedAgentReport {
+    surface: SurfaceId,
+    terminal_id: TerminalPublicId,
+    /// The terminal's agent record after the report.
+    record: TerminalAgentRecord,
+    /// The projection's stored value.
+    value: Value,
+    deltas: Value,
+    /// The fence of a direct hook report that restarts its session.
+    direct_hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
+}
+
+/// The lock of the agent records, as `Mux::prepare_agent_report` gives it back.
+type AgentRecordsGuard<'a> =
+    std::sync::MutexGuard<'a, HashMap<TerminalPublicId, TerminalAgentRecord>>;
+
 impl Mux {
     pub fn report_agent(
         &self,
@@ -181,6 +199,86 @@ impl Mux {
             return Ok((replay, None));
         }
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        let (prepared, mut records) = self.prepare_agent_report(
+            sequence_guard.as_deref(),
+            &registry,
+            &state,
+            target,
+            agent_state,
+            source,
+            source_session,
+            hook_state,
+            agent_adapter,
+        )?;
+        let joined = match (notification.as_ref(), feed_post) {
+            (Some(staged), Some((post, write))) => {
+                Some((post, staged.outcome_intent(&registry, write)?))
+            }
+            _ => None,
+        };
+        let commit = registry.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            &prepared.terminal_id,
+            &prepared.value,
+            &prepared.deltas,
+            prepared.direct_hook_state.as_ref().or(hook_state),
+            journal_sequence,
+            joined.as_ref().map(|(_, intent)| intent),
+        )?;
+        // The notification that committed with this report (a replay took
+        // none), and the agent session its event names: the record's before
+        // this report, as when the notification committed first.
+        let joined = joined
+            .filter(|_| !commit.replayed)
+            .and_then(|(post, _)| notification.take().map(|staged| (post, staged)));
+        let notified_session =
+            joined.as_ref().and_then(|(_, staged)| staged.agent_session(&records));
+        Self::finish_agent_report_in_memory(
+            &prepared,
+            &commit,
+            sequence_guard.as_deref_mut(),
+            &mut records,
+        );
+        drop(records);
+        state.resource_revision = commit.revision;
+        drop(state);
+        let notified = joined.map(|(post, staged)| {
+            let ring = self.install_feed_post(post, &staged.notification, staged.numeric_id);
+            (staged, ring)
+        });
+        drop(registry);
+        drop(sequence_guard);
+        // The notification's events come before the report's, as before.
+        if let Some((staged, ring)) = notified {
+            let (notification, id) = (&staged.notification, staged.numeric_id);
+            self.announce_notification(notification, id, ring, notified_session);
+            self.prune_evicted_notification_reads();
+        }
+        let agent = self.announce_agent_report(prepared, &commit, origin);
+        Ok((commit, Some(agent)))
+    }
+
+    /// The first part of [`Self::commit_agent_report`]: what the report
+    /// commits and what it leaves in memory, decided from the hook fences,
+    /// the registry and the state that the caller holds, and from the agent
+    /// records, which it locks after its checks of the target and the fence
+    /// and gives back locked. It writes nothing.
+    #[allow(clippy::too_many_arguments)]
+    #[track_caller]
+    fn prepare_agent_report(
+        &self,
+        fences: Option<&HashMap<TerminalPublicId, HookFence>>,
+        registry: &WorkspaceRegistry,
+        state: &State,
+        target: AgentReportTarget<'_>,
+        agent_state: AgentState,
+        source: AgentSource,
+        source_session: Option<String>,
+        hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
+        agent_adapter: Option<String>,
+    ) -> anyhow::Result<(PreparedAgentReport, AgentRecordsGuard<'_>)> {
         let (surface, terminal_id) = match target {
             AgentReportTarget::Surface(surface) => {
                 let runtime = state
@@ -198,8 +296,8 @@ impl Mux {
             }
             AgentReportTarget::Resource { selectors, terminal_id } => {
                 self.resolve_resource_path_in_state(
-                    &state,
-                    &registry,
+                    state,
+                    registry,
                     crate::ResourceTarget::Session,
                     selectors,
                 )
@@ -215,10 +313,8 @@ impl Mux {
         };
         let mut direct_hook_state = None;
         if source != AgentSource::Hook {
-            let ended_fence = sequence_guard
-                .as_ref()
-                .and_then(|guard| guard.get(&terminal_id))
-                .filter(|fence| fence.ended);
+            let ended_fence =
+                fences.and_then(|held| held.get(&terminal_id)).filter(|fence| fence.ended);
             let fresh_session = source_session.as_deref().filter(|session| {
                 !session.starts_with("cmux-hook-sequence:")
                     && !session.starts_with("cmux-hook-ended:")
@@ -229,7 +325,7 @@ impl Mux {
                 anyhow::bail!("agent_session_ended");
             }
         } else if hook_state.is_none()
-            && let Some(fence) = sequence_guard.as_ref().and_then(|guard| guard.get(&terminal_id))
+            && let Some(fence) = fences.and_then(|held| held.get(&terminal_id))
         {
             match fence
                 .direct_transition(source_session.as_deref())
@@ -263,9 +359,8 @@ impl Mux {
             // marker is only a compatibility fallback when no identity was
             // supplied, while durable hook state carries the fence itself.
             source_session.clone().or_else(|| {
-                sequence_guard
-                    .as_ref()
-                    .and_then(|guard| guard.get(&terminal_id))
+                fences
+                    .and_then(|held| held.get(&terminal_id))
                     .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
             })
         };
@@ -273,7 +368,7 @@ impl Mux {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
         let now = now_ms();
-        let mut records = self.agent_records.lock().unwrap();
+        let records = self.agent_records.lock().unwrap();
         // Hook and plugin observations are stronger agent truth than a direct
         // socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
@@ -300,9 +395,8 @@ impl Mux {
         // or restart state for this report, else the live fence it continues.
         let hook_session_id = if source == AgentSource::Hook {
             effective_hook_state.map(|state| state.agent_session_id.clone()).or_else(|| {
-                sequence_guard
-                    .as_ref()
-                    .and_then(|guard| guard.get(&terminal_id))
+                fences
+                    .and_then(|held| held.get(&terminal_id))
                     .filter(|fence| !fence.ended)
                     .map(|fence| fence.session_id.clone())
             })
@@ -401,37 +495,26 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let joined = match (notification.as_ref(), feed_post) {
-            (Some(staged), Some((post, write))) => {
-                Some((post, staged.outcome_intent(&registry, write)?))
-            }
-            _ => None,
-        };
-        let commit = registry.commit_agent_projection_with_hook_state(
-            mutation,
-            fingerprint,
-            expected_revision,
-            &terminal_id,
-            &value,
-            &deltas,
-            effective_hook_state,
-            journal_sequence,
-            joined.as_ref().map(|(_, intent)| intent),
-        )?;
-        // The notification that committed with this report (a replay took
-        // none), and the agent session its event names: the record's before
-        // this report, as when the notification committed first.
-        let joined = joined
-            .filter(|_| !commit.replayed)
-            .and_then(|(post, _)| notification.take().map(|staged| (post, staged)));
-        let notified_session =
-            joined.as_ref().and_then(|(_, staged)| staged.agent_session(&records));
+        let prepared =
+            PreparedAgentReport { surface, terminal_id, record, value, deltas, direct_hook_state };
+        Ok((prepared, records))
+    }
+
+    /// The report's place in memory after its commit: the fence of a direct
+    /// hook restart and the terminal's agent record, under the locks that
+    /// [`Self::prepare_agent_report`] read and gave back.
+    fn finish_agent_report_in_memory(
+        prepared: &PreparedAgentReport,
+        commit: &ResourcePatchCommit,
+        fences: Option<&mut HashMap<TerminalPublicId, HookFence>>,
+        records: &mut HashMap<TerminalPublicId, TerminalAgentRecord>,
+    ) {
         if !commit.replayed
-            && let (Some(direct_state), Some(sequence_guard)) =
-                (direct_hook_state.as_ref(), sequence_guard.as_mut())
+            && let (Some(direct_state), Some(fences)) =
+                (prepared.direct_hook_state.as_ref(), fences)
         {
-            sequence_guard.insert(
-                terminal_id.clone(),
+            fences.insert(
+                prepared.terminal_id.clone(),
                 HookFence {
                     session_id: direct_state.agent_session_id.clone(),
                     sequence: direct_state.applied_sequence,
@@ -440,22 +523,19 @@ impl Mux {
                 },
             );
         }
-        records.insert(terminal_id.clone(), record.clone());
-        drop(records);
-        state.resource_revision = commit.revision;
-        drop(state);
-        let notified = joined.map(|(post, staged)| {
-            let ring = self.install_feed_post(post, &staged.notification, staged.numeric_id);
-            (staged, ring)
-        });
-        drop(registry);
-        drop(sequence_guard);
-        // The notification's events come before the report's, as before.
-        if let Some((staged, ring)) = notified {
-            let (notification, id) = (&staged.notification, staged.numeric_id);
-            self.announce_notification(notification, id, ring, notified_session);
-            self.prune_evicted_notification_reads();
-        }
+        records.insert(prepared.terminal_id.clone(), prepared.record.clone());
+    }
+
+    /// The last part of [`Self::commit_agent_report`], with no lock held:
+    /// the report's events, and what a new state forgets.
+    #[track_caller]
+    fn announce_agent_report(
+        &self,
+        prepared: PreparedAgentReport,
+        commit: &ResourcePatchCommit,
+        origin: AgentReportOrigin,
+    ) -> AgentRecord {
+        let PreparedAgentReport { surface, terminal_id, record, .. } = prepared;
         let agent = AgentRecord {
             surface,
             terminal_id,
@@ -505,7 +585,7 @@ impl Mux {
                 );
             }
         }
-        Ok((commit, Some(agent)))
+        agent
     }
 
     #[track_caller]
