@@ -51,9 +51,9 @@ def wait(check, seconds, step=0.1):
 
 
 class Seed:
-    def __init__(self, path, windows, workspaces):
-        self.path, self.count, self.total = path, windows, workspaces
-        self.row = {"windows_asked": windows, "workspaces_asked": workspaces}
+    def __init__(self, path, windows, workspaces, front="home"):
+        self.path, self.count, self.total, self.front = path, windows, workspaces, front
+        self.row = {"windows_asked": windows, "workspaces_asked": workspaces, "front_asked": front}
         self.keys = {}
 
     def topology(self):
@@ -101,7 +101,8 @@ class Seed:
                 if not wait(lambda: workspace in self.members(window), 10):
                     raise RuntimeError(f"workspace {workspace} is not in window {window} 10 s after the move")
             ours[window].add(workspace)
-        self.action("home.show")
+        if self.front == "home":  # --front tab: the last workspace's terminal tab stays in front
+            self.action("home.show")
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
         mine = set().union(*ours.values())
@@ -123,9 +124,13 @@ def main(argv=None):
     parser.add_argument("socket")
     parser.add_argument("--windows", type=int, default=3)
     parser.add_argument("--workspaces", type=int, default=60)
+    # launch-ready.sh front=home|tab: the front the session is left on, and --stay leaves the app running (the probe
+    # quits it after reading that front).
+    parser.add_argument("--front", choices=["home", "tab"], default="home")
+    parser.add_argument("--stay", action="store_true")
     args = parser.parse_args(argv)
     started = time.monotonic()
-    seed, code = Seed(args.socket, args.windows, args.workspaces), 0
+    seed, code = Seed(args.socket, args.windows, args.workspaces, args.front), 0
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
         seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
     else:
@@ -135,9 +140,12 @@ def main(argv=None):
             seed.row["error"], code = str(error), 1
         finally:
             time.sleep(1)  # measurement script: the session's save after the last change, before the quit
-            # The app may end before it answers; then the reply is a read error, not a refused quit.
-            reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
-            seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"
+            if args.stay:
+                seed.row["quit"] = "stay"
+            else:
+                # The app may end before it answers; then the reply is a read error, not a refused quit.
+                reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
+                seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"
     seed.row["seed_ms"] = round((time.monotonic() - started) * 1000)
     print("LR-SEED " + json.dumps(seed.row, sort_keys=True), flush=True)
     return code
