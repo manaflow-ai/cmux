@@ -117,7 +117,11 @@ function renderThreads() {
         ? EmptyState({ title: "Cannot read your threads", message: error(), symbol: "exclamationmark.triangle" })
         : chats().length === 0
           ? EmptyState({ title: "No threads yet", message: "Start a thread and it shows here.", symbol: "bubble.left" })
-          : null
+          : null,
+    // The Codex app's account row ("Personal") ends the sidebar. A customize app has one sidebar
+    // section, so it ends this one; it opens cmux's accounts.
+    Divider(),
+    Row({ title: "Personal", symbol: "person.crop.circle" }).onTap(() => run("accounts.show"))
   ])
 }
 

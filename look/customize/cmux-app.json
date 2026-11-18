@@ -4,7 +4,7 @@
   "id": "local/customize",
   "name": "My views",
   "version": "1.0.0",
-  "description": "The Codex app's sidebar: New thread, Automations and Skills on top, then your threads under their project folders with how long ago each moved.",
+  "description": "The Codex app's sidebar: New thread, Automations and Skills on top, then your threads under their project folders with how long ago each moved, and a Personal account row at the end.",
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "main.js" },
   "implements": {
