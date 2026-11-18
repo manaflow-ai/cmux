@@ -24,10 +24,27 @@ import { UpdatedNotes } from "../../src/pages/changelog/UpdatedNotes";
 import { UiProvider } from "../../src/ui/UiProvider";
 import { mountedRowRenders } from "../support/mountedRowRenders";
 
+/** `benchRowRenders` and `benchKeptRenders` over the rows `rows` finds. */
+function countRenders(rows: () => NodeListOf<Element>) {
+  window.benchRowRenders = mountedRowRenders(rows);
+  let marked = new Set<Element>();
+  const kept = mountedRowRenders(() => [...rows()].filter((row) => marked.has(row)));
+  window.benchKeptRenders = {
+    mark() {
+      marked = new Set(rows());
+      kept.mark();
+    },
+    since: () => kept.since(),
+  };
+}
+
 declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
+    /** The same count over the rows that were mounted at the mark only: renders of rows that stayed,
+        not rows that mounted since. */
+    benchKeptRenders: { mark(): void; since(): number };
     /** Pages: the held build's notes load. Card: the `index`th change's detail changes. */
     benchChangeOne(index: number): Promise<void>;
   }
@@ -72,7 +89,7 @@ if (kind === "card") {
       </UiProvider>,
     );
   draw();
-  window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".wn-notes-row"));
+  countRenders(() => document.querySelectorAll(".wn-notes-row"));
   window.benchChangeOne = async (index) => draw(index);
   window.benchReady = true;
 } else {
@@ -115,7 +132,7 @@ if (kind === "card") {
       <ChangelogPage store={store} strings={strings} design={kind === "journal" ? "journal" : "sheet"} />
     </UiProvider>,
   );
-  window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".clj-section:not(.clj-span)"));
+  countRenders(() => document.querySelectorAll(".clj-section:not(.clj-span)"));
   window.benchChangeOne = async () => {
     release();
     await store.ensure(held);

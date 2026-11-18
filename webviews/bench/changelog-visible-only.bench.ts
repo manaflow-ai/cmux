@@ -3,7 +3,9 @@
 // Chromium, a production build (React Compiler, minified) of test/browser/changelog-visible-only.html.
 // The visible-only rule's numbers, per list and N:
 //   rows, nodes     mounted rows (days, or the card's changes) and DOM nodes once it settles;
-//   change          row renders when one item changes (a day's held note loads; a change's detail);
+//   change          row renders when one item changes (a day's held note loads; a change's detail),
+//                   then (kept=) those of rows already mounted, which leaves out rows that mounted:
+//                   past the changed row itself that must be 0, or the run exits 1 once it has printed;
 //   scroll          row renders per one 40 px scroll step, and main-thread ms per frame (p95) while
 //                   the list scrolls 40 px a frame for FRAMES frames;
 //   resize          main-thread ms per frame (p95) while the window narrows 4 px a frame for FRAMES frames.
@@ -19,6 +21,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
+    benchKeptRenders: { mark(): void; since(): number };
     benchChangeOne(index: number): Promise<void>;
   }
 }
@@ -69,6 +72,8 @@ function framePass(page: Page, scroller: string, kind: "scroll" | "resize", fram
   );
 }
 
+/// Lists where a row whose data did not change rendered again.
+const unchangedRenders: string[] = [];
 const browser = await chromium.launch({ headless: true });
 const served = await serveBenchPage("/test/browser/changelog-visible-only.html");
 try {
@@ -90,10 +95,13 @@ try {
         list,
       );
 
-      await page.evaluate(() => window.benchRowRenders.mark());
+      await page.evaluate(() => {
+        window.benchRowRenders.mark();
+        window.benchKeptRenders.mark();
+      });
       await page.evaluate(() => window.benchChangeOne(0));
       for (let i = 0; i < 3; i++) await page.evaluate(() => window.cmuxPaintFrame());
-      const change = await page.evaluate(() => window.benchRowRenders.since());
+      const change = await page.evaluate(() => [window.benchRowRenders.since(), window.benchKeptRenders.since()]);
 
       const steps: number[] = [];
       for (let index = 0; index < 10; index++) {
@@ -115,9 +123,10 @@ try {
       const scrollFrames = await framePass(page, list.scroller, "scroll", FRAMES, STEP_PX);
       const resizeFrames = await framePass(page, list.scroller, "resize", FRAMES, 4);
       await context.close();
+      if (change[1]! > 1) unchangedRenders.push(`${kind} n=${n}: ${change[1]! - 1}`);
       console.log(
         `changelog-visible-only ${kind} n=${n} build=${served.dev ? "dev" : "production"} rows=${mounted.rows} ` +
-          `nodes=${mounted.nodes} change=${change} scrollStepRenders=${pct(steps, 0.5)}/${Math.max(...steps)} ` +
+          `nodes=${mounted.nodes} change=${change[0]} kept=${change[1]} scrollStepRenders=${pct(steps, 0.5)}/${Math.max(...steps)} ` +
           `scrollP95=${pct(scrollFrames, 0.95).toFixed(1)}ms resizeP95=${pct(resizeFrames, 0.95).toFixed(1)}ms`,
       );
     }
@@ -125,4 +134,8 @@ try {
 } finally {
   await browser.close();
   await served.close();
+}
+if (unchangedRenders.length > 0) {
+  console.error(`unchanged rows rendered again: ${unchangedRenders.join(", ")}`);
+  process.exit(1);
 }
