@@ -11,29 +11,52 @@
 ///
 /// A workspace that has terminals nobody focused yet (a restored launch) keeps them: step 3 never
 /// brings another workspace's project into it. Another window is never a source.
-struct WorkContextTrail: Equatable {
+public struct WorkContextTrail: Equatable, Sendable {
     /// What a trail entry was.
-    enum Kind: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        /// A terminal tab.
         case terminal
+        /// An agent chat tab.
         case chat
     }
 
     /// One focused terminal or chat tab.
-    struct Entry: Equatable, Sendable {
-        var tab: String
-        var workspace: String
-        var window: String
-        var kind: Kind
+    public struct Entry: Equatable, Sendable {
+        /// The tab's id.
+        public var tab: String
+        /// The id of the workspace that holds the tab.
+        public var workspace: String
+        /// The id of the window that showed it.
+        public var window: String
+        /// Whether it is a terminal or a chat.
+        public var kind: Kind
+
+        /// An entry for `tab` of `workspace`, focused in `window`.
+        /// - Parameters:
+        ///   - tab: The tab's id.
+        ///   - workspace: The id of the workspace that holds the tab.
+        ///   - window: The id of the window that showed it.
+        ///   - kind: Whether it is a terminal or a chat.
+        public init(tab: String, workspace: String, window: String, kind: Kind) {
+            self.tab = tab
+            self.workspace = workspace
+            self.window = window
+            self.kind = kind
+        }
     }
 
     /// The entries kept; the oldest goes first.
-    static let limit = 64
+    public static let limit = 64
 
     /// Newest first, one per tab.
-    private(set) var entries: [Entry] = []
+    public private(set) var entries: [Entry] = []
+
+    /// An empty trail.
+    public init() {}
 
     /// `entry`'s tab was focused now.
-    mutating func record(_ entry: Entry) {
+    /// - Parameter entry: The tab focused now.
+    public mutating func record(_ entry: Entry) {
         if entries.first == entry { return }
         entries.removeAll { $0.tab == entry.tab }
         entries.insert(entry, at: 0)
@@ -41,13 +64,22 @@ struct WorkContextTrail: Equatable {
     }
 
     /// `tab` closed: it is no source any more.
-    mutating func forget(tab: String) {
+    /// - Parameter tab: The id of the closed tab.
+    public mutating func forget(tab: String) {
         entries.removeAll { $0.tab == tab }
     }
 
     /// The first live value of the rule above. `value` reads an entry's value now (its folder, its
     /// chat settings); nil skips the entry (closed, on another machine, no folder yet).
-    func resolve<Value>(current: Entry?, workspace: String?, window: String?, workspaceHasWork: Bool,
+    /// - Parameters:
+    ///   - current: The tab the person is in, if any.
+    ///   - workspace: The target workspace's id.
+    ///   - window: The target window's id.
+    ///   - workspaceHasWork: Whether the target workspace holds a terminal or chat of its own.
+    ///   - kinds: The kinds of entry that may be a source.
+    ///   - value: Reads an entry's value now; nil skips the entry.
+    /// - Returns: The first live value, or nil when no entry gives one.
+    public func resolve<Value>(current: Entry?, workspace: String?, window: String?, workspaceHasWork: Bool,
                         kinds: Set<Kind> = [.terminal, .chat], value: (Entry) -> Value?) -> Value? {
         if let current, kinds.contains(current.kind), let found = value(current) { return found }
         func first(where matches: (Entry) -> Bool) -> Value? {
