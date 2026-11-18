@@ -200,6 +200,13 @@ class ServedMarks(unittest.TestCase):
                                             {"blacksmith-6vcpu-macos-26": running}), set())
         self.assertEqual(spill.served_marks({FOUR: "x"}, {FOUR: {"running": "many"}}), set())
 
+    def test_a_marked_label_that_started_a_job_recently_is_served(self):
+        # 2026-11-18 13:18Z: every probe but 2 vCPU waited out 5 minutes under the vCPU cap and main marked 4, 8, 16
+        # and 32 vCPU dead. Short jobs there started and finished between passes, so nothing counted as running.
+        load = {FOUR: {"queued": 300, "running": 0, "waited": 300, "started": 4},
+                EIGHT: {"queued": 90, "running": 0, "waited": 90, "started": 0}, spill.COMPLETE: False}
+        self.assertEqual(spill.served_marks({FOUR: "x", EIGHT: "x"}, load), {FOUR})
+
 
 class Client:
     def __init__(self, runs, jobs, fail=()):
@@ -242,9 +249,27 @@ class SampleLoad(unittest.TestCase):
     def test_counts_per_linux_label_over_recent_runs(self):
         # Only the Blacksmith Linux sizes: GitHub-hosted Ubuntu and macOS are not sampled.
         load = spill.sample_load(Client(self.RUNS, self.JOBS), now=NOW)
-        self.assertEqual(load, {FOUR: {"queued": 2, "running": 1, "waited": 1},
-                                SIXTEEN: {"queued": 1, "running": 0, "waited": 1}, spill.COMPLETE: True,
+        self.assertEqual(load, {FOUR: {"queued": 2, "running": 1, "waited": 1, "started": 0},
+                                SIXTEEN: {"queued": 1, "running": 0, "waited": 1, "started": 0}, spill.COMPLETE: True,
                                 spill.OLDEST: {FOUR: 15, SIXTEEN: 4}})
+
+    def test_a_job_a_runner_took_recently_counts_as_started_finished_or_not(self):
+        runs = [{"id": 1, "status": "in_progress", "created_at": ago(40)}]
+        jobs = {1: [{"status": "completed", "conclusion": "success", "labels": [FOUR], "runner_name": "bs-1",
+                     "created_at": ago(40), "started_at": ago(6)},
+                    {"status": "in_progress", "labels": [SIXTEEN], "runner_id": 7, "created_at": ago(40),
+                     "started_at": ago(2)},
+                    # Too long ago, skipped, or never taken by a runner (GitHub sets started_at on queued jobs).
+                    {"status": "completed", "conclusion": "success", "labels": [EIGHT], "runner_name": "bs-2",
+                     "created_at": ago(60), "started_at": ago(16)},
+                    {"status": "completed", "conclusion": "skipped", "labels": [EIGHT], "runner_name": "bs-3",
+                     "created_at": ago(40), "started_at": ago(1)},
+                    {"status": "queued", "labels": [THIRTY_TWO], "created_at": ago(40), "started_at": ago(40)}]}
+        load = spill.sample_load(Client(runs, jobs), now=NOW)
+        self.assertEqual(load[FOUR], {"queued": 0, "running": 0, "waited": 0, "started": 1})
+        self.assertEqual(load[SIXTEEN], {"queued": 0, "running": 1, "waited": 0, "started": 1})
+        self.assertNotIn(EIGHT, load)
+        self.assertEqual(load[THIRTY_TWO], {"queued": 1, "running": 0, "waited": 1, "started": 0})
 
     def test_a_capped_or_partly_unread_sample_is_incomplete_and_an_unread_listing_is_none(self):
         crowded = self.RUNS + [{"id": 9, "status": "in_progress", "created_at": ago(15)}]
@@ -262,7 +287,7 @@ class SampleLoad(unittest.TestCase):
         jobs.update({run["id"]: [{"status": "queued", "labels": [FOUR], "created_at": ago(1)}] for run in young})
         client = Client(young + [old], jobs)
         load = spill.sample_load(client, now=NOW)
-        self.assertEqual(load[FOUR], {"queued": 20, "running": 0, "waited": 20})
+        self.assertEqual(load[FOUR], {"queued": 20, "running": 0, "waited": 20, "started": 0})
         self.assertEqual(client.calls, 6 + 1)
 
     def test_a_full_page_of_jobs_is_an_incomplete_sample(self):
@@ -399,6 +424,28 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(value["_dead"], {})
         self.assertEqual(value["linux_16"], SIXTEEN)
         self.assertEqual(value["linux"], FOUR)
+
+    def test_probe_stalls_under_the_vcpu_cap_do_not_send_every_pool_to_2_vcpu(self):
+        # 2026-11-18 13:18Z (run 44311300652): the 2 vCPU probe started in 65 s, the 4, 8, 16 and 32 vCPU probes
+        # waited out their 5 minutes, there was no janitor snapshot, and main marked those four sizes dead, so every
+        # Linux pool went to 2 vCPU. They were serving: a sampled job had started on each in the last 15 minutes.
+        start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
+        health = json.dumps({"checked": spill.iso(NOW), "run": "44311300652",
+                             "labels": {TWO: "started", FOUR: "stalled", EIGHT: "stalled", SIXTEEN: "stalled",
+                                        THIRTY_TWO: "stalled"}})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": "",
+                              "CI_CLOUD_LABEL_HEALTH": health})
+        jobs = [{"status": "completed", "conclusion": "success", "labels": [label], "runner_name": f"bs-{label}",
+                 "created_at": ago(50), "started_at": ago(8)} for label in (FOUR, EIGHT, SIXTEEN, THIRTY_TWO)]
+        jobs += [{"status": "queued", "labels": [label], "created_at": ago(30)}
+                 for label in (FOUR, EIGHT, SIXTEEN, THIRTY_TWO) for _ in range(5)]
+        client = Client([{"id": 1, "status": "in_progress", "created_at": ago(50)}], {1: jobs})
+        self.assertEqual(self.run_pass(switch, client, NOW), 0)
+        value = json.loads(switch.variables["RUNNER_POOLS"])
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual({name: value[name] for name in ("linux", "linux_4", "linux_8", "linux_16", "linux_32")},
+                         {"linux": FOUR, "linux_4": FOUR, "linux_8": EIGHT, "linux_16": SIXTEEN,
+                          "linux_32": THIRTY_TWO})
 
     def test_a_value_changed_during_the_pass_is_not_overwritten(self):
         # Review of #31884: a concurrent writer's dead mark must survive this pass.
