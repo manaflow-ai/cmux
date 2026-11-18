@@ -23,6 +23,13 @@ Each pass it
   SPILL_RETURN_QUEUED queued, at most SPILL_RETURN_SHARE of what it ran when the pool left) after SPILL_MIN_HOLD,
   or when the target backs up while the member left does not, or after SPILL_MAX_HOLD in any case: if the member
   is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour;
+- opens or closes the hosted-first release valve (valve_choice()): the declared hosted light jobs (.github/runners.json
+  `hosted_light_jobs`: routers, resolvers, report steps) take GitHub-hosted `ubuntu-24.04` on attempt 1. When
+  VALVE_ON_WAITED or more sampled jobs on that label have waited WAITED_MINUTES, GitHub-hosted is saturated, and
+  RUNNER_POOLS' VALVE_KEY records since when; each such job's runs-on reads it ahead of its hosted branch
+  (`github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2`)
+  and takes the smallest live Linux pool instead. It closes after VALVE_MIN_HOLD once a sample shows at most
+  VALVE_OFF_WAITED waited there; with no mark every job keeps hosted-first, the default;
 - writes RUNNER_POOLS and the LINUX_RUNNER mirror (main's mirror_writes(), so the overflow switch's record still
   wins) only when something changed.
 
@@ -53,6 +60,18 @@ VARIABLE = "RUNNER_POOLS"
 SPILL_KEY = "_spill"
 QUEUE_AWARE_POOLS = ("linux",)
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
+# GitHub-hosted Ubuntu, sampled beside the Blacksmith sizes for the hosted-first valve (valve_choice()).
+HOSTED_LABEL = re.compile(r"^ubuntu-[0-9]+\.[0-9]+$")
+# The label every declared hosted light job asks for on attempt 1 (scripts/ci/runner_routing_table.py).
+HOSTED_LIGHT_LABEL = "ubuntu-24.04"
+# The hosted-first release valve. On 2026-11-17/18 GitHub-hosted held 2,500+ queued jobs in this repository; jobs
+# that finished there between 01:40Z and 02:10Z on 11-18 had waited a median 10,768 s (166 jobs), while
+# blacksmith-2vcpu-ubuntu-2404 started its 727 jobs in a median 23 s. Every pull request's `changes` router waited
+# in that queue, so its required checks never started.
+VALVE_KEY = "hosted_saturated"
+VALVE_ON_WAITED = 10
+VALVE_OFF_WAITED = 2
+VALVE_MIN_HOLD = dt.timedelta(minutes=60)
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
 # The sample: runs in flight created WAITED_MINUTES to SAMPLE_WINDOW ago, at most MAX_RUNS of them.
@@ -146,7 +165,8 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             status = job.get("status")
             if status not in ("queued", "in_progress"):
                 continue
-            label = next((str(label) for label in job.get("labels") or () if LINUX_LABEL.match(str(label))), None)
+            label = next((str(label) for label in job.get("labels") or ()
+                          if LINUX_LABEL.match(str(label)) or HOSTED_LABEL.match(str(label))), None)
             if label is None:
                 continue
             entry = counts.setdefault(label, {key: 0.0 for key in ZERO})
@@ -218,6 +238,28 @@ def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], 
                         "member has room; staying"]
 
 
+def valve_choice(since: object, load: Mapping[str, Any] | None, *,
+                 now: dt.datetime) -> tuple[str | None, list[str]]:
+    """(the VALVE_KEY value or None, lines): whether the hosted light jobs leave GitHub-hosted on attempt 1.
+
+    Open (a since-time) while sampled jobs on HOSTED_LIGHT_LABEL back up; closed (None) is hosted-first, the default.
+    An unread sample changes nothing. Once open it holds VALVE_MIN_HOLD, so the jobs it moved off do not read as a
+    drain at once, then closes on a sample with at most VALVE_OFF_WAITED waited there; if hosted backs up again the
+    next pass opens it again."""
+    opened = parse_time(since)
+    hosted = (load or {}).get(HOSTED_LIGHT_LABEL, ZERO)
+    if opened is not None:
+        if load is None or now - opened < VALVE_MIN_HOLD or hosted["waited"] > VALVE_OFF_WAITED:
+            return iso(opened), []
+        return None, [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} drained ({hosted['waited']} sampled jobs waited "
+                      f"{WAITED_MINUTES}+ min, {hosted['queued']} queued); hosted light jobs take it first again"]
+    if load is None or hosted["waited"] < VALVE_ON_WAITED:
+        return None, []
+    return iso(now), [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} saturated ({hosted['waited']} of "
+                      f"{hosted['queued']} sampled queued jobs waited {WAITED_MINUTES}+ min); hosted light jobs take "
+                      "the linux_2 pool on attempt 1"]
+
+
 class Recorder:
     """The switch main's policy writes through: reads go to the real variables, writes are only recorded."""
 
@@ -269,6 +311,13 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         value[SPILL_KEY] = kept
     else:
         value.pop(SPILL_KEY, None)
+    # main's parse_value() keeps only the pools, `_dead` and `_updated`, so the valve is carried from the raw value.
+    valve, said = valve_choice(previous.get(VALVE_KEY) if isinstance(previous, Mapping) else None, load, now=now)
+    lines += said
+    if valve is not None:
+        value[VALVE_KEY] = valve
+    else:
+        value.pop(VALVE_KEY, None)
     return value, lines
 
 
