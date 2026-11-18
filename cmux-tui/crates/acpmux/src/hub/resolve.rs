@@ -325,6 +325,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         model_request: d.model_request,
         cwd: d.cwd,
         additional_directories: Vec::new(),
+        stop_condition: None,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),

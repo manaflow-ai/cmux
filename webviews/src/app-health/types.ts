@@ -63,6 +63,3 @@ export const HealthOps = {
   /** `{id}` → null: the person's Repair or Repair now for one part. Their own click only. */
   repairNow: "cmux.app.health.repair_now",
 } as const;
-
-/** The popover's route on the server card page (`cmux-page://cmux.server-cards/#/app-health`). */
-export const APP_HEALTH_ROUTE = "app-health";

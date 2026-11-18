@@ -48,8 +48,8 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     public let memoryEntries: Int
     let writeDelay: DispatchTimeInterval
     let queue = DispatchQueue(label: "dev.cmux.mobile.agent-transcript-cache", qos: .utility)
-    /// Which chat shows each terminal agent session, kept beside the transcripts
-    /// (`<directory>-pairings.json`) so an offline relaunch reaches them; deleted with them.
+    /// Which chat shows each terminal agent session and the face each tab shows, kept beside the
+    /// transcripts (`<directory>-pairings.json`) so an offline relaunch reaches them; deleted with them.
     public let terminalChats: KeptTerminalChats
     /// Entries waiting for their write, by key; the queue takes the newest.
     private let pending = OSAllocatedUnfairLock(initialState: [String: AgentTranscriptEntry]())

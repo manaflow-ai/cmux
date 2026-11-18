@@ -143,7 +143,8 @@ import Testing
         let shown = try #require(feed.keptSession(for: route))
         // In the same turn: no spinner, no empty conversation.
         #expect(shown.lastMessage?.id == "m3")
-        #expect(shown.unavailableTitle == MacHomeFeed.keptTitle)
+        // No bar while its channel opens (Leo, 2026-11-16: a reconnect says nothing).
+        #expect(shown.barItem == nil)
         #expect(feed.keptSession(for: route) === shown)
 
         let live = try await feed.session(for: route)
