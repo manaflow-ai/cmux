@@ -313,6 +313,17 @@ def selected(plan: dict) -> dict:
     return sel
 
 
+RUST_WORKSPACE_AGGREGATES = ("plan (changed Cargo workspaces)", "rust workspaces")
+
+
+def rust_workspace_job(failure: dict) -> str:
+    """The workspace root a rust-workspaces.yml matrix job tested (its job name), or ""."""
+    job = failure.get("job", "").strip()
+    if failure.get("workflow") != "rust-workspaces.yml" or not job or job in RUST_WORKSPACE_AGGREGATES:
+        return ""
+    return job.split()[0].rstrip("/")
+
+
 RUNNER_CHECKOUT = re.compile(r"^(?:.*/)?_work/[^/]+/[^/]+/")  # home/runner/_work/cmux/cmux/tests/x.py
 
 
@@ -368,7 +379,13 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
         p = plans[head]
         sel, plan = p["sel"], p["plan"]
         kind, test = f["kind"], f["test"]
-        if sel["all"]:
+        workspace = rust_workspace_job(f)
+        if workspace:
+            # A Cargo workspace beside cmux-tui (rust-workspaces.yml's matrix job is named by its root): only a
+            # native unit for it runs it, an every-suite plan included (that plan once listed no such unit).
+            manifest = workspace + "/Cargo.toml"
+            hit, why = manifest in sel["native"], f"workspace {manifest}"
+        elif sel["all"]:
             hit, why = True, "every suite (" + "; ".join(plan["reasons"][:2]) + ")"
         elif kind == "python":
             if p["tree"] is None:
@@ -391,11 +408,6 @@ def check(path: Path, metadata: Path, out: Path | None, per_head_metadata: bool 
             targets = swift_target_of(p["tree"], test, kind)
             hit = bool(targets) and bool(targets & sel["swift"])
             why = f"targets {sorted(t for _, t in targets)[:3]} vs {len(sel['swift'])} selected"
-        elif kind == "rust" and f.get("workflow") == "rust-workspaces.yml" and "Native/" in f.get("job", ""):
-            # A separate cargo workspace (Native/OptChat/optchat-chief): the plan runs it as a native unit.
-            manifest = f["job"][f["job"].index("Native/"):].split()[0].rstrip("/") + "/Cargo.toml"
-            hit = manifest in sel["native"] or sel["rust_all"]
-            why = f"native {manifest}"
         elif kind == "rust" and not p["same_graph"]:
             row.update(verdict="unknown", why="the head's crate graph differs from --metadata's")
             continue

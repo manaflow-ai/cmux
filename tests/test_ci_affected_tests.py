@@ -53,7 +53,10 @@ class AffectedTests(unittest.TestCase):
         # step goes with every change and picks the crates itself.
         result = plan(["plans/cmux-next/STATUS.md"])
         self.assertFalse(result["all"])
-        self.assertEqual(names(result), ["guards", "rust"])
+        self.assertEqual(names(result)[:2], ["guards", "rust"])
+        # Plus the Cargo workspaces rust-workspaces.yml plans for it (they use that crate by path).
+        self.assertEqual({u["why"] for u in result["units"][2:]},
+                         {f"{w}/Cargo.toml" for w in affected_tests.rust_workspaces(ROOT, ["plans/cmux-next/STATUS.md"])})
 
     def test_nothing_changed_runs_nothing(self):
         self.assertEqual(plan([])["units"], [])
@@ -135,7 +138,8 @@ class AffectedTests(unittest.TestCase):
                 result = plan(files, everything=not files)
                 self.assertEqual(len(names(result)), len(set(names(result))))
         result = plan(["webviews/src/agent-session/acpmux/App.tsx"])
-        argv = [a for u in result["units"] for a in u["argv"]]
+        # A Cargo workspace root (scripts/journeys/tui-kit/rust) runs through rust-workspaces.py, as its workflow does.
+        argv = [a for u in result["units"] if affected_tests.RUST_WORKSPACES not in u["argv"] for a in u["argv"]]
         listed = [n["what"] for n in result["not_run"]]
         for test in affected_tests.web_workflow_python_tests(ROOT):
             self.assertTrue(test in argv or test in listed, test)  # on the lane, or left to the web workflow
@@ -174,6 +178,30 @@ class AffectedTests(unittest.TestCase):
         cmux_next = [u for u in swift if "--arg=Packages/macOS/CmuxNext" in u["argv"]]
         listed = {t for u in cmux_next for t in u["argv"][-1].removeprefix("--arg=").split(",")}
         self.assertEqual(listed, set(affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")))
+
+    def test_the_every_suite_plan_runs_every_cargo_workspace_beside_cmux_tui(self):
+        # It once listed no native unit at all (an absolute path never starts with "Native/") and
+        # never the rust-workspaces.yml workspaces (cmux-next-ios/rust, the cloud server, ...).
+        result = plan([], everything=True)
+        whys = {u["why"] for u in result["units"] if u["kind"] == "native"}
+        self.assertIn("Native/OptChat/optchat-chief/Cargo.toml", whys)
+        self.assertIn("cmux-next-ios/rust/Cargo.toml", whys)
+        self.assertIn("native-optchat-chief", names(result))  # its macOS step mode, not a plain cargo test
+
+    def test_a_cmux_tui_crate_runs_the_workspaces_that_use_it_by_path(self):
+        # optchat-chief depends on cmux-tui/crates/cmux-chief by path: a change there can break it.
+        manifest = (ROOT / "Native/OptChat/optchat-chief/Cargo.toml").read_text()
+        self.assertIn("cmux-tui/crates/cmux-chief", manifest)
+        result = plan(["cmux-tui/crates/cmux-chief/src/lib.rs"])
+        self.assertFalse(result["all"])
+        self.assertIn("rust", names(result))
+        self.assertIn("native-optchat-chief", names(result))
+
+    def test_a_file_in_a_cargo_workspace_runs_that_workspace_not_every_suite(self):
+        result = plan(["cmux-next-ios/rust/crates/cmux-mobile-host/src/activity.rs"])
+        self.assertFalse(result["all"], result["reasons"])
+        unit = next(u for u in result["units"] if u["name"] == "workspace-cmux-next-ios-rust")
+        self.assertEqual(unit["argv"][-3:], [affected_tests.RUST_WORKSPACES, "run", "cmux-next-ios/rust"])
 
     def test_too_many_paths_runs_everything(self):
         files = [f"cmux-tui/AGENTS-{i}.md" for i in range(affected_tests.MAX_FILES + 1)]
@@ -266,7 +294,8 @@ class AffectedTests(unittest.TestCase):
     def test_the_everything_plan_runs_no_unregistered_test(self):
         # Their workflows set up what they need: tests_v2 a built CLI and a socket, the CUA bench Bun.
         result = plan([], everything=True)
-        argv = [a for u in result["units"] for a in u["argv"]]
+        # A Cargo workspace root (scripts/journeys/tui-kit/rust) runs through rust-workspaces.py, as its workflow does.
+        argv = [a for u in result["units"] if affected_tests.RUST_WORKSPACES not in u["argv"] for a in u["argv"]]
         self.assertFalse([a for a in argv if a.startswith(("tests_v2/", "scripts/journeys/", "tests/automation-bench/"))])
         self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
 
@@ -295,7 +324,8 @@ class AffectedTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "HEAD", "--head", "HEAD",
                               "--files", "plans/cmux-next/STATUS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
         data = json.loads(out)
-        self.assertEqual([u["name"] for u in data["units"]], ["guards", "rust"])
+        self.assertEqual([u["name"] for u in data["units"]][:2], ["guards", "rust"])
+        self.assertEqual({u["kind"] for u in data["units"][2:]} - {"native"}, set())
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")
 
 
@@ -329,6 +359,14 @@ class Replay(unittest.TestCase):
         meta["workspace_members"].append("new 0.0.0")  # or before a crate was removed
         self.assertNotIn("new", graph)
         self.assertIn("new", self.replay.meta_graph(meta))
+
+    def test_a_rust_workspaces_job_is_judged_by_its_workspace_unit(self):
+        f = {"workflow": "rust-workspaces.yml", "job": "cmux-next-ios/rust", "kind": "rust", "test": "cmux-mobile-host"}
+        self.assertEqual(self.replay.rust_workspace_job(f), "cmux-next-ios/rust")
+        self.assertEqual(self.replay.rust_workspace_job({**f, "job": "rust workspaces"}), "")
+        self.assertEqual(self.replay.rust_workspace_job({**f, "workflow": "cmux-tui-spec.yml"}), "")
+        unit = {"kind": "native", "why": "cmux-next-ios/rust/Cargo.toml", "argv": []}
+        self.assertEqual(self.replay.selected({"all": True, "units": [unit]})["native"], {"cmux-next-ios/rust/Cargo.toml"})
 
     def test_an_open_window_lists_runs_from_since(self):
         # `created=SINCE..9999` (the --until default) made GitHub answer total_count 0 for every

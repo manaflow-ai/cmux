@@ -65,11 +65,16 @@ PYTHON_RUNNER = "scripts/ci/run_python_test_lane.py"
 GUARDS_SCRIPT = "scripts/ci/guards-local.sh"
 LINUX_PYTHON_LANE = "linux-guard"
 NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
+# The Cargo workspaces beside cmux-tui (optchat-chief, cmux-next-ios/rust, the cloud server, the FFI
+# crates with a workspace of their own): rust-workspaces.yml plans the ones a change reaches, by file
+# or by a package they use by path (optchat-chief uses cmux-tui's cmux-chief), and this plan runs the same.
+RUST_WORKSPACES = ".github/scripts/rust-workspaces.py"
+RUST_WORKSPACES_LIST = ".github/rust-workspaces.toml"
 # A change to what decides or runs the selection selects everything.
 SELF_INPUTS = (
     "scripts/ci/affected_tests.py", "scripts/ci/focused_tests.py", "scripts/ci/cargo_affected.py",
     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py", "scripts/ci/focused-tests-extra.json",
-    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT,
+    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT, RUST_WORKSPACES, RUST_WORKSPACES_LIST,
 )
 MAX_FILES = 400
 # The controller takes at most 64 CMUX_WEB_TEST_FILES per step, each `(src|test)/....test.<ext>`
@@ -280,12 +285,18 @@ class Planner:
         self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard (they read the whole tree)",
                            "argv": ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]})
 
-    def native(self, manifests: list[str]) -> None:
-        for manifest in manifests:
+    def native(self, manifests: list[str], workspaces: set[str] = frozenset()) -> None:
+        """Each Cargo workspace outside cmux-tui: optchat-chief's step mode, a rust-workspaces.yml
+        workspace (`workspaces`: their roots) as that workflow runs it, else `cargo test`."""
+        for manifest in sorted(set(manifests) | {f"{w}/Cargo.toml" for w in workspaces}):
             label = manifest.rsplit("/", 2)[-2]
             mode = NATIVE_MODES.get(manifest)
+            root = manifest.rsplit("/", 1)[0]
             if mode:
                 self.run_step(f"native-{label}", "native", manifest, RUST_SCRIPT, "light", [mode], extra=["--os", "macos"])
+            elif root in workspaces:
+                self.units.append({"name": "workspace-" + root.replace("/", "-"), "kind": "native", "why": manifest,
+                                   "argv": ["test", "--setup", "rust", "--", "python3", RUST_WORKSPACES, "run", root]})
             else:
                 self.units.append({"name": f"native-{label}", "kind": "native", "why": manifest,
                                    "argv": ["test", "--setup", "rust", "--", "cargo", "test", "--locked", "--manifest-path", manifest]})
@@ -340,13 +351,31 @@ def rust_may_read(root: Path, files: list[str]) -> bool:
     return bool(files) and "." in refs or any(f == ref or f.startswith(ref + "/") for f in files for ref in refs)
 
 
-def everything_reasons(files: list[str], focused: dict) -> list[str]:
+def rust_workspaces(root: Path, files: list[str] | None) -> set[str]:
+    """The roots of the rust-workspaces.yml workspaces these paths reach (None: every one), by that
+    workflow's own planner (this checkout's .github/scripts/rust-workspaces.py plan_paths, like the rest of
+    this planner) over the tree at root: its list and manifests."""
+    import importlib.util
+    script = Path(__file__).resolve().parents[2] / RUST_WORKSPACES
+    if not script.is_file() or not (root / RUST_WORKSPACES_LIST).is_file():
+        return set()
+    spec = importlib.util.spec_from_file_location("cmux_rust_workspaces", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "plan_paths"):
+        return set()
+    return {job["root"] for job in module.plan_paths(root, files)}
+
+
+def everything_reasons(files: list[str], focused: dict, workspaces: set[str] = frozenset()) -> list[str]:
     reasons = []
     if len(files) > MAX_FILES:
         reasons.append(f"{len(files)} changed paths (over {MAX_FILES})")
     reasons += [f"{p}: decides or runs the selection" for p in files if p in SELF_INPUTS]
     # An unmapped webviews path (a fixture, a baseline, a build script) runs every webviews test instead.
-    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", []) if not p.startswith(focused_tests.WEB)]
+    # A path in a planned Cargo workspace (cmux-next-ios/rust/...) is that workspace's tests.
+    reasons += [f"{p}: no rule maps it to tests" for p in focused.get("unmapped", []) if not p.startswith(focused_tests.WEB)
+                and not any(p.startswith(w + "/") for w in workspaces)]
     return reasons
 
 
@@ -354,7 +383,10 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
     if files is None:
         files = sorted({line for line in git(root, "diff", "--name-only", "--no-renames", f"{base}...{head}").splitlines() if line})
     focused = focused_tests.plan(root, files)
-    reasons = ["--all"] if everything else everything_reasons(files, focused)
+    workspaces = rust_workspaces(root, None if everything else files)
+    reasons = ["--all"] if everything else everything_reasons(files, focused, workspaces)
+    if reasons and not everything:
+        workspaces = rust_workspaces(root, None)
     p = Planner(root, base, head, shards)
     if files or reasons:
         p.guards()  # docs too: guards read docs (plans/*.md ratchets) as much as code
@@ -366,7 +398,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         unregistered = unregistered_python_tests(root)
         if unregistered:
             p.not_run.append({"what": f"{len(unregistered)} Python tests outside the lane registry", "why": UNREGISTERED_WHY})
-        p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
+        locks = {focused_tests.native_manifest(root, m.relative_to(root).as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")}
+        p.native(sorted(locks - {""}), workspaces)
     else:
         if focused["cargo"]["changed"] or rust_may_read(root, files):
             p.rust(everything=False)
@@ -401,7 +434,7 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         extra += [t for t in web_python + (lane_paths or []) if t not in lanes and t not in extra]
         for test in extra:
             p.not_run.append({"what": test, "why": UNREGISTERED_WHY})
-        p.native([item["manifest"] for item in focused["native"]])
+        p.native([item["manifest"] for item in focused["native"]], workspaces)
     return {"base": base, "head": head, "all": bool(reasons), "reasons": reasons, "files": files,
             "units": p.units, "not_run": p.not_run, "docs": focused.get("docs", [])}
 

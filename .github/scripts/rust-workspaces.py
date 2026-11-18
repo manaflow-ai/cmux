@@ -264,8 +264,13 @@ def under(path: str, directory: str) -> bool:
 
 
 def plan(repo: Path, base: str) -> list[dict]:
+    return plan_paths(repo, changed(repo, base))
+
+
+def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
+    """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
+    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would."""
     tree = Tree(repo)
-    paths = changed(repo, base)
     if paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
