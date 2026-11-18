@@ -51,9 +51,9 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
    *  view and where it is on each of 6 frames after, the columns before and after, how far the
    *  catalog's height is from its rows', and how far each of 10 one-viewport scrolls up moved from
    *  what it asked. */
-  const columnChange = (page: Page, from: number, to: number) =>
+  const columnChange = (page: Page, from: number, to: number, partial = false) =>
     page.evaluate(
-      async ({ from, to }) => {
+      async ({ from, to, partial }) => {
         const root = document.getElementById("root")!;
         const scroller = document.querySelector<HTMLElement>(".apps-scroll")!;
         const cards = () => [...document.querySelectorAll<HTMLElement>(".apps-catalog-space .apps-card")];
@@ -64,8 +64,19 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
         await window.cmuxPaintFrame();
         const top = scroller.getBoundingClientRect().top;
         const at = (card: Element | null) => (card ? card.getBoundingClientRect().top - top : null);
+        if (partial) {
+          // The first row in view cut by half its height: its top half above the view.
+          const first = cards()
+            .filter((card) => at(card)! + card.offsetHeight > 0)
+            .sort((a, b) => at(a)! - at(b)!)[0]!;
+          const shift = at(first)! + first.offsetHeight / 2;
+          await window.cmuxPaintFrame(() => (scroller.scrollTop += shift));
+          await window.cmuxPaintFrame();
+        }
+        // The first listing in view: the leftmost card of the first row that reaches into the view
+        // (its top may be above it).
         const anchor = cards()
-          .filter((card) => at(card)! >= 0)
+          .filter((card) => at(card)! + card.offsetHeight > 0)
           .sort((a, b) => at(a)! - at(b)! || a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]!;
         const id = anchor.dataset.app!;
         const before = at(anchor)!;
@@ -91,7 +102,7 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
         }
         return { id, before, after, columnsBefore, columnsAfter: columns(), heightError, jumps };
       },
-      { from, to },
+      { from, to, partial },
     );
 
   /** The page's width from `from` to `to` px and back, 30,000 px down the catalog, with a listing in
@@ -153,6 +164,25 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
           }
           expect(Math.abs(change.heightError)).toBeLessThanOrEqual(1);
           for (const jump of change.jumps) expect(Math.abs(jump)).toBeLessThanOrEqual(1);
+        } finally {
+          await page.close();
+        }
+      });
+  // The first row in view half above the top: its first listing, partly in view, stays at the same
+  // (negative) offset from the top on every frame. Before, the page held the first row starting
+  // below the top, and the partly visible listing moved.
+  for (const engine of Object.keys(engines) as (keyof typeof engines)[])
+    for (const [from, to] of changes)
+      test(`${engine}: ${from} to ${to} px mid-list keeps a partly visible first listing in place`, async () => {
+        const page = await open(engine);
+        try {
+          const change = await columnChange(page, from, to, true);
+          expect(change.columnsAfter).not.toBe(change.columnsBefore);
+          expect(change.before).toBeLessThan(0);
+          for (const y of change.after) {
+            expect(y).not.toBeNull();
+            expect(Math.abs(y! - change.before)).toBeLessThanOrEqual(1);
+          }
         } finally {
           await page.close();
         }

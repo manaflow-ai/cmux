@@ -452,8 +452,11 @@ function CatalogList({
         // (the banner and chips above re-wrap; the browser may have moved the scroll to hold what is
         // in view).
         const top = scroll.scrollTop + virtualizer.options.scrollMargin - margin;
-        // The mounted rows only (about two viewports of them), once per column change.
-        const item = virtualizer.getVirtualItems().find((item) => item.start >= top);
+        // The first row that reaches into the view, though its top may be above it (a row cut by the
+        // top is the one the reader sees first): its offset from the top is held, negative then. The
+        // mounted rows only (about two viewports of them, in order), once per column change.
+        const found = virtualizer.getVirtualItems().find((item) => item.end > top);
+        const item = found && found.start < top + scroll.clientHeight ? found : undefined;
         if (!item) return scroll.scrollTop;
         // The new columns' row height: learned, or read from a card the browser has already laid
         // out at the new width (this runs after layout, so the read costs no layout).
