@@ -38,6 +38,15 @@ Kept pictures (`--screen-tgz FILE`, with the report): for the first `--keep-keys
 each recording with a change after the first content or an INVALID reason, the frame before the key, the named
 frames and the first frame of each change, at the recorded scale. No picture of a later recording is kept after
 160 kept pictures.
+
+A recording whose reply is the control's `timeout` with `state: in_progress` (frame_strip's compare and its files
+took longer than the call's limit; more frames or a larger `--scale` make it longer) is an INVALID row, and the
+app's call goes on after the reply: it uses the processor and the app's one list of bench marks, so a key in that
+time has numbers of 2 calls. The app has no call that says when frame_strip ended; its last act is the file
+`strip.png` in the recording's folder. So the tool waits for that file (up to `CALL_END_PAUSES` pauses of 0.5 s)
+before it removes the folder and sends a key, ends that case (`ended_early` in the case, `call_went_on` in the
+row), and goes on with the next case. A call whose file did not come stops the run (`stopped` in the report): no
+later key. A call that made no frame writes no such file and reads as one that did not end.
 """
 import json
 import os
@@ -56,6 +65,15 @@ MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-ben
 LEAD_MS = 120  # frame_strip sends the key this long after its recording starts (later when the first frame is late)
 MARK = "NEW-SURFACE-SCREEN"
 OPENINGS_LIMIT = 60  # the app's list of opening records has 64 places (NewTabSparePool.maximumOpenings)
+LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
+CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
+
+
+def goes_on(reply):
+    """True when the control says that the app's call of this reply still runs (`timeout` with `state: in_progress`)."""
+    error = reply.get("error")
+    data = error.get("data") if isinstance(error, dict) else None
+    return isinstance(data, dict) and data.get("state") == "in_progress"
 
 
 def openings(opts):
@@ -217,8 +235,11 @@ class Screen:
             watcher.join(timeout=max(0.0, asked + opts.duration_ms / 1000 + 6 - time.monotonic()) + 20)
         if "error" in reply:
             row["invalid"].append(f"frame_strip: {json.dumps(reply.get('error'), default=str)[:300]}")
+            if goes_on(reply):
+                row["call_went_on"] = self.call_end(folder)
             shutil.rmtree(folder, ignore_errors=True)
-            self.close(keys_sent, own_tabs)
+            # Cmd-W only for what the keys opened: a call that the app refused sent no key.
+            self.close(max(0, self.count(key) - before_count), own_tabs)
             return row
         records = self.opened()
         row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
@@ -249,6 +270,16 @@ class Screen:
         shutil.rmtree(folder, ignore_errors=True)
         self.close(keys_sent, own_tabs)
         return row
+
+    def call_end(self, folder):
+        """Waits until the app's frame_strip call that went on after its reply wrote its last file into `folder`:
+        whether it came, and after how many pauses."""
+        for pauses in range(CALL_END_PAUSES):
+            if os.path.exists(os.path.join(folder, LAST_FILE)):
+                self.sleep(0.5)  # tool pacing: the call makes its reply after its last file
+                return {"ended": True, "pauses": pauses}
+            self.sleep(0.5)  # tool pacing: the app still compares and writes its frames
+        return {"ended": os.path.exists(os.path.join(folder, LAST_FILE)), "pauses": CALL_END_PAUSES}
 
     def close(self, opened, own_tabs):
         """Closes the recording's new tabs or workspaces, then Control-`'s terminal tab when the pane still has one
@@ -302,8 +333,22 @@ class Screen:
                           f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                           f"changes_after_content={row.get('changes_after_content')} "
                           f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}", flush=True)
+                    if row.get("call_went_on"):
+                        break
                 report["cases"][case] = frames_of.summarize(rows)
-                print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}", flush=True)
+                went_on = rows[-1].get("call_went_on")
+                if went_on:
+                    report["cases"][case]["ended_early"] = f"after {len(rows)} of {opts.runs} rows: frame_strip answered `timeout` and the app's call went on"
+                    if not went_on["ended"]:
+                        report["stopped"] = (f"after {rows[-1]['label']}: the app's frame_strip call did not end in "
+                                             f"{went_on['pauses']} pauses of 0.5 s: no later key")
+                early = report["cases"][case].get("ended_early")
+                print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}{' (THE CASE ENDED EARLY ' + early + ')' if early else ''}", flush=True)
+                if report.get("stopped"):
+                    break
+            if report.get("stopped"):
+                print(f"{MARK} STOPPED {report['stopped']}", flush=True)
+                break
         if opts.json:
             with open(opts.json, "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=1)
