@@ -1,0 +1,13 @@
+[package]
+name = "cmux-launch-draft"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+workspace = "../cmux-app-ffi"
+description = "A bare launch's held message box: sends held until the Chief is named, the draft hand-off and the quit save"
+
+[dependencies]
+# The C ABI's parts JSON (src/ffi.rs); the rules in src/lib.rs use none.
+serde_json = "1"

@@ -131,6 +131,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-launch-draft",
  "cmux-launch-record",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
@@ -243,6 +244,13 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde",
+]
+
+[[package]]
+name = "cmux-launch-draft"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

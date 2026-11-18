@@ -32,6 +32,9 @@
 
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
+//! `launch_draft` is a bare launch's held message box: sends held until the
+//! Chief is named, the draft hand-off and the quit save (cmux-launch-draft,
+//! include/cmux_launch_draft.h).
 
 pub mod hover;
 pub mod motion;
@@ -44,6 +47,7 @@ pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_health_core::ffi as health;
+pub use cmux_launch_draft::ffi as launch_draft;
 pub use cmux_launch_record;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
