@@ -252,6 +252,7 @@
     "pr-checks.yml: Compare the new head with the previous one": "baseline 2026-11-04",
     "pr-checks.yml: Count changed lines": "baseline 2026-11-04",
     "pr-checks.yml: Read changed files and body": "baseline 2026-11-04",
+    "pr-checks.yml: Update the PR's Swift logic line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: one comment read (GraphQL first) and at most one write per push of a pull request that is not a draft; a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
     "pr-checks.yml: Update the PR's review line": "polls (tests/test_ci_no_github_token_polling.py): pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds",
     "pr-media-prune.yml: Prune": "baseline 2026-11-04",
     "pr-red-checks-comment.yml: Update the red checks line": "baseline 2026-11-04",

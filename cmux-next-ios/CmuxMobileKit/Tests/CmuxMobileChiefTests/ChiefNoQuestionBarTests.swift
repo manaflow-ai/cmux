@@ -10,7 +10,7 @@ import Testing
 @Suite struct ChiefNoQuestionBarTests {
     @Test(.timeLimit(.minutes(1))) func anOpenQuestionShowsNoBar() async throws {
         // The mock Chief starts with one pending question.
-        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefMockBackend(sleep: { _ in }))
         defer { session.store.stop() }
         let deadline = ContinuousClock.now + .seconds(10)
         while session.openQuestion == nil, ContinuousClock.now < deadline {

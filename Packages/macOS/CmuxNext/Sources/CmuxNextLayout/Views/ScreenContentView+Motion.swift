@@ -243,7 +243,6 @@ extension ScreenContentView {
         }
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
-        zoomDim.panesPlaced(on: self) // an unzoom shows: its dim is over the other panes in this frame, and goes
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
         if presentFloatingCards() { changed = true }
@@ -271,6 +270,7 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
+        zoomDim.panesPlaced(on: self) // panes and dividers are placed: a split's, a close's and a zoom's panes move; a zoom's dim comes, an unzoom's goes
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
