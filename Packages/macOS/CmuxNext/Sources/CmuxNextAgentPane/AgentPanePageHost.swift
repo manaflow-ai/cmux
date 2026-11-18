@@ -47,6 +47,7 @@ enum AgentPanePageHost {
         }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(.agentUiSurfaces(view.agentUiSurfaces))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(view.model.remoteControl?.event(for: view) ?? AgentPaneRemoteControl.event(nil))

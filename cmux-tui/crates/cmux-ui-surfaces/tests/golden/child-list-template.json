@@ -1,0 +1,120 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "child-list-template",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "children": [
+          {
+            "axis": "v",
+            "children": [
+              {
+                "id": "title_text",
+                "style": "heading",
+                "text": "Dynamic Item List",
+                "type": "text"
+              },
+              {
+                "children": [
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "item_name#0",
+                        "style": "body",
+                        "text": "Apple",
+                        "type": "text"
+                      },
+                      {
+                        "id": "qty_label#0",
+                        "style": "body",
+                        "text": " - Qty: ",
+                        "type": "text"
+                      },
+                      {
+                        "id": "item_qty#0",
+                        "style": "body",
+                        "text": "10",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "item_row#0",
+                    "type": "stack"
+                  },
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "item_name#1",
+                        "style": "body",
+                        "text": "Banana",
+                        "type": "text"
+                      },
+                      {
+                        "id": "qty_label#1",
+                        "style": "body",
+                        "text": " - Qty: ",
+                        "type": "text"
+                      },
+                      {
+                        "id": "item_qty#1",
+                        "style": "body",
+                        "text": "5",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "item_row#1",
+                    "type": "stack"
+                  },
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "item_name#2",
+                        "style": "body",
+                        "text": "Cherry",
+                        "type": "text"
+                      },
+                      {
+                        "id": "qty_label#2",
+                        "style": "body",
+                        "text": " - Qty: ",
+                        "type": "text"
+                      },
+                      {
+                        "id": "item_qty#2",
+                        "style": "body",
+                        "text": "20",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "item_row#2",
+                    "type": "stack"
+                  }
+                ],
+                "id": "item_list",
+                "type": "list"
+              }
+            ],
+            "id": "main_column",
+            "type": "stack"
+          }
+        ],
+        "id": "root",
+        "type": "card"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "gallery-child-list-template"
+    }
+  ]
+}

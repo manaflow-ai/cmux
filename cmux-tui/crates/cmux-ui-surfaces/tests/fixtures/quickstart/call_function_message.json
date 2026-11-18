@@ -1,0 +1,133 @@
+{
+  "schema": "agent_to_renderer.json",
+  "catalog": "testing_catalog.json",
+  "tests": [
+    {
+      "description": "CallRendererFunctionMessage: Valid message",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-123",
+          "callFunction": {
+            "@call": "openUrl",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Valid with catalogId",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-123-cat",
+          "callFunction": {
+            "@call": "openUrl",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Valid with surfaceId",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "surfaceId": "surface_1",
+          "functionCallId": "unique-call-id-123-surf",
+          "callFunction": {
+            "@call": "openUrl",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Valid call without args",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-123a",
+          "callFunction": {
+            "@call": "pingAgent",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Invalid (missing catalogId)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-123b",
+          "callFunction": {
+            "@call": "openUrl",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Invalid (missing functionCallId)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "callFunction": {
+            "@call": "openUrl",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Invalid (missing callFunction)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-125"
+        }
+      }
+    },
+    {
+      "description": "CallRendererFunctionMessage: Invalid args (nested object in a single value)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callRendererFunction": {
+          "functionCallId": "unique-call-id-127",
+          "callFunction": {
+            "@call": "required",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "value": {
+                "nested": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

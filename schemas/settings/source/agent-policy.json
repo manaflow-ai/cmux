@@ -1232,6 +1232,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Agent UI cards let an agent put forms and approvals in front of the person; only the person opts in.",
+      "keys": [
+        "labs.agentUiSurfaces"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "Voice Room records mic and screen text and posts it to the configured room.",
       "keys": [

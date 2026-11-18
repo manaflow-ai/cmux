@@ -1,0 +1,75 @@
+{
+  "schema": "renderer_to_agent.json",
+  "catalog": "testing_catalog.json",
+  "tests": [
+    {
+      "description": "CallAgentFunctionMessage: Valid message",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "surface_123",
+          "functionCallId": "unique-call-id-agent-1",
+          "callFunction": {
+            "@call": "openUrl",
+            "args": {
+              "url": "https://example.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "CallAgentFunctionMessage: Valid with catalogId in callFunction",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "surface_123",
+          "functionCallId": "unique-call-id-agent-2",
+          "callFunction": {
+            "@call": "pingAgent",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+          }
+        }
+      }
+    },
+    {
+      "description": "CallAgentFunctionMessage: Invalid (missing surfaceId)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "functionCallId": "unique-call-id-agent-3",
+          "callFunction": {
+            "@call": "pingAgent"
+          }
+        }
+      }
+    },
+    {
+      "description": "CallAgentFunctionMessage: Invalid (missing functionCallId)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "surface_123",
+          "callFunction": {
+            "@call": "pingAgent"
+          }
+        }
+      }
+    },
+    {
+      "description": "CallAgentFunctionMessage: Invalid (missing callFunction)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "callAgentFunction": {
+          "surfaceId": "surface_123",
+          "functionCallId": "unique-call-id-agent-4"
+        }
+      }
+    }
+  ]
+}

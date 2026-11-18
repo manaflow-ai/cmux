@@ -1,0 +1,30 @@
+{
+  "about": "Fares for one hop: the Flights macro binds the rows search_flights files at /flights, so it can be drawn before the lookup returns.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "inline-2",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["fares", "note"]
+          },
+          {
+            "id": "fares",
+            "component": "Flights",
+            "heading": "Outbound · JFK → MAD · Sun 12 Apr",
+            "selected": "/trip/selectedFlight"
+          },
+          {
+            "id": "note",
+            "component": "Text",
+            "text": "Prices are per traveler, round trip."
+          }
+        ]
+      }
+    }
+  ]
+}

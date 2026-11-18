@@ -1,0 +1,142 @@
+{
+  "about": "The home surface: where the trip stands, at a glance.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "home",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["hello", "tiles", "budget", "when", "weather", "map"],
+            "align": "stretch"
+          },
+          {
+            "id": "hello",
+            "component": "Text",
+            "text": "# 17 days to Madrid"
+          },
+          {
+            "id": "tiles",
+            "component": "Row",
+            "children": ["t1", "t2", "t3"]
+          },
+          {
+            "id": "budget",
+            "component": "ProgressMeter",
+            "label": "Budget used",
+            "value": 1320,
+            "max": 2000,
+            "caption": "$1,320 of $2,000",
+            "tone": "caution"
+          },
+          {
+            "id": "when",
+            "component": "TripCalendar",
+            "start": {
+              "@path": "/trip/startDate"
+            },
+            "end": {
+              "@path": "/trip/endDate"
+            },
+            "marks": [
+              {
+                "date": "2027-04-12",
+                "icon": "plane",
+                "label": "Fly out"
+              },
+              {
+                "date": "2027-04-18",
+                "icon": "plane",
+                "label": "Fly home"
+              }
+            ],
+            "title": "Madrid",
+            "caption": "6 nights"
+          },
+          {
+            "id": "weather",
+            "component": "WeatherStrip",
+            "days": [
+              {
+                "day": "Sun",
+                "high": "21°",
+                "low": "9°",
+                "condition": "sun"
+              },
+              {
+                "day": "Mon",
+                "high": "19°",
+                "low": "8°",
+                "condition": "sun"
+              },
+              {
+                "day": "Tue",
+                "high": "16°",
+                "low": "7°",
+                "condition": "rain"
+              }
+            ],
+            "place": "Madrid",
+            "caption": "Pack a light jacket for Tuesday"
+          },
+          {
+            "id": "map",
+            "component": "MapPreview",
+            "markers": [
+              {
+                "label": "Hotel",
+                "kind": "stay"
+              },
+              {
+                "label": "Prado",
+                "kind": "sight",
+                "day": "2"
+              },
+              {
+                "label": "Sobrino",
+                "kind": "food",
+                "day": "2"
+              }
+            ],
+            "caption": "Everything on day 2 is walkable"
+          },
+          {
+            "id": "t1",
+            "component": "StatTile",
+            "label": "Booked",
+            "value": "3 of 5",
+            "caption": "flights, hotel, transfer",
+            "tone": "positive"
+          },
+          {
+            "id": "t2",
+            "component": "StatTile",
+            "label": "Budget left",
+            "value": "$680",
+            "caption": "of $2,000",
+            "tone": "caution"
+          },
+          {
+            "id": "t3",
+            "component": "StatTile",
+            "label": "Next up",
+            "value": "Pick dinner",
+            "caption": "Sat 11 Apr",
+            "tone": "accent",
+            "action": {
+              "event": {
+                "name": "open_task",
+                "context": {
+                  "id": "dinner"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

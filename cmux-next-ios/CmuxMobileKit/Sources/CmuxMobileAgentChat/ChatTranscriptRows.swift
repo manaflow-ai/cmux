@@ -52,6 +52,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// An acpmux "who else is working on these files" call (`toolCallID`) as its card
         /// (`WhoElseCard`), in place of the tool row.
         case whoElse(String, WhoElseCall)
+        /// A tool call (`toolCallID`) carrying an agent UI surface, drawn as its card (`UISurfaceCard`)
+        /// in place of the tool row, while `labs.agentUiSurfaces` is on.
+        case uiSurface(String, UISurface)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -84,6 +87,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var nextPrompt: String?
     /// The tones the chat gave this turn's senders' sessions (`AgentTones`), by session id.
     var senderTones: [String: Int] = [:]
+    /// `labs.agentUiSurfaces`: a tool call carrying an agent UI surface draws as its card.
+    var uiSurfaces = false
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -141,7 +146,7 @@ final class ChatTranscriptBuilder {
     func lastParsedLines(_ messageID: String) -> Int? { parses[messageID]?.lastParsedLines }
 
     func build(turns: [AgentTurn], pendingPermission: PermissionRecord?, askOpen: Bool, permissionBarHidden: Bool,
-               earlierHistory: Bool = false) -> [ChatTurnRows] {
+               earlierHistory: Bool = false, uiSurfaces: Bool = UISurface.isEnabled()) -> [ChatTurnRows] {
         var out: [ChatTurnRows] = []
         out.reserveCapacity(turns.count)
         var followsActions = false
@@ -153,7 +158,7 @@ final class ChatTranscriptBuilder {
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
                                           nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
-                                          senderTones: turnTones(turn))
+                                          senderTones: turnTones(turn), uiSurfaces: uiSurfaces)
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -311,7 +316,9 @@ final class ChatTranscriptBuilder {
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
             case .tool(let call):
-                if let whoElse = WhoElseCall(call) {
+                if context.uiSurfaces, let surface = UISurface(call) {
+                    add(row.id, .uiSurface(call.id, surface))
+                } else if let whoElse = WhoElseCall(call) {
                     add(row.id, .whoElse(call.id, whoElse))
                 } else if wrapUp == nil || !NextStepAsk.drawsWrapUp(call) {
                     // A wrap-up call's row goes only where its card draws in its place.

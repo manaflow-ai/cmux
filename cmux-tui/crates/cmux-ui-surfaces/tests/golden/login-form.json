@@ -1,0 +1,108 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "login-form",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "children": [
+          {
+            "axis": "v",
+            "children": [
+              {
+                "axis": "v",
+                "children": [
+                  {
+                    "id": "title",
+                    "style": "heading",
+                    "text": "Welcome back",
+                    "type": "text"
+                  },
+                  {
+                    "id": "subtitle",
+                    "style": "caption",
+                    "text": "Sign in to your account",
+                    "type": "text"
+                  }
+                ],
+                "id": "header",
+                "type": "stack"
+              },
+              {
+                "bind": "/email",
+                "id": "email_field",
+                "input": "text",
+                "label": "Email",
+                "type": "field",
+                "value": ""
+              },
+              {
+                "bind": "/password",
+                "id": "password_field",
+                "input": "text",
+                "label": "Password",
+                "secure": true,
+                "type": "field",
+                "value": ""
+              },
+              {
+                "action": {
+                  "id": "login_btn",
+                  "name": "login",
+                  "privileged": true
+                },
+                "id": "login_btn",
+                "label": "Sign in",
+                "type": "button",
+                "variant": "secondary"
+              },
+              {
+                "id": "divider",
+                "type": "divider"
+              },
+              {
+                "axis": "h",
+                "children": [
+                  {
+                    "id": "no_account",
+                    "style": "caption",
+                    "text": "Don't have an account?",
+                    "type": "text"
+                  },
+                  {
+                    "action": {
+                      "id": "signup_link",
+                      "name": "signup",
+                      "privileged": true
+                    },
+                    "id": "signup_link",
+                    "label": "Sign up",
+                    "type": "button",
+                    "variant": "secondary"
+                  }
+                ],
+                "id": "signup_text",
+                "type": "stack"
+              }
+            ],
+            "id": "main_column",
+            "type": "stack"
+          }
+        ],
+        "id": "root",
+        "type": "card"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "gallery-login-form"
+    }
+  ]
+}

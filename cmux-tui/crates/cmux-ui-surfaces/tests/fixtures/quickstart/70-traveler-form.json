@@ -1,0 +1,89 @@
+{
+  "about": "Collecting details the trip record does not hold, on the surface's own data.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "inline-5",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["title", "name", "email", "seat", "save"],
+            "align": "stretch"
+          },
+          {
+            "id": "title",
+            "component": "Text",
+            "text": "### Who is travelling?"
+          },
+          {
+            "id": "name",
+            "component": "TextField",
+            "label": "Full name (as on passport)",
+            "value": {
+              "@path": "/traveler/name"
+            }
+          },
+          {
+            "id": "email",
+            "component": "TextField",
+            "label": "Email",
+            "value": {
+              "@path": "/traveler/email"
+            },
+            "placeholder": "shortText"
+          },
+          {
+            "id": "seat",
+            "component": "ChoicePicker",
+            "label": "Seat",
+            "variant": "mutuallyExclusive",
+            "options": [
+              {
+                "label": "Window",
+                "value": "window"
+              },
+              {
+                "label": "Aisle",
+                "value": "aisle"
+              }
+            ],
+            "value": {
+              "@path": "/traveler/seat"
+            }
+          },
+          {
+            "id": "save",
+            "component": "Button",
+            "child": "save_child",
+            "variant": "primary",
+            "action": {
+              "event": {
+                "name": "save_traveler",
+                "context": {
+                  "name": {
+                    "@path": "/traveler/name"
+                  },
+                  "email": {
+                    "@path": "/traveler/email"
+                  },
+                  "seat": {
+                    "@path": "/traveler/seat"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "save_child",
+            "component": "Text",
+            "text": "Save traveller"
+          }
+        ],
+        "sendDataModel": true
+      }
+    }
+  ]
+}

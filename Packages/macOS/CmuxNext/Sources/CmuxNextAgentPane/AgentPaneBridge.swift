@@ -131,6 +131,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
             view.applyShortcuts()
             view.applyPreviewFeatures()
+            view.applyAgentUiSurfaces()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
             view.model.remoteControl?.push(to: view)

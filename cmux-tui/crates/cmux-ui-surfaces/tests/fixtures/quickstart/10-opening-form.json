@@ -1,0 +1,83 @@
+{
+  "about": "The opening turn: a form for what the trip still needs, composed from controls bound to the record. sendDataModel carries every value with the press.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "inline-1",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "sendDataModel": true,
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["title", "from", "dates", "who", "go"],
+            "align": "stretch"
+          },
+          {
+            "id": "title",
+            "component": "Text",
+            "text": "### Madrid in April — two travellers"
+          },
+          {
+            "id": "from",
+            "component": "AirportPicker",
+            "label": "Where from?",
+            "value": {
+              "@path": "/trip/origin"
+            },
+            "options": {
+              "@path": "/places/origins"
+            },
+            "kind": "origin",
+            "placeholder": "City or airport"
+          },
+          {
+            "id": "dates",
+            "component": "DateRangePicker",
+            "label": "Travel dates",
+            "start": {
+              "@path": "/trip/startDate"
+            },
+            "end": {
+              "@path": "/trip/endDate"
+            },
+            "nightsLabel": {
+              "@call": "formatString",
+              "args": {
+                "value": "${calcNights(start: ${/trip/startDate}, end: ${/trip/endDate})} nights"
+              }
+            }
+          },
+          {
+            "id": "who",
+            "component": "TravelerCounter",
+            "label": "Travellers",
+            "value": {
+              "@path": "/trip/travelers"
+            },
+            "min": 1,
+            "max": 8
+          },
+          {
+            "id": "go",
+            "component": "Button",
+            "child": "go_label",
+            "variant": "primary",
+            "action": {
+              "event": {
+                "name": "find_flights",
+                "userMessage": "Find flights for these dates"
+              }
+            }
+          },
+          {
+            "id": "go_label",
+            "component": "Text",
+            "text": "Find flights"
+          }
+        ]
+      }
+    }
+  ]
+}

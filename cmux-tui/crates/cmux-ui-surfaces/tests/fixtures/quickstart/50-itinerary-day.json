@@ -1,0 +1,98 @@
+{
+  "about": "A day composed by hand, when the plan is short or the macro's layout is not what is wanted.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "inline-4",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["day2", "packingTitle", "packing"]
+          },
+          {
+            "id": "day2",
+            "component": "ItineraryDay",
+            "title": "Day 2 — Old Madrid",
+            "children": ["a1", "a2", "a3"],
+            "date": "Mon 13 Apr",
+            "summary": "Art in the morning, a long lunch, green afternoon"
+          },
+          {
+            "id": "packingTitle",
+            "component": "Text",
+            "text": "#### Packing"
+          },
+          {
+            "id": "packing",
+            "component": "List",
+            "children": {
+              "path": "/packing",
+              "componentId": "packingRow"
+            }
+          },
+          {
+            "id": "a1",
+            "component": "ActivityItem",
+            "title": "Prado Museum",
+            "time": "10:00",
+            "category": "sight",
+            "location": "Paseo del Prado 23",
+            "duration": "2h",
+            "note": "Book the timed entry",
+            "action": {
+              "event": {
+                "name": "open_activity",
+                "context": {
+                  "id": "prado"
+                }
+              }
+            }
+          },
+          {
+            "id": "a2",
+            "component": "ActivityItem",
+            "title": "Lunch at Sobrino",
+            "time": "13:30",
+            "category": "food",
+            "location": "Calle de Cuchilleros 17",
+            "duration": "1h 30m"
+          },
+          {
+            "id": "a3",
+            "component": "ActivityItem",
+            "title": "Retiro Park",
+            "time": "16:00",
+            "category": "outdoors",
+            "duration": "1h 30m",
+            "note": "Rowboats until 19:00"
+          },
+          {
+            "id": "packingRow",
+            "component": "CheckBox",
+            "label": {
+              "@path": "item"
+            },
+            "value": {
+              "@path": "done"
+            }
+          }
+        ],
+        "dataModel": {
+          "packing": [
+            {
+              "item": "Passport",
+              "done": true
+            },
+            {
+              "item": "Adapter",
+              "done": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

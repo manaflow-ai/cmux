@@ -1,0 +1,175 @@
+{
+  "name": "MCP JSON tool result",
+  "description": "Loads the issues of a repository from a headless MCP tool in two ways. The first button chains the catalog's data functions, each selecting the MCP catalog with its own catalogId: callMcpTool runs the tool, transformData reads the json field of the payload it returns and shapes the open issues into rows, and updateDataModel writes them to /issues. The second button only sets targetDataPath, so callMcpTool writes its payload to /issueResponse and the list below it binds to /issueResponse/structuredContent/issues.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "gallery-mcp-json-tool-result",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "version": "1.0",
+      "updateDataModel": {
+        "surfaceId": "gallery-mcp-json-tool-result",
+        "value": {
+          "repository": "a2ui-project/a2ui",
+          "issues": []
+        }
+      }
+    },
+    {
+      "version": "1.0",
+      "updateComponents": {
+        "surfaceId": "gallery-mcp-json-tool-result",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": [
+              "heading",
+              "repository_field",
+              "button_row",
+              "issue_list",
+              "all_issues_heading",
+              "all_issue_list"
+            ],
+            "align": "stretch"
+          },
+          {
+            "id": "heading",
+            "component": "Text",
+            "text": "### Open issues"
+          },
+          {
+            "id": "repository_field",
+            "component": "TextField",
+            "label": "Repository",
+            "value": {
+              "@path": "/repository"
+            }
+          },
+          {
+            "id": "button_row",
+            "component": "Row",
+            "children": ["load_button", "load_all_button"]
+          },
+          {
+            "id": "load_button",
+            "component": "Button",
+            "child": "load_button_label",
+            "variant": "primary",
+            "action": {
+              "functionCall": {
+                "@call": "updateDataModel",
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                "args": {
+                  "updates": {
+                    "@call": "transformData",
+                    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                    "args": {
+                      "jmespath": "{\"/issues\": json[?state == 'open'].{number: to_string(number), title: title}}",
+                      "data": {
+                        "@call": "callMcpTool",
+                        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                        "args": {
+                          "name": "list_issues",
+                          "arguments": {
+                            "repository": {
+                              "@path": "/repository"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "load_button_label",
+            "component": "Text",
+            "text": "Load open issues"
+          },
+          {
+            "id": "load_all_button",
+            "component": "Button",
+            "child": "load_all_button_label",
+            "action": {
+              "functionCall": {
+                "@call": "callMcpTool",
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                "args": {
+                  "name": "list_issues",
+                  "arguments": {
+                    "repository": {
+                      "@path": "/repository"
+                    }
+                  },
+                  "targetDataPath": "/issueResponse"
+                }
+              }
+            }
+          },
+          {
+            "id": "load_all_button_label",
+            "component": "Text",
+            "text": "Load all issues"
+          },
+          {
+            "id": "issue_list",
+            "component": "Column",
+            "children": {
+              "componentId": "issue_row",
+              "path": "/issues"
+            }
+          },
+          {
+            "id": "issue_row",
+            "component": "Row",
+            "children": ["issue_number", "issue_title"],
+            "align": "center"
+          },
+          {
+            "id": "issue_number",
+            "component": "Text",
+            "text": {
+              "@path": "number"
+            },
+            "weight": 1
+          },
+          {
+            "id": "issue_title",
+            "component": "Text",
+            "text": {
+              "@path": "title"
+            },
+            "weight": 5
+          },
+          {
+            "id": "all_issues_heading",
+            "component": "Text",
+            "text": "### All issues"
+          },
+          {
+            "id": "all_issue_list",
+            "component": "Column",
+            "children": {
+              "componentId": "all_issue_title",
+              "path": "/issueResponse/structuredContent/issues"
+            }
+          },
+          {
+            "id": "all_issue_title",
+            "component": "Text",
+            "text": {
+              "@path": "title"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

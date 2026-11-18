@@ -88,6 +88,8 @@ extension SettingsSchema {
         "agentPane.images.remote": .network,
         // The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.
         "app.quitBehavior": .destructive, "app.confirmQuit": .destructive,
+        // Agent UI cards let an agent put forms and approvals in front of the person; only the person opts in.
+        "labs.agentUiSurfaces": .userOnly,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.

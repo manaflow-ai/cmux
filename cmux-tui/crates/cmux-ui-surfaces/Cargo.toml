@@ -1,0 +1,16 @@
+[package]
+name = "cmux-ui-surfaces"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Agent UI surfaces (plans/cmux-next/agent-ui-surfaces-DESIGN.md): parse A2UI 1.0 and MCP Apps input, hold the data model, bind, cap, and emit the normalized cmux.ui-surface/1 model; mediate every action behind a confirm. No I/O."
+
+[lints]
+workspace = true
+
+[dependencies]
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

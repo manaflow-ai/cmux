@@ -41,6 +41,8 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
+    /// Whether interactive agent cards show (`labs.agentUiSurfaces`).
+    public static func agentUiSurfaces(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "agentUiSurfaces", value: .bool(on)) }
     /// Whether agents suggest tasks (``AgentPaneSuggestedTasks``, cx-lo9yf).
     public static func suggestedTasks(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "suggestedTasks", value: .bool(on)) }
 

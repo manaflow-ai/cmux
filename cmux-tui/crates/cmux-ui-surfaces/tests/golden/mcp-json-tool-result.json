@@ -1,0 +1,80 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "mcp-json-tool-result",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "id": "heading",
+            "style": "heading",
+            "text": "Open issues",
+            "type": "text"
+          },
+          {
+            "bind": "/repository",
+            "id": "repository_field",
+            "input": "text",
+            "label": "Repository",
+            "type": "field",
+            "value": "a2ui-project/a2ui"
+          },
+          {
+            "axis": "h",
+            "children": [
+              {
+                "action": null,
+                "id": "load_button",
+                "label": "Load open issues",
+                "type": "button",
+                "variant": "primary"
+              },
+              {
+                "action": null,
+                "id": "load_all_button",
+                "label": "Load all issues",
+                "type": "button",
+                "variant": "secondary"
+              }
+            ],
+            "id": "button_row",
+            "type": "stack"
+          },
+          {
+            "axis": "v",
+            "children": [],
+            "id": "issue_list",
+            "type": "stack"
+          },
+          {
+            "id": "all_issues_heading",
+            "style": "heading",
+            "text": "All issues",
+            "type": "text"
+          },
+          {
+            "axis": "v",
+            "children": [],
+            "id": "all_issue_list",
+            "type": "stack"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "gallery-mcp-json-tool-result"
+    }
+  ]
+}
