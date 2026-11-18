@@ -35,9 +35,10 @@ export const MODELS_ADD_FOCUS = "models.add";
 export const MODELS_ADD_CLAUDE_FOCUS = "models.add.claude";
 
 /** Where a route focus opens Add a Connection: its list (null), Claude Code's steps, or not at all. */
-function addStartOf(focus: string | null): { start: SheetStart } | null {
-  if (focus === MODELS_ADD_FOCUS) return { start: null };
-  return focus === MODELS_ADD_CLAUDE_FOCUS ? { start: "claude" } : null;
+function addStartOf(focus: string | null): { start: SheetStart; first: boolean } | null {
+  if (focus === MODELS_ADD_FOCUS) return { start: null, first: false };
+  // Only the sheet this focus opened adds its token first; the route keeps the focus after it closes.
+  return focus === MODELS_ADD_CLAUDE_FOCUS ? { start: "claude", first: true } : null;
 }
 /** Where a ChatGPT plan's usage is managed (the plan's own page). */
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
@@ -140,7 +141,7 @@ export function ModelsCard({ focus }: { focus: string | null }) {
           {error}
         </p>
       )}
-      <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding({ start: null })} />
+      <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding({ start: null, first: false })} />
       <OrganizationSection models={models} busy={busy} run={run} />
       {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
       {adding && (
@@ -149,7 +150,7 @@ export function ModelsCard({ focus }: { focus: string | null }) {
           busy={busy}
           run={run}
           start={adding.start}
-          first={focus === MODELS_ADD_CLAUDE_FOCUS}
+          first={adding.first}
           onClose={() => setAdding(null)}
         />
       )}

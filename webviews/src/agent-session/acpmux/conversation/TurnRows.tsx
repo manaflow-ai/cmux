@@ -733,10 +733,12 @@ function TurnFailure({
   const offerArm = experimentArm(codeRouterOffer);
   // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
   // in is not the way out the card leads with; in that case it follows the others, outlined.
-  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst && !cloudSignInLeads;
+  // Nor ahead of Set up Claude (connectionFix), the card's one filled button there.
+  const offerLeads =
+    codeRouter !== undefined && offerArm === "primary" && !signInFirst && !cloudSignInLeads && !connectionFix;
   const offerTrails =
     codeRouter !== undefined &&
-    (offerArm === "button" || (offerArm === "primary" && (signInFirst || cloudSignInLeads)));
+    (offerArm === "button" || (offerArm === "primary" && (signInFirst || cloudSignInLeads || !!connectionFix)));
   // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
   // Sign in again or Compact, which each lead.
   const offerFilled =
@@ -747,6 +749,7 @@ function TurnFailure({
       !offersRetry &&
       !signInFirst &&
       !cloudSignInLeads &&
+      !connectionFix &&
       !compactFirst);
   const switchButton = offersSwitch && (
     <button
@@ -831,7 +834,7 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst || connectionFix ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}

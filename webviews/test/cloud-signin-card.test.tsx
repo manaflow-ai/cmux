@@ -305,6 +305,14 @@ test("a Cloud Claude chat with no working connection leads with Set up Claude", 
     await act(async () => button("Set up Claude")!.click());
   }
   expect(opened).toBe(2);
+  // A refused key also offers Retry: Set up Claude stays the card's one filled button.
+  await render(
+    { route: cloudRoute, cloudSignIn: signIn, setUpCloudConnection, retry: () => undefined },
+    "API Error: 401 invalid x-api-key",
+  );
+  expect(button("Set up Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(host.querySelectorAll(".cv-turn-error__primary").length).toBe(1);
   // Another failure, or a team machine (which takes no personal connection), keeps its card.
   await render({ route: cloudRoute, setUpCloudConnection, retry: () => undefined }, "API Error: 529 overloaded_error");
   expect(button("Set up Claude")).toBeUndefined();

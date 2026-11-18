@@ -118,6 +118,9 @@ test("focus=models.add.claude opens Claude Code's steps, and the token added the
   expect(sheet()).toBeNull();
   expect(connectionIds(rendered)[0]).toBe("claude-token-2");
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-fresh");
+  // The route keeps its focus: a later ordinary Add a Connection opens on the list, and adds nothing first.
+  await click(action(card(rendered), "add")!);
+  expect(sheet()!.querySelector("[data-models-claude-form]")).toBeNull();
 });
 
 test("a member reads the policy and the organization's keys with nothing to change", async () => {
