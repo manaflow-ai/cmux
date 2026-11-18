@@ -1,7 +1,7 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxVisibleRows
 import QuartzCore
 /// Scrollable document view that renders the sidebar tree.
 ///

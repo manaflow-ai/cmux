@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextCompat
+import CmuxVisibleRows
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -184,9 +185,7 @@ final class NotificationsPanelView: NSView {
     func show(_ rows: [NotificationRowView], loaded: Bool) -> CGFloat {
         rowViews = rows
         // Every view here is new (`NotificationsPanelController.render`), and the list's fitting size measures each.
-        listWork.configured(rows.count)
-        listWork.laidOut(rows.count)
-        listWork.walked(rows.count)
+        listWork.rebuilt(rows.count)
         list.setViews(rows, in: .top)
         for row in rows { row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
         empty.isHidden = !rows.isEmpty || !loaded

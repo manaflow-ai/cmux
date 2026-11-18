@@ -4,26 +4,24 @@ import CmuxNextDesign
 import CmuxNextNotifications
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
+import CmuxVisibleRows
+import CmuxVisibleRowsTesting
 import Foundation
 import QuartzCore
 import Testing
 
 /// Leo 2026-11-18 (ask-1105ee4cc6): "we draw the visible area, right? Like, that's what we're supposed to do." The
 /// lists registered with the visible-rows contract (`VisibleRowsContract`), each at 100 and 10,000 rows. A list that
-/// does not meet the contract yet is registered inside `withKnownIssue` (its baseline); its fix takes that away.
+/// does not meet the contract yet is named in `VisibleRowsBaseline`; its fix deletes that line.
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(5)))
 struct VisibleRowsContractTests {
     @Test func sidebarWorkspaces() async throws {
         try await VisibleRowsContract.check(SidebarWorkspaceRows.self)
     }
 
-    /// Baseline: the panel makes a new row view for every ledger entry on every render (`NotificationsPanelController
-    /// .render`) and measures them all; the ledger has no cap. Its fix (lane visible-only-macos-lists) removes this
-    /// `withKnownIssue`.
-    @Test func notificationsPanel() async {
-        await withKnownIssue("the notifications panel draws every ledger row") {
-            try await VisibleRowsContract.check(NotificationsPanelRows.self)
-        }
+    /// In `VisibleRowsBaseline` (CmuxVisibleRows): the panel makes a new row view for every ledger entry on every render.
+    @Test func notificationsPanel() async throws {
+        try await VisibleRowsContract.check(NotificationsPanelRows.self)
     }
 }
 

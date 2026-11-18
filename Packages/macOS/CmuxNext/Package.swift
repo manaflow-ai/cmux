@@ -146,8 +146,8 @@ import PackageDescription
 //   CmuxNextCrashReporting -> Compat, Wakeups, CmuxSentryReporting, Sentry (crash and exception reports
 //     to Sentry: consent, channel environment, release, scrubbing; the run marker's background file
 //     writer, RunMarkerFile; no UI, no daemon; cx-urd.58)
-//   CmuxNextTestSupport -> Compat, system frameworks (helpers test targets share, under Tests/, and
-//     the visible-rows contract over Compat's ListWorkMeter; no product links it)
+//   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
+//     product links it)
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
 //     transferable session and peer values, the picker and the toast text; no AppKit, no daemon;
 //     the App's SessionTransferService discovers peers and moves sessions; cx-yxmkh)
@@ -415,6 +415,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),
@@ -2317,6 +2318,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),
@@ -2598,13 +2600,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
         // scales a main-thread frame budget to the runner a suite runs on. CmuxNextTestExitTrace
         // holds the window census `.closesItsWindows` reads, so every target that has the trait links it.
-        // VisibleRowsContract reads a list's ListWorkMeter (CmuxNextCompat).
         .target(
             name: "CmuxNextTestSupport",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextCompat",
-                "CmuxNextTestExitTrace",
-            ],
+            dependencies: ["CmuxNextTestExitTrace"],
             path: "Tests/CmuxNextTestSupport",
             swiftSettings: uiSwiftSettings
         ),
@@ -2709,6 +2707,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
@@ -2817,6 +2817,8 @@ let package = Package(
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
+        // The visible-rows contract: each list's work meter, and the test helper (Leo 2026-11-18, ask-1105ee4cc6).
+        .package(path: "../../Shared/CmuxVisibleRows"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),

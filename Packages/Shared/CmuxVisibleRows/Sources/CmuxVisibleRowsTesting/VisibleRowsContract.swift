@@ -1,4 +1,4 @@
-public import CmuxNextCompat
+public import CmuxVisibleRows
 public import Testing
 
 /// Leo 2026-11-18 (ask-1105ee4cc6): "It's just text. It's literally just text. [...] we draw the visible area, right?
@@ -15,9 +15,10 @@ public import Testing
 ///
 ///     @Test func visibleRows() async throws { try await VisibleRowsContract.check(MyListFixture.self) }
 ///
-/// A list that does not meet it yet registers the same way inside `withKnownIssue` (its baseline): when its fix
-/// lands, the known issue stops happening, the test fails, and the fix takes `withKnownIssue` away. The baseline only
-/// shrinks. scripts/cmux-next/lint (`visible-only-*` rules) finds lists not registered here.
+/// A list that does not meet it yet registers the same way and is named in `VisibleRowsBaseline.knownFailures`
+/// (one file, so the count of known failures is one number): `check` then runs it inside `withKnownIssue`. When its
+/// fix lands the known issue stops happening, the test fails, and the fix takes the list out of the baseline. The
+/// baseline only shrinks. scripts/cmux-next/lint (`visible-only-*` rules) finds lists not registered here.
 @MainActor public enum VisibleRowsContract {
     /// The sizes every list is measured at.
     public static let sizes = [100, 10_000]
@@ -38,12 +39,24 @@ public import Testing
         }
     }
 
-    /// Measures `fixture` at each of `sizes` (smallest first) and records an issue per broken rule. A list that already
+    /// Measures `fixture` at each of `sizes` (smallest first) and records an issue per broken rule; a list in
+    /// `VisibleRowsBaseline.knownFailures` records them as known issues, and must record one. A list that already
     /// mounts every row at a smaller size is not built at the larger ones: rule 1 has failed, and an eager list of
     /// 10,000 row views takes minutes to build. Prints one `visible-rows <name>` line per size.
     @discardableResult
     public static func check<F: VisibleRowsFixture>(_ fixture: F.Type, sizes: [Int] = sizes,
                                                     sourceLocation: SourceLocation = #_sourceLocation) async throws -> [Measurement] {
+        guard let known = VisibleRowsBaseline.knownFailures[F.name] else {
+            return try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
+        }
+        var measured: [Measurement] = []
+        await withKnownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known)"), sourceLocation: sourceLocation) {
+            measured = try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
+        }
+        return measured
+    }
+
+    static func run<F: VisibleRowsFixture>(_ fixture: F.Type, sizes: [Int], sourceLocation: SourceLocation) async throws -> [Measurement] {
         var measured: [Measurement] = []
         for n in sizes.sorted() {
             let m = try await measure(fixture, rows: n)
