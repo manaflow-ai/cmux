@@ -14,10 +14,10 @@ import Testing
 @Suite(.serialized)
 struct FocusUnreadPaneFlashTests {
     /// One workspace, two panes side by side; only `unreadPane`'s tab holds an unread notification.
-    private static func tree() -> DaemonTree {
+    private static func tree(unreadKind: TabKind) -> DaemonTree {
         let marker = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: "terminal")
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
-        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~", notification: marker)])
+        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), kind: unreadKind, title: "~", notification: marker)])
         let layout: LayoutNode = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [first, second])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
@@ -36,7 +36,7 @@ struct FocusUnreadPaneFlashTests {
         let unread: PaneModel
     }
 
-    static func open() async throws -> Fixture {
+    static func open(unreadKind: TabKind = .pty) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { true },
                                    heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
@@ -46,7 +46,7 @@ struct FocusUnreadPaneFlashTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree())
+        store.apply(snapshot: Self.tree(unreadKind: unreadKind))
         let controller = try #require(services.windows.openWindow(workspaces: ["focus-flash-ws"], frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
         let window = try #require(controller.window)
         try await PinnedPageTests.until({ controller.workspaceContent?.panes.count == 2 && controller.focus.state.pane != nil })
