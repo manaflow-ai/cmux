@@ -72,7 +72,10 @@ pub enum Answer {
     Found(Vec<u8>),
     /// The source does not hold it (404).
     Absent,
-    /// Busy, unreachable, timed out or another status: ask the next source.
+    /// Up but at its limit (503, 429): ask the next source; it is not counted as a failure, since
+    /// a seed answers busy by design when more checkouts ask it than it serves at once.
+    Busy,
+    /// Unreachable, timed out or another status: ask the next source.
     Failed,
 }
 
@@ -107,6 +110,7 @@ impl Get for Http {
         }
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
+            Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
             Ok(response) if response.status().is_success() => {
                 response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
             }
@@ -246,7 +250,7 @@ impl Chain {
                     rejected.fetch_add(1, Ordering::Relaxed);
                     failures[at].fetch_add(1, Ordering::Relaxed);
                 }
-                Answer::Absent => failures[at].store(0, Ordering::Relaxed),
+                Answer::Absent | Answer::Busy => failures[at].store(0, Ordering::Relaxed),
                 Answer::Failed => {
                     failures[at].fetch_add(1, Ordering::Relaxed);
                 }
