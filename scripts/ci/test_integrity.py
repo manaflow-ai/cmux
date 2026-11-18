@@ -5,7 +5,7 @@ This is intentionally a diff check rather than a coverage guess.  It catches
 test files deleted from a change, assertion counts that shrink in a test file,
 and newly added skip/ignore markers.  Assertion replacements with the same
 count are allowed, so normal expectation updates do not create a false alarm.
-Findings are warnings in the CI fast guards; they never fail the job.
+Findings are CI warnings; they never fail the job.
 """
 
 from __future__ import annotations
@@ -204,8 +204,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{finding.kind}: {finding.path}: {finding.detail}", file=sys.stderr)
     if findings:
         print(f"test-integrity: {len(findings)} finding(s); restore coverage or remove the weakening", file=sys.stderr)
-        return 0
-    print("test-integrity: no deleted or weakened tests")
+    else:
+        print("test-integrity: no deleted or weakened tests")
     return 0
 
 
