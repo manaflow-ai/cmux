@@ -243,6 +243,17 @@ def read_verdict(findings: Path) -> list | None:
     return items
 
 
+def exit_detail(stdout: str, stderr: str) -> str:
+    """Why the agent stopped, in a line. The CLI's JSON reply puts timing,
+    cost and usage first, so its first 200 characters never said (gate run
+    43625607673); name the fields that do, and fall back to the last line."""
+    reply = cli_result(stdout)
+    if reply is None or "subtype" not in reply:
+        return ((stderr or stdout or "").strip().splitlines()[-1:] or ["no output"])[0][:200]
+    return (f"subtype {reply.get('subtype')}, is_error {str(reply.get('is_error')).lower()},"
+            f" {reply.get('num_turns')} turns: {str(reply.get('result') or '')[:200]}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--udid", required=True)
@@ -326,17 +337,17 @@ def main(argv: list[str] | None = None) -> int:
         return unjudged(findings, "agent.api-unavailable",
                         f"{API_UNAVAILABLE_MESSAGE}: the CLI result showed {unserved['fields']}, with no time left to"
                         " retry; nothing was judged, so rerun the gate once the account recovers", str(out), unserved)
-    detail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or ["no output"]
+    detail = exit_detail(proc.stdout or "", proc.stderr or "")
     if items is None:
         return unjudged(findings, "agent.no-verdict",
-                        f"the agent exited {proc.returncode} with no findings array ({detail[0][:200]});"
+                        f"the agent exited {proc.returncode} with no findings array ({detail});"
                         " read transcript.json and stderr.txt", str(out))
     if proc.returncode != 0:
         # A verdict it wrote before stopping (out of turns, say) still counts,
         # and says the walk may be partial.
         items.append({"severity": "warning", "guideline": "-",
                       "message": f"the agent exited {proc.returncode} after writing its findings, so its walk may be"
-                                 f" incomplete ({detail[0][:200]})", "where": str(out)})
+                                 f" incomplete ({detail})", "where": str(out)})
     screens = len(list(out.glob("step-*.png")))
     if not screens:
         return unjudged(findings, "agent.no-walk",

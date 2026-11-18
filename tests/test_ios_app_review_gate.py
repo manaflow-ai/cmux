@@ -673,6 +673,16 @@ if mode in ("verdict", "no-screens", "verdict-then-crash"):
     open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
 if mode in ("verdict", "verdict-then-crash"):
     open("step-01-launch.png", "wb").write(b"png")
+if mode == "error-reply":
+    # The real CLI's reply in gate run 43625607673: timing, cost and usage
+    # first, the fields that say why it stopped well past 200 characters.
+    import json
+    print(json.dumps({"duration_api_ms": 65713, "stop_reason": "stop_sequence", "session_id": "s",
+                      "total_cost_usd": 0.52, "usage": {"input_tokens": 76, "cache_creation_input_tokens": 41234,
+                                                        "cache_read_input_tokens": 912345, "output_tokens": 3456},
+                      "type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 23,
+                      "result": "API Error: 529 overloaded"}))
+    sys.exit(1)
 print('{"result": "done"}')
 sys.exit(1 if mode in ("crash", "verdict-then-crash") else 0)
 """
@@ -786,6 +796,19 @@ class AgentReviewerPassTests(unittest.TestCase):
             code, findings = self.run_pass(mode)
             self.assertNotEqual(code, 0, mode)
             self.assertIn(("agent.no-verdict", "blocker"), [(f["rule"], f["severity"]) for f in findings], mode)
+
+    def test_an_agent_that_left_no_verdict_names_why_it_stopped(self) -> None:
+        # Gate run 43625607673: the blocker quoted the reply's first 200
+        # characters, timing and usage, and the transcript sat in a 1.4 GB
+        # artifact, so nothing readable said why the agent stopped.
+        for name in ("xcrun", "axe"):
+            self.tool(name)
+        self.tool("claude", STUB_CLAUDE)
+        code, findings = self.run_pass("error-reply")
+        self.assertNotEqual(code, 0)
+        message = next(f["message"] for f in findings if f["rule"] == "agent.no-verdict")
+        for part in ("subtype error_during_execution", "is_error true", "23 turns", "API Error: 529 overloaded"):
+            self.assertIn(part, message)
 
     def test_an_agent_that_never_looked_at_the_app_is_red(self) -> None:
         for name in ("xcrun", "axe"):
