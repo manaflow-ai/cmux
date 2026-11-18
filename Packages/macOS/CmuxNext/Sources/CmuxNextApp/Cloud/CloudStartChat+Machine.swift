@@ -55,7 +55,7 @@ extension CloudStartChat {
     /// the server answered for `account`, the account the send began in. A new one is named and sized
     /// for the chat (`pick`) and pinned to the send before anything runs there. `workspace`: the Mac
     /// workspace the send began in.
-    func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
+    func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, connection: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
         let machines = services.machines, cloud = services.cloud
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
@@ -106,8 +106,8 @@ extension CloudStartChat {
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
             let session = try await CloudMove(services: services).machine(invocation, pick: pick), machineID = session.machineID
-            // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software; a chat that carries its own connection starts on an unrouted one too.
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, carriesConnection: connection != nil) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             return (session, plan)
         }
     }
