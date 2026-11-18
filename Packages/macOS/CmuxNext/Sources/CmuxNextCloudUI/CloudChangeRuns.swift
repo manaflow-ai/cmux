@@ -23,7 +23,8 @@ public final class CloudChangeRuns {
 
     /// The ask `action`'s change runs with: `ask`, but a yes at once with no dialog for a ``CloudChangeRequest/unasked`` one.
     public static func ask(_ action: String, _ ask: @escaping Ask) -> Ask {
-        CloudChangeRequest.unasked.contains(action) ? { _ in { true } } : ask
+        guard CloudChangeRequest.unasked.contains(action) else { return ask }
+        return { @MainActor _ in { @MainActor in true } }
     }
 
     // A main-actor class: its isolated deinit crashes the Release optimizer (#23050).
