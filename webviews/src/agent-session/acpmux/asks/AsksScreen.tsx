@@ -12,7 +12,11 @@ import { isOlderDaemon } from "../queue/queueModel";
 import { ASKS_LIMIT, askLine, prLabel, readAsks, type Ask, type AsksReply } from "./asksModel";
 import "./asks.css";
 
-type State = { phase: "loading" } | { phase: "ready"; reply: AsksReply } | { phase: "failed" } | { phase: "older" };
+type State =
+  | { phase: "loading" }
+  | { phase: "ready"; reply: AsksReply; at: number }
+  | { phase: "failed" }
+  | { phase: "older" };
 
 type Props = {
   /// `_acpmux/asks` with `params` (direct.ts `asks`).
@@ -29,13 +33,15 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
   const [state, setState] = useState<State>({ phase: "loading" });
   const request = useRef(0);
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
 
   const read = useCallback(() => {
     const id = ++request.current;
     loadRef.current({ limit: ASKS_LIMIT }).then(
       (value) => {
-        if (id === request.current) setState({ phase: "ready", reply: readAsks(value) });
+        if (id === request.current) setState({ phase: "ready", reply: readAsks(value), at: Date.now() });
       },
       (error: unknown) => {
         if (id === request.current) setState(isOlderDaemon(error) ? { phase: "older" } : { phase: "failed" });
@@ -53,6 +59,8 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
   }, [read]);
 
   const asks = state.phase === "ready" ? state.reply.asks : [];
+  // Ages are counted from when the list was read, so a render stays pure.
+  const clock = now ?? (state.phase === "ready" ? state.at : 0);
   const status =
     state.phase === "older"
       ? t("asks.older")
@@ -79,7 +87,7 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
       {asks.length > 0 && (
         <ul className="ask-rows" aria-label={t("asks.title")}>
           {asks.map((ask) => (
-            <AskRow key={ask.id} ask={ask} now={now} openSession={openSession} openUrl={openUrl} />
+            <AskRow key={ask.id} ask={ask} now={clock} openSession={openSession} openUrl={openUrl} />
           ))}
         </ul>
       )}
@@ -94,12 +102,12 @@ function AskRow({
   openUrl,
 }: {
   ask: Ask;
-  now: number | undefined;
+  now: number;
   openSession(sessionId: string): void;
   openUrl(url: string): void;
 }) {
   const t = useT();
-  const when = age(ask.ts, now ?? Date.now(), t);
+  const when = age(ask.ts, now, t);
   const chat = ask.sessionTitle || t("asks.chat");
   return (
     <li className="ask-row" data-status={ask.status}>
