@@ -4629,6 +4629,12 @@ export class AcpmuxDirectClient {
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
     this.historyExhausted = false;
+    // What the shed knew of the records before goes with them: a chat opened again under the same selection (a
+    // machine back, an attach retry) has shed nothing, so its read-ahead pages older history in (`loadOlder`), its
+    // first shed waits for no count of the chat before, and no turn of the chat before opened its running turn.
+    this.shedFollowingGeneration = undefined;
+    this.shedRetryAt = 0;
+    this.turnOpenedSeq = undefined;
     this.nativeSeed = undefined;
     this.nativeNext = undefined;
     this.olderRetryAt = 0;
