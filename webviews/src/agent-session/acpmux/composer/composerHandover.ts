@@ -39,9 +39,12 @@ function first(doc: ParentNode, selectors: string[]): Element | null {
   return null;
 }
 
-function place(element: Element | null | undefined): Place | undefined {
+/// A box that drew. A FIELD's box may have no height yet: the chat's editor root is empty on the frame
+/// the composer mounts (its editable mounts after), and its left and top are already where the text
+/// will stand, so the slide reads them.
+function place(element: Element | null | undefined, field = false): Place | undefined {
   const rect = element?.getBoundingClientRect();
-  return rect && rect.height > 0
+  return rect && (rect.height > 0 || (field && rect.width > 0))
     ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
     : undefined;
 }
@@ -78,19 +81,24 @@ function morphCardHeight(cardElement: HTMLElement, from: number, to: number, tim
   if (hidden > -1 || !(to > 0)) return;
   const stretch = from / to;
   const top = cardElement.getBoundingClientRect().top;
-  const children = Array.from(cardElement.children).filter(
-    (child): child is HTMLElement => child instanceof HTMLElement,
-  );
+  const children: HTMLElement[] = [];
+  for (const child of Array.from(cardElement.children)) if (child instanceof HTMLElement) children.push(child);
   // Every child's offset is read before anything scales.
   const offsets = children.map((child) => child.getBoundingClientRect().top - top);
   cardElement.animate(
-    [{ scale: `1 ${stretch}`, transformOrigin: "50% 0" }, { scale: "1 1", transformOrigin: "50% 0" }],
+    [
+      { scale: `1 ${stretch}`, transformOrigin: "50% 0" },
+      { scale: "1 1", transformOrigin: "50% 0" },
+    ],
     timing,
   );
   children.forEach((child, index) => {
     const origin = `50% ${-offsets[index]}px`;
     child.animate(
-      [{ scale: `1 ${1 / stretch}`, transformOrigin: origin }, { scale: "1 1", transformOrigin: origin }],
+      [
+        { scale: `1 ${1 / stretch}`, transformOrigin: origin },
+        { scale: "1 1", transformOrigin: origin },
+      ],
       timing,
     );
   });
@@ -108,22 +116,8 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
   const cardElement = form.querySelector<HTMLElement>(CHAT_CARD);
   const card = place(cardElement) ?? place(form);
   const fieldElement = first(form, CHAT_FIELD) as HTMLElement | null;
-  const field = place(fieldElement);
+  const field = place(fieldElement, true);
   if (!card) return;
-  (window as unknown as Record<string, unknown>).__cmuxGlideProbe = {
-    from,
-    card,
-    field,
-    fieldTag: fieldElement ? `${fieldElement.tagName}.${fieldElement.className}` : null,
-  };
-  requestAnimationFrame(() => {
-    const probe = (window as unknown as Record<string, Record<string, unknown>>).__cmuxGlideProbe;
-    probe.after = {
-      editable: place(form.querySelector('[contenteditable="true"]')),
-      root: place(form.querySelector(".acpmux-md-root")),
-      animations: fieldElement?.getAnimations().length,
-    };
-  });
   const timing: KeyframeAnimationOptions = {
     duration,
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,

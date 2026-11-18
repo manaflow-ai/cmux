@@ -244,8 +244,6 @@ await requireBrowserLane("new-chat-start-no-shift.test.ts", async () => {
       { timeout: ms + 30_000 },
     );
     const frames = await page.evaluate(() => (window as unknown as { startFrames: LayoutFrame[] }).startFrames);
-    const probe = await page.evaluate(() => (window as unknown as Record<string, unknown>).__cmuxGlideProbe);
-    console.log("PROBE", look, JSON.stringify(probe));
     await page.close();
     return frames;
   }
