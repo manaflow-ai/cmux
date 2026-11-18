@@ -147,12 +147,7 @@ impl Mux {
                 Ok(StateChanges::new(json!({"tab": tab}), changes))
             },
         )?;
-        let decorations = self.tab_tree_decorations(&[surface]);
-        let changed =
-            self.with_state(|state| presentation::tab_changed_delta(state, &decorations, surface));
-        if let Some(delta) = changed {
-            self.emit(MuxEvent::TreeDelta(delta));
-        }
+        self.emit_tab_changed(surface);
         Ok(())
     }
 
