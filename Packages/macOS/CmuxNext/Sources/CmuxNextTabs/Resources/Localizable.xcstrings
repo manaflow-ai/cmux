@@ -6421,6 +6421,138 @@
         }
       }
     },
+    "tabs.machineBadge.cloud": {
+      "comment": "What a Cloud chat tab says about where it runs (VoiceOver: \"on Cloud\"); the tab draws a cloud icon. cmux Cloud is the product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        }
+      }
+    },
     "tabs.ax.onMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -14309,6 +14441,110 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Trước: chấm và vòng quay đặt cạnh nhau"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "之前：圆点和加载圈并排显示"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "之前：圓點和載入圈並排顯示"}}
+      }
+    },
+    "tabs.playground.section.statusSpacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Status Spacing"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ステータスの間隔"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تباعد الحالة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Razmak statusa"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Statusafstand"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Statusabstand"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Espaciado del estado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Espacement de l'état"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Spaziatura dello stato"}},
+        "km": {"stringUnit": {"state": "translated", "value": "គម្លាតស្ថានភាព"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "상태 간격"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Statusavstand"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Odstęp stanu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Espaçamento do status"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отступ статуса"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ระยะห่างของสถานะ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Durum aralığı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Відступ стану"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Khoảng cách trạng thái"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "状态间距"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "狀態間距"}}
+      }
+    },
+    "tabs.playground.statusSpacing.mirrorIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The mark mirrors the icon's inset"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マークがアイコンの余白と対称"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "العلامة تعكس هامش الأيقونة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Oznaka zrcali razmak ikone"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mærket spejler ikonets indrykning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Markierung spiegelt den Abstand des Symbols"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La marca refleja el margen del icono"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La marque reflète la marge de l'icône"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il segno rispecchia il margine dell'icona"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សញ្ញាឆ្លុះគម្លាតរូបតំណាង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "표시가 아이콘 여백과 대칭"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Merket speiler ikonets innrykk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Znacznik odbija odstęp ikony"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A marca espelha a margem do ícone"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Метка зеркалит отступ значка"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เครื่องหมายสะท้อนระยะขอบของไอคอน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İşaret simgenin boşluğunu yansıtır"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Позначка віддзеркалює відступ значка"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dấu đối xứng với lề của biểu tượng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记与图标边距对称"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記與圖示邊距對稱"}}
+      }
+    },
+    "tabs.playground.statusSpacing.mirrorAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The mark and the hovered close button both mirror the icon"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マークとホバー時の閉じるボタンの両方がアイコンと対称"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "العلامة وزر الإغلاق عند التمرير يعكسان الأيقونة معًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Oznaka i dugme za zatvaranje pri prelasku oboje zrcale ikonu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Mærket og lukkeknappen ved hover spejler begge ikonet"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Markierung und Schließen-Taste beim Überfahren spiegeln beide das Symbol"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La marca y el botón de cerrar al pasar el puntero reflejan el icono"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La marque et le bouton de fermeture au survol reflètent tous deux l'icône"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il segno e il pulsante di chiusura al passaggio rispecchiano entrambi l'icona"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សញ្ញា និងប៊ូតុងបិទពេលដាក់ទស្សន៍ទ្រនិច ឆ្លុះរូបតំណាងទាំងពីរ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "표시와 마우스를 올렸을 때의 닫기 버튼 모두 아이콘과 대칭"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Merket og lukkeknappen ved hover speiler begge ikonet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Znacznik i przycisk zamykania po najechaniu odbijają ikonę"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A marca e o botão de fechar ao passar o cursor espelham o ícone"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Метка и кнопка закрытия при наведении зеркалят значок"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เครื่องหมายและปุ่มปิดเมื่อชี้ สะท้อนไอคอนทั้งคู่"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İşaret ve üzerine gelindiğindeki kapatma düğmesi simgeyi yansıtır"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Позначка та кнопка закриття під курсором віддзеркалюють значок"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dấu và nút đóng khi di chuột đều đối xứng với biểu tượng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记和悬停时的关闭按钮都与图标对称"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記和懸停時的關閉按鈕都與圖示對稱"}}
+      }
+    },
+    "tabs.playground.statusSpacing.closeSlot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Before: the mark in the close button's slot, nearer the end"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "変更前：マークは閉じるボタンの位置で、末尾寄り"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قبل: العلامة في مكان زر الإغلاق، أقرب إلى النهاية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prije: oznaka na mjestu dugmeta za zatvaranje, bliže kraju"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Før: mærket på lukkeknappens plads, tættere på slutningen"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vorher: die Markierung am Platz der Schließen-Taste, näher am Ende"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Antes: la marca en el lugar del botón de cerrar, más cerca del final"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Avant : la marque à la place du bouton de fermeture, plus près de la fin"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Prima: il segno al posto del pulsante di chiusura, più vicino alla fine"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មុន៖ សញ្ញានៅកន្លែងប៊ូតុងបិទ ជិតចុងជាង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이전: 표시가 닫기 버튼 자리에, 끝에 더 가깝게"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Før: merket på lukkeknappens plass, nærmere slutten"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wcześniej: znacznik w miejscu przycisku zamykania, bliżej końca"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Antes: a marca no lugar do botão de fechar, mais perto do fim"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Раньше: метка на месте кнопки закрытия, ближе к концу"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ก่อน: เครื่องหมายอยู่ที่ตำแหน่งปุ่มปิด ใกล้ท้ายกว่า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Önce: işaret kapatma düğmesinin yerinde, sona daha yakın"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Раніше: позначка на місці кнопки закриття, ближче до кінця"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trước: dấu ở vị trí nút đóng, gần cuối hơn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "之前：标记在关闭按钮的位置，更靠近末端"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "之前：標記在關閉按鈕的位置，更靠近末端"}}
       }
     },
     "tabs.playground.section.hoverCard": {
