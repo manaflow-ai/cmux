@@ -2671,17 +2671,11 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
-        // Auto chat placement (`chat_place.rs`): the same origins as `_acpmux/place`, since the
-        // verdict names every machine and its numbers.
-        "_acpmux/place_chat" | "_acpmux/place_chat_event"
-            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
-        {
-            Err(RpcError::invalid_params(
-                "Auto chat placement answers on this machine's unix socket and the app's own pane only",
-            ))
-        }
-        "_acpmux/place_chat" => super::place::chat_place(hub, &params).await,
-        "_acpmux/place_chat_event" => super::place::chat_place_event(&params),
+        // Auto chat placement (`chat_place.rs`): the same origins as `_acpmux/place` (checked in
+        // `place.rs`), since the verdict names every machine and its numbers. Boxed: its future
+        // holds the whole input (`heap_future.rs`).
+        "_acpmux/place_chat" => heap(|| super::place::chat_place(hub, conn.origin, &params)).await,
+        "_acpmux/place_chat_event" => super::place::chat_place_event(conn.origin, &params),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());

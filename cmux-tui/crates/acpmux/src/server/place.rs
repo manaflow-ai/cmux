@@ -428,7 +428,8 @@ static SLEEPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 
 /// `_acpmux/place_chat_event {kind: "willSleep"|"didWake"}`: the app's power events, which no
 /// health reading sees in time (the lid closes, the system sleeps seconds later).
-pub(super) fn chat_place_event(params: &Value) -> Result<Value, RpcError> {
+pub(super) fn chat_place_event(origin: Origin, params: &Value) -> Result<Value, RpcError> {
+    local_only(origin)?;
     let sleeping = match params.get("kind").and_then(Value::as_str) {
         Some("willSleep") => true,
         Some("didWake") => false,
@@ -440,6 +441,17 @@ pub(super) fn chat_place_event(params: &Value) -> Result<Value, RpcError> {
     };
     SLEEPING.store(sleeping, std::sync::atomic::Ordering::Relaxed);
     Ok(json!({"sleeping": sleeping}))
+}
+
+/// Auto chat placement answers this machine's own clients only, as `_acpmux/place` does: its unix
+/// socket and the app's own pane, never the Web or a peer (the verdict names every machine).
+fn local_only(origin: Origin) -> Result<(), RpcError> {
+    if matches!(origin, Origin::Local | Origin::LocalApp) {
+        return Ok(());
+    }
+    Err(RpcError::invalid_params(
+        "Auto chat placement answers on this machine's unix socket and the app's own pane only",
+    ))
 }
 
 /// The most entries [`folder_bytes`] walks, and the longest it takes: a folder past either is
@@ -478,18 +490,23 @@ fn folder_bytes(root: &std::path::Path) -> Option<u64> {
 /// turnActive, localOverSecs}}`, every field optional. Without `folder.bytes`, `cwd` is measured
 /// with a bounded walk. The result is the verdict (`Verdict::to_json`), and with `running`,
 /// `move`: the move or null.
-pub(super) async fn chat_place(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn chat_place(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    local_only(origin)?;
     use crate::chat_place::{Cloud, Folder, Input, Needs, Place, Power, Running};
-    let field = |k: &str| params.get(k).cloned().unwrap_or(Value::Null);
-    let parse = |k: &str| -> Result<Value, RpcError> {
-        let v = field(k);
-        Ok(if v.is_null() { json!({}) } else { v })
+    // A missing or null object reads as every field's default.
+    let parse = |k: &str| match params.get(k) {
+        None | Some(Value::Null) => json!({}),
+        Some(v) => v.clone(),
     };
-    let needs: Needs = serde_json::from_value(parse("needs")?)
+    let needs: Needs = serde_json::from_value(parse("needs"))
         .map_err(|e| RpcError::invalid_params(format!("needs: {e}")))?;
-    let cloud: Cloud = serde_json::from_value(parse("cloud")?)
+    let cloud: Cloud = serde_json::from_value(parse("cloud"))
         .map_err(|e| RpcError::invalid_params(format!("cloud: {e}")))?;
-    let mut folder: Folder = serde_json::from_value(parse("folder")?)
+    let mut folder: Folder = serde_json::from_value(parse("folder"))
         .map_err(|e| RpcError::invalid_params(format!("folder: {e}")))?;
     if folder.bytes.is_none()
         && let Some(cwd) = params.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty())
