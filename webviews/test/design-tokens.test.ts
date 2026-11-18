@@ -10,6 +10,8 @@ import {
   tokenOnlyKind,
   tsTokenCopies,
   scriptMotionFindings,
+  motionLiteralsInText,
+  motionScaleMatchers,
 } from "../scripts/check-design-tokens";
 import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
 
@@ -135,6 +137,29 @@ describe("design token ratchet", () => {
       [3, "string", "0.08s"], // motion-allow: fixture
       [3, "string", "cubic-bezier(0.16, 1, 0.3, 1)"], // motion-allow: fixture
       [4, "number", "240"],
+    ]);
+  });
+
+  // cmux#44271 review: the detector hard-coded 80/120/180/240 and the two curves, so a scale change in
+  // motion-scale.json left it flagging retired values and missing new ones. It reads the JSON now.
+  test("the motion-literal values follow motion-scale.json, not a copy in the detector", () => {
+    const moved = motionScaleMatchers({
+      steps: [{ ms: 90 }, { ms: 140 }],
+      easeOut: [0.2, 0, 0.4, 1],
+      settle: { ms: 200, bezier: [0.1, 0.9, 0.2, 1] },
+      send: { ms: 0, ease: [0.1, 0.9, 0.2, 1] },
+    });
+    // motion-allow: fixture strings for a moved scale
+    const text =
+      "90ms 0.14s 200 ms 180ms 0ms cubic-bezier(0.2, 0, 0.4, 1) cubic-bezier(0.1,0.9,0.2,1) cubic-bezier(0, 0, 0.58, 1)";
+    expect([...moved.ms].sort((a, b) => a - b)).toEqual([90, 140, 200]);
+    // motion-allow: expected fixture values
+    expect(motionLiteralsInText(text, moved)).toEqual([
+      "90ms",
+      "0.14s",
+      "200 ms",
+      "cubic-bezier(0.2, 0, 0.4, 1)",
+      "cubic-bezier(0.1,0.9,0.2,1)",
     ]);
   });
 
