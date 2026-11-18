@@ -153,7 +153,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
     const deadline = new Promise<never>((_, reject) => {
       // fixed-wait: a deadline, not a wait; work that ends clears it at once.
       timer = setTimeout(() => {
-        // A page too stuck to answer still fails: its reading gets five seconds.
+        // fixed-wait: a page too stuck to answer still fails; its reading gets five seconds.
         const unread = new Promise<string>((done) => setTimeout(() => done("(the page did not answer)"), 5_000));
         void Promise.race([what(), unread])
           .catch((error: unknown) => `(the page could not be read: ${String(error)})`)
