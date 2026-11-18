@@ -171,7 +171,7 @@ fn unchanged(apply: &Apply<'_>, plan: &Plan) -> Result<(), ResourceError> {
             }
             _ => false,
         };
-        if !same || scan::behind_a_link(apply.root, path, &mut Default::default()) {
+        if !same || parent_not_a_folder(apply.root, path) {
             return Err(changed(operation, path));
         }
     }
@@ -183,6 +183,23 @@ fn unchanged(apply: &Apply<'_>, plan: &Plan) -> Result<(), ResourceError> {
         }
     }
     Ok(())
+}
+
+/// Whether a parent of `path` exists as something other than a folder (a link, a file). A
+/// missing parent is fine: nothing past it exists, and `place` makes it a folder (an Undo that
+/// brings back a file in a folder the restore emptied and removed).
+fn parent_not_a_folder(root: &Path, path: &[u8]) -> bool {
+    let mut end = 0;
+    while let Some(offset) = path[end..].iter().position(|byte| *byte == b'/') {
+        end += offset;
+        match fs::symlink_metadata(scan::join(root, &path[..end])) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
+            _ => return true,
+        }
+        end += 1;
+    }
+    false
 }
 
 fn changed(operation: &'static str, path: &[u8]) -> ResourceError {
