@@ -9,9 +9,16 @@ import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import {
+import type { SessionInfoProcess, ProcessSource } from "../src/agent-session/acpmux/session-info/processes";
+import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { resetSessionInfoState } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const {
   backgroundCommands,
   mergeProcess,
   processesOf,
@@ -19,11 +26,7 @@ import {
   serverOf,
   splitServers,
   useSessionInfoProcesses,
-  type SessionInfoProcess,
-  type ProcessSource,
-} from "../src/agent-session/acpmux/session-info/processes";
-import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { settleReact } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/processes"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
