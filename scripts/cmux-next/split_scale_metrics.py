@@ -34,7 +34,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from one_motion_series import EPS, PANE_FRAME, series  # noqa: E402
+from one_motion_series import EPS, series  # noqa: E402
 
 TOLERANCE = 0.002
 # A re-acceleration counts as a retarget only past this speed (points per ms) and this ratio over the slowest speed
@@ -47,8 +47,6 @@ RETARGET_SLACK = 1.0
 # The trace keeps its ticks and values to 0.01 (ticks 8.33 and 8.34 ms apart): the slowest step carried over this
 # interval may be off by that much in time and in points (#38984 review F1), so the slack takes it too.
 TIME_SLACK = 0.02
-# The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
-PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
 TARGETS = {
     "first_frame_ms": 16.0,
@@ -198,55 +196,7 @@ def trace_stats(trace, sent_host_s=None):
     origin = sent if sent is not None else (times[0] if times else 0)
     out["last_movers"] = [[str(key), round(t - origin, 1), round(step, 2) if _number(step) else None, before, after, moves]
                           for key, (t, step, before, after, moves) in sorted(ends.items(), key=lambda kv: -kv[1][0])[:4]]
-    out["pane_width_change"] = pane_width_change(samples)
-    out["pane_width_peak"] = pane_width_peak(samples)
     return out
-
-
-def _pane_widths(sample):
-    return {str(row[0]): float(row[PANE_FRAME_WIDTH]) for row in sample.get("panes") or []
-            if isinstance(row, list) and len(row) > PANE_FRAME_WIDTH and _number(row[PANE_FRAME_WIDTH])}
-
-
-def _width_change(start, sample):
-    end = _pane_widths(sample)
-    both = start.keys() & end.keys()
-    return round(sum(end[p] - start[p] for p in both), 1) if both else None
-
-
-def pane_width_change(samples):
-    """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
-    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
-    None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
-    return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
-
-
-def pane_width_peak(samples):
-    """The same change at the tick where it was largest (signed): a toggle whose panes moved and came back (net change
-    0) still shows which way they went. None without a pane in any tick and the first."""
-    if not samples:
-        return None
-    start = _pane_widths(samples[0])
-    changes = [c for c in (_width_change(start, s) for s in samples[1:]) if c is not None]
-    return max(changes, key=abs) if changes else None
-
-
-def side_way(row):
-    """Which way a side pane toggle went in `row` (a transition record): "opened" (the panes narrowed), "closed"
-    (they widened), or None (they kept their width, or the trace had none). The net change decides; a toggle whose
-    panes came back to their width goes by its peak (side_toggle records that as the round's error)."""
-    change = (row or {}).get("pane_width_change")
-    if not _number(change) or abs(change) <= EPS:
-        change = (row or {}).get("pane_width_peak")
-    if not _number(change) or abs(change) <= EPS:
-        return None
-    return "opened" if change < 0 else "closed"
-
-
-def side_returned(row):
-    """True when the panes moved (a peak) but ended at the width they started at: the toggle undid itself."""
-    change, peak = (row or {}).get("pane_width_change"), (row or {}).get("pane_width_peak")
-    return _number(peak) and abs(peak) > EPS and _number(change) and abs(change) <= EPS
 
 
 def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):
@@ -308,7 +258,14 @@ def transition(strip, trace, tolerance=TOLERANCE, static=True):
             pixel = pixels.get("settled_ms")
             settled = None if pixel is None else max(settled, pixel)
         out["settled_ms"] = settled
-        if timed.get("layout_first_ms") is None:
+        if timed.get("layout_first_ms") is None and static and pixels.get("first_frame_ms") is not None:
+            # The screen changed but no traced tick moved (nightly e0c3d84: 45 closes of the pane a split made beside a
+            # chat or page, pixels settled at 220-306 ms with blank frames). The trace samples every tick, so it missed
+            # the screen rather than the motion being skipped; what the screen showed is the transition's time, and
+            # `untraced` keeps the round failing its cell (no frame times) until the trace sees it.
+            out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
+            out["untraced"] = True
+        elif timed.get("layout_first_ms") is None:
             errors.append("nothing moved after the input")
     elif static:
         out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
@@ -340,6 +297,7 @@ def summarize(records):
         else:
             out[key] = round(statistics.median(values), 2)
     out["unsettled"] = sum(1 for r in good if r.get("settled_ms") is None)
+    out["untraced"] = sum(1 for r in good if r.get("untraced"))
     out["refresh_ms"] = next((r.get("refresh_ms") for r in good if r.get("refresh_ms")), None)
     return out
 
@@ -419,17 +377,21 @@ def table(report):
     return "\n".join(lines)
 
 
-def headline(cells, flat):
+def headline(cells, flat, strip_ms=None):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
-    transition and the worst flatness ratio. A cell with a failed or unsettled round is the worst (settled None)."""
+    transition and the worst flatness ratio. A cell with a failed round is the worst (settled None). A round that
+    never settled inside its strip took at least `strip_ms`, so its cell counts as that (`at_least` true): a lower
+    bound past every budget, which keeps the number known without letting the cell pass."""
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
-            value = summary.get("settled_ms")
-            if summary.get("unsettled") or summary.get("failed_rounds") or value is None:
+            value, bound = summary.get("settled_ms"), False
+            if summary.get("unsettled") and _number(strip_ms) and not summary.get("failed_rounds"):
+                value, bound = max(value or 0, strip_ms), True
+            elif summary.get("unsettled") or summary.get("failed_rounds") or value is None:
                 value = float("inf")
             if worst is None or value > worst["settled_ms"]:
-                worst = {"cell": cell, "transition": name, "settled_ms": value}
+                worst = {"cell": cell, "transition": name, "settled_ms": value, "at_least": bound}
     if worst is None:
         return {}
     if worst["settled_ms"] == float("inf"):

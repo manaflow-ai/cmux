@@ -21,10 +21,9 @@ and in each cell every transition of --transitions, each sent through the real i
   bottom_open   Cmd-Shift-D on the bottom-left pane: a pane grows up from the window's bottom edge
   bottom_close  Cmd-W on it: the pane above grows back down (Leo's 2026-11-08 recording: a page above a terminal)
   divider_drag  the first divider dragged 120 pt left (and back, untimed); cells with one pane have none
-  side_open     Option-Cmd-B: the right sidebar opens         side_close    Option-Cmd-B again
-                (Toggle Right Sidebar, a window panel at its remembered section; it needs no chat or tab. Which way
-                the toggle went is read from the trace's pane widths: a press that went the other way is dropped and
-                the key pressed once more, and a press that moved nothing fails the round)
+
+(side_open and side_close, Option-Cmd-B's right sidebar, went with the sidebar: #41025 removed it from cmux NEXT, and
+the key has moved no pane since. A chat's Session Info is the side panel now.)
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
@@ -75,14 +74,13 @@ import split_scale_metrics as ssm  # noqa: E402
 from bench_power import wipe_state  # noqa: E402
 
 TRANSITIONS = ("split_right", "close_right", "split_down", "close_down", "bottom_open", "bottom_close",
-               "divider_drag", "side_open", "side_close")
+               "divider_drag")
 CONTENTS = ("empty", "scrollback", "browser", "chat")
 # Content whose pixels hold still between inputs: its composited settle is judged too (split_scale_metrics.transition).
 STATIC_CONTENTS = ("empty", "browser", "chat")
 CMD_D = {"key": "d", "modifiers": ["command"]}
 CMD_SHIFT_D = {"key": "d", "modifiers": ["command", "shift"]}
 CMD_W = {"key": "w", "modifiers": ["command"]}
-OPT_CMD_B = {"key": "b", "modifiers": ["option", "command"]}
 # The scrollback terminal: --scrollback numbered lines, then about 2,000 lines a second until the cell ends.
 SCROLL_COMMAND = ("seq -f 'scrollback %g lorem ipsum dolor sit amet consectetur adipiscing elit' 1 {n}; "
                   "while :; do seq -f \"stream %g $RANDOM $RANDOM $RANDOM output\" 1 20; sleep 0.01; done\r")
@@ -386,14 +384,12 @@ def background(run, count, measured):
 # ---------------------------------------------------------------------------------------------
 # One transition: a frame strip of the gesture with the motion trace around it.
 
-def record(run, gesture, label, content="focused", static=True):
+def record(run, gesture, label, static=True):
     folder = os.path.join(tempfile.gettempdir(), f"split-scale-{os.getpid()}", label)
     trace_path = os.path.join(folder, "trace.json")
     os.makedirs(folder, exist_ok=True)
     params = {"action": "frame_strip", **gesture, "above": True, "duration_ms": opts.strip_ms, "dir": folder,
               "tolerance": opts.strip_tolerance}
-    if content == "none":
-        params["content"] = "none"
     run.rpc("debug.motion", {"action": "trace_start"})
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 90) or {}
     stopped = run.rpc("debug.motion", {"action": "trace_stop", "path": trace_path}) or {}
@@ -409,29 +405,6 @@ def record(run, gesture, label, content="focused", static=True):
     if key.get("error"):
         strip = {"error": f"input: {key['error']}"}
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
-
-
-def side_toggle(run, label, want, static):
-    """Option-Cmd-B recorded as the side pane's `want` ("opened" or "closed"). The key toggles, and the app keeps the
-    right sidebar's visibility across launches (RightSidebarModel, UserDefaults), so a sidebar left open by an earlier
-    run or a key that missed would swap open and close for every later cell: the trace says which way the panes went
-    (ssm.side_way), and a press that went the other way restored `want`'s starting state, so it is pressed again and
-    that press is the record. A press that moved no pane is the round's error."""
-    for attempt in range(2):
-        row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
-        way = ssm.side_way(row)
-        if way == want:
-            if ssm.side_returned(row):
-                problem = f"Option-Cmd-B {way} the right sidebar and the panes went back to their width"
-                row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
-            return row
-        if way is None:
-            problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
-            row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
-            return row
-        time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
-    row["error"] = f"Option-Cmd-B {way} the right sidebar twice in a row, not {want}"
-    return row
 
 
 def pane_ids(run, workspace):
@@ -494,17 +467,6 @@ def run_cell(run, workspace, columns, results, cell, content):
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
             run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "by_y": 60, "steps": 30})  # untimed: back
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-        if "side_open" in WANTED or "side_close" in WANTED:
-            stress.focus_pane(top_left)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            opened = side_toggle(run, f"{cell}-side_open-{rnd}", "opened", static)
-            if "side_open" in WANTED:
-                add("side_open", opened)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            closed = side_toggle(run, f"{cell}-side_close-{rnd}", "closed", static)
-            if "side_close" in WANTED:
-                add("side_close", closed)
-            time.sleep(opts.settle)  # test script: the last gesture's motion ends
 
 
 def build_cell(run, splits, content, chats):
@@ -545,7 +507,7 @@ def finish(results):
     results["refresh_ms"] = refresh
     results["verdicts"] = {cell: {name: ssm.verdict(s, refresh) for name, s in per.items()} for cell, per in cells.items()}
     results["flatness"] = ssm.flatness(cells)
-    results["worst"] = ssm.headline(cells, results["flatness"])
+    results["worst"] = ssm.headline(cells, results["flatness"], opts.strip_ms)
     pairs = [v for per in results["verdicts"].values() for v in per.values()]
     results["measured"] = len(pairs)
     results["passing"] = sum(1 for v in pairs if v["pass"])
