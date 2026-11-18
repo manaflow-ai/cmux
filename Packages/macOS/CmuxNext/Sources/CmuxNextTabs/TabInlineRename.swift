@@ -9,6 +9,8 @@ import CmuxNextDesign
     var enabledOnDoubleClick = false
     private(set) var field: NSTextField?
     private var tabID: TabID?
+    /// The tab being renamed: its cell stays while the editor is open (`TabStripView.heldIDs`).
+    var editingID: TabID? { tabID }
     private var delegate: InlineRenameDelegate?
 
     init(strip: TabStripView) { self.strip = strip }
@@ -16,7 +18,7 @@ import CmuxNextDesign
     /// Opens the editor over tab `id`, prefilled with its title and fully
     /// selected. Tabs the strip does not show are ignored.
     func begin(_ id: TabID) {
-        guard let strip, let item = strip.model.tab(id), let cell = strip.cells[id] else { return }
+        guard let strip, let item = strip.model.tab(id), let cell = strip.cells[id] ?? strip.mountCell(id) else { return }
         cancel()
         strip.hoverCards.dismiss(.action)
         // Follows theme changes while open (ThemedTextField).

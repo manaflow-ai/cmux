@@ -34,6 +34,7 @@ extension VerticalTabListView {
         let content = contentPoint(point)
         let row = bounds.contains(point) ? listLayout.row(at: content) : nil
         let kind = row?.kind == .separator ? nil : row?.kind
+        let left = hovered
         var changed = kind != hovered
         hovered = kind
         let close = row.flatMap { row in closeFrame(row)?.insetBy(dx: -2, dy: -2).contains(content) == true ? Self.tabID(row.kind) : nil }
@@ -41,7 +42,11 @@ extension VerticalTabListView {
         changed = changed || close != hoveredClose || audio != hoveredAudio
         hoveredClose = close
         hoveredAudio = audio
-        if changed { needsDisplay = true }
+        // The row the pointer left and the one it is on redraw; no other row changed (the x and the speaker are in them).
+        if changed {
+            invalidate(left)
+            if kind != left { invalidate(kind) }
+        }
     }
 
     static func tabID(_ kind: VerticalTabListLayout.RowKind) -> TabID? {
@@ -53,10 +58,11 @@ extension VerticalTabListView {
 
     func clearHover() {
         guard hovered != nil || hoveredClose != nil || hoveredAudio != nil else { return }
+        let left = hovered
         hovered = nil
         hoveredClose = nil
         hoveredAudio = nil
-        needsDisplay = true
+        invalidate(left)
     }
 
     public override func mouseEntered(with event: NSEvent) {
@@ -107,7 +113,8 @@ extension VerticalTabListView {
         case .separator:
             press = nil
         }
-        needsDisplay = true
+        // The pressed row shows its press (a selection it made redraws its rows, `redrawChangedRows`).
+        invalidate(row)
     }
 
     /// A press on tab `id`, as the strip's (`TabStripView.selectOnPress`): Cmd toggles it in the
@@ -133,7 +140,7 @@ extension VerticalTabListView {
                 hoverTimer.cancel()
             }
             autoscroll(toward: point)
-            if let item = model.tab(id) { drag?.slot = listLayout.slot(at: contentPoint(point), dragging: item) }
+            if let item = listLayout.row(ofTab: id).flatMap { listLayout.item($0) } { drag?.slot = listLayout.slot(at: contentPoint(point), dragging: item) }
             needsDisplay = true
         default:
             updateHover(at: point)
@@ -159,7 +166,8 @@ extension VerticalTabListView {
         defer {
             updateHover(at: point)
             collapseIfPointerLeft()
-            needsDisplay = true
+            // A drag drew its mark anywhere: the view redraws; a press only its row.
+            if dragged != nil { invalidateAll() } else if let released { invalidate(listLayout.row(at: contentPoint(released.start))) }
         }
         guard let released else { return }
         let row = listLayout.row(at: content)
@@ -245,8 +253,9 @@ extension VerticalTabListView {
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
         scrollOffset -= delta
         clampScroll()
-        updateAccessibilityRows()
-        needsDisplay = true
+        // The view's rows redraw (a binary search finds them); no row element is touched: each reads its frame when
+        // asked (`TabAccessibilityElement.frameInParent`).
+        invalidateAll()
         updateHover(at: convert(event.locationInWindow, from: nil))
     }
 }

@@ -26,7 +26,7 @@ final class TabStripSyncHold {
             return true
         }
         let model = strip.model
-        guard model.tabs.isEmpty, !strip.cells.isEmpty, atRest(), model.departures.isDisjoint(with: strip.cells.keys),
+        guard model.tabs.isEmpty, !strip.tabIDs.isEmpty, atRest(), model.departures.isDisjoint(with: strip.tabIDs),
               Self.paneIsLeaving(above: strip) else { return false }
         keptTabsOfLeavingPane = true
         return true

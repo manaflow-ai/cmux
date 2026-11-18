@@ -9,8 +9,9 @@ import QuartzCore
 final class TabCell {
     /// Root layer, a sublayer of the strip's tab clip layer.
     let layer = CALayer()
-    /// VoiceOver and automation element for this tab.
-    let accessibility = TabAccessibilityElement()
+    /// VoiceOver and automation element for this tab: the strip's parked one when the tab had an element while it had
+    /// no cell (`TabStripView+VisibleCells`), so VoiceOver keeps the element it holds.
+    let accessibility: TabAccessibilityElement
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
@@ -195,8 +196,9 @@ final class TabCell {
     /// Set while a hover change lays out, so the x and the title fade.
     private(set) var animatesCloseChange = false
 
-    init(item: TabItem) {
+    init(item: TabItem, accessibility: TabAccessibilityElement = TabAccessibilityElement()) {
         self.item = item
+        self.accessibility = accessibility
         layer.actions = Self.noActions
         // Anchored at the leading edge: a strip move of the width never moves the tab's x, so a
         // dragged tab whose width still moves keeps its edge under the pointer.
@@ -205,12 +207,15 @@ final class TabCell {
         applyItem(previous: nil)
     }
 
-    func update(item newItem: TabItem) {
+    /// True when the item changed and the cell drew it again.
+    @discardableResult
+    func update(item newItem: TabItem) -> Bool {
         isClosing = false // a tab the model still lists is not closing
-        guard newItem != item else { return }
+        guard newItem != item else { return false }
         let previous = item
         item = newItem
         applyItem(previous: previous)
+        return true
     }
 
     // MARK: - Layers

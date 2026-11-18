@@ -100,6 +100,8 @@ extension TabStripView {
         // already given away, so it goes now too, one consistent frame.
         if move == nil, !keepsClosing { for id in dying { removeTab(id) } }
         TabSeparatorVisibility.apply(to: self)
+        // The tabs in view now get their cells (an opening one too, for its start), shown where the others show.
+        mountVisibleCells(showing: mappingBefore)
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
@@ -171,6 +173,8 @@ extension TabStripView {
         for cell in cells.values where (cell.innerPath?.end ?? .infinity) <= now + 0.02 { cell.layoutLayers() }
         // Masks whose path ended come off (or stay, exact, for what still moves).
         if occlusionEnds.values.contains(where: { $0 <= now + 0.02 }) { updateOcclusion(settle: 0.02) }
+        // The strip still: the cells the moves carried out of view go.
+        if movesInFlight.isEmpty { dropHiddenCells() }
     }
 
     /// Masks the tabs the selected pill covers now and along every move in flight (`TabOcclusion`).
@@ -201,10 +205,18 @@ extension TabStripView {
         )
         // Already in view (a switch between shown tabs): the strip does not move.
         guard target != scrollOffset else { return }
+        let springs = animated && !reduceMotion && Motion.canAnimate(in: self)
+        if springs, viewportWidth > 0, abs(target - scrollOffset) > viewportWidth {
+            // Only tabs within a viewport of the view have cells (`TabStripView+VisibleCells`): a reveal farther than that
+            // goes to one viewport short of its target at once, and springs the last viewport, every tab it passes drawn.
+            settleScroll()
+            scrollOffset = target + (target > scrollOffset ? -viewportWidth : viewportWidth)
+            applyFrames()
+        }
         let from = scrollMapping
         scrollOffset = target
         var move: TabStripMove?
-        if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs, window: window) {
+        if springs, let motion = MotionMove.spring(.scroll, in: Motion.tabs, window: window) {
             moveGeneration += 1
             move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
         }
@@ -330,9 +342,12 @@ extension TabStripView {
             if scrollProbe.superlayer == nil { tabsClip.layer?.addSublayer(scrollProbe) }
             move.addScroll(scrollPart(isPinned: false), to: scrollProbe)
         }
-        var trailing: CGFloat = 0
+        // Only the tabs within a viewport of the view have cells: the ones it reveals get theirs, where the layers show now.
+        mountVisibleCells(showing: scrollFrom ?? mapping)
+        var trailing = unmountedTrailing()
         for (id, cell) in cells {
             guard let place = placed[id] else { continue }
+            rowPasses.cellsFramed &+= 1
             let isPinned = cell.item.isPinned
             // A tab pinned or unpinned since it was made moves to its region's layer.
             if let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }
@@ -364,6 +379,8 @@ extension TabStripView {
             let liftedSlotEnd = drag?.id == id ? result.slot(id).map(\.maxX) : nil
             trailing = max(trailing, liftedSlotEnd ?? place.maxX)
         }
+        // The ones it left behind go (a cell this change moves stays until its move ends, `moveEnded`).
+        dropHiddenCells()
         updateCornerFlush(tabY: tabY, tabHeight: tabHeight)
         updateOcclusion()
         layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: true))

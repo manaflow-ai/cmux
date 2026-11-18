@@ -59,5 +59,14 @@ extension TabStripView {
                 && tabs == other.tabs && groups == other.groups
                 && style == other.style && showsNewTabButton == other.showsNewTabButton
         }
+
+        /// The same tabs in the same places (ids, pinning, groups), only what some of them show changed (a title, a
+        /// spinner, a badge): no tab moves, so no row layout. A strip with groups is not one (a chip reads its members).
+        func differsOnlyInItems(from other: ModelSnapshot) -> Bool {
+            tabs != other.tabs && tabs.count == other.tabs.count && groups.isEmpty && other.groups.isEmpty
+                && selectedID == other.selectedID && multiSelection == other.multiSelection && zoomsSelected == other.zoomsSelected
+                && style == other.style && showsNewTabButton == other.showsNewTabButton && showsSelectedFullWidth == other.showsSelectedFullWidth
+                && zip(tabs, other.tabs).allSatisfy { $0.id == $1.id && $0.isPinned == $1.isPinned && $0.groupID == $1.groupID }
+        }
     }
 }

@@ -16,13 +16,21 @@ extension VerticalTabListView {
                 Palette.separator.setFill()
                 CGRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
             }
+            // What AppKit asked for (one row's rect after a hover or a tab change, the view after a scroll), in content
+            // coordinates; only the rows there are read (binary search), at any tab count.
             let visible = CGRect(x: 0, y: scrollOffset, width: bounds.width, height: bounds.height)
+                .intersection(dirtyRect.offsetBy(dx: 0, dy: scrollOffset))
+            guard !visible.isNull else { return }
+            let look = VerticalNoColorGroupLook.tunable.value
+            let panes = look == .plain ? 0..<0 : VerticalTabListLayout.lineRange(listLayout.groupPanes, minY: visible.minY, maxY: visible.maxY)
+            let lines = VerticalTabListLayout.lineRange(listLayout.groupLines, minY: visible.minY, maxY: visible.maxY)
+            let rows = listLayout.rowRange(minY: visible.minY - 1, maxY: visible.maxY + 1)
+            passes.rowsVisited &+= rows.count
             // A group with no color: one neutral pane behind its header and tabs, with a hairline rim and no hue
             // (Leo 2026-11-05: "at least slightly distinguishing from, like, literally depicting it as if it were
             // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
             // selection draw over it.
-            let look = VerticalNoColorGroupLook.tunable.value
-            for pane in listLayout.groupPanes where look != .plain && pane.frame.intersects(visible) {
+            for pane in listLayout.groupPanes[panes] where pane.frame.intersects(visible) {
                 guard model.group(pane.group)?.tint.isNone == true else { continue }
                 let rect = viewRect(pane.frame)
                 Palette.sidebarStep.setFill()
@@ -36,12 +44,13 @@ extension VerticalTabListView {
                 path.lineWidth = 1 / scale
                 path.stroke()
             }
-            for line in listLayout.groupLines where line.frame.intersects(visible) {
+            for line in listLayout.groupLines[lines] where line.frame.intersects(visible) {
                 guard let group = model.group(line.group) else { continue }
                 group.tint.headerFill.setFill()
                 NSBezierPath(roundedRect: viewRect(line.frame), xRadius: line.frame.width / 2, yRadius: line.frame.width / 2).fill()
             }
-            for row in listLayout.rows where row.frame.insetBy(dx: 0, dy: -1).intersects(visible) {
+            for row in listLayout.rows[rows] where row.frame.insetBy(dx: 0, dy: -1).intersects(visible) {
+                passes.rowsDrawn &+= 1
                 drawRow(row)
             }
             if let drag, drag.isActive, let slot = drag.slot {
@@ -54,8 +63,8 @@ extension VerticalTabListView {
 
     private func drawRow(_ row: Row) {
         switch row.kind {
-        case .pinned(let id), .tab(let id):
-            guard let item = model.tab(id) else { return }
+        case .pinned, .tab:
+            guard let item = listLayout.item(row) else { return }
             drawTab(item, row: row)
         case .groupHeader(let id):
             guard let group = model.group(id) else { return }
@@ -320,7 +329,7 @@ extension VerticalTabListView {
     /// A tab row's close button (content coordinates) while it shows: titles shown, the tab closable,
     /// and the row hovered or selected (Chrome's vertical tabs).
     func closeFrame(_ row: Row) -> CGRect? {
-        guard showsTitles, case .tab(let id) = row.kind, let item = model.tab(id), item.isClosable,
+        guard showsTitles, case .tab(let id) = row.kind, let item = listLayout.item(row), item.isClosable,
               hovered == row.kind || id == model.selectedID else { return nil }
         let side = TabTunables.closeButtonSize.value
         return CGRect(x: row.frame.maxX - Metrics.space1 - side, y: row.frame.midY - side / 2, width: side, height: side)
@@ -328,7 +337,7 @@ extension VerticalTabListView {
 
     /// A tab row's speaker button (content coordinates) while the tab plays sound or is muted.
     func audioFrame(_ row: Row) -> CGRect? {
-        guard showsTitles, case .tab(let id) = row.kind, model.tab(id)?.audio != nil else { return nil }
+        guard showsTitles, case .tab = row.kind, listLayout.item(row)?.audio != nil else { return nil }
         let side = TabTunables.closeButtonSize.value
         let end = closeFrame(row)?.minX ?? row.frame.maxX - Metrics.space1
         return CGRect(x: end - side, y: row.frame.midY - side / 2, width: side, height: side)

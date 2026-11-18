@@ -25,8 +25,23 @@ extension TabStripView {
             // out: its move runs on the render server and its completion removes it.
             if input == last, isAtRest(closing: true) { return }
             if isAtRest(), input.differsOnlyInSelection(from: last) { return syncSelection(input) }
+            if isAtRest(), input.differsOnlyInItems(from: last) { return syncItems(input) }
         }
         sync(fromModel: true)
+    }
+
+    /// Only what some tabs show changed (``ModelSnapshot/differsOnlyInItems(from:)``): the cells whose item changed draw it
+    /// again, and nothing is laid out (a spinner, a title or a clock tick costs the tabs it changed, at any tab count).
+    private func syncItems(_ input: ModelSnapshot) {
+        lastSyncedInput = input
+        let ordered = model.orderedTabs
+        guard ordered.count == displayed.count else { return sync(fromModel: true) }
+        displayed = ordered
+        for (id, cell) in cells {
+            guard let index = displayedIndex[id], ordered.indices.contains(index), ordered[index].id == id else { continue }
+            if cell.update(item: ordered[index]) { rowPasses.cellsConfigured &+= 1 }
+        }
+        refreshHoverCard()
     }
 
     /// One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
@@ -52,7 +67,8 @@ extension TabStripView {
             cell.isSelected = false
             cell.showsZoom = false
         }
-        if let selected, let cell = cells[selected] {
+        if let selected, let cell = cells[selected] ?? mountCell(selected) {
+            // A tab out of view gets its cell (it is held while selected); the reveal below scrolls to it.
             cell.isSelected = true
             cell.showsZoom = input.zoomsSelected // VoiceOver's zoomed state follows the selection
         }
@@ -123,12 +139,13 @@ extension TabStripView {
         // person's gesture (a drag, a group drag, a drop settling) appears or leaves at once while the
         // gesture's other springs keep running. Reorders keep their motion.
         let ids = Set(ordered.map(\.id))
-        let adding = ordered.contains { cells[$0.id] == nil }
-        let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
+        // `tabIDs`, not `cells`: a tab out of view has no cell (`TabStripView+VisibleCells`) and is no new tab.
+        let adding = ordered.contains { !tabIDs.contains($0.id) }
+        let removing = tabIDs.contains { !ids.contains($0) && !dying.contains($0) }
         // A tab that moved to another pane is shown there, and one handed to a drag (`detachedID`, a detached group)
         // is under the pointer: either leaves here with no close (`departures`; review F2 on #37735).
         let departing = model.departures.union(modelOrdered.lazy.filter { $0.id == self.detachedID || ($0.groupID != nil && $0.groupID == self.groups.detachedGroupID) }.map(\.id))
-        let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !departing.contains($0) }
+        let closing = tabIDs.contains { !ids.contains($0) && !dying.contains($0) && !departing.contains($0) }
         // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
         let closesLastTab = removing && ordered.isEmpty
         let structureAnimates = (!adding || Motion.tabs.animates(.newTab, in: window)) && !closesLastTab
@@ -138,14 +155,16 @@ extension TabStripView {
         let cellsAnimate = animated && structureAnimates && !inGesture
         if MotionTrace.isEnabled {
             MotionTrace.note("tabs.sync fromModel=\(fromModel) animating=\(animating) animated=\(animated)"
-                + " added=\(ordered.filter { cells[$0.id] == nil }.map(\.id.rawValue)) removed=\(cells.keys.filter { !ids.contains($0) }.map(\.rawValue))")
+                + " added=\(ordered.filter { !tabIDs.contains($0.id) }.map(\.id.rawValue)) removed=\(tabIDs.filter { !ids.contains($0) }.map(\.rawValue))")
         }
         // A tab taking another's place (`TabStripModel.successors`) gets its cell's place; that cell goes now.
-        let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
+        let handed = model.takeSuccessions(shown: tabIDs, next: ids)
         // A cell handed to its successor stays on the strip as that successor.
         let successor = Dictionary(handed.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
-        for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            if cellsAnimate, !departing.contains(id) {
+        let handedAway = Set(handed.values)
+        for id in tabIDs.subtracting(ids) where !dying.contains(id) && !handedAway.contains(id) {
+            // A tab out of view (no cell) closes with no motion: nobody sees it.
+            if cellsAnimate, !departing.contains(id), let cell = cells[id] {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
@@ -158,18 +177,22 @@ extension TabStripView {
         }
         var added: Set<TabID> = []
         for item in ordered {
-            if let cell = cells[item.id] {
+            if tabIDs.contains(item.id) {
                 dying.remove(item.id)
                 goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
-                cell.update(item: item)
+                // Only a tab with a cell draws, and only a changed item draws again.
+                if let cell = cells[item.id], cell.update(item: item) { rowPasses.cellsConfigured &+= 1 }
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
-            } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
+            } else if let from = handed[item.id], let place = placed[from] {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
-                // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = TabStripMove.shownFrame(shown.layer)
+                if let shown = cells[from] {
+                    // It shows where that cell shows now; `relayout` moves it on from there.
+                    makeCellLayers(item).frame = TabStripMove.shownFrame(shown.layer)
+                    rowPasses.cellsMade &+= 1
+                }
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -187,13 +210,13 @@ extension TabStripView {
         if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }
 
         displayed = ordered
+        displayedIndex = Dictionary(ordered.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         let styleChanged = lastStyle != nil && lastStyle != model.style
         lastStyle = model.style
-        for item in displayed {
-            let cell = cells[item.id]
-            cell?.isSelected = item.id == model.selectedID
-            cell?.showsZoom = model.zoomsSelected && item.id == model.selectedID
-            cell?.style = model.style
+        for (id, cell) in cells where ids.contains(id) {
+            cell.isSelected = id == model.selectedID
+            cell.showsZoom = model.zoomsSelected && id == model.selectedID
+            cell.style = model.style
         }
         applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
@@ -230,9 +253,19 @@ extension TabStripView {
         return .some(left.first?.id)
     }
 
-    /// Creates the layers for a new tab and returns its id.
+    /// Takes a new tab into the strip and returns its id. Its cell comes with the frames, when it is in view
+    /// (`mountVisibleCells`).
     func makeCell(_ item: TabItem, animated: Bool) -> TabID {
-        let cell = TabCell(item: item)
+        let id = item.id
+        tabIDs.insert(id)
+        // Placed by `relayout` (Chrome: an opening tab never fades).
+        placed[id] = TabPlace(x: 0, width: 0)
+        return id
+    }
+
+    /// Creates the layers for tab `item`, in its region's layer.
+    func makeCellLayers(_ item: TabItem) -> TabCell {
+        let cell = TabCell(item: item, accessibility: parkedAccessibility.removeValue(forKey: item.id) ?? TabAccessibilityElement())
         cell.style = model.style
         cell.metrics = metrics
         cell.titleFont = Typography.tabTitle
@@ -252,9 +285,7 @@ extension TabStripView {
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
         cells[id] = cell
-        // Placed by `relayout` (Chrome: an opening tab never fades).
-        placed[id] = TabPlace(x: 0, width: 0)
-        return id
+        return cell
     }
 
     func refreshHoverCard() {
@@ -286,7 +317,9 @@ extension TabStripView {
         }
         cells[id]?.layer.removeFromSuperlayer()
         if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
+        if let parked = parkedAccessibility.removeValue(forKey: id) { noteAccessibilityFocus(ObjectIdentifier(parked), false) }
         cells[id] = nil
+        tabIDs.remove(id)
         forgetPlace(id)
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }

@@ -99,7 +99,9 @@ public struct VerticalTabListLayout: Equatable {
         public var indicator: CGRect
     }
 
-    public let tabs: [TabItem]
+    /// The tabs the rows show. A change that moves no row (a title, a spinner, a badge) takes the new items here
+    /// without laying the rows out again (`withItems(_:)`).
+    public private(set) var tabs: [TabItem]
     public let groups: [TabGroupItem]
     public let width: CGFloat
     /// Collapsed to icons: no titles, one column of pinned tiles, group headers as bars.
@@ -113,6 +115,8 @@ public struct VerticalTabListLayout: Equatable {
     public private(set) var contentHeight: CGFloat = 0
     /// Columns of the pinned grid.
     public private(set) var pinnedColumns = 1
+    /// Each tab's and header's row, by index in `rows`.
+    private var rowIndex: [RowKind: Int] = [:]
 
     /// - Parameter tabs: `TabStripModel.orderedTabs` (pinned first, each group's members together).
     public init(tabs: [TabItem], groups: [TabGroupItem], showsNewTab: Bool, iconsOnly: Bool, width: CGFloat, metrics: VerticalTabListMetrics) {
@@ -130,6 +134,65 @@ public struct VerticalTabListLayout: Equatable {
         }
         let placedAny = rows.contains { if case .pinned = $0.kind { false } else { true } }
         contentHeight = (placedAny ? y - metrics.rowSpacing : y) + metrics.verticalPadding
+        rowIndex.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() where rowIndex[row.kind] == nil { rowIndex[row.kind] = index }
+    }
+
+    /// What decides where every row goes: the tabs' order, pinning and groups, the groups, New Tab. A change that
+    /// keeps it moves no row.
+    struct Shape: Equatable {
+        var tabs: [TabShape]
+        var groups: [TabGroupItem]
+        var showsNewTab: Bool
+
+        struct TabShape: Equatable {
+            var id: TabID
+            var isPinned: Bool
+            var groupID: TabGroupID?
+        }
+
+        init(tabs: [TabItem], groups: [TabGroupItem], showsNewTab: Bool) {
+            self.tabs = tabs.map { TabShape(id: $0.id, isPinned: $0.isPinned, groupID: $0.groupID) }
+            self.groups = groups
+            self.showsNewTab = showsNewTab
+        }
+    }
+
+    /// This layout with `tabs`' items in place of its own, which must have its shape (same ids, pinning and groups, in
+    /// order): no row moves.
+    func withItems(_ tabs: [TabItem]) -> VerticalTabListLayout {
+        var layout = self
+        layout.tabs = tabs
+        return layout
+    }
+
+    /// The tab of tab row `row` (its `index` into `tabs`).
+    public func item(_ row: Row) -> TabItem? {
+        guard let index = row.index, tabs.indices.contains(index) else { return nil }
+        return tabs[index]
+    }
+
+    /// The rows that reach into `minY...maxY` (content coordinates), by index: two binary searches, since the rows run
+    /// top to bottom and only the pinned tiles of one line share a band.
+    public func rowRange(minY: CGFloat, maxY: CGFloat) -> Range<Int> {
+        let start = Self.partition(rows.count) { rows[$0].frame.maxY >= minY }
+        return start..<max(start, Self.partition(rows.count) { rows[$0].frame.minY > maxY })
+    }
+
+    /// The group lines or panes in `lines` that reach into `minY...maxY` (they run top to bottom too).
+    static func lineRange(_ lines: [GroupLine], minY: CGFloat, maxY: CGFloat) -> Range<Int> {
+        let start = partition(lines.count) { lines[$0].frame.maxY >= minY }
+        return start..<max(start, partition(lines.count) { lines[$0].frame.minY > maxY })
+    }
+
+    /// The first index in `0..<count` that `isPast` (false before it, true from it on).
+    static func partition(_ count: Int, _ isPast: (Int) -> Bool) -> Int {
+        var low = 0, high = count
+        while low < high {
+            let mid = (low + high) / 2
+            if isPast(mid) { high = mid } else { low = mid + 1 }
+        }
+        return low
     }
 
     private var rowWidth: CGFloat { max(0, width - 2 * metrics.padding) }
@@ -207,8 +270,9 @@ public struct VerticalTabListLayout: Equatable {
     // MARK: Lookups
 
     /// The row under `point` (content coordinates): a tile or a row whose band holds `point.y`.
+    /// Only the rows in `point`'s band are read (`rowRange`).
     public func row(at point: CGPoint) -> Row? {
-        rows.first { row in
+        rows[rowRange(minY: point.y, maxY: point.y)].first { row in
             switch row.kind {
             case .pinned: row.frame.contains(point)
             case .separator: false
@@ -218,7 +282,17 @@ public struct VerticalTabListLayout: Equatable {
     }
 
     public func frame(of id: TabID) -> CGRect? {
-        rows.first { $0.kind == .tab(id) || $0.kind == .pinned(id) }?.frame
+        row(of: .tab(id))?.frame ?? row(of: .pinned(id))?.frame
+    }
+
+    /// The row of `kind`, by its index.
+    public func row(of kind: RowKind) -> Row? {
+        rowIndex[kind].map { rows[$0] }
+    }
+
+    /// Tab `id`'s row, pinned or not.
+    public func row(ofTab id: TabID) -> Row? {
+        row(of: .tab(id)) ?? row(of: .pinned(id))
     }
 
     // MARK: Drop slots

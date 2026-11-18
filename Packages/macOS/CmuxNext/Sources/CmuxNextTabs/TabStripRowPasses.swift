@@ -10,4 +10,12 @@ struct TabStripRowPasses: Equatable {
     var frames = 0
     /// Layout engine runs (`relayout`: the row laid out from its items).
     var layouts = 0
+    /// Cells made for tabs that came into the mounted range or were held (`TabStripView+VisibleCells`).
+    var cellsMade = 0
+    /// Cells dropped for tabs that left it.
+    var cellsDropped = 0
+    /// Cells whose frame `applyFrames` wrote.
+    var cellsFramed = 0
+    /// Cells whose item changed and that drew it again (`TabCell.update(item:)`).
+    var cellsConfigured = 0
 }

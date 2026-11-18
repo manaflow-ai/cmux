@@ -64,6 +64,14 @@ public final class VerticalTabListView: NSView {
     private var trackingArea: NSTrackingArea?
     var lastSelectedID: TabID?
     var accessibilityRows: [TabID: TabAccessibilityElement] = [:]
+    /// The rows changed since `accessibilityRows` were made: the next accessibility client's ask makes them again.
+    var accessibilityRowsAreStale = true
+    /// The model as last drawn (`modelChanged` diffs the next one against it).
+    var drawnSnapshot: VerticalTabModelSnapshot?
+    /// The shape `listLayout` was laid out from: a model change that keeps it moves no row.
+    var laidOutShape: VerticalTabListLayout.Shape?
+    /// What the list's events cost, for the count tests (`VerticalTabListPasses`).
+    var passes = VerticalTabListPasses()
     /// Set while a menu from the list is open (`trackMenu`): its end-of-tracking notice (``MenuTracking``).
     var menuEnd: MenuTracking?
 
@@ -131,9 +139,15 @@ public final class VerticalTabListView: NSView {
         }
     }
 
-    /// The model changed: lay the rows out again and keep the selected tab in view.
+    /// The model changed: lay the rows out again when one moves, else redraw only the rows whose tab changed (its
+    /// item, its selection), and keep the selected tab in view. Leo 2026-11-18: "we draw the visible area, right?"
     func modelChanged() {
-        relayout()
+        let tabs = model.orderedTabs
+        if let drawn = drawnSnapshot, VerticalTabListLayout.Shape(tabs: tabs, groups: model.groups, showsNewTab: model.showsNewTabButton) == laidOutShape {
+            redrawChangedRows(from: drawn, to: VerticalTabModelSnapshot(model), tabs: tabs)
+        } else {
+            relayout()
+        }
         if model.multiSelection.isMultiple { selectionEscape.install() } else { selectionEscape.remove() }
         if model.selectedID != lastSelectedID {
             lastSelectedID = model.selectedID
@@ -167,11 +181,64 @@ public final class VerticalTabListView: NSView {
     /// Builds the rows for the current model, width and collapse state, then redraws.
     func relayout() {
         metrics = .current
-        listLayout = VerticalTabListLayout(tabs: model.orderedTabs, groups: model.groups, showsNewTab: model.showsNewTabButton,
+        let tabs = model.orderedTabs
+        listLayout = VerticalTabListLayout(tabs: tabs, groups: model.groups, showsNewTab: model.showsNewTabButton,
                                            iconsOnly: !showsTitles, width: bounds.width, metrics: metrics)
+        laidOutShape = VerticalTabListLayout.Shape(tabs: tabs, groups: model.groups, showsNewTab: model.showsNewTabButton)
+        drawnSnapshot = VerticalTabModelSnapshot(model)
+        passes.layouts &+= 1
         clampScroll()
-        updateAccessibilityRows()
+        // Made again when an accessibility client next asks (`accessibilityChildren`), not for every row now.
+        accessibilityRowsAreStale = true
+        invalidateAll()
+    }
+
+    /// The model changed and no row moves: the layout takes the new items (`tabs`, the model's `orderedTabs`), and only
+    /// the rows whose item, selection or multi-selection changed redraw (a spinner, a title, a switch redraws one or two
+    /// rows, at any tab count).
+    func redrawChangedRows(from drawn: VerticalTabModelSnapshot, to snapshot: VerticalTabModelSnapshot, tabs: [TabItem]) {
+        drawnSnapshot = snapshot
+        var changed: Set<TabID> = []
+        if listLayout.tabs.count == tabs.count {
+            for (old, new) in zip(listLayout.tabs, tabs) where old != new { changed.insert(new.id) }
+        }
+        listLayout = listLayout.withItems(tabs)
+        if drawn.selectedID != snapshot.selectedID { changed.formUnion([drawn.selectedID, snapshot.selectedID].compactMap(\.self)) }
+        if drawn.multiSelection != snapshot.multiSelection {
+            changed.formUnion(Set(drawn.multiSelection.ids).symmetricDifference(snapshot.multiSelection.ids))
+            // One selected tab more or fewer changes whether the others draw the multi-selection fill.
+            if drawn.multiSelection.isMultiple != snapshot.multiSelection.isMultiple {
+                changed.formUnion(drawn.multiSelection.ids)
+                changed.formUnion(snapshot.multiSelection.ids)
+            }
+        }
+        for id in changed {
+            invalidate(listLayout.row(ofTab: id))
+            if !accessibilityRowsAreStale, let element = accessibilityRows[id], let row = listLayout.row(ofTab: id),
+               let item = listLayout.item(row) {
+                configureAccessibilityRow(element, item)
+            }
+        }
+    }
+
+    /// Redraws the whole view (a layout, a scroll, a theme).
+    func invalidateAll() {
+        passes.wholeInvalidations &+= 1
         needsDisplay = true
+    }
+
+    /// Redraws `row` alone, where it shows; nothing when it is out of view.
+    func invalidate(_ row: VerticalTabListLayout.Row?) {
+        guard let row else { return }
+        let rect = viewRect(row.frame).insetBy(dx: -1, dy: -1)
+        guard rect.intersects(bounds) else { return }
+        passes.rowInvalidations &+= 1
+        setNeedsDisplay(rect)
+    }
+
+    /// Redraws the row of `kind`.
+    func invalidate(_ kind: VerticalTabListLayout.RowKind?) {
+        invalidate(kind.flatMap { listLayout.row(of: $0) })
     }
 
     var maxScrollOffset: CGFloat { max(0, listLayout.contentHeight - bounds.height) }
@@ -180,21 +247,23 @@ public final class VerticalTabListView: NSView {
         let clamped = min(max(0, scrollOffset), maxScrollOffset)
         if clamped != scrollOffset {
             scrollOffset = clamped
-            needsDisplay = true
+            invalidateAll()
         }
     }
 
     /// Scrolls the least that shows tab `id`'s row whole.
     func reveal(_ id: TabID) {
         guard let frame = listLayout.frame(of: id) else { return }
+        let before = scrollOffset
         if frame.minY < scrollOffset {
             scrollOffset = max(0, frame.minY - metrics.verticalPadding)
         } else if frame.maxY > scrollOffset + bounds.height {
             scrollOffset = frame.maxY + metrics.verticalPadding - bounds.height
         }
         clampScroll()
-        updateAccessibilityRows()
-        needsDisplay = true
+        // Already in view: the rows whose selection changed redraw alone (`redrawChangedRows`). The row elements read
+        // their frames when asked (`TabAccessibilityElement.frameInParent`).
+        if scrollOffset != before { invalidateAll() }
     }
 
     /// `point` in view coordinates, in content coordinates (before scrolling).
@@ -268,7 +337,23 @@ public final class VerticalTabListView: NSView {
     }
 }
 
-/// What the list draws from the model; a change of any of it relayouts.
+/// What the vertical tab list's events cost (its `passes`), as the strip's `TabStripRowPasses`: tests read the counts
+/// around a change. A row out of view costs nothing: no draw, no element, no layout of its own.
+struct VerticalTabListPasses: Equatable {
+    /// Rows laid out again from the model (`relayout`).
+    var layouts = 0
+    /// Whole-view redraws asked for (a layout, a scroll, a theme).
+    var wholeInvalidations = 0
+    /// One-row redraws asked for (`invalidate(_:)`).
+    var rowInvalidations = 0
+    /// Rows `draw(_:)` read (the binary search's range), and the ones it drew.
+    var rowsVisited = 0
+    var rowsDrawn = 0
+    /// Row accessibility elements configured.
+    var accessibilityRowsConfigured = 0
+}
+
+/// What the list draws from the model; a change of any of it is diffed (`modelChanged`).
 struct VerticalTabModelSnapshot: Equatable, Sendable {
     var tabs: [TabItem]
     var groups: [TabGroupItem]

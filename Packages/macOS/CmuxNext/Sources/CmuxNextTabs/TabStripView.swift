@@ -156,8 +156,18 @@ public final class TabStripView: NSView {
 
     // MARK: Layout and animation state
 
-    /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
+    /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab, and only for the tabs within a viewport of
+    /// the view or held there (`TabStripView+VisibleCells`).
     var cells: [TabID: TabCell] = [:]
+    /// Every tab the strip shows, with a cell or not (closing ones too, until they go).
+    var tabIDs: Set<TabID> = []
+    /// Each `displayed` tab's index there, built with it.
+    var displayedIndex: [TabID: Int] = [:]
+    /// Accessibility elements of tabs with no cell, made when an accessibility client asks for the strip's children
+    /// (``accessibilityChildren()``); a cell made for the tab takes its element.
+    var parkedAccessibility: [TabID: TabAccessibilityElement] = [:]
+    /// An accessibility client asked for the strip's children: a dropped cell parks its element.
+    var servesAccessibility = false
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
@@ -402,11 +412,15 @@ public final class TabStripView: NSView {
 
     public override func accessibilityChildren() -> [Any]? {
         var children: [Any] = []
+        servesAccessibility = true
         for slot in result.slots where !slot.isCollapsed {
             if let group = slot.id.chipGroupID, let chip = groups.chips[group] {
                 children.append(chip.accessibility)
             } else if let cell = cells[slot.id] {
                 children.append(cell.accessibility)
+            } else if let element = parkedAccessibility(for: slot) {
+                // A tab with no cell (out of view) is still a child, in its place.
+                children.append(element)
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
