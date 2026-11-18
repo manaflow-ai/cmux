@@ -1166,7 +1166,7 @@ final class UnboundAgentSource: AgentSessionSource {
             yield(.clientError("Send a message to start the chat."))
             return
         }
-        let notSent = { [weak self] (reason: String) in
+        let notSent: @MainActor (String) -> Void = { [weak self] reason in
             self?.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
         }
         guard let start else { return notSent("Connecting to \(summary.macName)… Send again once the chat loads.") }
