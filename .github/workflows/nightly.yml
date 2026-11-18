@@ -4345,7 +4345,7 @@ jobs:
             ${{ runner.temp }}/language-packs/
             !${{ runner.temp }}/language-packs/stage
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
 
       - name: Upload the language packs (retry)
         if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT)"
@@ -4356,7 +4356,7 @@ jobs:
             ${{ runner.temp }}/language-packs/
             !${{ runner.temp }}/language-packs/stage
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 7
           overwrite: true
 
       # Onboarding grants Accessibility and Screen Recording only to a helper
