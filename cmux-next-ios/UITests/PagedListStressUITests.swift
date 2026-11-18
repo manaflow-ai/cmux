@@ -59,7 +59,8 @@ final class PagedListStressUITests: XCTestCase {
         if let window { extra += ["-cmux-mobile-paged-lab-window", String(window)] }
         let lab = PagedLabDriver.launch("\(direction):normal", extra: extra, test: self)
         let name = "STRESS-\(direction)-\(speed.rawValue)-\(load)"
-        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 20), "\(name): no rows")
+        // Any row: under a flood or inserts the first row read can already be off screen.
+        XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 20), "\(name): no rows")
         let gestures = speed == .slow ? 14 : 12
         for _ in 0..<gestures { lab.scroll(towardOlder: true, direction: direction, speed: speed) }
         lab.attach("\(name)-deep")
