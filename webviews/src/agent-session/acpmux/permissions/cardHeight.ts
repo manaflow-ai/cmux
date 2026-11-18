@@ -194,7 +194,7 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     const by = answer.respondent;
     const display = chatDisplay();
     const metrics = chatMetrics(display);
-    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    const tracking = chatUiFontVariables(display.uiFont, display.uiFamily)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
     // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).

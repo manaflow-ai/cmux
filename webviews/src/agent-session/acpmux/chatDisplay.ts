@@ -27,6 +27,7 @@ import {
 import {
   applyChatFontFaces,
   CHAT_FONT_FACES_KEY,
+  chatFontFacesKey,
   measurableStack,
   quoteFamilyStack,
   resolveChatFontFaces,
@@ -348,6 +349,8 @@ export function chatDisplayVariables(
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
     // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack sets one.
     "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
+    // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
+    "--cv-reply-tracking": display.proseFamily ? "0px" : null,
     "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
     // New Tab applies density with zoom, so its prompt needs the unscaled preference.
     "--cv-base-font-size": display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize ? null : `${display.fontSize}px`,
@@ -387,8 +390,8 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
 let promptCoachOn = true;
-/// The faces value last applied (CHAT_FONT_FACES_KEY), by identity.
-let appliedRawFaces: unknown;
+/// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
+let appliedFacesKey = "";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -423,15 +426,16 @@ export function setChatDisplay(value: unknown): void {
   // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
   // have loaded the estimate measures them (the measure stacks change), under a new look that has
   // the transcript measure every row again, as a bundled face's load does below.
-  // The page's own writes (changeChatDisplay, a slider step) keep the map's object: no new look.
+  // An unchanged map (the same key; a host push brings a new object each time) applies nothing.
   const rawFaces = raw[CHAT_FONT_FACES_KEY];
+  const facesKey = chatFontFacesKey(rawFaces);
   const facesChanged =
-    rawFaces !== appliedRawFaces &&
+    facesKey !== appliedFacesKey &&
     applyChatFontFaces(resolveChatFontFaces(rawFaces), () => {
       current = { ...current };
       for (const listener of listeners) listener();
     });
-  appliedRawFaces = rawFaces;
+  appliedFacesKey = facesKey;
   if (
     same &&
     !facesChanged &&

@@ -56,12 +56,28 @@ export function chatFontFaceCss(faces: readonly ChatFontFace[]): string {
     .join("\n");
 }
 
+/// A cheap key of a faces value: its keys, each value's length and ends. A host push brings a new
+/// object each time; this tells an unchanged map without validating and joining megabytes again.
+export function chatFontFacesKey(raw: unknown): string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  return Object.entries(raw as Record<string, unknown>)
+    .map(([key, value]) =>
+      typeof value === "string" ? `${key}\u0000${value.length}\u0000${value.slice(0, 48)}${value.slice(-48)}` : key,
+    )
+    .join("\u0001");
+}
+
 /// The families the current map declares (lower case), and those of them whose faces have loaded.
 let declared = new Set<string>();
 const loaded = new Set<string>();
 /// The map last applied, by its rules, so the same map applies nothing again.
 let appliedCss = "";
 let generation = 0;
+/// Counts every change to what the pack's families draw as (a new map, a load). The estimator's
+/// caches (pretext's own included) are keyed by the canvas font string, and a map replaced or
+/// emptied can bring a family's string back to one measured under another face: the epoch, a family
+/// no canvas has, keeps each face's measurements apart (measurableStack).
+let epoch = 0;
 
 /// Declares `faces` in this document, replacing the pack's previous ones, and calls `ready` once
 /// they have loaded (or failed to, which leaves each stack's next face drawing). Returns whether
@@ -71,6 +87,7 @@ export function applyChatFontFaces(faces: readonly ChatFontFace[], ready: () => 
   if (css === appliedCss) return false;
   appliedCss = css;
   const run = ++generation;
+  epoch += 1;
   declared = new Set(faces.map((face) => face.family.toLowerCase()));
   loaded.clear();
   if (typeof document === "undefined") return true;
@@ -92,6 +109,7 @@ export function applyChatFontFaces(faces: readonly ChatFontFace[], ready: () => 
   void Promise.all(loads).then(() => {
     if (run !== generation) return;
     for (const face of faces) loaded.add(face.family.toLowerCase());
+    epoch += 1;
     ready();
   });
   return true;
@@ -104,19 +122,22 @@ const names = (stack: string): string[] =>
     .map((name) => name.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean);
 
-/// A stack (`Folio Sans, Georgia, serif`) with each name that has a space quoted, as CSS and a
-/// canvas font string read it.
+/// The names CSS and a canvas read as keywords, never quoted.
+const KEYWORDS =
+  /^(serif|sans-serif|monospace|cursive|fantasy|math|emoji|fangsong|system-ui|ui-[a-z-]+|-apple-system|BlinkMacSystemFont)$/i;
+
+/// A stack (`Folio Sans, Georgia, serif`) as CSS and a canvas font string read it: every name but a
+/// generic keyword quoted, so a name such as `1942` or `Foo's` cannot invalidate the whole stack.
 export const quoteFamilyStack = (stack: string): string =>
   names(stack)
-    .map((name) => (/\s/.test(name) ? `"${name}"` : name))
+    .map((name) => (KEYWORDS.test(name) ? name : `"${name}"`))
     .join(", ");
 
 /// `stack` as the estimator's canvas can draw it now: without the pack's families whose faces have
-/// not loaded yet. Empty when none remains.
+/// not loaded yet, and once any map was applied, the faces' epoch (a name no canvas has) after them.
+/// Empty when none remains.
 export function measurableStack(stack: string): string {
-  return quoteFamilyStack(
-    names(stack)
-      .filter((name) => !declared.has(name.toLowerCase()) || loaded.has(name.toLowerCase()))
-      .join(", "),
-  );
+  const kept = names(stack).filter((name) => !declared.has(name.toLowerCase()) || loaded.has(name.toLowerCase()));
+  if (!kept.length) return "";
+  return quoteFamilyStack([...kept, ...(epoch ? [`cmux-pack-${epoch}`] : [])].join(", "));
 }

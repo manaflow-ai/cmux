@@ -1200,6 +1200,7 @@
    face (`replyMeasureFont`). */
 .cv-md.cv-reply {
   font-family: var(--cv-reply-font, var(--cv-font));
+  letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
 }
 .cv-md > :first-child {
   margin-top: 0;
