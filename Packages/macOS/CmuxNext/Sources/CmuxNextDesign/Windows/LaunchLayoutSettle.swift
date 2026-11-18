@@ -69,7 +69,11 @@ public final class LaunchLayoutSettle {
     private func frame() -> Bool {
         let now = now()
         // A launch that never shows a window stops looking after 30 s, and writes nothing.
-        guard let front = frontWindow() else { return now < 30_000 }
+        guard let front = frontWindow() else {
+            if now < 30_000 { return true }
+            client = nil // no window in 30 s: let go of the cycle through the client's closure
+            return false
+        }
         let started = CACurrentMediaTime()
         let read = WindowViewGeometry(window: front)
         defer { costMs += (CACurrentMediaTime() - started) * 1_000 }

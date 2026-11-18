@@ -55,6 +55,8 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
     /// stream (``LaunchMarkSink``, nothing without one): `web.layout.max_move` and
     /// `web.layout.max_move.<element>` in CSS px, `web.layout.shifts` a count.
     func layoutSettle(at date: Date, maxMovePx: Double, element: String, shifts: Int) {
+        // No harness, no marks: not even the in-memory launch mark.
+        guard LaunchMarkSink.shared.isActive else { return }
         let first = state.withLock { state -> Bool in
             defer { state.layoutSettled = true }
             return !state.layoutSettled

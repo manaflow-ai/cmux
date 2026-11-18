@@ -23,8 +23,9 @@ export type SettleBox = { x: number; y: number; w: number; h: number };
 
 /// The watch ends after this long with nothing moving.
 export const QUIET_MS = 1_500;
-/// The watch ends this long after first paint, moving or not.
-export const CAP_MS = 5_000;
+/// The watch ends this long after first paint, moving or not. The page paints about 1 s after the window shows, and
+/// launch-ready quits the app 6 s after it shows, so the report must come before then.
+export const CAP_MS = 4_000;
 /// A box that moved by no more than this did not move (layoutWatch.ts `tolerance`).
 export const TOLERANCE_PX = 1;
 /// A layout-shift entry this close to a frame already counted is that frame's move.
@@ -159,7 +160,10 @@ export function watchLaunchSettle(
   doc: Document = document,
 ): () => void {
   const view = doc.defaultView;
-  if (started || !view || doc.visibilityState === "hidden") return () => {};
+  // Only while a launch harness reads the marks: the host's `__snapshot/chat.js` says so (AgentPaneChatSnapshots).
+  // A person's launch runs nothing here.
+  const measured = (view as (Window & { __cmuxLaunchMeasured?: boolean }) | null)?.__cmuxLaunchMeasured === true;
+  if (started || !view || !measured || doc.visibilityState === "hidden") return () => {};
   started = true;
   const settle = new LaunchSettle(Date.now());
   let frame: number | undefined;

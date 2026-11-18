@@ -83,11 +83,13 @@ describe("LaunchSettle", () => {
 describe("watchLaunchSettle", () => {
   afterEach(() => resetLaunchSettleForTest());
 
-  function page(hidden = false) {
+  function page(hidden = false, measured = true) {
     const dom = new JSDOM(
       `<!doctype html><main id="root"><div class="acpmux-scroll"><article class="acpmux-row" data-row-id="r1">a</article></div><div class="acpmux-composer-box"></div></main>`,
       { pretendToBeVisual: true },
     );
+    // What the host's `__snapshot/chat.js` sets while a launch harness reads the marks.
+    if (measured) Object.assign(dom.window, { __cmuxLaunchMeasured: true });
     if (hidden) Object.defineProperty(dom.window.document, "visibilityState", { value: "hidden" });
     const sent: [string, Record<string, unknown>][] = [];
     const report = (method: string, params: Record<string, unknown>) => {
@@ -122,6 +124,22 @@ describe("watchLaunchSettle", () => {
     expect(sent[0]![0]).toBe("pane.launchSettle");
     expect(sent[0]![1]).toMatchObject({ maxMovePx: 0, element: "none", shifts: 0 });
     expect(typeof sent[0]![1].settledEpochMs).toBe("number");
+    dom.window.close();
+  });
+
+  test("a launch no harness measures watches nothing", () => {
+    const { dom, sent, report } = page(false, false);
+    const view = dom.window;
+    let frames = 0;
+    const requestAnimationFrame = view.requestAnimationFrame.bind(view);
+    view.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames += 1;
+      return requestAnimationFrame(callback);
+    }) as typeof view.requestAnimationFrame;
+    watchLaunchSettle(report, "cmux-chat-snapshot", view.document);
+    view.dispatchEvent(new view.Event("pointerdown"));
+    expect(frames).toBe(0);
+    expect(sent).toHaveLength(0);
     dom.window.close();
   });
 

@@ -143,7 +143,9 @@ def layout_line(side, runs, params=""):
               "settle_minus_first_frame_p90_ms": med("settle_minus_first_frame_ms", 0.9), "max_move_pt": med("max_move_pt"),
               "max_move_pt_max": med("max_move_pt", 1.0), "moved": most("moved"), "last": most("last"),
               "capped": sum(lay["capped"] for lay in layouts), "web_settle_ms": med("web_settle_ms"),
-              "web_max_move_px": med("web_max_move_px")}
+              "web_max_move_px": med("web_max_move_px"),
+              # A launch whose chat page sent no report (it was still moving at the quit, or showed no chat page).
+              "web_n_missing": sum(lay["web_settle_ms"] is None for lay in layouts)}
     print("LR-LAYOUT", side, (params + " " if params else "") + " ".join(f"{k}={v}" for k, v in fields.items()), flush=True)
     return fields
 
@@ -162,7 +164,8 @@ def summarize(rows, case="kept", seeded="", params=""):
             med[name] = round(statistics.median(vals), 1) if vals else None
         # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
         med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
-        names = dict.fromkeys(name for r in done for name in r["marks"])
+        # The settle marks (points, counts) are not times: LR-LAYOUT reports them.
+        names = dict.fromkeys(name for r in done for name in r["marks"] if not name.startswith(("layout.", "web.layout.")))
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, measured, usable, anchor = [], None, 0, 0, None

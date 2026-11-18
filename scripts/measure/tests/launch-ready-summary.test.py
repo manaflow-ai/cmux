@@ -178,6 +178,7 @@ class LayoutTests(unittest.TestCase):
         line = next(l for l in out.getvalue().splitlines() if l.startswith("LR-LAYOUT head "))
         self.assertIn("state=kept front=tab n=1 n_missing=1 first_frame_ms=500.0 settle_ms=900.0 settle_minus_first_frame_ms=400.0", line)
         self.assertIn("moved=SidebarRowView:1", line)
+        self.assertIn("web_n_missing=1", line)
 
     def test_no_layout_mark_prints_none_not_zero(self):
         _, lines = run([row("base", "prime", TAB), row("base", "run1", TAB, TAB_MARKS, "tabs")])
