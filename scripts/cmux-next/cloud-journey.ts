@@ -2778,6 +2778,15 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
   `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
 
 /**
+ * Whether the journey's Claude login goes with the agent's start as its launch credential (cmux#40159), never onto the
+ * machine. Codex keeps the machine login and the stub's own provider (CODEX_STUB_CONFIG), which a launch credential
+ * would replace with api.openai.com.
+ */
+export function startsOnLaunchCredential(o: { modelStub: boolean; provider?: string; login: string; gatewayAny: boolean; startVia: string }): boolean {
+  return o.modelStub && o.provider === "claude" && Boolean(o.login) && !o.gatewayAny && o.startVia === "acp";
+}
+
+/**
  * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
  * holds no login; acpmux agent_credentials.rs): `session/new` on the machine's acpmux socket with
  * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
@@ -3568,10 +3577,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  // --model stub with Claude: the login goes with the agent's start as its launch credential (cmux#40159), never onto
-  // the machine. Codex keeps the machine login and the stub's own provider (CODEX_STUB_CONFIG), which a launch
-  // credential would replace with api.openai.com.
-  const launchCredential = modelStub && provider === "claude" && Boolean(login) && !gatewayAny && startVia === "acp";
+  const launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia });
   const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
