@@ -1439,6 +1439,7 @@ export function heldAtOrBefore(events: readonly EventRecord[], seq: number): num
 /// where the row begins instead (`firstHeldFrom`) found the same cut again when no held record lay between, and spun
 /// with the page's main thread held: Leo's NIGHTLY renderer at 100% CPU and 14 GB, its pages unclosable.
 export function spanCut(events: readonly EventRecord[], cut: number, spanningFrom: (seq: number) => number): number {
+  // ends: `cut` moves to an older record every pass (`heldAtOrBefore`), or the pass breaks, to 0 at most
   while (cut > 0) {
     const { seq } = events[cut]!;
     const from = spanningFrom(seq);

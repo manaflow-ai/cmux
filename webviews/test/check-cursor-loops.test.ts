@@ -2,13 +2,10 @@
 // row model says why it ends (`// ends: <reason>`), so a loop like shedOlderHeld's span loop, which found the same cut
 // again and spun Leo's renderer at 100% CPU, cannot come back unread.
 import { expect, test } from "bun:test";
-import { findAllUnprovedLoops, findUnprovedLoops, KNOWN_OPEN } from "../scripts/check-cursor-loops";
+import { findAllUnprovedLoops, findUnprovedLoops } from "../scripts/check-cursor-loops";
 
 test("every loop in direct.ts and the row model says why it ends", () => {
-  const found = findAllUnprovedLoops();
-  expect(found.filter((f) => !f.known).map((f) => `${f.file}:${f.line} ${f.text}`)).toEqual([]);
-  // Only the loops KNOWN_OPEN names pass unmarked, at most one each.
-  expect(found.length).toBeLessThanOrEqual(KNOWN_OPEN.length);
+  expect(findAllUnprovedLoops().map((f) => `${f.file}:${f.line} ${f.text}`)).toEqual([]);
 });
 
 test("a loop with no ends: marker is flagged; a marked one, prose and a do-while's tail are not", () => {
@@ -41,13 +38,4 @@ test("a loop with no ends: marker is flagged; a marked one, prose and a do-while
     "12 do {",
     "18 while (cut > 0) {",
   ]);
-});
-
-test("a known open loop is reported as known only where its body names it", () => {
-  const entry = KNOWN_OPEN[0]!;
-  const body = (inner: string) => ["    " + entry.loop, "      const { seq } = this.events[cut]!;", inner, "    }"];
-  const named = findUnprovedLoops(entry.file, body("      " + entry.body).join("\n"));
-  expect(named.map((f) => Boolean(f.known))).toEqual([true]);
-  const other = findUnprovedLoops(entry.file, body("      cut -= 1;").join("\n"));
-  expect(other.map((f) => Boolean(f.known))).toEqual([false]);
 });

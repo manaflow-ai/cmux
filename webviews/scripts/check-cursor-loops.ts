@@ -28,19 +28,7 @@ const DO_TAIL = /^\s*\}\s*while\s*\(/;
 const MARKER = /\/\/\/?\s*ends:\s*\S/;
 const COMMENT_LINE = /^\s*\/\//;
 
-/// A loop known to have no proof, being fixed on its own branch: reported, never failed, so the rule can land first.
-/// `loop` is the loop line's text, `body` a line within the next few that names it. Drop the entry once its fix lands
-/// (the fix carries its own `ends:`); an entry that no longer matches is only noted.
-export const KNOWN_OPEN: readonly { file: string; loop: string; body: string; why: string }[] = [
-  {
-    file: `${ACPMUX}/direct.ts`,
-    loop: "while (cut > 0) {",
-    body: "cut = firstHeldFrom(this.events, from);",
-    why: "shedOlderHeld's span loop; lane/shed-span-loop-ends replaces it with spanCut, which steps to heldAtOrBefore",
-  },
-];
-
-export type LoopFinding = { file: string; line: number; text: string; known?: string };
+export type LoopFinding = { file: string; line: number; text: string };
 
 /// The loops in one file's text that do not say why they end.
 export function findUnprovedLoops(file: string, text: string): LoopFinding[] {
@@ -72,12 +60,7 @@ export function findUnprovedLoops(file: string, text: string): LoopFinding[] {
         break;
       }
     if (marked) continue;
-    const trimmed = raw.trim();
-    const window = lines.slice(index + 1, index + 9).map((line) => line.trim());
-    const known = KNOWN_OPEN.find(
-      (entry) => entry.file === file && entry.loop === trimmed && window.includes(entry.body),
-    );
-    findings.push({ file, line: index + 1, text: trimmed, ...(known && { known: known.why }) });
+    findings.push({ file, line: index + 1, text: raw.trim() });
   }
   return findings;
 }
@@ -90,7 +73,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/// Every loop in the rule's files that does not say why it ends, known open ones marked.
+/// Every loop in the rule's files that does not say why it ends.
 export function findAllUnprovedLoops(srcDir: string = SRC): LoopFinding[] {
   const paths = [
     ...LOOP_FILES.map((file) => join(srcDir, file)),
@@ -101,15 +84,12 @@ export function findAllUnprovedLoops(srcDir: string = SRC): LoopFinding[] {
 
 if (import.meta.main) {
   const found = findAllUnprovedLoops();
-  const open = found.filter((f) => !f.known);
-  for (const f of found.filter((f) => f.known))
-    console.log(`cursor loop (known open, fixed on its own branch): ${f.file}:${f.line}: ${f.text} (${f.known})`);
-  for (const f of open)
+  for (const f of found)
     console.error(
       `cursor loop: ${f.file}:${f.line}: ${f.text} ` +
         "(say why it ends in a `// ends: <reason>` line above it: the cursor that moves each pass, a check that " +
         "returns when a pass moved nothing, or a cap)",
     );
-  if (open.length) process.exitCode = 1;
+  if (found.length) process.exitCode = 1;
   else console.log("Cursor loops checked: each says why it ends.");
 }
