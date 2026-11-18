@@ -57,6 +57,9 @@ final class DiffRenderModel: @unchecked Sendable {
     /// Unwrapped: the code column's natural width (the longest line and trailing room).
     let codeWidth: CGFloat
     let fonts: DiffFonts
+    /// Rows whose height this model measured when it was made (tests: a width step measures the
+    /// rows near the screen, not every row).
+    let heightsMade: Int
 
     var style: DiffRenderStyle { key.style }
     var isPinned: Bool { !style.wrap && !style.split }
@@ -109,6 +112,7 @@ final class DiffRenderModel: @unchecked Sendable {
             return max(codeLine, ceil(rect.height))
         }
         let splitText = (style.width - 1) / 2 - DiffRenderModel.splitNumberColumn
+        heightsMade = rows.rows.count
         heights = rows.rows.map { row in
             switch row {
             case .header, .gap, .collapsed:

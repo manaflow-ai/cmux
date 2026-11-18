@@ -85,6 +85,11 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     var followsBottom: () -> Bool = { true }
     /// Rows measured by a cell (tests and the rig's log).
     private(set) var measurements = 0
+    /// Rows whose height was looked up again from what cells measured (tests: a width change or one
+    /// changed row looks up the rows it changed, not every row).
+    private(set) var heightsResolved = 0
+    /// Row offsets written (tests: one changed height writes O(log n) of them, not every row's).
+    private(set) var offsetWrites = 0
 
     // MARK: Rows
 
@@ -136,6 +141,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func height(for item: Item) -> CGFloat {
+        heightsResolved += 1
         guard !item.exact, let known = measured[item.id]?.height(fold: item.fold) else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
     }
@@ -244,6 +250,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         for row in from..<items.count {
             y += items[row].gap
             if row < tops.count { tops[row] = y } else { tops.append(y) }
+            offsetWrites += 1
             y += heights[row]
         }
         contentHeight = items.isEmpty ? 0 : y + trailingGap
@@ -571,6 +578,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var warmUpOffers = 0
     /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
     private(set) var snapshotApplies = 0
+    /// Native rows sent to be laid out off the main thread (tests: a width change sends the rows near
+    /// the screen, not every row of the chat).
+    private(set) var layoutsAsked = 0
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
 
@@ -717,6 +727,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private func prepare(_ ids: [String], urgent: Bool) {
         let jobs = ids.compactMap { lookup.job(for: $0) }
         guard !jobs.isEmpty else { return }
+        layoutsAsked += jobs.count
         lookup.layouts.prepare(jobs, urgent: urgent) { [weak self] ready in self?.layoutsReady(ready) }
     }
 

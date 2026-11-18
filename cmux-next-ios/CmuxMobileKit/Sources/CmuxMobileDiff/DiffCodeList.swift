@@ -251,6 +251,10 @@ final class DiffCodeLayout: UICollectionViewLayout {
     /// `offsets[i]` is row i's top; the last entry is the rows' total height.
     private var offsets: [CGFloat] = []
     static let bottomPadding: CGFloat = 24
+    /// Rows this layout measured itself (tests; the model measures every row when it is made).
+    private(set) var rowsMeasured = 0
+    /// Row offsets written (tests: a width step writes the offsets of the rows it measured).
+    private(set) var offsetWrites = 0
 
     override func prepare() {
         super.prepare()
@@ -263,6 +267,7 @@ final class DiffCodeLayout: UICollectionViewLayout {
             y += height
         }
         offsets.append(y)
+        offsetWrites += offsets.count
         self.offsets = offsets
     }
 
