@@ -134,15 +134,23 @@ function McpGroupCalls({ id, items }: { id: string; items: readonly AcpmuxActivi
   return (
     <div ref={list} className="cv-tool-group" id={id}>
       {windowedSteps(pieces, (from, to) =>
-        items.slice(from, to).map((item, offset) => (
-          <div key={keys[from + offset]} className="cv-mcp-step" data-step={keys[from + offset]}>
-            <McpCallRow item={item} grouped />
-          </div>
-        )),
+        items
+          .slice(from, to)
+          .map((item, offset) => <McpGroupCall key={keys[from + offset]} item={item} stepKey={keys[from + offset]} />),
       )}
     </div>
   );
 }
+
+/// One call of the group in its flex column, memoized with it, so a window that moves or a sibling's
+/// change draws neither the call nor its column again.
+const McpGroupCall = memo(function McpGroupCall({ item, stepKey }: { item: AcpmuxActivity; stepKey: string }) {
+  return (
+    <div className="cv-mcp-step" data-step={stepKey}>
+      <McpCallRow item={item} grouped />
+    </div>
+  );
+});
 
 /// The group's call keys (a call's id, else its place), a new array only when a call joins or one
 /// takes another's place, never when a listed call streams its response.

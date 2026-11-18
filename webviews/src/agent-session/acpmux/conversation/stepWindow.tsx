@@ -78,19 +78,23 @@ export type StepPiece = { from: number; to: number; rest?: number };
 type View = { top: number; height: number };
 
 /// What clips the list, and the view's top in the list's own px with its height: the run's box while
-/// it scrolls, else the transcript's scroller. No layout (a test DOM): the box's own offset over its cap.
+/// it scrolls, else the transcript's scroller, and never more than the window shows (a box that does
+/// not scroll, with no transcript around it, is clipped by the window alone). No layout (a test DOM):
+/// the box's own offset over its cap.
 function readView(node: HTMLElement): View & { clip?: HTMLElement } {
   const box = node.closest<HTMLElement>(".cv-run-scroll") ?? undefined;
   const scroller = node.closest<HTMLElement>(".acpmux-scroll") ?? undefined;
   if (!node.getClientRects().length)
     return { top: box?.scrollTop ?? 0, height: box ? BOX_PX : window.innerHeight || BOX_PX, clip: box };
   const clip = box && box.scrollHeight > box.clientHeight + 1 ? box : (scroller ?? box);
-  if (!clip) return { top: 0, height: window.innerHeight };
-  return {
-    top: clip.getBoundingClientRect().top - node.getBoundingClientRect().top,
-    height: clip.clientHeight,
-    clip,
-  };
+  const listTop = node.getBoundingClientRect().top;
+  const clipTop = clip ? clip.getBoundingClientRect().top : 0;
+  const clipBottom = clip ? clipTop + clip.clientHeight : window.innerHeight;
+  const top = Math.max(clipTop, 0);
+  const bottom = Math.min(clipBottom, window.innerHeight);
+  // Out of the window: the clip's own view, so the window waits by the edge nearest it.
+  if (bottom <= top) return { top: clipTop - listTop, height: clipBottom - clipTop || window.innerHeight, clip };
+  return { top: top - listTop, height: bottom - top, clip };
 }
 
 /// The first and last step a view mounts: itself and a view's height over and under it.
@@ -268,8 +272,10 @@ export function useStepWindow({
     const box = node.closest<HTMLElement>(".cv-run-scroll");
     const scroller = node.closest<HTMLElement>(".acpmux-scroll");
     const scrolled = () => follow.current(true);
+    const view = node.ownerDocument.defaultView;
     box?.addEventListener("scroll", scrolled, { passive: true });
     scroller?.addEventListener("scroll", scrolled, { passive: true });
+    view?.addEventListener("scroll", scrolled, { passive: true });
     const Observer = node.ownerDocument.defaultView?.ResizeObserver;
     const sizes = Observer
       ? new Observer(() => {
@@ -320,6 +326,7 @@ export function useStepWindow({
     return () => {
       box?.removeEventListener("scroll", scrolled);
       scroller?.removeEventListener("scroll", scrolled);
+      view?.removeEventListener("scroll", scrolled);
       sizes?.disconnect();
       node.removeEventListener("focusin", focusin);
       node.removeEventListener("focusout", focusout);
