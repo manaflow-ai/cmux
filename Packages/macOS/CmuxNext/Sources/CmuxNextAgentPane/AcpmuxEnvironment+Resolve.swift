@@ -83,6 +83,9 @@ nonisolated extension AcpmuxEnvironment {
         for key in AcpmuxEnvironment.agentLaunchKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
+        // Experiment (lane/rtc-alloy-experiment, not for merge): the daemon names its config root, so a DEV build
+        // reads $HOME/.config/cmux/harnesses, where the relaunch-restore check writes its l5fake harness (cmux#45353).
+        childEnvironment["XDG_CONFIG_HOME"] = environment["XDG_CONFIG_HOME"] ?? ((environment["HOME"] ?? userHome.path) + "/.config")
         if let cli = bundledBinDirectory?.appending(path: "cmux", directoryHint: .notDirectory).path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }
