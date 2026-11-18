@@ -78,19 +78,150 @@ export interface DashboardSummary {
 
 /** The tally over jobs (not rows), the share done, and the ETA at `now`. */
 export function dashboardSummary(jobs: readonly DashboardJob[], now: number): DashboardSummary {
+  return { ...dashboardTally(jobs), eta: dashboardEta(timedJobs(jobs), now) };
+}
+
+/** The tally and the share done: what does not move with the clock, read once per answer. */
+export function dashboardTally(jobs: readonly DashboardJob[]): Omit<DashboardSummary, "eta"> {
   const count = (state: JobState) => jobs.filter((job) => job.state === state).length;
   const passed = count("passed") + count("skipped");
   const failed = count("failed");
   const running = count("running");
   const queued = count("queued");
   const total = jobs.length;
+  return { passed, failed, running, queued, total, progress: total ? (passed + failed) / total : 1 };
+}
+
+/** The jobs the ETA reads: running or queued with a base duration. A clock tick reads only these. */
+export function timedJobs(jobs: readonly DashboardJob[]): DashboardJob[] {
+  return jobs.filter((job) => (job.state === "running" || job.state === "queued") && job.expected != null);
+}
+
+/** Seconds until the last of `timed` (timedJobs) should end at `now`; null when none says. */
+export function dashboardEta(timed: readonly DashboardJob[], now: number): number | null {
   let eta: number | null = null;
-  for (const job of jobs) {
-    if ((job.state !== "running" && job.state !== "queued") || job.expected == null) continue;
-    const left = job.expected - (job.state === "running" ? elapsed(job, now) : 0);
+  for (const job of timed) {
+    const left = job.expected! - (job.state === "running" ? elapsed(job, now) : 0);
     eta = Math.max(eta ?? 0, left, 0);
   }
-  return { passed, failed, running, queued, total, progress: total ? (passed + failed) / total : 1, eta };
+  return eta;
+}
+
+/** Whether a row's time moves with the clock: one of its jobs runs (rowTime counts it up to now). */
+export function liveRow(row: DashboardRow): boolean {
+  return row.jobs.some((job) => job.state === "running");
+}
+
+/** Whether a row draws its failures under it (ChecksDashboard Failure), which on a wide band takes
+ *  the whole width (styles.css `.gh-ci-row:has(.gh-ci-failure)`). */
+export function wideRow(row: DashboardRow): boolean {
+  return (
+    row.state === "failed" &&
+    row.jobs.some((job) => job.state === "failed" && (row.matrix || !!job.failure?.step || !!job.failure?.excerpt))
+  );
+}
+
+/** `next` with each row that says the same as the one of its key in `previous` replaced by that
+ *  one, so a memoized row draws again only when its own jobs changed. Once per answer. */
+export function keepRows(previous: readonly DashboardRow[], next: readonly DashboardRow[]): DashboardRow[] {
+  const held = new Map(previous.map((row) => [row.key, row]));
+  return next.map((row) => {
+    const old = held.get(row.key);
+    return old && sameRow(old, row) ? old : row;
+  });
+}
+
+function sameRow(a: DashboardRow, b: DashboardRow): boolean {
+  return (
+    a.name === b.name &&
+    a.workflow === b.workflow &&
+    a.state === b.state &&
+    a.matrix === b.matrix &&
+    a.jobs.length === b.jobs.length &&
+    a.jobs.every((job, index) => sameJob(job, b.jobs[index]!))
+  );
+}
+
+function sameJob(a: DashboardJob, b: DashboardJob): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a) as (keyof DashboardJob)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) =>
+    key === "failure"
+      ? a.failure?.step === b.failure?.step && a.failure?.excerpt === b.failure?.excerpt
+      : a[key] === b[key],
+  );
+}
+
+/** The dashboard's groups, in the order they draw. */
+export type DashboardGroup = "failed" | "running" | "queued" | "passed";
+
+/**
+ * One item of the dashboard's windowed list: a group's title (the passed group's is its fold), or
+ * one line of rows: a row with its failures under it alone, else up to `columns` rows side by side,
+ * as the band's grid places them. `first` is the line's first row's place in its group (from 1),
+ * `size` its group's row count (aria-posinset / aria-setsize). `gap`: the room between groups.
+ */
+export type DashboardItem =
+  | { kind: "title"; key: string; group: Exclude<DashboardGroup, "passed">; gap: boolean }
+  | { kind: "fold"; key: string; gap: boolean }
+  | {
+      kind: "line";
+      key: string;
+      group: DashboardGroup;
+      rows: DashboardRow[];
+      first: number;
+      size: number;
+      wide: boolean;
+    };
+
+/** The kinds of item whose heights differ, each sized by the first of its kind measured. */
+export type DashboardSize = "title" | "title-gap" | "fold" | "fold-gap" | "line" | "failure";
+
+export function itemSize(item: DashboardItem): DashboardSize {
+  if (item.kind === "line") return item.wide ? "failure" : "line";
+  return item.gap ? `${item.kind}-gap` : item.kind;
+}
+
+/** The dashboard as items, once per answer, fold or column count. */
+export function dashboardItems(
+  buckets: Record<DashboardGroup, readonly DashboardRow[]>,
+  showPassed: boolean,
+  columns: number,
+): DashboardItem[] {
+  const items: DashboardItem[] = [];
+  const lines = (group: DashboardGroup, rows: readonly DashboardRow[]) => {
+    let line: DashboardRow[] = [];
+    let first = 1;
+    const size = rows.length;
+    const flush = () => {
+      if (line.length === 0) return;
+      items.push({ kind: "line", key: `line:${line[0]!.key}`, group, rows: line, first, size, wide: false });
+      first += line.length;
+      line = [];
+    };
+    for (const row of rows) {
+      if (group === "failed" && wideRow(row)) {
+        flush();
+        items.push({ kind: "line", key: `line:${row.key}`, group, rows: [row], first, size, wide: true });
+        first += 1;
+        continue;
+      }
+      line.push(row);
+      if (line.length >= columns) flush();
+    }
+    flush();
+  };
+  for (const group of ["failed", "running", "queued"] as const) {
+    if (buckets[group].length === 0) continue;
+    items.push({ kind: "title", key: `title:${group}`, group, gap: items.length > 0 });
+    lines(group, buckets[group]);
+  }
+  if (buckets.passed.length > 0) {
+    items.push({ kind: "fold", key: "fold:passed", gap: items.length > 0 });
+    if (showPassed) lines("passed", buckets.passed);
+  }
+  return items;
 }
 
 /**

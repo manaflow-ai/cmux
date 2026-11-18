@@ -440,6 +440,10 @@ html[data-cmux-page="github"],
   .gh-ci-band .gh-ci-row:has(.gh-ci-failure) { grid-column: 1 / -1; }
 }
 .gh-ci-row { border-radius: 6px; }
+/* The rows are one windowed list of titles, the passed fold and lines of rows (ChecksDashboard.tsx);
+   the room between two groups is the next group's own padding, so each item's measured height has it. */
+.gh-ci-item[data-gap] { padding-top: var(--ds-space-2); }
+.gh-ci-probe { block-size: 0; }
 .gh-ci-line {
   display: flex;
   align-items: center;
