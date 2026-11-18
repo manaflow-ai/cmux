@@ -28,7 +28,11 @@
  * (another disposable user with its own home and Xvfb, the same account) signs in to the
  * development device hub, waits for the machine's device to be online and shared, and asks for a
  * view: it must stream and decode a frame within SHARE_FRAME_LIMIT_MS, with no request waiting
- * for a person on the host (`linux-host requests` empty).
+ * for a person on the host (`linux-host requests` empty). Once it streams, a moving scene (x11-apps'
+ * `ico`) runs on the host's virtual display, so the picture and the frame rate show a live screen;
+ * it starts after the stream did, so it plays no part in the share. The evidence keeps the time to
+ * the first decoded frame, the decode rate, Mbit/s, and a PNG of the viewer's display (`frame.png`
+ * in the viewer's home, which the workflow uploads beside the evidence).
  */
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -52,8 +56,13 @@ export const SHARE_FRAME_LIMIT_MS = 60_000
 export const SHARE_HOLD_MS = 5_000
 /** The share stage's addition to the run's deadline. */
 export const SHARE_LIMIT_MS = 6 * 60_000
-/** The viewer's own virtual display (the host's starts at :99). */
+/** The viewer's own virtual display (the host's starts at :99), the size of the host's (setup.rs). */
 export const VIEWER_DISPLAY = ":42"
+export const VIEWER_SCREEN = "1920x1080x24"
+/** The viewer's display as a PNG, in the viewer's home. */
+export const FRAME_FILE = "frame.png"
+/** The scene drawn on the host's display once the stream runs: a bouncing solid polyhedron. */
+export const HOST_SCENE = ["ico", "-faces", "-geometry", "960x540+480+270"]
 /** What `cmux-rd linux-host requests` prints with no viewer waiting. */
 export const NO_REQUESTS = "No viewer is waiting."
 /** The bench's whole run: a cold and two warm installs of each project. */
@@ -206,6 +215,12 @@ export interface ShareEvidence {
   streamingMs: number | null
   /** From the viewer's start to its stop with a frame decoded: the first frame came within this. */
   firstFrameWithinMs: number | null
+  /** From the viewer's start (sign-in, request, ticket, link) to its "First frame decoded" line (to the 50 ms poll). */
+  firstFrameMs: number | null
+  /** Whether the scene started on the host's display (null: the enable named no virtual display). */
+  hostScene: boolean | null
+  /** The viewer's display as a PNG while it streamed (FRAME_FILE in the viewer's home). */
+  frame: { file: string; bytes: number; width: number; height: number } | null
   view: ViewStats | null
   /** The viewer was told to wait for the host's person. */
   hostPrompted: boolean
@@ -224,6 +239,10 @@ export interface ViewStats {
   decoded: number | null
   decodeErrors: number | null
   mbitPerS: number | null
+  /** From the viewer's link start to its first decoded frame. */
+  firstDecodedMs: number | null
+  /** Frames decoded per second from the first decoded frame to the last. */
+  decodedFps: number | null
   width: number | null
   height: number | null
   encoder: string | null
@@ -255,12 +274,26 @@ export function viewStats(text: string): ViewStats | null {
       decoded: num(r.decoded),
       decodeErrors: num(r.decode_errors),
       mbitPerS: num(r.mbit_per_s),
+      firstDecodedMs: num(r.first_decoded_ms),
+      decodedFps: num(r.decoded_fps),
       width: num(r.welcome?.width),
       height: num(r.welcome?.height),
       encoder: plainWord(r.welcome?.encoder)
     }
   }
   return null
+}
+
+/** A PNG's width and height from `od -An -tx1` of its first 24 bytes (signature, IHDR), else null. */
+export function pngSize(odText: string): { width: number; height: number } | null {
+  const b = odText.split(/\s+/).filter(Boolean).map((x) => Number.parseInt(x, 16))
+  const sig = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  if (b.length < 24 || b.some(Number.isNaN) || sig.some((x, i) => b[i] !== x)) return null
+  if (String.fromCharCode(...b.slice(12, 16)) !== "IHDR") return null
+  const be = (i: number) => b[i]! * 0x1000000 + (b[i + 1]! << 16) + (b[i + 2]! << 8) + b[i + 3]!
+  const width = be(16)
+  const height = be(20)
+  return width > 0 && height > 0 ? { width, height } : null
 }
 
 export interface ListedDevice {
@@ -568,6 +601,7 @@ export async function runE2E(
   // lines of the viewer and the host printed with a failure.
   let viewerStarted = false
   let viewerX: Daemon | undefined
+  let hostScene: Daemon | undefined
   let viewer: Live | undefined
   const shareLog: string[] = []
 
@@ -707,6 +741,10 @@ export async function runE2E(
           if (!(await settle(v.done, 1_000, 15_000))) v.kill()
           await settle(v.done.then((r) => childText.push(r.stdout, r.stderr)), 250, 1_000)
         }
+        // The scene on the host's display (the joined user's, also ended with that user's processes below).
+        const scene = hostScene
+        hostScene = undefined
+        if (scene) await settle(scene.stop(), 500, 5_000)
         const xStopping = x?.stop()
         await settle(killViewer("TERM"), 750, 5_000)
         if (xStopping) await settle(xStopping, 500, 5_000)
@@ -801,6 +839,9 @@ export async function runE2E(
       deviceOnlineMs: null,
       streamingMs: null,
       firstFrameWithinMs: null,
+      firstFrameMs: null,
+      hostScene: null,
+      frame: null,
       view: null,
       hostPrompted: false,
       requestsEmpty: null,
@@ -833,6 +874,25 @@ export async function runE2E(
       `HOME=${sh.viewerHome}`, `USER=${sh.viewerUser}`, `LOGNAME=${sh.viewerUser}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8", `DISPLAY=${VIEWER_DISPLAY}`,
       ...args
     ]
+    // xwd's dump of the viewer's root as a PNG (ImageMagick), then its size and its IHDR read back.
+    const framePath = `${sh.viewerHome}/${FRAME_FILE}`
+    const captureFrame = async (): Promise<ShareEvidence["frame"]> => {
+      live()
+      const shot = await deps.run(
+        asViewer(["/bin/sh", "-c", 'xwd -root -silent -display "$1" | convert xwd:- "png:$2"', "sh", VIEWER_DISPLAY, framePath]),
+        { env: childEnv, timeoutMs: 30_000 }
+      )
+      if (shot.code !== 0) {
+        shareLog.push(`frame: ${lastLine(shot)}`)
+        return null
+      }
+      const size = await deps.run(asViewer(["stat", "-c", "%s", "--", framePath]), { env: childEnv, timeoutMs: 10_000 })
+      const head = await deps.run(asViewer(["od", "-An", "-v", "-tx1", "-N", "24", "--", framePath]), { env: childEnv, timeoutMs: 10_000 })
+      const ihdr = pngSize(head.code === 0 ? head.stdout : "")
+      const bytes = Number(size.stdout.trim())
+      if (size.code !== 0 || !Number.isSafeInteger(bytes) || bytes <= 0 || !ihdr) return null
+      return { file: FRAME_FILE, bytes, ...ihdr }
+    }
     viewerStarted = true
     let enabled = false
     try {
@@ -841,7 +901,7 @@ export async function runE2E(
       const isSocket = async () => (await deps.run(asViewer(["test", "-S", socket]), { env: childEnv, timeoutMs: 10_000 })).code === 0
       if (await isSocket()) throw new Failed(`share: the display ${VIEWER_DISPLAY} is already taken`)
       live()
-      viewerX = deps.start(asViewer(["Xvfb", VIEWER_DISPLAY, "-screen", "0", "1280x800x24", "-nolisten", "tcp"]), { env: childEnv })
+      viewerX = deps.start(asViewer(["Xvfb", VIEWER_DISPLAY, "-screen", "0", VIEWER_SCREEN, "-nolisten", "tcp"]), { env: childEnv })
       const xBy = deps.now() + 10_000
       while (!(await isSocket())) {
         if (deps.now() >= xBy) throw new Failed(`share: the viewer's Xvfb ${VIEWER_DISPLAY} did not start within 10 s`)
@@ -909,21 +969,32 @@ export async function runE2E(
       void v.done.then(() => (ended = true))
       const frameBy = startedAt + SHARE_FRAME_LIMIT_MS
       let streamingAt: number | null = null
+      // The host's virtual display, as the enable named it.
+      const hostDisplay = ev.enable.lines.join("\n").match(/virtual display at (:\d{1,4})\b/)?.[1]
       for (;;) {
         const err = v.output().stderr
         if (/Waiting for its person/.test(err)) ev.hostPrompted = true
         if (streamingAt === null && /^Streaming \d+x\d+/m.test(err)) {
           streamingAt = deps.now()
           ev.streamingMs = streamingAt - startedAt
+          // The scene, once the host's display is up: something on the screen that moves.
+          ev.hostScene = hostDisplay ? !cleaning : null
+          if (hostDisplay && !cleaning) hostScene = deps.start(asUserTool(["/usr/bin/env", `DISPLAY=${hostDisplay}`, ...HOST_SCENE]), { env: childEnv })
         }
+        if (ev.firstFrameMs === null && /^First frame decoded$/m.test(err)) ev.firstFrameMs = deps.now() - startedAt
         if (ended || ev.hostPrompted || cleaning) break
         const stopAt = streamingAt === null ? frameBy : Math.min(frameBy, streamingAt + SHARE_HOLD_MS)
         if (deps.now() >= stopAt) break
-        await within(v.done, Math.min(250, stopAt - deps.now()), true)
+        await within(v.done, Math.min(ev.firstFrameMs === null ? 50 : 250, stopAt - deps.now()), true)
       }
       const stoppedAt = deps.now()
+      // The viewer's display while it still shows the stream: xwd of its root, as a PNG in its home.
+      if (streamingAt !== null && !ended && !cleaning) ev.frame = await captureFrame()
       viewer = undefined
       v.term()
+      const scene = hostScene
+      hostScene = undefined
+      if (scene) await settle(scene.stop(), 500, 5_000)
       if (!(await settle(v.done, 1_000, 15_000))) v.kill()
       let out: ChildResult | undefined
       await settle(v.done.then((r) => (out = r)), 250, 2_000)
@@ -935,6 +1006,7 @@ export async function runE2E(
       const decoded = (ev.view?.decoded ?? 0) >= 1
       if (decoded && streamingAt !== null) ev.firstFrameWithinMs = stoppedAt - startedAt
       if (ev.view) say(`view: streaming after ${ev.streamingMs} ms, ${ev.view.decoded} frame(s) decoded, ${ev.view.mbitPerS} Mbit/s, ${ev.view.width}x${ev.view.height}, path ${ev.view.path}`)
+      if (ev.view) say(`view: first frame ${ev.firstFrameMs} ms after the request, ${ev.view.decodedFps} fps decoded, picture ${ev.frame ? `${ev.frame.width}x${ev.frame.height} (${ev.frame.bytes} bytes)` : "none"}`)
 
       // No request reached the host's person.
       const requests = await host(["linux-host", "requests"], 30_000)
@@ -943,6 +1015,7 @@ export async function runE2E(
       expect(ev.streamingMs !== null, `share: the viewer did not stream within ${SHARE_FRAME_LIMIT_MS / 1000} s${ended && streamingAt === null ? ` (it ended: ${lastLine(out)})` : ""}`)
       expect(ev.firstFrameWithinMs !== null && ev.firstFrameWithinMs <= SHARE_FRAME_LIMIT_MS, `share: no frame decoded within ${SHARE_FRAME_LIMIT_MS / 1000} s of the request`)
       expect(ev.requestsEmpty, "share: linux-host requests on the host is not empty")
+      expect(ev.frame !== null, "share: no picture of the viewer's display was taken while it streamed")
     } finally {
       // The host unit's log, for a failure's log only (scanned like every child's output).
       if (enabled && !cleaning) {

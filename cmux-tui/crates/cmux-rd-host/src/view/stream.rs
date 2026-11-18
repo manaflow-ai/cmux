@@ -115,7 +115,10 @@ impl Waker {
         if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        Ok(Self(Arc::new(Pipe { read: fds[0], write: fds[1] })))
+        Ok(Self(Arc::new(Pipe {
+            read: fds[0],
+            write: fds[1],
+        })))
     }
 
     pub fn wake(&self) {
@@ -167,7 +170,11 @@ pub struct Picture {
 
 impl Picture {
     pub fn height(&self) -> usize {
-        self.image.y.len().checked_div(self.image.width).unwrap_or(0)
+        self.image
+            .y
+            .len()
+            .checked_div(self.image.width)
+            .unwrap_or(0)
     }
 }
 
@@ -201,6 +208,18 @@ struct Stats {
     bytes: u64,
     decode_ms: Vec<f64>,
     started_ns: u64,
+    /// When the first and the newest frame decoded: the time to a picture, and the decode rate.
+    first_decoded_ns: Option<u64>,
+    last_decoded_ns: u64,
+}
+
+impl Stats {
+    /// Frames decoded per second from the first decoded frame to the newest, once two are.
+    fn decoded_fps(&self) -> Option<f64> {
+        let first = self.first_decoded_ns?;
+        let span = self.last_decoded_ns.saturating_sub(first);
+        (self.decoded >= 2 && span > 0).then(|| (self.decoded - 1) as f64 / (span as f64 / 1e9))
+    }
 }
 
 /// Runs the session until it ends: the link's events, the hub's messages and the window's input.
@@ -220,14 +239,20 @@ pub fn run(
     let window_done = Arc::new(AtomicBool::new(false));
     let win = Window::open(&config.display, &config.title, config.control)?;
     let window_thread = {
-        let (mailbox, present_waker, input_waker, done) =
-            (mailbox.clone(), present_waker.clone(), input_waker.clone(), window_done.clone());
-        std::thread::Builder::new().name("rd-view-window".into()).spawn(move || {
-            let report = win.run(&mailbox, &present_waker, &input_tx, &input_waker);
-            done.store(true, Ordering::SeqCst);
-            input_waker.wake();
-            report
-        })?
+        let (mailbox, present_waker, input_waker, done) = (
+            mailbox.clone(),
+            present_waker.clone(),
+            input_waker.clone(),
+            window_done.clone(),
+        );
+        std::thread::Builder::new()
+            .name("rd-view-window".into())
+            .spawn(move || {
+                let report = win.run(&mailbox, &present_waker, &input_tx, &input_waker);
+                done.store(true, Ordering::SeqCst);
+                input_waker.wake();
+                report
+            })?
     };
 
     let mut reassembler = Reassembler::new(DEADLINE_US);
@@ -242,6 +267,8 @@ pub fn run(
         bytes: 0,
         decode_ms: Vec::new(),
         started_ns: now_ns(),
+        first_decoded_ns: None,
+        last_decoded_ns: 0,
     };
     let (mut last_feedback_ns, mut released_since_feedback) = (0u64, false);
     let mut last_input_send_ns = 0u64;
@@ -251,9 +278,18 @@ pub fn run(
     let ended: String = 'run: loop {
         let timeout_ns = reassembler
             .next_nack_us(5_000, 50_000)
-            .map_or(FEEDBACK_EVERY_NS, |d| d.saturating_mul(1000).saturating_sub(now_ns()))
-            .min(if sender.is_empty() { FEEDBACK_EVERY_NS } else { INPUT_REPEAT_NS });
-        wait_readable(&[net.event_fd(), hub_waker.fd(), input_waker.fd()], Some(timeout_ns))?;
+            .map_or(FEEDBACK_EVERY_NS, |d| {
+                d.saturating_mul(1000).saturating_sub(now_ns())
+            })
+            .min(if sender.is_empty() {
+                FEEDBACK_EVERY_NS
+            } else {
+                INPUT_REPEAT_NS
+            });
+        wait_readable(
+            &[net.event_fd(), hub_waker.fd(), input_waker.fd()],
+            Some(timeout_ns),
+        )?;
         hub_waker.drain();
         input_waker.drain();
         for message in from_hub.try_iter() {
@@ -281,7 +317,9 @@ pub fn run(
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
-                    kind: Some(k), rtt_us, ..
+                    kind: Some(k),
+                    rtt_us,
+                    ..
                 }) => {
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
@@ -297,7 +335,13 @@ pub fn run(
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     match serde_json::from_slice::<Control>(&record) {
-                        Ok(Control::Welcome { encoder, width, height, caps, .. }) => {
+                        Ok(Control::Welcome {
+                            encoder,
+                            width,
+                            height,
+                            caps,
+                            ..
+                        }) => {
                             eprintln!(
                                 "Streaming {width}x{height} ({encoder}{})",
                                 if caps.iter().any(|c| c == H264_BASELINE) {
@@ -385,8 +429,9 @@ pub fn run(
     }
     mailbox.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
     present_waker.wake();
-    let window_report =
-        window_thread.join().unwrap_or_else(|_| Err("the window thread panicked".into()));
+    let window_report = window_thread
+        .join()
+        .unwrap_or_else(|_| Err("the window thread panicked".into()));
     let window_report = window_report.unwrap_or_else(|e| {
         eprintln!("cmux-rd view: window: {e}");
         window::Report::default()
@@ -405,6 +450,8 @@ pub fn run(
             "decode_errors": stats.decode_errors,
             "mbit_per_s": stats.bytes as f64 * 8.0 / secs.max(1e-3) / 1e6,
             "decode_ms": pct(&mut stats.decode_ms),
+            "first_decoded_ms": stats.first_decoded_ns.map(|t| (t - stats.started_ns) as f64 / 1e6),
+            "decoded_fps": stats.decoded_fps(),
             "presented": window_report.presented,
             "replaced_before_present": replaced,
             "present_ms": pct(&mut window_report.present_ms.clone()),
@@ -418,7 +465,10 @@ pub fn run(
     if let Some(path) = &config.stats_file {
         std::fs::write(path, format!("{report}\n"))?;
     }
-    Ok(Ended { reason: ended, connected })
+    Ok(Ended {
+        reason: ended,
+        connected,
+    })
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -471,12 +521,16 @@ fn on_datagram(
     released_since_feedback: &mut bool,
 ) {
     let now = now_ns();
-    let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
+    let Ok((h, payload)) = DatagramHeader::decode(d) else {
+        return;
+    };
     match h.kind {
         DatagramKind::Video | DatagramKind::Fec => {
             stats.bytes += d.len() as u64;
-            arrivals
-                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
+            arrivals.push(Arrival {
+                transport_seq: h.transport_seq,
+                arrival_us: (now / 1000) as u32,
+            });
             let released = reassembler.push(&h, payload, now / 1000);
             let last = released.len().saturating_sub(1);
             for (i, frame) in released.into_iter().enumerate() {
@@ -490,6 +544,12 @@ fn on_datagram(
                         let t1 = now_ns();
                         stats.decode_ms.push((t1 - t0) as f64 / 1e6);
                         stats.decoded += 1;
+                        stats.last_decoded_ns = t1;
+                        if stats.first_decoded_ns.is_none() {
+                            stats.first_decoded_ns = Some(t1);
+                            // A watcher (the share e2e) times the first picture by this line.
+                            eprintln!("First frame decoded");
+                        }
                         if i == last {
                             hand_off(mailbox, current, now, t1);
                             present_waker.wake();
@@ -501,7 +561,9 @@ fn on_datagram(
             }
         }
         DatagramKind::InputAck if payload.len() >= 4 => {
-            sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+            sender.ack(u32::from_le_bytes([
+                payload[0], payload[1], payload[2], payload[3],
+            ]));
         }
         _ => {}
     }
@@ -537,8 +599,9 @@ fn maybe_feedback(
 ) {
     let now = now_ns();
     let since = now.saturating_sub(*last_feedback_ns);
-    let nack_due =
-        reassembler.next_nack_us(5_000, 50_000).is_some_and(|deadline| now / 1000 >= deadline);
+    let nack_due = reassembler
+        .next_nack_us(5_000, 50_000)
+        .is_some_and(|deadline| now / 1000 >= deadline);
     if !(*released_since_feedback
         || since >= KEEPALIVE_NS
         || nack_due
@@ -566,7 +629,9 @@ fn maybe_feedback(
     }
     send(&Feedback {
         acked_frame: reassembler.last_released(),
-        decode_us: recent.get(recent.len() / 2).map_or(0, |m| (m * 1000.0) as u32),
+        decode_us: recent
+            .get(recent.len() / 2)
+            .map_or(0, |m| (m * 1000.0) as u32),
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
@@ -604,9 +669,36 @@ mod tests {
         let mut slot = mailbox.lock().unwrap();
         assert_eq!(slot.replaced, 1);
         let shown = slot.ready.take().unwrap();
-        assert_eq!((shown.image.y[0], shown.complete_ns, shown.height()), (2, 20, 2));
-        assert_eq!(current.y[0], 1, "the replaced buffer comes back for the next decode");
+        assert_eq!(
+            (shown.image.y[0], shown.complete_ns, shown.height()),
+            (2, 20, 2)
+        );
+        assert_eq!(
+            current.y[0], 1,
+            "the replaced buffer comes back for the next decode"
+        );
         assert!(slot.ready.is_none());
+    }
+
+    #[test]
+    fn the_decode_rate_runs_from_the_first_decoded_frame() {
+        let mut stats = Stats {
+            frames: 0,
+            decoded: 1,
+            decode_errors: 0,
+            bytes: 0,
+            decode_ms: Vec::new(),
+            started_ns: 0,
+            first_decoded_ns: Some(2_000_000_000),
+            last_decoded_ns: 2_000_000_000,
+        };
+        assert_eq!(stats.decoded_fps(), None, "one frame has no rate");
+        // 31 frames over the 0.5 s after the first: 60 fps, whatever came before the first.
+        stats.decoded = 31;
+        stats.last_decoded_ns = 2_500_000_000;
+        assert_eq!(stats.decoded_fps(), Some(60.0));
+        stats.first_decoded_ns = None;
+        assert_eq!(stats.decoded_fps(), None);
     }
 
     #[test]
