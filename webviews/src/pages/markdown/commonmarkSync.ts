@@ -11,8 +11,9 @@
 // non-generic transaction, the bullet-to-ordered conversion, `label` and `listType`), that
 // src/composed/plugins.ts still holds both (`boundedCommonmark` filters them out by identity), and
 // that `headingIdGenerator` is still the ctx key for ids. markdown-commonmark-sync.test.ts runs
-// Milkdown's plugins beside these over the same edits (`milkdownIds` departs from it on purpose for
-// ids that are Object.prototype keys; see there).
+// Milkdown's plugins beside these over the same edits. Two deliberate divergences: `milkdownIds`
+// for ids that are Object.prototype keys, and `listOrderPlugin` for an ordered list's bullet item
+// whose label is already right; see each.
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -110,7 +111,11 @@ const headingIdPlugin = $prose((ctx) => {
 /** Documents whose ordered list labels are Milkdown's (or that a list sync left as they were). */
 const listOrderSynced = new WeakSet<ProseNode>();
 
-/** syncListOrderPlugin, walking only the changed blocks of a document that was in sync. */
+/**
+ * syncListOrderPlugin, walking only the changed blocks of a document that was in sync. One
+ * deliberate divergence: an ordered list's item with listType "bullet" and the right label is made
+ * "ordered" (Milkdown's label check overwrites the listType change and leaves it a bullet).
+ */
 const listOrderPlugin = $prose(
   (ctx) =>
     new Plugin({
@@ -160,7 +165,9 @@ const listOrderPlugin = $prose(
               attrs.listType = "ordered";
               changed = true;
             }
-            if (parent?.maybeChild(0)) changed = handleNodeItem(attrs, index, parent?.attrs.order ?? 1);
+            // A deliberate divergence: Milkdown's `changed = handleNodeItem(...)` drops the listType
+            // change, so an item with listType "bullet" and the right label stayed a bullet.
+            if (parent?.maybeChild(0)) changed = handleNodeItem(attrs, index, parent?.attrs.order ?? 1) || changed;
             if (changed) {
               tr = tr.setNodeMarkup(pos, undefined, attrs);
               needDispatch = true;

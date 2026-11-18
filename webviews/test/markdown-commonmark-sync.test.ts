@@ -521,3 +521,40 @@ test("headings whose ids are Object.prototype keys get their own ids and -#n rep
   // The GitHub anchors of the same headings, as a walk finds them.
   expect(kit.links.headingTargets(view.state.doc)).toEqual(walkedTargets(view.state.doc));
 });
+
+/** Each list item's text, listType and label, in order. */
+function listItems(doc: ProseNode): Array<[string, unknown, unknown]> {
+  const out: Array<[string, unknown, unknown]> = [];
+  doc.descendants((node) => {
+    if (node.type.name === "list_item") out.push([node.textContent, node.attrs.listType, node.attrs.label]);
+    return true;
+  });
+  return out;
+}
+
+// A deliberate divergence from Milkdown: its syncListOrderPlugin sets `changed` from the label
+// check after the listType check set it, so an item of an ordered list with listType "bullet" and
+// the right label is left a bullet. Here it is made "ordered". The equivalence tests above give
+// bullet items only the parsed "•" label, never a right one.
+test("an ordered list's bullet item with the right label is made ordered", async () => {
+  const { view } = await side(true, "1. one\n2. two\n\nintro text\n\nend text");
+  const setItem = (text: string, attrs: Record<string, unknown>, outOfHistory: boolean) => {
+    const pos = view.state.doc.resolve(after(view.state.doc, text)).before(2);
+    const item = view.state.doc.nodeAt(pos)!;
+    const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...item.attrs, ...attrs });
+    view.dispatch(outOfHistory ? tr.setMeta("addToHistory", false) : tr);
+  };
+  // A document in sync: the edit's own block is walked.
+  setItem("one", { listType: "bullet", label: "1." }, false);
+  expect(listItems(view.state.doc)).toEqual([
+    ["one", "ordered", "1."],
+    ["two", "ordered", "2."],
+  ]);
+  // Out of sync (a change kept out of the history): the next edit walks the whole document.
+  setItem("two", { listType: "bullet", label: "2." }, true);
+  view.dispatch(view.state.tr.insertText("x", after(view.state.doc, "intro")));
+  expect(listItems(view.state.doc)).toEqual([
+    ["one", "ordered", "1."],
+    ["two", "ordered", "2."],
+  ]);
+});
