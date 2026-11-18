@@ -674,9 +674,9 @@ function VirtualRows({
   render(item: string, index: number, placed: VirtualPlacement): ReactNode;
 }) {
   const spacer = useRef<HTMLDivElement | null>(null);
-  // With `sizeKey`, the virtualizer caches a row's size by its item and size key, so a row that
-  // gains or loses a heading is never given the size it had in the other state. Without, the
-  // library's own key (the index).
+  // The virtualizer caches a row's size by its item (with `sizeKey`, its item and size key, so a
+  // row that gains or loses a heading is never given the size it had in the other state). Keyed by
+  // index, a row that moves up when one above it leaves would take that row's size.
   const getItemKey = useCallback(
     (index: number) => virtualRowKey(items[index] ?? String(index), sizeKey),
     [items, sizeKey],
@@ -695,7 +695,7 @@ function VirtualRows({
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
-    getItemKey: sizeKey ? getItemKey : undefined,
+    getItemKey,
     // A row's slot is its border box plus its vertical margins: a row is placed at its slot's start
     // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
     // border box alone would let it cover the next row. A size the library answers from its cache

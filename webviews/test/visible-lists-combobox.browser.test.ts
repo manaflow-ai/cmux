@@ -130,4 +130,36 @@ await requireBrowserLane("visible-lists-combobox.browser.test.ts", async () => {
       await open.close();
     });
   }
+  test("rows of different heights: one leaving from above the view leaves no row over another and no gap", async () => {
+    const open = await server.open("combobox&vary=1", 1000);
+    const { page } = open;
+    const rowsOverlapping = () =>
+      page.evaluate(() => {
+        const rows = [...document.querySelectorAll<HTMLElement>("[role='option']")]
+          .map((row) => ({ text: row.textContent ?? "", rect: row.getBoundingClientRect() }))
+          .sort((a, b) => a.rect.top - b.rect.top);
+        const wrong: string[] = [];
+        for (let index = 1; index < rows.length; index++) {
+          const gap = rows[index]!.rect.top - rows[index - 1]!.rect.bottom;
+          if (Math.abs(gap) > 0.75) wrong.push(`${rows[index - 1]!.text} | ${rows[index]!.text}: ${gap.toFixed(1)} px`);
+        }
+        return { mounted: rows.length, wrong };
+      });
+    await page.evaluate(() => {
+      const scroller = (
+        window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+      ).__visibleListControls.scroller();
+      scroller.scrollTop = 400;
+    });
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    expect((await rowsOverlapping()).wrong).toEqual([]);
+    // Rows of both heights move up by one place: each must keep its own size, not the one before it.
+    for (const id of ["id-1", "id-5", "id-7"])
+      await page.evaluate((id) => (window as unknown as { __removeItem(id: string): void }).__removeItem(id), id);
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const after = await rowsOverlapping();
+    expect(after.mounted).toBeGreaterThan(0);
+    expect(after.wrong).toEqual([]);
+    await open.close();
+  });
 });
