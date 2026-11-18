@@ -16,7 +16,6 @@ struct NoWebViewDialogsTests {
         "CmuxNextAgentPane/AgentPaneView.swift": "the agent chat itself (chat UI)",
         "CmuxNextPages/PageHostPool.swift": "the page host pool: windows that hold page tabs, no dialog",
         "CmuxNextPages/PageHostPool+Windows.swift": "the page host pool's windows, no dialog",
-        "CmuxNextPages/WebCard/WebCardPanel.swift": "the web card panel itself; its cards are listed in webCards",
         "CmuxNextOnboarding/Views/OnboardingWindowController.swift": "the onboarding tool window, a window with pages, no dialog",
         "CmuxNextApp/Settings/DebugSettingsService.swift": "Settings UI",
         "CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift": "the Chief's memory import (chat UI)",
@@ -25,11 +24,9 @@ struct NoWebViewDialogsTests {
         "CmuxNextServer/ServerPage/ServerPanelPopover.swift": "the menu bar item's server panel, a status popover, no dialog",
     ]
 
-    /// Cards of the floating web card panel still drawn by a page, each with the work that moves it. The list only
-    /// shrinks: a new card is native.
-    static let webCards: [String: String] = [
-        "ServerPageProvider": "the server panel's routes (shared with the menu bar popover)",
-    ]
+    /// Cards of a floating web card panel still drawn by a page, each with the work that moves it. Empty: every
+    /// card is native (Add Server was the last), and a new card is native too.
+    static let webCards: [String: String] = [:]
 
     static func swiftFiles() throws -> [(path: String, text: String)] {
         let enumerator = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
