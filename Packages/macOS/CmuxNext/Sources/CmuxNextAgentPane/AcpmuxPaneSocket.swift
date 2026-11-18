@@ -529,6 +529,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     func waitForInboundPasses() { inbound.blockingSync {} }
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
+    /// Bytes of every frame held for the page: unchecked, in the running pass, and queued.
+    var heldBytes: Int { state.withLock { $0.heldBytes } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
     /// The relay's own answer to a refused request, straight to the page queue. It can reach the page

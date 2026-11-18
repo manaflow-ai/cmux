@@ -42,8 +42,17 @@ import CmuxNextWakeups
         public var hiddenQueuedBytes = 1 << 20
         /// Longest wait for a page's ack of a push (``AgentPaneTransport/acked(connection:seq:inputPending:)``)
         /// before the next push goes anyway: a page that never acks (an old page, a lost ack) is
-        /// paced as before, a push per quarter second at worst.
+        /// paced as before, a push per quarter second at worst, until ``maximumUnackedBytes`` or
+        /// ``maximumUnackedPushes`` of pushes wait unacked.
         public var ackDeadline: Duration = .milliseconds(250)
+        /// What the host pushes a page that does not ack before it stops pushing (``AgentPaneTransport/pageStalled``).
+        /// A page whose main thread is stuck reads none of its pushes: each one that went on the
+        /// deadline waited in its renderer, unread (Leo's NIGHTLY 9d514c685e48: a chat page spinning
+        /// in a script grew its renderer to 14 GB, 11 GB of it in PartitionAlloc). Past either bound
+        /// the socket holds the stream as for a hidden pane (``hiddenQueuedBytes``) and sheds past it;
+        /// the page's next ack resumes the pushes, and it reads what it missed after one `_acpmux/lagged`.
+        public var maximumUnackedBytes = 8 << 20
+        public var maximumUnackedPushes = 240
         public var maximumOutstandingSends = 8192
         public var maximumOutstandingBytes = 64 << 20
         public var connectTimeout: TimeInterval = 10
@@ -286,34 +295,96 @@ import CmuxNextWakeups
     /// holds the stream within ``Limits/hiddenQueuedBytes`` and sheds past it, and the page reads
     /// what it missed once it shows.
     public var paneHidden = false {
-        didSet { if paneHidden != oldValue { socket?.setHidden(paneHidden) } }
+        didSet { if paneHidden != oldValue { socket?.setHidden(socketHolds) } }
     }
+
+    /// The pushes the page has not acked, oldest first: their seq and frame bytes. At most
+    /// ``Limits/maximumUnackedPushes`` (past it the host stops pushing), so the bound is cheap.
+    private var unacked: [(seq: Int, bytes: Int)] = []
+    private var unackedBytes = 0
+    /// The last push ``flush()`` made, so ``awaitAck(seq:_:)`` counts its bytes while it is unacked.
+    private var lastPush: (seq: Int, bytes: Int)?
+    /// The page stopped acking past ``Limits/maximumUnackedBytes`` or ``Limits/maximumUnackedPushes``:
+    /// no push goes until it acks again, and its socket holds the stream as for a hidden pane.
+    public private(set) var pageStalled = false
+    /// Times the host stopped pushing a page that did not ack, and frame bytes pushed in all (tests, the bench).
+    public private(set) var stalls = 0
+    public private(set) var pushedBytes = 0
+
+    /// The socket holds the stream within its hidden bound: nobody sees the pane, or its page does not drain.
+    private var socketHolds: Bool { paneHidden || pageStalled }
 
     /// The page host's push carries no completion: the pacer's next push waits for the page's ack
     /// of `seq` (``acked(connection:seq:inputPending:)``), or ``Limits/ackDeadline``, whichever is first.
+    /// Past the deadline with the unacked bounds full, it waits for the ack alone (``pageStalled``).
     public func awaitAck(seq: Int, _ done: @escaping @MainActor @Sendable () -> Void) {
         // A push replaces the one before it only after that one's completion ran; finish it anyway.
         finishAck(timedOut: false)
+        if let push = lastPush, push.seq == seq {
+            unacked.append(push)
+            unackedBytes += push.bytes
+            lastPush = nil
+        }
         awaitingAck = (seq, done)
         ackTimer.schedule(after: limits.ackDeadline) { @MainActor [weak self] in self?.finishAck(timedOut: true) }
     }
 
     /// The page applied push `seq` of `connection` (`transport.ack`). `inputPending`: it had a key
     /// or pointer event waiting, or handled one under 50 ms ago, so the next pushes are small
-    /// (``Limits/inputFramesPerFlush``). A stale or repeated ack only updates `inputPending`.
+    /// (``Limits/inputFramesPerFlush``). A stale or repeated ack only updates `inputPending`, but
+    /// any ack ends a stall: the page runs again, and the next push brings what was held.
     public func acked(connection: Int, seq: Int, inputPending: Bool) {
         guard connection == current else { return }
         inputPendingAt = inputPending ? ProcessInfo.processInfo.systemUptime : nil
         acks += 1
+        // Pushes ack in order: this one and every one before it are applied.
+        if let last = unacked.lastIndex(where: { $0.seq <= seq }) {
+            for push in unacked[...last] { unackedBytes -= push.bytes }
+            unacked.removeFirst(last + 1)
+        }
+        if pageStalled {
+            resumeStalledPage()
+            return
+        }
         guard awaitingAck?.seq == seq else { return }
         finishAck(timedOut: false)
     }
 
     private func finishAck(timedOut: Bool) {
         guard let waiting = awaitingAck else { return }
-        awaitingAck = nil
         ackTimer.cancel()
-        if timedOut { ackTimeouts += 1 }
+        if timedOut {
+            ackTimeouts += 1
+            // The page is a bound behind and still silent: the next push waits for its ack alone.
+            if unackedBytes >= limits.maximumUnackedBytes || unacked.count >= limits.maximumUnackedPushes {
+                stallPage()
+                return
+            }
+        }
+        awaitingAck = nil
+        waiting.done()
+    }
+
+    /// Stops pushing a page that does not drain; its socket holds the stream within the hidden
+    /// bound and sheds past it, so neither the host nor the page's renderer grows while it is stuck.
+    private func stallPage() {
+        guard !pageStalled else { return }
+        pageStalled = true
+        stalls += 1
+        socket?.setHidden(socketHolds)
+        Self.logger.error("agent pane transport: the page stopped draining, pushes held connection=\(self.current, privacy: .public) unacked_pushes=\(self.unacked.count, privacy: .public) unacked_bytes=\(self.unackedBytes, privacy: .public)")
+    }
+
+    /// The page answered: the held push's completion runs, so the next push brings what the socket
+    /// held and one `_acpmux/lagged` if it shed, and the page reads the rest from its cursor.
+    private func resumeStalledPage() {
+        pageStalled = false
+        unacked.removeAll()
+        unackedBytes = 0
+        socket?.setHidden(socketHolds)
+        Self.logger.notice("agent pane transport: the page drains again connection=\(self.current, privacy: .public)")
+        guard let waiting = awaitingAck else { return }
+        awaitingAck = nil
         waiting.done()
     }
 
@@ -355,6 +426,10 @@ import CmuxNextWakeups
         awaitingAck = nil
         ackTimer.cancel()
         inputPendingAt = nil
+        unacked.removeAll()
+        unackedBytes = 0
+        lastPush = nil
+        pageStalled = false
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
@@ -404,7 +479,7 @@ import CmuxNextWakeups
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
-        socket.setHidden(paneHidden)
+        socket.setHidden(socketHolds)
         self.socket = socket
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
@@ -456,6 +531,8 @@ import CmuxNextWakeups
     /// The bridge's entry: the frames join the send line in arrival order (they are in line before
     /// this returns, so a later frame never overtakes them). Their work runs off the main thread.
     public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
+        // A page that sends runs its script: it drains again, though its ack (or an old page's) did not come.
+        if pageStalled, id == current { resumeStalledPage() }
         pending.append(PendingSend(connection: id, frames: frames, reply: reply))
         guard !draining else { return }
         draining = true
@@ -626,6 +703,9 @@ import CmuxNextWakeups
         let delivery = deliveries
         // The page acks this push by its seq once it applied it (`transport.ack`).
         event.seq = delivery
+        let bytes = frames.reduce(0) { $0 + $1.utf8.count }
+        pushedBytes += bytes
+        lastPush = batch.closed == nil ? (delivery, bytes) : nil
         beforePageWork?()
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }
