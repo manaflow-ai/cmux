@@ -504,6 +504,98 @@ fn an_unsynced_atomic_write_keeps_the_old_copy_until_rename() {
     assert_eq!(syncs.get(), 0);
 }
 
+/// fseventsd keeps every path it is told of until it restarts: a peer snapshot rewritten every
+/// few seconds through a `.tmp-<pid>-<n>` copy minted a new name each time, about 400 a minute on
+/// a Mac with a few dozen peer chats streaming. Every write of a file in one process uses one
+/// name, and writers of it on several threads still each put a whole copy in place.
+#[cfg(unix)]
+#[test]
+fn atomic_writes_of_a_file_reuse_one_temporary_name() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("copy.json");
+    let names = std::rc::Rc::new(std::cell::RefCell::new(std::collections::BTreeSet::new()));
+    let seen = names.clone();
+    let dir = home.path().to_path_buf();
+    let guard = seams::on_before_rename(move |_| {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+            if name.contains(".tmp-") {
+                seen.borrow_mut().insert(name);
+            }
+        }
+    });
+    for n in 0..5 {
+        write_atomic(&path, format!("{n}").as_bytes()).unwrap();
+        write_atomic_unsynced(&path, format!("u{n}").as_bytes()).unwrap();
+    }
+    drop(guard);
+    let want = format!("copy.tmp-{}", std::process::id());
+    assert_eq!(*names.borrow(), std::collections::BTreeSet::from([want]));
+
+    let whole: Vec<Vec<u8>> = (0..8u8).map(|n| vec![b'a' + n; 64 << 10]).collect();
+    std::thread::scope(|scope| {
+        for bytes in &whole {
+            let path = &path;
+            scope.spawn(move || {
+                for _ in 0..20 {
+                    write_atomic_unsynced(path, bytes).unwrap();
+                }
+            });
+        }
+    });
+    let left = std::fs::read(&path).unwrap();
+    assert!(whole.contains(&left), "a copy two writers filled together was put in place");
+    let temps = std::fs::read_dir(home.path())
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".tmp-"))
+        .count();
+    assert_eq!(temps, 0, "a temporary copy stayed");
+}
+
+/// A joined Mac's `machine-consent/` held `refusal.json` and 8 `refusal.tmp-<pid>-<n>` files: the
+/// daemon writing the refusal was stopped between the temporary copy's open and its rename, and
+/// nothing removed the copy after. The next write to the same file removes the copies of
+/// processes no longer running; a running process's copy, and a copy made in the last minute,
+/// stay.
+#[cfg(unix)]
+#[test]
+fn an_atomic_write_removes_the_temporary_copies_dead_processes_left() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("refusal.json");
+    let mut exited = std::process::Command::new("true").spawn().unwrap();
+    let dead = exited.id();
+    exited.wait().unwrap();
+    let mut running = std::process::Command::new("sleep").arg("60").spawn().unwrap();
+    let live = running.id();
+    let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    let left = |name: String, old: bool| {
+        let tmp = home.path().join(name);
+        let file = std::fs::File::create(&tmp).unwrap();
+        if old {
+            file.set_modified(hour_ago).unwrap();
+        }
+        tmp
+    };
+    let stale = left(format!("refusal.tmp-{dead}-3"), true);
+    let stale_bare = left(format!("refusal.tmp-{dead}"), true);
+    let fresh = left(format!("refusal.tmp-{dead}-4"), false);
+    let alive = left(format!("refusal.tmp-{live}-0"), true);
+    let other = left(format!("consent.tmp-{dead}-0"), true);
+    let not_a_pid = left("refusal.tmp-notes".to_owned(), true);
+
+    write_atomic(&path, b"{}").unwrap();
+
+    let _ = running.kill();
+    let _ = running.wait();
+    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+    assert!(!stale.exists(), "a dead process's copy stays: {}", stale.display());
+    assert!(!stale_bare.exists(), "a dead process's copy stays: {}", stale_bare.display());
+    assert!(fresh.exists(), "a copy made in the last minute was removed");
+    assert!(alive.exists(), "a running process's copy was removed");
+    assert!(other.exists(), "another file's copy was removed");
+    assert!(not_a_pid.exists(), "a name with no pid was removed");
+}
+
 /// `acpmux config --set transport.wireguard=true` with no `wireguardStatic` block (cmux#43305's
 /// carrier step, 2026-11-15): the daemon then refused to start. What the CLI does (load, set,
 /// save) either refuses and leaves config.json as it was, or writes a config the daemon's own

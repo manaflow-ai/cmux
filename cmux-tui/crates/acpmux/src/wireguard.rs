@@ -83,7 +83,7 @@ pub(crate) type KeyUser =
 /// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
 /// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+    crate::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
 }
 
 /// `<daemon state dir>/link` by this process's environment.
@@ -140,7 +140,7 @@ impl Transport {
             return Ok(None);
         };
         let target = local_websocket(websocket)?;
-        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+        if crate::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );
@@ -176,7 +176,7 @@ impl Transport {
         check_service(settings)?;
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
         let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
@@ -364,11 +364,11 @@ impl Transport {
             let home = state_dir.to_path_buf();
             let wanted = tokio::task::spawn_blocking(move || {
                 let link_dir =
-                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                    crate::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
                 // Cheap first (two reads); the full check (with the clone check) only then.
                 link_dir.as_deref().is_some_and(|dir| {
                     dir.join("config.json").is_file()
-                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                        && crate::mesh_node_key::link_serves_node_key(Some(dir), &home)
                 })
             })
             .await

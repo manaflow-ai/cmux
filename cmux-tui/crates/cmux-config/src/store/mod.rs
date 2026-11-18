@@ -143,6 +143,11 @@ pub struct Edit {
 pub enum EditKind {
     /// `settings.set` of the value.
     Set(Value),
+    /// `settings.set` of the value without its default removal: a schema
+    /// row set to its default keeps the key. The app sends it, having
+    /// decided keep or remove itself (Swift `isUnsetValue`, the layers
+    /// below the file, `unsetIsNotDefaultKeys`, build defaults).
+    SetExact(Value),
     /// `settings.set` of the value only while the file has no value at the
     /// path (JSON null is a value). Swift `setUnset`.
     SetUnset(Value),
@@ -158,6 +163,7 @@ impl EditKind {
     pub fn wire_name(&self) -> &'static str {
         match self {
             EditKind::Set(_) => "set",
+            EditKind::SetExact(_) => "set_exact",
             EditKind::SetUnset(_) => "set_unset",
             EditKind::Reset => "reset",
             EditKind::ResetUnchanged(_) => "reset_unchanged",
@@ -167,9 +173,10 @@ impl EditKind {
     /// The value it sets or expects.
     pub fn value(&self) -> Option<&Value> {
         match self {
-            EditKind::Set(value) | EditKind::SetUnset(value) | EditKind::ResetUnchanged(value) => {
-                Some(value)
-            }
+            EditKind::Set(value)
+            | EditKind::SetExact(value)
+            | EditKind::SetUnset(value)
+            | EditKind::ResetUnchanged(value) => Some(value),
             EditKind::Reset => None,
         }
     }

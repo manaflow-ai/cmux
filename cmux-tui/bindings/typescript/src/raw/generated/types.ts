@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR dc955e6ba32d2291f894a0dfeb8a5f9977b96cb9207316c4f55bd08528b3c3d5. */
+/* cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -885,6 +885,11 @@ export type ReattachViewResult = {
   "state": SizeState;
 };
 
+export type RemoteHostAppPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
+};
+
 export type RemoteHostAppResult = {
   "host_pid": number;
   "secret": string;
@@ -1494,6 +1499,8 @@ export type SurfaceResult = {
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
+  /** The transaction of a new-tab request, when it sent one. */
+  "transaction"?: string;
   "workspace_id"?: string;
 };
 
@@ -1565,6 +1572,19 @@ export type TabGroupRun = {
   [key: string]: unknown;
 };
 
+export type TabPlace = {
+  /** Right after this tab of pane. */
+  "after"?: (Id) | null;
+  /** Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet. */
+  "after_creation"?: (string) | null;
+  /** Right before this tab of pane. */
+  "before"?: (Id) | null;
+  /** true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start. */
+  "joins"?: (boolean) | null;
+  /** true: the first tab after the pinned tabs. */
+  "start"?: (boolean) | null;
+};
+
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
 export type TabRef = JsonValue;
 
@@ -1602,6 +1622,21 @@ export type TerminalColors = {
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;
+};
+
+export type TerminalCommandContext = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "exit_code": (number) | null;
+  "output": string;
+  "text": string;
+  "truncated": boolean;
+};
+
+export type TerminalCommandContextIntent = "context" | "fix";
+
+export type TerminalCommandContextResult = {
+  "context": (TerminalCommandContext) | null;
 };
 
 export type TerminalCommandDeleteResult = {

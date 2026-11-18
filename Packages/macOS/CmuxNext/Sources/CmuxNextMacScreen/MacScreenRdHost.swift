@@ -9,8 +9,9 @@ import os
 /// (plans/cmux-next/remote-desktop-mac-host.md section 7): `cmux rd serve`
 /// captures, encodes and injects input, and holds the secure link; this object
 /// carries its offer, answer and candidates over the session's signaling. The
-/// app is the process's responsible process, so the Screen Recording and
-/// Accessibility grants the person gave cmux apply to it.
+/// host runs in the Screen Sharing helper (``MacScreenHelper``), its own
+/// responsible process, so the Screen Recording and Accessibility grants it
+/// uses are the helper's and a grant never relaunches this app.
 ///
 /// The viewer chooses the protocol with its offer. A viewer that offers WebRTC
 /// (the iPhone's Screen Sharing viewer, or a Mac from before cmux.rd/1) is served
@@ -154,7 +155,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                 }
                 logger.info("cmux rd: offer received (\(offer.candidates.count, privacy: .public) candidates); starting the host")
                 started = true
-                do { try process.start(.serve) } catch {
+                do { try await process.startServe() } catch {
                     emit(.sourceFailed("the screen host could not start: \(error.localizedDescription)"))
                     return
                 }
