@@ -1841,9 +1841,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
   );
   const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
-  const cloudComposeEligible = useRef(false);
-  /// The empty local chat a reserve names as the one its Send would replace (`emptyLocalChat`); none: no chat.
-  const cloudReserveReplaces = useRef<string | undefined>(undefined);
+  /// Whether this compose reserves a machine ahead, and then the empty local chat its reserve names as the one
+  /// its Send would replace (`emptyLocalChat`); `replaces` undefined: a compose with no chat.
+  const cloudComposeEligible = useRef<false | { replaces: string | undefined }>(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
     const gone = () => {
@@ -4848,6 +4848,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Cloud as where this new chat runs: wherever Sandboxed is, and in an empty local chat too.
   const cloudOfferable = sandboxOfferable || emptyLocalChat;
   const cloudOffered = sandbox.checked && cloudOfferable;
+  /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
+  const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -4916,10 +4918,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudTypingPrewarm.reset();
       runModePicked.current = true;
       sandbox.setMode(mode);
-      cloudComposeEligible.current = mode === "cloud" && cloudOffered;
-      if (cloudComposeEligible.current) {
+      const eligible = mode === "cloud" && cloudOffered ? { replaces: cloudReserveReplaces } : false;
+      cloudComposeEligible.current = eligible;
+      if (eligible) {
         newChatPrewarm.abandon();
-        cloudReservation.selected(cloudReserveReplaces.current);
+        cloudReservation.selected(eligible.replaces);
       } else cloudReservation.abandon();
     },
   };
@@ -4974,8 +4977,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudModePick = useCloudModePick();
   // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
   // whose reserve names the chat its Send replaces (the host reserves for a tab with a chat only for that one).
-  cloudComposeEligible.current = cloudPicked && cloudOfferable;
-  cloudReserveReplaces.current = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
+  cloudComposeEligible.current = cloudPicked && cloudOfferable ? { replaces: cloudReserveReplaces } : false;
   const cloudPickedNotOffered = cloudPicked && !cloudOffered;
   const [startCloud] = useState(() =>
     grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
@@ -11531,7 +11533,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text, cloudReserveReplaces.current);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return sent;
       }
       const { harness } = freshPick.current;
@@ -11551,7 +11553,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       );
       if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text, cloudReserveReplaces.current);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return;
       }
       newChatPrewarm.typed(
