@@ -7,13 +7,18 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type ComponentProps, type RefObject } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { promptBlocks } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { liftInlineImages, withoutDataUris } = await importWithDom(
+  () => import("../src/agent-session/acpmux/inlineImages"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

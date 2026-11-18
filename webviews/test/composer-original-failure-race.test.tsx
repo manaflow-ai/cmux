@@ -18,11 +18,13 @@ import { act, useEffect, useImperativeHandle, useLayoutEffect, type Ref } from "
 import { createRoot, type Root } from "react-dom/client";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
-import {
-  useAttachmentIntake,
-  type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import type { AttachmentIntakeOptions } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { useAttachmentIntake } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
