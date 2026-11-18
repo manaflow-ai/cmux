@@ -300,7 +300,7 @@ struct SessionScrollbackCheckpointStore: Sendable {
         // `prune` sweeps every invalidated aside when live panel ids are
         // present, so removals only need the canonical unlink then; without
         // them one listing covers the whole loop instead of one per removal.
-        let asideNames = batch.livePanelIds == nil
+        let asideNames = batch.livePanelIds == nil && !removals.isEmpty
             ? (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? []
             : []
         for panelId in removals {
@@ -328,12 +328,19 @@ struct SessionScrollbackCheckpointStore: Sendable {
 
     /// Durable caller-side invalidation for one panel: renames its checkpoint
     /// aside so `fileURL(panelId:)` and `loadRecords` no longer reach it. One
-    /// metadata rename; the aside is garbage the checkpoint queue reclaims.
+    /// metadata rename; the aside is garbage the checkpoint queue reclaims. A
+    /// failed rename falls back to unlinking the file outright — one file,
+    /// still cheap — so a stale checkpoint does not survive on a rename error.
+    /// Returns whether the canonical path is unreachable afterward.
     @discardableResult
     func invalidate(panelId: UUID, fileManager: FileManager = .default) -> Bool {
         let source = fileURL(panelId: panelId)
         let aside = source.appendingPathExtension("invalidated-\(UUID().uuidString)")
-        return (try? fileManager.moveItem(at: source, to: aside)) != nil
+        guard (try? fileManager.moveItem(at: source, to: aside)) != nil else {
+            try? fileManager.removeItem(at: source)
+            return !fileManager.fileExists(atPath: source.path)
+        }
+        return true
     }
 
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
@@ -414,9 +421,10 @@ struct SessionScrollbackCheckpointPersister: Sendable {
     /// started running). `invalidate` renames its checkpoint aside on the
     /// caller — one metadata operation per removal — so any file already on
     /// disk is unreachable to `loadRecords` when `persist` returns. A capture
-    /// still queued can recreate the file before the removal's apply runs —
-    /// the residual crash window is one queued batch's apply, not the whole
-    /// backlog a `queue.sync` delete used to wait out on the caller.
+    /// still queued can recreate the file afterward: it stays reachable until
+    /// the removal's apply drains, a residual crash window sized by the
+    /// remaining backlog — the same wait `queue.sync` put on the caller, now
+    /// off it.
     /// The serial queue still applies the batch after every earlier queued
     /// write, so the delete reclaims the file and its asides only after they
     /// land. What changes is who waits: the caller no longer sits in

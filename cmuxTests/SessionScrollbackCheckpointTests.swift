@@ -781,7 +781,11 @@ struct SessionScrollbackCheckpointPersisterTests {
     }
 
     private func cleanUp(_ store: SessionScrollbackCheckpointStore) {
-        try? FileManager.default.removeItem(at: store.directoryURL.deletingLastPathComponent())
+        // Delete only the fixture's UUID-scoped directory; if the store's
+        // directory layout ever drifts, skip rather than risk $TMPDIR.
+        let root = store.directoryURL.deletingLastPathComponent()
+        guard root.lastPathComponent.hasPrefix("cmux-scrollback-persister-tests-") else { return }
+        try? FileManager.default.removeItem(at: root)
     }
 
     private func capture(
