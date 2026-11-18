@@ -11,6 +11,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/cmux-cua-helper-trust.sh
+source "$ROOT/scripts/cmux-cua-helper-trust.sh"
 mode="${1:-}"
 app="${2:-}"
 if [[ $# -ne 2 || ( "$mode" != layout && "$mode" != signed ) ]]; then
@@ -37,37 +39,32 @@ if [[ "$mode" == signed ]]; then
 fi
 echo "ok: $helper ($mode)"
 
-# The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), when the
-# app carries one: "Contents/Library/<app name> Screen Sharing.app" with bundle id
-# <app bundle id>.screen-sharing and executable cmux-screen-sharing
-# (scripts/cmux-next/bundle-screen-sharing-helper.sh). cmux copies it out of the
-# app as it does the Computer Use helper, so a signed one must carry the team's
-# Developer ID signature and the hardened runtime. Once signed, its id is the
-# app's own plus .screen-sharing: a re-identified copy of the app
-# (stable-next-identity.sh, nightly-next-legacy-identity.sh) re-stamps it
-# (sign-cmux-bundle.sh), so no two channels share its grants.
-for share in "$app/Contents/Library/"*" Screen Sharing.app"; do
-  [[ -e "$share" || -L "$share" ]] || continue
-  name="${share##*/}"
-  [[ -d "$share" && ! -L "$share" ]] || fail "$name is not a directory"
-  share_id="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb")).get("CFBundleIdentifier", ""))' \
-    "$share/Contents/Info.plist" 2>/dev/null || true)"
-  [[ "$share_id" == ?*.screen-sharing ]] || fail "$name has bundle id '${share_id}', expected <app bundle id>.screen-sharing"
-  [[ -f "$share/Contents/MacOS/cmux-screen-sharing" && -x "$share/Contents/MacOS/cmux-screen-sharing" ]] \
-    || fail "$name has no executable Contents/MacOS/cmux-screen-sharing"
+# One permission identity for screen sharing and computer use (Lawrence: "ensure screen sharing +
+# computer use uses same app for permissions"): the screen sharing executable ships inside this
+# helper, Contents/MacOS/cmux-screen-sharing, signed with the helper's identifier
+# (scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use). The app's
+# Contents/Library holds no other app: each would be its own Screen Recording and Accessibility
+# row in System Settings, asked for and granted apart from "cmux Computer Use".
+for other in "$app/Contents/Library/"*.app; do
+  [[ -e "$other" || -L "$other" ]] || continue
+  [[ "$other" != "$helper" ]] || continue
+  other_id="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb")).get("CFBundleIdentifier", ""))' \
+    "$other/Contents/Info.plist" 2>/dev/null || true)"
+  fail "Contents/Library/${other##*/} (${other_id:-no bundle id}) is a second permission identity beside cmux Computer Use.app (com.cmuxterm.cua); the screen sharing executable belongs inside the Computer Use helper (bundle-screen-sharing-helper.sh --into-computer-use)"
+done
+
+share="$helper/Contents/MacOS/cmux-screen-sharing"
+if [[ -e "$share" || -L "$share" ]]; then
+  [[ -f "$share" && ! -L "$share" && -x "$share" ]] || fail "cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing is not an executable file"
   if [[ "$mode" == signed ]]; then
-    app_id="$(python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sys.argv[1], "rb")).get("CFBundleIdentifier", ""))' \
-      "$app/Contents/Info.plist" 2>/dev/null || true)"
-    [[ "$share_id" == "$app_id.screen-sharing" ]] \
-      || fail "$name has bundle id '$share_id', expected $app_id.screen-sharing (bundle-screen-sharing-helper.sh --stamp)"
-    # The Developer ID requirement cmux-cua-helper-trust.sh states for the
-    # Computer Use helper, for this helper's identifier: an ad hoc, Apple
-    # Development or Apple Distribution signature fails.
-    share_requirement="=identifier \"$share_id\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"7WLXT3NR37\""
-    /usr/bin/codesign --verify --strict -R "$share_requirement" "$share" >/dev/null 2>&1 \
-      || fail "$name fails the $share_id Developer ID requirement"
+    # The Computer Use helper's Developer ID requirement (scripts/cmux-cua-helper-trust.sh),
+    # for the nested executable too: on a macOS that checks the process by its own signature,
+    # it is then the same com.cmuxterm.cua row. An ad hoc, Apple Development or other
+    # identifier fails.
+    /usr/bin/codesign --verify --strict -R "$CMUX_CUA_HELPER_REQUIREMENT" "$share" >/dev/null 2>&1 \
+      || fail "cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing fails the com.cmuxterm.cua Developer ID requirement (sign it with --identifier com.cmuxterm.cua before the helper)"
     /usr/bin/codesign -d --verbose=2 "$share" 2>&1 | grep -q 'flags=.*runtime' \
-      || fail "$name is not signed with the hardened runtime"
+      || fail "cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing is not signed with the hardened runtime"
   fi
   echo "ok: $share ($mode)"
-done
+fi
