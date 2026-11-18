@@ -130,11 +130,19 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
+/// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
+/// `cmux-github-changed` on the window. Returns the unwatch.
+export function watchGitHubChanged(run: () => void, view: Window = window): () => void {
+  view.addEventListener("cmux-github-changed", run);
+  return () => view.removeEventListener("cmux-github-changed", run);
+}
+
 /// The store: `call` is the host (postNative), `watchKey`/`isKey` the page's key state (pageKey.ts).
 export function createGitHubPicker(
   call: Call = postNative,
   watchKey: (run: () => void) => () => void = watchPageKey,
   isKey: () => boolean = pageIsKey,
+  watchChanged: (run: () => void) => () => void = watchGitHubChanged,
 ) {
   let state = INITIAL;
   const listeners = new Set<() => void>();
@@ -171,7 +179,8 @@ export function createGitHubPicker(
       },
     );
   };
-  const readStatus = () => {
+  // `relist`: list the repositories again even when some are shown (the installation's repositories changed).
+  const readStatus = (relist = false) => {
     const turn = ++statusTurn;
     call("github.status", {}).then(
       (reply) => {
@@ -187,7 +196,7 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        if (ready && (state.repos === undefined || state.error !== undefined)) listRepos(state.query);
+        if (ready && (relist || state.repos === undefined || state.error !== undefined)) listRepos(state.query);
       },
       () => {
         // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
@@ -197,6 +206,11 @@ export function createGitHubPicker(
       },
     );
   };
+  // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
+  // repositories with it, with no restart and no click.
+  watchChanged(() => {
+    if (state.status !== undefined) readStatus(true);
+  });
   const picker = {
     snapshot: () => state,
     subscribe(listener: () => void): () => void {

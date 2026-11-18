@@ -52,6 +52,22 @@ import Testing
         #expect(opened.count == 2)
     }
 
+    /// #46018: Settings' Connect asks GitHub's redirect to come back to this app, which finishes it with its sign-in.
+    @Test func connectAsksForTheAppsCompletionLinkWhenSet() async {
+        var asked: [JSONValue] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, _ in
+            if op == "integration.connect" {
+                asked.append(params)
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { _ in })
+        model.completionLink = "cmux-dev-x://integration/complete"
+        await model.perform("githubRefresh")
+        await model.perform("githubConnect")
+        #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"]])
+    }
+
     @Test func aResponseForTheOldAccountCannotPopulateTheNewAccount() async {
         var current: GitHubConnections.Scope? = self.scope
         let model = GitHubConnections(scope: { current }, call: { _, _, _, _ in

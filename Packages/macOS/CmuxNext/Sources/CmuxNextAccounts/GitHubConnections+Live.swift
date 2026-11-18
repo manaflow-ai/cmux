@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 public import Foundation
@@ -38,6 +39,11 @@ extension GitHubConnections {
             guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
             return value
         }, open: { url in LinkRouter.shared.open(url) })
+        model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
+        // The app finished an install GitHub handed back to it: the card reads its connections again.
+        model.changes = Task { [weak model] in
+            for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() { await model?.perform("githubRefresh") }
+        }
         model.reconfigurePage = { bound in
             // The status route names the connected installation's settings page for the scope's team (the personal
             // team when no Stack team is selected, as `integration.list` without `x-cmux-team`).

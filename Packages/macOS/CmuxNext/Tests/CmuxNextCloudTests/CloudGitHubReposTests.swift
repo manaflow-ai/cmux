@@ -188,4 +188,37 @@ struct CloudGitHubReposTests {
         let listed = try CloudGitHubRepos.parse(status: 200, body: answer).get()
         #expect(listed.repos.map(\.sizeKb) == [2048, nil, nil])
     }
+
+    /// #46018: GitHub's install redirect comes back to this build's own link, and the app completes it with its sign-in.
+    @Test func theInstallRedirectHandedBackToTheAppIsACompletionForThisBuildOnly() throws {
+        let state = "h.\(Self.statePayload).s"
+        let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
+        #expect(link == "cmux-dev-x://integration/complete")
+        let url = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=42&setup_action=install"))
+        let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
+        #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
+        #expect(completion.team == "team_0123456789abcdef0123")
+        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
+        #expect(completion.error == nil)
+        // Another build's scheme, another path, no signed state: not a completion.
+        #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
+        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)")), scheme: "cmux-dev-x") == nil)
+        #expect(CloudGitHubCompletion(url: try #require(URL(string: "cmux-dev-x://integration/complete?code=abc")), scheme: "cmux-dev-x") == nil)
+        // A cancel on GitHub carries its error; an installation id that is not a number is not sent.
+        let cancelled = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&error=access_denied&installation_id=1;x")), scheme: "cmux-dev-x"))
+        #expect(cancelled.error == "access_denied")
+        #expect(cancelled.params == ["state": state])
+        // A state whose team claim is not a team id routes nowhere.
+        #expect(try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=a.b.c")), scheme: "cmux-dev-x")).team == nil)
+    }
+
+    @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#)) == .connected)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
+        #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"
 }

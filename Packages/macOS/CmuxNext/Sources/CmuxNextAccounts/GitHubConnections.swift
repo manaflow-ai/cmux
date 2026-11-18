@@ -20,6 +20,11 @@ public final class GitHubConnections {
     /// Where Reconfigure opens for the scope's connected installation (its installation settings on GitHub), nil when
     /// none is known. The live model sets it (``live(auth:ownerAPI:preview:)``); unset, Reconfigure reports a failure.
     @ObservationIgnored public var reconfigurePage: (@MainActor (Scope) async -> URL?)?
+    /// The link a connect asks GitHub's redirect to come back to: this app's `<scheme>://integration/complete`, where
+    /// the app finishes the connection with its own sign-in (#46018). The live model sets it; unset, a connect asks none.
+    @ObservationIgnored public var completionLink: String?
+    /// The live model's watch of ``CloudGitHubChanges`` (a finished install re-reads the connections).
+    @ObservationIgnored public var changes: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
     private var loadedScope: Scope?
@@ -42,6 +47,12 @@ public final class GitHubConnections {
     public var scopeIsSignedOut: Bool { scope() == nil }
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
+    /// `integration.connect`'s params: GitHub, and the app's completion link when one is set (``completionLink``).
+    var connectParams: JSONValue {
+        var params: [String: JSONValue] = ["provider": "github"]
+        if let completionLink { params["return_to"] = .string(completionLink) }
+        return .object(params)
+    }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
     public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
@@ -90,7 +101,7 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    let value = try await call(bound, "integration.connect", ["provider": "github"], connectKeys[bound])
+                    let value = try await call(bound, "integration.connect", connectParams, connectKeys[bound])
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
                           let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }

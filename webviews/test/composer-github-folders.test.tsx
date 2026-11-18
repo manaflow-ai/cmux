@@ -209,6 +209,40 @@ test("with the page's own key state, coming back to the window after Connect to 
   }
 });
 
+test("the app finishing the install GitHub handed back (cmux-github-changed) lists the repositories with no click", async () => {
+  const answers: Record<string, unknown> = {
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  };
+  const calls: string[] = [];
+  const store = createGitHubPicker(async (method) => {
+    calls.push(method);
+    return answers[method];
+  });
+  const { root } = await renderTray({}, store);
+  try {
+    await openFolderMenu();
+    await press(option(CONNECT)!);
+    // Back in cmux before the app's completion answered: still not connected.
+    answers["github.status"] = { state: "ready", repos_scope: "all" };
+    answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(calls).toEqual(["github.status", "github.connect", "github.status", "github.repos.list"]);
+    expect(option("acme/api")).toBeDefined();
+    // A later change (Reconfigure added a repository) lists them again.
+    answers["github.repos.list"] = {
+      repos: [...REPOS, { full_name: "acme/docs", private: true, default_branch: "main" }],
+      truncated: false,
+    };
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(option("acme/docs")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a click on Connect to GitHub while it waits opens GitHub again", async () => {
   const gh = host({
     "github.status": { state: "not_connected", repos_scope: null },
