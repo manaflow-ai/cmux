@@ -513,7 +513,7 @@ describe("classic and cmux NEXT grant slots", () => {
       expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: blank, cmuxNextVmPlan: "next_pro" });
       expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
       // The billing plan reader still hides a subscription behind that value; a mirrored NEXT id would have exposed it.
-      expect(billingPlanIdFromMetadata({ ...target.clientReadOnlyMetadata, cmuxPlan: "pro" })).toBeNull();
+      expect(billingPlanIdFromMetadata({ cmuxVmPlan: blank, cmuxNextVmPlan: "next_pro", cmuxPlan: "pro" })).toBeNull();
       expect(billingPlanIdFromMetadata({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro", cmuxPlan: "pro" })).toBe("pro");
     }
   });
