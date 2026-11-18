@@ -416,9 +416,6 @@ fn need_f64(args: &Value, key: &str) -> Result<f64, ToolOutput> {
 impl Engine {
     pub fn new(parts: EngineParts) -> Self {
         let audit = parts.state_dir.as_ref().map(|d| d.join("audit.jsonl"));
-        if let Some(dir) = &parts.state_dir {
-            parts.stops.keep_in(dir.join("stopped.json"));
-        }
         let config = Arc::new(RwLock::new(parts.config.clone()));
         parts.desktop.set_menu_guard(Arc::new(PolicyMenuGuard(config.clone())));
         let preview =

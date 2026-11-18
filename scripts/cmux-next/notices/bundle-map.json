@@ -69,7 +69,7 @@
     },
     {
       "path": "Contents/Library/cmux Remote (dev).app/Contents/Frameworks/libcmux_computer_use.dylib",
-      "what": "the cmux Computer Use engine (cmux-tui/crates/cmux-computer-use-ffi over cmux-computer-use, MIT, Rust; build-cmux-remote-dev.sh); its crates are in the cmux-tui workspace that bin/cmux links (cmux-tui depends on cmux-computer-use), and its license is in cmux Remote's Contents/Resources/Licenses",
+      "what": "the cmux Computer Use engine (cmux-tui/crates/cmux-computer-use-ffi over cmux-computer-use, both MIT, Rust, linked with the first-party cmux-process, GPL-3.0-or-later; build-cmux-remote-dev.sh); its crates are in the cmux-tui workspace that bin/cmux links (cmux-tui depends on cmux-computer-use), and its license is in cmux Remote's Contents/Resources/Licenses",
       "notices": ["first-party", "section:rust-cmux-cli", "file:Contents/Library/cmux Remote (dev).app/Contents/Resources/Licenses/README.txt", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {

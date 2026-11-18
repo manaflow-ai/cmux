@@ -10,15 +10,17 @@
 //! - other sessions are unaffected, and the agent's terminal or chat keeps
 //!   running: only its Computer Use stops.
 //!
-//! With a state directory the list is kept in `stopped.json` there
-//! ([`Stops::keep_in`]): a restarted worker (a crash, a grant change, a
-//! `restart` from any local client) still refuses a stopped session, and
-//! only the person's Resume clears it.
+//! The list lives in memory: a restarted worker forgets it, as it forgets the
+//! agent cursors and the menu bar's rows, so the two never disagree (a Stop
+//! the worker kept but the menu forgot would leave a refused agent with no
+//! Resume). A restart is the person's (Restart in Settings, a grant change)
+//! or a crash; like the rest of the policy, Stop is the person's control over
+//! agents through Computer Use, not a boundary against code already running
+//! as the person, which could end the worker anyway.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, RwLock};
 
 use serde_json::json;
 
@@ -48,47 +50,15 @@ pub fn epoch() -> u64 {
 pub struct Stops {
     any: AtomicBool,
     sessions: RwLock<HashSet<String>>,
-    /// Where the list is kept across worker restarts (`None`: memory only).
-    file: Mutex<Option<PathBuf>>,
 }
 
 impl Stops {
-    /// Keeps the list in `path` from now on, after adding the sessions an
-    /// earlier worker saved there.
-    pub fn keep_in(&self, path: PathBuf) {
-        let saved: Vec<String> = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
-        {
-            let mut sessions =
-                self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-            sessions.extend(saved);
-            self.any.store(!sessions.is_empty(), Ordering::Release);
-        }
-        *self.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path);
-    }
-
-    /// Writes the list to the file [`Self::keep_in`] named, if any.
-    fn save(&self, sessions: &HashSet<String>) {
-        let file = self.file.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(path) = file.as_ref() else { return };
-        let mut list: Vec<&String> = sessions.iter().collect();
-        list.sort();
-        if let Ok(bytes) = serde_json::to_vec(&list) {
-            crate::session::write_private(path, &bytes);
-        }
-    }
-
     /// Stops `session`; false when it already was.
     pub fn stop(&self, session: &str) -> bool {
         let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         let added = sessions.insert(session.to_string());
         self.any.store(true, Ordering::Release);
         STOP_EPOCH.fetch_add(1, Ordering::AcqRel);
-        if added {
-            self.save(&sessions);
-        }
         added
     }
 
@@ -97,9 +67,6 @@ impl Stops {
         let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         let removed = sessions.remove(session);
         self.any.store(!sessions.is_empty(), Ordering::Release);
-        if removed {
-            self.save(&sessions);
-        }
         removed
     }
 
