@@ -7,6 +7,9 @@ extension AgentPaneModel {
     func markPainted() {
         guard !hasPainted else { return }
         hasPainted = true
+        // The chat showed: its next pane opens with no busy mark (``AgentPaneSeenChats``).
+        if let sessionId { AgentPaneTailCache.shared.seen.noteShown(sessionId) }
+        openWaits.paint(chat: sessionId != nil, fromKeptTail: paintedFromKeptTail)
         let waiters = paintWaiters
         paintWaiters = []
         for waiter in waiters { waiter() }

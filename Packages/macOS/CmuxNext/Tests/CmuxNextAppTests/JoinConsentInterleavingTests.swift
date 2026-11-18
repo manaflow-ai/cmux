@@ -137,7 +137,12 @@ import Testing
             guard ticket.map({ $0.write(send) }) ?? { send(); return true }() else { return nil }
             // acpmux takes a grant and a revoke only from the person's connection.
             guard world.truth.person else { return nil }
-            if surface == .screen { world.truth.screen = granted } else { world.truth.control = granted }
+            switch surface {
+            case .screen: world.truth.screen = granted
+            case .control: world.truth.control = granted
+            // Mac Screen never reads it; this run moves only the two surfaces it gates.
+            case .signedInMachines: break
+            }
             return world.record
         }
         func close() {}

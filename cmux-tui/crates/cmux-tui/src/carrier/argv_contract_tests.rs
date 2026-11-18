@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::{DialService, parse, parse_serve};
+use super::{DialService, parse, parse_serve, supervise};
 
 fn children() -> Vec<Value> {
     let path =
@@ -53,6 +53,20 @@ fn every_child_the_app_spawns_parses_with_the_real_carrier_cli() {
                     .unwrap_or_else(|| panic!("{name}: `cmux {}` exits 64", argv.join(" ")));
                 assert_eq!(Some(serve.dial.machine.as_str()), machine, "{name}");
                 assert_eq!(serve.socket.to_str(), text(child, &["swift", "socket"]), "{name}");
+            }
+            Some("supervise") => {
+                let (supervised, socket) = supervise::parse(args)
+                    .unwrap_or_else(|| panic!("{name}: `cmux {}` exits 64", argv.join(" ")));
+                assert_eq!(Some(supervised.as_str()), machine, "{name}");
+                assert_eq!(Some(socket.as_str()), text(child, &["swift", "socket"]), "{name}");
+                // The serve child supervise spawns parses too.
+                let config = supervise::Config::serve("cmux".into(), &supervised, &socket);
+                let (verb, serve_args) = config.args.split_first().expect("serve argv");
+                assert_eq!(verb, "carrier", "{name}");
+                let serve = parse_serve(serve_args)
+                    .unwrap_or_else(|| panic!("{name}: `cmux {}` exits 64", config.args.join(" ")));
+                assert_eq!(serve.dial.machine, supervised, "{name}");
+                assert_eq!(serve.socket.to_str(), Some(socket.as_str()), "{name}");
             }
             other => panic!("{name}: the carrier CLI has no verb {other:?}"),
         }

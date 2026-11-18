@@ -1,0 +1,15 @@
+[package]
+name = "cmux-tab-discard"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Which hidden browser tabs freeze, which are discarded and which are kept (Chrome's Memory Saver rules: audio, unsaved form input, pinned, capture), for the cmux macOS app over the app FFI. Pure: the app reports the facts and applies the result"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

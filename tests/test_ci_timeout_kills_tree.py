@@ -140,7 +140,6 @@ ALLOWED = frozenset({
     "seed_decide.py:warm_tier:run",
     "seed_derived_data.py:lineage:run",
     "stable_next_ui_journey.py:cmux:run",
-    "stable_next_ui_journey.py:login_keychain:run",
     "stable_next_ui_journey.py:shot:run",
     "stable_next_ui_journey.py:start_recording:popen",
     "swiftpm_build_metrics.py:run_command:popen",

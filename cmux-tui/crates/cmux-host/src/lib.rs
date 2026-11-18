@@ -62,6 +62,8 @@ or the command palette), or run `cmux accounts github-connect` on your Mac";
 #[cfg(unix)]
 pub mod github_cli_identity;
 #[cfg(unix)]
+pub mod github_wiring;
+#[cfg(unix)]
 pub mod gitlab_cli;
 pub mod identity;
 mod json;

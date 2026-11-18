@@ -42,6 +42,7 @@ mod previews;
 mod prewarm;
 pub mod reaction_wake;
 mod recover;
+pub mod redescribe;
 mod replies;
 mod reply_ledger;
 mod rights_gate;
@@ -180,6 +181,8 @@ pub enum Input {
         harness: Option<String>,
         /// Its lifetime (action_lifetime.rs), decided as it starts.
         made: Option<crate::action_lifetime::Made>,
+        /// It starts under the goal (goal.rs).
+        goal: bool,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -418,6 +421,20 @@ pub enum Input {
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
+    /// The owner's `memory redescribe`: describe the images these note
+    /// lines name again (redescribe.rs). Answers `{"started": [ids],
+    /// "refused": [{"id", "why"}]}` at once; each new description rewrites
+    /// its note through the memory's change book when it arrives.
+    Redescribe {
+        notes: Vec<u64>,
+        reply: Sender<serde_json::Value>,
+    },
+    /// A new description of the image note line `note` names arrived (or failed).
+    Redescribed {
+        note: u64,
         image: Box<images::TurnImage>,
         description: Result<String, String>,
     },
@@ -1637,7 +1654,8 @@ impl Brain {
                 policy,
                 harness,
                 made,
-            } => self.sub_started(&id, session_id, policy, harness, made),
+                goal,
+            } => self.sub_started(&id, session_id, policy, harness, made, goal),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1822,6 +1840,14 @@ impl Brain {
                 let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Redescribe { notes, reply } => {
+                let _ = reply.send(self.redescribe(&notes));
+            }
+            Input::Redescribed {
+                note,
+                image,
+                description,
+            } => self.redescribed(note, &image, description),
             Input::ReactionJudged { seq, id, answer } => self.reaction_judged(seq, id, answer),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));
@@ -2100,6 +2126,17 @@ impl Brain {
             (self.log)(&format!("setting {key} = [{shown}]"));
             return Ok(format!("{key} = [{shown}]"));
         }
+        if key == crate::chief_settings::RELAY_MCP_SERVERS {
+            let list = crate::chief_settings::parse_mcp_servers(value)?;
+            let mut next = self.chief.clone();
+            next.relay_mcp_servers = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
             let mut next = self.chief.clone();
@@ -2203,10 +2240,11 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {})",
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {}, {})",
             crate::chief_settings::CLOUD_AUTO_PAUSE,
             crate::chief_settings::TRUST_AGENTS,
-            crate::chief_settings::TRUSTED_AGENTS
+            crate::chief_settings::TRUSTED_AGENTS,
+            crate::chief_settings::RELAY_MCP_SERVERS
         ))
     }
 

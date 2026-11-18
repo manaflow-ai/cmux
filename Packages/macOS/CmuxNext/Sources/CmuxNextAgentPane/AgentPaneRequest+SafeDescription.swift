@@ -47,7 +47,9 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .sandboxRun: "sandboxRun"
         case .cloudStartChat: "cloudStartChat"
         case .cloudSignIn: "cloudSignIn"
+        case .cloudSetUp: "cloudSetUp"
         case .cloudSignInCancel: "cloudSignInCancel"
+        case .cloudPlanSubscribe: "cloudPlanSubscribe"
         case .cloudReservation: "cloudReservation"
         case .cloudRepickChat: "cloudRepickChat"
         case .cloudAnswerStart: "cloudAnswerStart"
@@ -65,6 +67,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .attachmentSourceIcon: "attachmentSourceIcon"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
+        case .completeFolder: "completeFolder"
         case .agentAvatar: "agentAvatar"
         case .setAgentAvatar: "setAgentAvatar"
         case .removeAgentAvatar: "removeAgentAvatar"
@@ -84,8 +87,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .environment: "environment"
         case .cloudMachine: "cloudMachine"
         case .cloudRepository: "cloudRepository"
+        case .gitHub(let request): request.method
         case .cloudEnvironment: "cloudEnvironment"
-        case .cloudCredentialTransfer: "cloudCredentialTransfer"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
         case .appAction: "appAction"

@@ -70,6 +70,23 @@ pub fn authorize(secret: Option<&str>, hello: &Control) -> Result<(), &'static s
     }
 }
 
+/// The tab a viewer may join on a shared host (`--serve --shared`): the key of
+/// the tab whose token its hello carries. Every token is compared in constant
+/// time and none is skipped, so timing does not tell which tab matched.
+pub fn authorize_tab(tabs: &[(String, u32)], hello: &Control) -> Result<u32, &'static str> {
+    let Control::Hello { token: Some(token), .. } = hello else {
+        return Err("the viewer's hello carries no session token");
+    };
+    use subtle::ConstantTimeEq;
+    let mut found = None;
+    for (secret, key) in tabs {
+        if !secret.is_empty() && bool::from(secret.as_bytes().ct_eq(token.0.as_bytes())) {
+            found = Some(*key);
+        }
+    }
+    found.ok_or("the viewer's session token is no open tab's")
+}
+
 /// `--listen` must be a loopback address: a host never serves other machines.
 pub fn loopback_only(addr: SocketAddr) -> Result<SocketAddr, &'static str> {
     if addr.ip().is_loopback() { Ok(addr) } else { Err("--listen must be a loopback address") }
@@ -106,6 +123,25 @@ pub fn admit_within(
     secret: Option<&str>,
     deadline: Duration,
 ) -> std::io::Result<Admission> {
+    Ok(match admit_with(stream, deadline, |hello| authorize(secret, hello))? {
+        Gate::Admitted { hello, deframer, .. } => Admission::Admitted { hello, deframer },
+        Gate::Refused(reason) => Admission::Refused(reason),
+    })
+}
+
+/// The result of [`admit_with`]: an [`Admission`] that also carries what the
+/// hello check returned (on a shared host, the tab the viewer opens).
+pub enum Gate<K> {
+    Admitted { hello: Control, deframer: StreamDeframer, key: K },
+    Refused(String),
+}
+
+/// [`admit_within`] with the hello checked by `check` (Ok: the viewer's key).
+pub fn admit_with<K>(
+    stream: &mut TcpStream,
+    deadline: Duration,
+    check: impl FnOnce(&Control) -> Result<K, &'static str>,
+) -> std::io::Result<Gate<K>> {
     let until = Instant::now() + deadline;
     let mut deframer = StreamDeframer::default();
     let mut buf = vec![0u8; 4 * 1024];
@@ -113,22 +149,22 @@ pub fn admit_within(
         match deframer.next_frame() {
             Ok(Some(frame)) => break frame,
             Ok(None) => {}
-            Err(_) => return Ok(Admission::Refused("not an rd stream".into())),
+            Err(_) => return Ok(Gate::Refused("not an rd stream".into())),
         }
         let left = until.saturating_duration_since(Instant::now());
         if left.is_zero() {
-            return Ok(Admission::Refused("no hello before the deadline".into()));
+            return Ok(Gate::Refused("no hello before the deadline".into()));
         }
         stream.set_read_timeout(Some(left))?;
         let n = match stream.read(&mut buf) {
             Ok(n) => n,
             Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                return Ok(Admission::Refused("no hello before the deadline".into()));
+                return Ok(Gate::Refused("no hello before the deadline".into()));
             }
             Err(e) => return Err(e),
         };
         if n == 0 {
-            return Ok(Admission::Refused("left before hello".into()));
+            return Ok(Gate::Refused("left before hello".into()));
         }
         deframer.extend(&buf[..n]);
     };
@@ -138,14 +174,14 @@ pub fn admit_within(
         None
     };
     let checked = match hello {
-        Some(hello) => authorize(secret, &hello).map(|()| hello),
+        Some(hello) => check(&hello).map(|key| (hello, key)),
         None => Err("the first frame is not an rd control message"),
     };
     match checked {
-        Ok(hello) => Ok(Admission::Admitted { hello, deframer }),
+        Ok((hello, key)) => Ok(Gate::Admitted { hello, deframer, key }),
         Err(reason) => {
             write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
-            Ok(Admission::Refused(format!("refused: {reason}")))
+            Ok(Gate::Refused(format!("refused: {reason}")))
         }
     }
 }
@@ -174,59 +210,99 @@ pub fn accept_viewers(
     deadline: Duration,
     mut session: impl FnMut(Admitted),
 ) {
-    let (admitted, viewers) = mpsc::channel::<Admitted>();
-    let pending: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
     let secret: Option<Arc<str>> = secret.map(Arc::from);
-    std::thread::spawn(move || {
-        for (id, conn) in (0u64..).zip(listener.incoming()) {
-            // A failed accept or a peer that reset before setsockopt ends
-            // only that connection, never the listener.
-            let mut stream = match conn {
-                Ok(conn) => conn,
-                Err(e) => {
-                    eprintln!("serve: accept failed: {e}");
-                    continue;
-                }
-            };
-            let waiting = match stream.set_nodelay(true).and_then(|()| stream.try_clone()) {
-                Ok(waiting) => waiting,
-                Err(e) => {
-                    eprintln!("serve: connection dropped: {e}");
-                    continue;
-                }
-            };
-            {
-                let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
-                if pending.len() >= MAX_PENDING_HELLOS
-                    && let Some((_, oldest)) = pending.pop_front()
-                {
-                    // Its admission reads end of file and refuses it.
-                    let _ = oldest.shutdown(Shutdown::Both);
-                }
-                pending.push_back((id, waiting));
-            }
-            let (waiters, secret, admitted) = (pending.clone(), secret.clone(), admitted.clone());
-            let admission = move || {
-                let outcome = admit_within(&mut stream, secret.as_deref(), deadline);
-                waiters.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
-                match outcome {
-                    Ok(Admission::Admitted { hello, deframer }) => {
-                        let _ = admitted.send(Admitted { stream, hello, deframer });
-                    }
-                    Ok(Admission::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
-                    Err(e) => eprintln!("serve: session failed: {e}"),
-                }
-            };
-            if let Err(e) = std::thread::Builder::new().spawn(admission) {
-                // The closure (and its stream) is dropped; the slot it took
-                // in `pending` closes with it.
-                eprintln!("serve: connection dropped: {e}");
-                pending.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
-            }
-        }
+    let check = move |hello: &Control| authorize(secret.as_deref(), hello);
+    accept_viewers_with(listener, deadline, Arc::new(check), |viewer, ()| session(viewer));
+}
+
+/// The hello check of [`accept_viewers_with`]: Ok with the viewer's key.
+pub type HelloCheck<K> = Arc<dyn Fn(&Control) -> Result<K, &'static str> + Send + Sync>;
+
+/// [`accept_viewers`] with the hello checked by `check`: `session` gets each
+/// admitted viewer with its key (a shared host's tab), on the calling thread.
+pub fn accept_viewers_with<K: Send + 'static>(
+    listener: TcpListener,
+    deadline: Duration,
+    check: HelloCheck<K>,
+    mut session: impl FnMut(Admitted, K),
+) {
+    let (admitted, viewers) = mpsc::channel::<(Admitted, K)>();
+    let deliver: Deliver<K> = Arc::new(move |viewer, key| {
+        let _ = admitted.send((viewer, key));
     });
-    for viewer in viewers {
-        session(viewer);
+    std::thread::spawn(move || accept_loop(listener, deadline, check, deliver));
+    for (viewer, key) in viewers {
+        session(viewer, key);
+    }
+}
+
+/// Where [`accept_loop`] hands an admitted viewer (on its admission thread).
+type Deliver<K> = Arc<dyn Fn(Admitted, K) + Send + Sync>;
+
+/// [`accept_viewers_with`] for viewers that are served at the same time (a
+/// shared host: one viewer per tab): each admitted viewer's `session` runs on
+/// its own admission thread, and the accept loop runs on the calling thread.
+pub fn accept_viewers_each<K: Send + 'static>(
+    listener: TcpListener,
+    deadline: Duration,
+    check: HelloCheck<K>,
+    session: Deliver<K>,
+) {
+    accept_loop(listener, deadline, check, session);
+}
+
+fn accept_loop<K: Send + 'static>(
+    listener: TcpListener,
+    deadline: Duration,
+    check: HelloCheck<K>,
+    deliver: Deliver<K>,
+) {
+    let pending: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
+    for (id, conn) in (0u64..).zip(listener.incoming()) {
+        // A failed accept or a peer that reset before setsockopt ends
+        // only that connection, never the listener.
+        let mut stream = match conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("serve: accept failed: {e}");
+                continue;
+            }
+        };
+        let waiting = match stream.set_nodelay(true).and_then(|()| stream.try_clone()) {
+            Ok(waiting) => waiting,
+            Err(e) => {
+                eprintln!("serve: connection dropped: {e}");
+                continue;
+            }
+        };
+        {
+            let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
+            if pending.len() >= MAX_PENDING_HELLOS
+                && let Some((_, oldest)) = pending.pop_front()
+            {
+                // Its admission reads end of file and refuses it.
+                let _ = oldest.shutdown(Shutdown::Both);
+            }
+            pending.push_back((id, waiting));
+        }
+        let (waiters, check, deliver) = (pending.clone(), check.clone(), deliver.clone());
+        let admission = move || {
+            let outcome = admit_with(&mut stream, deadline, |hello| check(hello));
+            waiters.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
+            match outcome {
+                Ok(Gate::Admitted { hello, deframer, key }) => {
+                    deliver(Admitted { stream, hello, deframer }, key);
+                }
+                Ok(Gate::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
+                Err(e) => eprintln!("serve: session failed: {e}"),
+            }
+        };
+        if let Err(e) = std::thread::Builder::new().spawn(admission) {
+            // The closure (and its stream) is dropped; the slot it took
+            // in `pending` closes with it.
+            eprintln!("serve: connection dropped: {e}");
+            pending.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
+        }
     }
 }
 

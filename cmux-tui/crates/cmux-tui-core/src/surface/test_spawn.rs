@@ -180,6 +180,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -219,6 +220,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),

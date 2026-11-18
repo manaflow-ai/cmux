@@ -101,6 +101,11 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    #if DEBUG
+    /// This phone's device ids for the account (link, then presence): the ids a Mac lists the phone by.
+    /// DEBUG only: the dogfood readiness receipt is its one reader.
+    public var deviceIDs: [String] { [identity.link, identity.presence] }
+    #endif
     /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
     @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
@@ -314,6 +319,8 @@ public final class LiveCoordinator {
             return source
         }
         restoreSnapshot()
+        // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
+        if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
     }
 

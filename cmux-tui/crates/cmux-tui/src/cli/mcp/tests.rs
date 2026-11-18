@@ -68,6 +68,11 @@ struct Fake {
     other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    /// Successive answers to `tab.list`, before `resource_result`.
+    tab_lists: RefCell<std::collections::VecDeque<Value>>,
+    /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
+    /// when unset.
+    reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -90,6 +95,10 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// The daemon's `chat.list` rows (its chat index); none when unset.
+    chats: Option<Value>,
+    /// Only the daemon's `chat.list` read fails.
+    chats_down: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -114,6 +123,10 @@ enum Change {
     Expire(usize),
     /// Daemon reads fail (true) or answer again (false).
     DaemonDown(bool),
+    /// The daemon's chat index (`chat.list` rows) now.
+    Chats(Value),
+    /// The daemon's `chat.list` read fails (true) or answers again (false).
+    ChatsDown(bool),
 }
 
 impl Live {
@@ -133,6 +146,8 @@ impl Live {
                 Change::Generation(generation) => self.generation = Some(generation.to_owned()),
                 Change::Expire(oldest) => self.oldest = oldest,
                 Change::DaemonDown(down) => self.daemon_down = down,
+                Change::Chats(rows) => self.chats = Some(rows),
+                Change::ChatsDown(down) => self.chats_down = down,
             }
         }
     }
@@ -169,6 +184,14 @@ impl Backend for Fake {
         !self.other_session
     }
 
+    fn resource_sender(&self) -> Option<live_file::Sender> {
+        let reloads = self.reloads.clone()?;
+        Some(std::sync::Arc::new(move |plan: RequestPlan| {
+            reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
+            Ok(json!({}))
+        }))
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -179,6 +202,8 @@ impl Backend for Fake {
             match method {
                 "computer_use.status" => Ok(status.clone()),
                 "permissions.request" => Ok(outcome.clone()),
+                // Restart Computer Use Helper (`cua_recovery.rs`).
+                "action.run" => Ok(json!({"ran": true})),
                 other => panic!("unexpected app call {other}"),
             }
         }))
@@ -223,6 +248,11 @@ impl Backend for Fake {
                 idempotency_key: None,
             });
         }
+        if request["operation"] == "tab.list"
+            && let Some(tabs) = self.tab_lists.borrow_mut().pop_front()
+        {
+            return Ok(tabs);
+        }
         if request["operation"] != "session.snapshot"
             && let Some(result) = &self.resource_result
         {
@@ -238,6 +268,12 @@ impl Backend for Fake {
         live.settle();
         if live.daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
+        }
+        if request["operation"] == "chat.list" {
+            if live.chats_down {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+            return Ok(live.chats.clone().unwrap_or_else(|| json!([])));
         }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();
@@ -921,6 +957,8 @@ fn json_rpc_lifecycle_and_errors() {
         "window_list",
         "agents_snapshot",
         "app_new_window",
+        "device_setup",
+        "device_start",
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
@@ -1582,6 +1620,8 @@ mod agent_wait;
 mod caller_scope;
 mod catalog;
 mod cloud_workspace_list;
+mod keys;
+mod live_open;
 mod machine_catalog;
 mod retained;
 mod settings;
@@ -1887,6 +1927,9 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
+
+#[path = "cua_recovery_tests.rs"]
+mod cua_recovery_tests;
 
 /// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
 /// the app's `browser.open_split` cannot run without the app (review of the
@@ -2403,5 +2446,43 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     assert_eq!(
         last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
         "{last}"
+    );
+}
+
+/// `device_setup` and `device_start` are listed, say they grant nobody access, and refuse wrong
+/// arguments before running anything.
+#[test]
+fn device_tools_are_listed_and_check_their_arguments() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in [device_tools::SETUP, device_tools::START] {
+        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
+        let description = tool["description"].as_str().unwrap();
+        assert!(description.contains("grants nobody access"), "{description}");
+    }
+    for (name, arguments) in [
+        (device_tools::SETUP, json!({})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
+        (device_tools::SETUP, json!({"device": "--all"})),
+        (device_tools::START, json!({})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words =
+        |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
+    assert_eq!(
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
+    );
+    assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
+    assert_eq!(
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }

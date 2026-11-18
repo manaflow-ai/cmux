@@ -341,6 +341,8 @@ impl Mux {
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
                     apply_column_dock(&mut target.layout_columns, column, dock)?;
+                    // `floating-panes-v1`: a floating pane of a column that docks is tiled.
+                    target.settle_floating_panes();
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = ColumnDockOutcome {
                         screen: target.id,

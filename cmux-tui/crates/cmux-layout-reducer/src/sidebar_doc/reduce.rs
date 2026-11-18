@@ -274,7 +274,9 @@ impl Tx<'_> {
 }
 
 fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
-    match op {
+    // A stale op applies to the document as it is now ([`super::stale`]); nothing left to do is no refusal.
+    let Some(op) = super::stale::rebase(tx.doc, op) else { return Ok(()) };
+    match op.as_ref() {
         Op::Move { items, to } => {
             place(tx, items, to)?;
             wake_groups_of(tx, items)
