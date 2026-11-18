@@ -34,6 +34,8 @@ public final class DaemonStore: StateResourceQueries {
             adoptUnread()
         }
     }
+    /// Bench-only ref (never in a PR): answers the optimistic split rules in place of the app FFI.
+    @ObservationIgnored var benchOptimisticResponder: ((Data) -> Data?)?
     @ObservationIgnored var workspaceList: [WorkspaceModel] = []
     /// The list when the overlay lifted (writes held until it is back); nil otherwise.
     @ObservationIgnored var listBeforeLift: [WorkspaceModel]?

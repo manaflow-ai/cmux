@@ -53,8 +53,52 @@ struct OptimisticOverlayBench {
         return store
     }
 
+    /// Bench-only ref: cmux-layout-reducer's patch answer (#46449) for the split, Split Left and New Column requests
+    /// these screens send, built from the request as the Rust rule builds it, standing in for the app FFI until its
+    /// release carries the patch contract. Its own cost (one small JSONSerialization parse and write) is in the samples,
+    /// in place of the Rust call's; the Rust side is measured on its own (layout_tree_stress sweep).
+    private static func standIn(_ request: Data) -> Data? {
+        guard let r = try? JSONSerialization.jsonObject(with: request) as? [String: Any], r["op"] as? String == "split",
+              let facts = r["facts"] as? [String: Any], let target = r["target"] as? UInt64, let leaf = r["leaf"] as? UInt64,
+              let splitID = r["split_id"] as? String, let dir = r["dir"] as? String, let ratio = r["ratio"] as? Double,
+              let panes = facts["panes"] as? Int, facts["leaf_placed"] as? Bool != true else { return nil }
+        let leafPart: [String: Any] = ["type": "leaf", "pane": leaf]
+        var answer: [String: Any]
+        if let column = r["column"] as? [String: Any], let handle = column["handle"] as? UInt64, let width = column["width"] as? Double {
+            let span = facts["span"] as? [Int]
+            answer = [
+                "columns": [["edit": "insert", "at": 0, "id": handle | (1 << 61), "width": 1.0, "layout": ["type": "screen"]],
+                            ["edit": "insert", "at": 1, "id": handle, "width": width, "layout": leafPart]],
+                "layout": ["type": "split", "dir": "right", "ratio": 0.5, "a": ["type": "screen"], "b": leafPart],
+                "pane_at": min(span.map { $0[1] + 1 } ?? panes, panes),
+            ]
+        } else {
+            guard let spots = r["spots"] as? [[String: Any]], let node = spots.first?["node"] as? [String: Any],
+                  node["pane"] as? UInt64 == target else { return nil }
+            let before = r["before"] as? Bool == true
+            let targetPart: [String: Any] = ["type": "leaf", "pane": target]
+            let index = facts["target_index"] as? Int
+            answer = [
+                "spots": [["spot": 0, "node": ["type": "split", "split_id": splitID, "dir": dir, "ratio": ratio,
+                                               "a": before ? leafPart : targetPart, "b": before ? targetPart : leafPart]]],
+                "pane_at": min(before ? (index ?? panes) : (index.map { $0 + 1 } ?? panes), panes),
+            ]
+        }
+        return try? JSONSerialization.data(withJSONObject: answer)
+    }
+
+    /// `measure` with ``standIn(_:)`` answering the split rules; every sample must show the new pane.
+    private static func measurePatch(_ store: DaemonStore, panes count: Int, _ make: () -> Intent) -> [UInt64] {
+        store.benchOptimisticResponder = standIn
+        defer { store.benchOptimisticResponder = nil }
+        var shown = 0
+        let out = measure(store, make, after: { shown += $0.workspaces.first?.screens.first?.panes.count == count + 1 ? 1 : 0 })
+        #expect(shown == warmups + samples)
+        return out
+    }
+
     /// `warmups + samples` intends of `make()`'s intent, each rejected after its sample; the samples in ns.
-    private static func measure(_ store: DaemonStore, _ make: () -> Intent) -> [UInt64] {
+    private static func measure(_ store: DaemonStore, _ make: () -> Intent, after: (DaemonStore) -> Void = { _ in }) -> [UInt64] {
         var out: [UInt64] = []
         out.reserveCapacity(samples)
         for index in 0..<(warmups + samples) {
@@ -63,6 +107,7 @@ struct OptimisticOverlayBench {
             let start = DispatchTime.now().uptimeNanoseconds
             store.intend(intent, transaction: transaction)
             let end = DispatchTime.now().uptimeNanoseconds
+            after(store)
             store.rejectIntent(transaction)
             if index >= warmups { out.append(end - start) }
         }
@@ -81,7 +126,7 @@ struct OptimisticOverlayBench {
     func split(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measure(store) { .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane()) }
+        let samples = Self.measurePatch(store, panes: count) { .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane()) }
         #expect(store.mirrorViolations.isEmpty)
         Self.report("split", panes: count, samples)
     }
@@ -90,7 +135,7 @@ struct OptimisticOverlayBench {
     func splitLeft(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measure(store) {
+        let samples = Self.measurePatch(store, panes: count) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane().placed(before: true))
         }
         #expect(store.mirrorViolations.isEmpty)
@@ -101,7 +146,7 @@ struct OptimisticOverlayBench {
     func newColumn(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
-        let samples = Self.measure(store) {
+        let samples = Self.measurePatch(store, panes: count) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane(columnWidth: 0.5))
         }
         #expect(store.mirrorViolations.isEmpty)
