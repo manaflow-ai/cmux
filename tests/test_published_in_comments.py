@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/published_in_comments.py"
@@ -85,6 +86,20 @@ class PublishedInTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0)
         self.assertIn("cannot read", result.stderr)
+
+    def test_only_writes_wait_out_the_pause(self):
+        # #40388: a PR that already has this build's line is skipped without sleeping.
+        line = module.build_line("v1", "https://x", "a" * 40)
+        noted = {"id": 1, "body": module.updated_body(None, line)}
+        argv = ["published_in_comments.py", "--repo", "o/r", "--since", "s", "--head", "a" * 40, "--name", "v1", "--url", "https://x"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(module, "git_subjects", return_value=["fix: new (#2)", "fix: old (#1)"]), \
+                mock.patch.object(module, "existing_comments", return_value=({1: noted}, set())), \
+                mock.patch.object(module, "gh") as gh, \
+                mock.patch.object(module.time, "sleep") as sleep:
+            self.assertEqual(module.main(), 0)
+        self.assertEqual(gh.call_count, 1, "only #2 is written")
+        self.assertEqual(sleep.call_count, 1, "the already-noted #1 does not pause")
 
 
 if __name__ == "__main__":
