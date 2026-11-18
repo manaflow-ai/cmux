@@ -448,8 +448,9 @@ fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Resul
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::write_file;
+    use super::{Hub, write_file};
     use crate::agent_tools::write_private;
+    use serde_json::{Value, json};
     use std::os::unix::fs::PermissionsExt as _;
 
     fn mode(path: &std::path::Path) -> std::io::Result<u32> {
@@ -479,5 +480,65 @@ mod tests {
         assert_eq!(mode(&record)? & 0o600, 0o600);
         assert_eq!(std::fs::read_dir(&servers)?.count(), 1);
         Ok(())
+    }
+
+    /// The store's own choice of writer for a card with a key (`keep_in_shared_store`): the key
+    /// goes to the 0600 secrets file in the 0700 folder only, and the record names the key's
+    /// header, never its value.
+    #[tokio::test]
+    async fn mcp_connect_a_key_card_keeps_its_key_in_a_0600_file_and_its_name_in_the_record()
+    -> anyhow::Result<()> {
+        use cmux_mcp_connect::shared;
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent"))?;
+        let hub = Hub::new(config, store);
+        let session = hub.insert_test_session(serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chat", "name": "worker", "harness": "fake",
+            "cwd": "/tmp", "status": "waiting", "createdAt": 1, "updatedAt": 1
+        }))?);
+        let tmp = tempfile::tempdir()?;
+        let card = json!({
+            "transport": "remote", "name": "keyed", "url": "https://mcp.example/mcp",
+            "publisher": "example", "verified": false, "keyName": "x-api-key"
+        });
+        let connected = json!({"connect": "connected"});
+        let kept = hub.keep_in_shared_store(
+            tmp.path(),
+            &session,
+            &card,
+            "agents",
+            &connected,
+            Some("k-1"),
+        );
+        assert_eq!(kept.as_deref(), Some("keyed"));
+        let secret = shared::secrets_path(tmp.path(), "keyed");
+        assert_eq!(mode(&secret)?, 0o600);
+        assert_eq!(mode(&tmp.path().join("secrets"))?, 0o700);
+        let secrets: Value = serde_json::from_slice(&std::fs::read(&secret)?)?;
+        assert_eq!(secrets, json!({"headers": {"x-api-key": "k-1"}}));
+        let record = std::fs::read_to_string(shared::server_path(tmp.path(), "keyed"))?;
+        let saved: Value = serde_json::from_str(&record)?;
+        assert_eq!(saved["secret_names"], json!(["x-api-key"]), "{saved}");
+        assert!(!record.contains("k-1"), "the record holds the key's value: {record}");
+        Ok(())
+    }
+
+    /// A record held at the end of its home check while the home is replaced: the write lands in
+    /// the folder this daemon holds, and the new home gets nothing.
+    #[test]
+    fn mcp_connect_a_record_held_past_its_home_check_stays_out_of_a_replaced_home() {
+        use crate::lost_home_race_tests::{forced, isolated, nothing};
+        isolated(
+            module_path!(),
+            "mcp_connect_a_record_held_past_its_home_check_stays_out_of_a_replaced_home",
+            |home| {
+                let path = home.join("mcp").join("servers").join("a.json");
+                forced(home, path.clone(), nothing, Some("mcp/servers/a.json"), move || {
+                    let _ = write_file(&path, b"{}", 0o644);
+                });
+            },
+            |_, _| {},
+        );
     }
 }
