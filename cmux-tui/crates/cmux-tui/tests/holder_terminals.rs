@@ -1401,5 +1401,7 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
 
 #[path = "holder_terminals/holder_late_start.rs"]
 mod holder_late_start;
+#[path = "holder_terminals/quick_terminal.rs"]
+mod quick_terminal;
 #[path = "holder_terminals/scale.rs"]
 mod scale;
