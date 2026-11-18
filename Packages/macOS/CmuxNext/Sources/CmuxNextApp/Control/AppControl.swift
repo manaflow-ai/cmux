@@ -140,7 +140,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.healthFeeds.debugMethod()])  // debug.chief_pet, debug.act_as_me, debug.app_health_card: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -253,10 +253,10 @@ final class AppControl {
             // Repeating Core Animation loops and whether anyone can see them (hq#3716).
             .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
-            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            // `{dismiss: true}` first dismisses the shown card as an app action would; `{press: "Show details"}` presses that button.
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
+                if let error = services.hoverCards.debugCommand(dismiss: call.params["dismiss"]?.boolValue == true, press: call.params["press"]?.stringValue) { return .value(["error": .string(error)]) }
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },

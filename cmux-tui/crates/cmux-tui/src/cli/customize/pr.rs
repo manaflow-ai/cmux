@@ -219,7 +219,7 @@ impl Http {
         })
     }
 
-    fn get_json(&self, url: &str) -> Result<Option<Value>, Failure> {
+    pub(super) fn get_json(&self, url: &str) -> Result<Option<Value>, Failure> {
         match self.get(url, 4 * 1024 * 1024)? {
             None => Ok(None),
             Some(bytes) => serde_json::from_slice(&bytes)

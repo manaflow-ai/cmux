@@ -256,6 +256,29 @@ if "--suite=idle-budget" in sys.argv:
 if "--suite=script-storm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script-storm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=script-storm"])
+
+def pane_bench_report(proc, config):
+    """Passes the lane's output through and writes --json (the step's report.json artifact): one row per PANE-BENCH
+    line (action, panes, frames, p50/p95/max ms, frames over 8 ms) and each suite's lane result. Before, the pane bench
+    wrote no report, so `--artifact artifacts/split-spring/report.json` failed a step whose suites passed."""
+    rows, suites = [], {}
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        if line.startswith("PANE-BENCH "):
+            row = dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv)
+            rows.append({k: (v if k == "action" else float(v) if "." in v else int(v)) for k, v in row.items()})
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("PaneMotionWorkTests", "PaneMotionBench") and parts[1] in ("passed", "failed", "skipped", "no"):
+            suites[parts[0]] = " ".join(parts[1:-1]) if parts[-1].endswith("s") else " ".join(parts[1:])
+    status = proc.wait()
+    path = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--json=")), None)
+    if path is None and "--json" in sys.argv[:-1]:
+        path = sys.argv[sys.argv.index("--json") + 1]
+    if path:
+        with open(path, "w") as f:
+            json.dump({"suite": "pane-bench", "config": config, "exit": status, "suites": suites, "rows": rows}, f, indent=1)
+    return status
+
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
@@ -263,8 +286,10 @@ if "--suite=pane-bench" in sys.argv:
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
-    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
-                             "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+    sys.exit(pane_bench_report(subprocess.Popen(
+        [os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+         "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace"), config))
 # `--suite=action-budget-bench`: the per-action budget monitor's always-on cost in ns per run and per batch
 # (ActionBudgetMonitorBench, CmuxNextActionsTests), no app window; --config=release|debug (default release). Run
 # it on each macOS major (perf lead, not a CI gate) and quote its `action-budget bench:` lines.
