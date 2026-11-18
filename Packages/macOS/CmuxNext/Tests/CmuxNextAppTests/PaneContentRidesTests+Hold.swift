@@ -142,6 +142,38 @@ extension PaneContentRidesTests {
         #expect(back.content.frame == back.clipView.bounds, "after the unzoom the pane's content is \(back.content.frame) in a clip of \(back.clipView.bounds)")
     }
 
+    /// The turn of a second Cmd-Shift-Enter in the zoom's motion of a pane with a page's view changes nothing that
+    /// shows: the pane that zooms still has its move, the same dim shows, and the pane that the zoom covers shows no
+    /// ring over the pane that moves. The frame that shows the unzoom shows that ring, and the page's view keeps its
+    /// size under its pane's move. At the unzoom's end the view has its pane's size again, by one resize from the key on.
+    @Test func theTurnOfASecondKeyInAZoomsMotionOfAPageShowsNoCoveredPanesRing() throws {
+        let begun = try Self.begin(Motion.zoom)
+        defer { begun.harness.window.closeAfterTest() }
+        let harness = begun.harness, screen = begun.screen
+        for _ in 0..<2 { _ = harness.root.advanceFrame(Motion.dt) }
+        try #require(Motion.inFlight(screen), "SETUP: the pane that zooms does not move three frames after the key")
+        let dim = try #require(PaneZoomDimTests.dim(harness), "SETUP: no dim shows three frames into the zoom's move")
+        let before = harness.provider.contents[Commit.left]?.sizes.count ?? 0
+
+        harness.model.apply(screens: Self.layouts(of: Motion.zoom).before)
+        harness.root.syncWithModel()
+        #expect(PaneZoomDimTests.dim(harness)?.view === dim.view, "the second key's turn took the dim away before its change shows")
+        #expect(Motion.inFlight(screen), "the second key's turn ended the pane's move before its change shows")
+        let covered = try #require(harness.root.context.hosts[Commit.right], "the covered pane has no host after the second key")
+        #expect(!covered.isHidden && covered.chrome.isHidden, "the covered pane's ring shows in the second key's turn, over the pane that still moves")
+
+        _ = harness.root.advanceFrame(Motion.dt)
+        #expect(harness.root.context.hosts[Commit.right]?.chrome.isHidden == false, "the covered pane's ring does not show in the frame that shows the unzoom")
+        let early = (harness.provider.contents[Commit.left]?.sizes.count ?? 0) - before
+        #expect(Motion.inFlight(screen) && early == 0, "in the frame that shows the unzoom the page's view took \(early) sizes, or its pane has no move")
+        _ = Motion.toTheEnd(harness, screen)
+        Commit.rest(harness)
+        let host = try #require(Motion.hosts(of: screen)[Commit.left], "after the unzoom the pane that zoomed does not show")
+        let took = (harness.provider.contents[Commit.left]?.sizes.count ?? 0) - before
+        #expect(took == 1, "from the second key to the unzoom's end the page's view took \(took) sizes")
+        #expect(host.content.frame == host.clipView.bounds, "after the unzoom the page's view is \(host.content.frame) in a clip of \(host.clipView.bounds)")
+    }
+
     /// A pane that grows holds nothing: its content has its final size in the frame that shows the act, as with no
     /// move, and the clip inside the pane cuts.
     @Test func theContentOfAPaneThatGrowsHasItsFinalSizeInTheFrameThatShowsTheAct() throws {
