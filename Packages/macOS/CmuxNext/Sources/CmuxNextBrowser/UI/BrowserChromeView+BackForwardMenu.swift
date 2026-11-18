@@ -45,6 +45,7 @@ extension BrowserChromeView {
     /// The row's entry through the tab's host, which runs it as the palette does; a tab with no host
     /// goes there itself.
     @objc func goToBackForwardEntry(_ sender: NSMenuItem) {
+        if let delegate = tab.delegate { return delegate.browserTab(tab, didRequest: .goToHistoryEntry(offset: sender.tag)) }
         (tab as? any BrowserBackForwardListing)?.goToEntry(offset: sender.tag)
     }
 }

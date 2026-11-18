@@ -145,7 +145,7 @@ enum SidebarCardFeed {
         switch SidebarBridgeRules().noticeAction(card: card, action: action, closeOption: option != nil, cardAction: cardAction != nil,
                                                  tryIt: PageDescriptor.changelogTryItActions.contains(action)) {
         case .closeUpdate:
-            if let option { _ = registry; updater.closeUpdateCard(option) }
+            if let option { registry.perform("updates.snooze", invocation: ActionInvocation(arguments: ["option": .string(option.rawValue)], origin: .user)) }
         case .updateAction:
             if cardAction == .releaseNotes, let url = updater.cardReleaseNotesURL { open(url) } else if let cardAction { updater.performCardAction(cardAction) }
         case .useRealFeed: try? updater.useTestFeed(nil, pinned: false)

@@ -30,7 +30,7 @@ enum BrowserDownloadsMenu {
             ("browser.download.copyLink", BrowserHitStrings.downloadCopyLink, "link"),
         ]
         for (id, title, symbol) in rows where offers(id, download) {
-            submenu.addItem(closure(title, symbol) { _ = registry; _ = perform(id, on: download, list: list) })
+            submenu.addItem(closure(title, symbol) { [weak registry] in if let registry { run(id, on: download, in: registry) } })
         }
         return submenu.items.isEmpty ? nil : submenu
     }
