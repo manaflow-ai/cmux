@@ -202,3 +202,31 @@ globalThis.__cmuxAppExports = { renderCard, decorateRows }
 | `agents[i].sinceEpoch` (seconds) | `ctx.card.statusSinceMs` and `facts[i].sinceMs` (milliseconds) |
 | `cmux(method, params)` | `cmux.<area>.<op>(params)` with the scopes the manifest names |
 | Errors replace the sidebar | Errors show under the built-in card, which stays |
+
+## The way back, cost and failure behavior (CMUX-383 slice 2)
+
+Every hide has an obvious way back. **Show Hidden Sidebar Items**
+(`sidebar.showHidden`) shows every hidden section and workspace again and keeps
+order and groups; **Reset Sidebar Sections and Order** (`sidebar.resetLayout`)
+removes every projection override. Both are command palette rows and buttons on
+Settings > Sidebar, and both write the same `sidebar.sections` /
+`sidebar.workspaces` keys a hand edit does (Rust `sidebar_projection_edit`), so
+the watcher applies them live.
+
+Opening a hidden workspace (from the palette, a notification, Cmd-number) draws
+it while it is selected; selecting another row hides it again. Sorting a group
+never rewrites the stored order, and `order` ranks only the rows it names.
+
+The planning request is the document's outline (sections and their groups) and
+the location of only the workspaces the settings name, plus the selected one,
+so it is the same size at 30 and 3,000 rows (497 bytes, about 8 us to decode,
+plan and encode on the Linux fleet at both counts; the old full-document request
+was 2,134 bytes and 20.5 us at 30 rows, 190,134 bytes and 1,150 us at 3,000). A
+click on a drawn row does not plan again; only a selection of an undrawn row, or
+away from a hidden row kept for the selection, does.
+
+A malformed value (a list that is not a list, a non-boolean `hidden`, an order
+out of range) keeps the last good projection and reports the key and path in
+Settings diagnostics. Saving the corrected file reloads through the watcher and
+applies it, with no restart. An unknown section or workspace id is reported but
+is not malformed: the rest of the settings apply.

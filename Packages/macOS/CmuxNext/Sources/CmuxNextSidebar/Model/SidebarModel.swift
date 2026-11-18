@@ -37,11 +37,29 @@ public final class SidebarModel {
         }
     }
     /// Rust-owned projection settings. The document remains the placement owner.
+    /// A malformed value (`isComplete` false) keeps the last good projection:
+    /// the diagnostic shows in Settings, and the saved fix applies on the
+    /// watcher's next load.
     public var sectionCustomization = SidebarProjectionCustomization.defaults {
         didSet {
+            guard sectionCustomization.isComplete else {
+                sectionCustomization = oldValue
+                return
+            }
             guard sectionCustomization != oldValue else { return }
             reprojectSections()
         }
+    }
+    /// What the last projection decided: its revision, whether it kept a
+    /// hidden row drawn for the selection, and the hides a Show can undo.
+    @ObservationIgnored public private(set) var projectionPlan = SidebarProjectionPlan.none
+    /// Whether the settings hide any section or workspace.
+    private var projectionHides: Bool { sectionCustomization.hidesAnything }
+    /// Whether a selection change has to project again (see `selectedItem`).
+    private var selectionNeedsReprojection: Bool {
+        if projectionPlan.selectionOverridesHide { return true }
+        guard case let .workspace(id)? = selectedItem else { return false }
+        return !lists(id)
     }
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The latest document projection before user customization. Keeping this
@@ -185,10 +203,13 @@ public final class SidebarModel {
             if case let .workspace(id)? = selectedItem { expandSections(hiding: id) }
             // A selected row is always visible, even when a settings reload
             // hides its workspace or section. Reproject the current document
-            // in the same turn as selection changes.
-            if !sectionCustomization.hiddenSections.isEmpty || sectionCustomization.workspaces.values.contains(where: \.hidden) {
-                reprojectSections()
-            }
+            // in the same turn as selection changes, but only when the
+            // projection must change: the new selection is not drawn (a
+            // hidden row opened from the palette, a notification) or the last
+            // plan kept a hidden row drawn for the old selection. A click on
+            // a drawn row stays O(1) at any row count (`lists` reads the row
+            // index), never a re-plan of every row.
+            if projectionHides, selectionNeedsReprojection { reprojectSections() }
         }
     }
     /// The workspace shown in the window: the selection when it is a workspace.
@@ -523,7 +544,8 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.rowsWalked, new.reduce(0) { $0 + $1.nodes.count })
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let projected = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        let shown = SidebarCustomizationPlanner.apply(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        let (shown, plan) = SidebarCustomizationPlanner.plan(projected, customization: sectionCustomization, selected: activeWorkspaceID)
+        projectionPlan = plan
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []

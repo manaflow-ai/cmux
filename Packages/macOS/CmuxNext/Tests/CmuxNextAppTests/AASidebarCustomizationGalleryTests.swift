@@ -7,9 +7,10 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// CMUX-383's first two projection slices rendered through the real sidebar.
-/// The three variants exercise the default, section visibility/order, and
-/// workspace grouping surfaces. Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
+/// CMUX-383's projection slices rendered through the real sidebar: the default,
+/// a hidden and reordered section, a per-workspace group and order override, and
+/// a hidden workspace, each at compact and comfortable density, light and dark.
+/// Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarCustomizationGalleryTests {
     struct Variant: Sendable {
         let name: String
@@ -20,7 +21,10 @@ import Testing
         Variant(name: "default", settings: .defaults),
         Variant(name: "sections", settings: .init(hiddenSections: ["recents"], sectionOrder: ["projects"])),
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
+        Variant(name: "hidden-workspace", settings: .init(workspaces: ["ws-1": .init(hidden: true)])),
     ]
+
+    static let densities: [SidebarDensity] = [.compact, .comfortable]
 
     private static func workspace(_ id: String, _ title: String? = nil) -> SidebarWorkspace {
         let title = title ?? "Workspace \(id)"
@@ -38,8 +42,11 @@ import Testing
         ]
     }
 
-    private static func render(_ variant: Variant, dark: Bool) throws -> CGImage {
+    private static func render(_ variant: Variant, dark: Bool, density: SidebarDensity = .compact) throws -> CGImage {
         _ = NSApplication.shared
+        let saved = DesignSettings.shared.sidebarSections.density
+        DesignSettings.shared.sidebarSections.density = density
+        defer { DesignSettings.shared.sidebarSections.density = saved }
         let width: CGFloat = 280, height: CGFloat = 360
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -102,6 +109,19 @@ import Testing
 
     private static var baseSectionIDs: [SectionID] { Self.sections().map(\.id) }
 
+    @Test func aHiddenWorkspaceLeavesItsGroupAndComesBackOnShow() {
+        let model = SidebarModel(sections: Self.sections())
+        model.sectionCustomization = Self.variants[3].settings
+        model.setSections(Self.sections())
+        #expect(model.workspace(WorkspaceID("ws-1")) != nil)
+        #expect(!model.sections.flatMap(\.nodes).contains { node in
+            if case let .group(group) = node { return group.workspaces.contains { $0.id == WorkspaceID("ws-1") } }
+            return false
+        })
+        model.sectionCustomization = .defaults
+        #expect(model.sections.map(\.id) == Self.baseSectionIDs)
+    }
+
     @Test func selectionPreservesPatchedRowsWithoutRebuildingDefaultProjection() {
         let model = SidebarModel(sections: Self.sections())
         let updated = Self.workspace("ws-2", "Updated title")
@@ -130,23 +150,26 @@ import Testing
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var images: [CGImage] = []
         for dark in [true, false] {
-            for variant in Self.variants {
-                let image = try Self.render(variant, dark: dark)
-                images.append(image)
-                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(dark ? "dark" : "light")-\(variant.name).png"))
+            for density in Self.densities {
+                for variant in Self.variants {
+                    let image = try Self.render(variant, dark: dark, density: density)
+                    images.append(image)
+                    let name = "\(dark ? "dark" : "light")-\(density.rawValue)-\(variant.name).png"
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
+                }
             }
         }
-        let columns = Self.variants.count
+        let columns = Self.variants.count, rows = images.count / columns
         let w = images[0].width, h = images[0].height, gap = 16
         let ctx = try #require(CGContext(data: nil, width: columns * w + (columns - 1) * gap,
-                                         height: 2 * h + gap, bitsPerComponent: 8, bytesPerRow: 0,
+                                         height: rows * h + (rows - 1) * gap, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(CGColor(gray: 0.5, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
         for (index, image) in images.enumerated() {
             let column = index % columns, row = index / columns
-            ctx.draw(image, in: CGRect(x: column * (w + gap), y: (1 - row) * (h + gap), width: w, height: h))
+            ctx.draw(image, in: CGRect(x: column * (w + gap), y: (rows - 1 - row) * (h + gap), width: w, height: h))
         }
         try AAGroupHeaderDensityGalleryTests.write(try #require(ctx.makeImage()), to: out.appending(path: "all.png"))
     }
