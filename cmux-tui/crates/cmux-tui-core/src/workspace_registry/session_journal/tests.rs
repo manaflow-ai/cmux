@@ -1,5 +1,7 @@
 use super::*;
 
+pub(crate) mod late_subject_rows;
+
 #[test]
 fn resource_record_is_typed_scoped_and_append_only() {
     let registry = WorkspaceRegistry::in_memory("journal").unwrap();
