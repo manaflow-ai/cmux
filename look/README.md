@@ -27,6 +27,7 @@ That applies `look/profile.json` (settings, the `codex-app` theme file, the chat
   - Settings: chats grouped by folder with times, comfortable density, no spaces, the lone chat tab
     hidden, the system font at 15 px, a 1000 px chat column, messages presentation.
 - `webviews/` (the web layer):
+  - `src/pages/settings/codexLook.css`: the Settings page as the Codex app's settings window.
   - `src/agent-session/acpmux/look/codexLook.css`: prompt pill, code chips, blue links, the white
     24 px composer with its shadow, the dark round Send, the model on the left of the in-box row,
     the white scroll-to-bottom disc, and New Tab's heading and strip.
