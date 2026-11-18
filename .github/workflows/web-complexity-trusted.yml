@@ -34,16 +34,23 @@ permissions:
   pull-requests: read
 
 # Metadata-only edits must not cancel a useful content check. A separate
-# group also keeps them from replacing a pending content run.
+# group also keeps them from replacing a pending content run; a skipped edit
+# (below) gets a group of its own run.
 concurrency:
-  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && '-metadata' || '' }}
+  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-noop-{0}', github.run_id) || github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   complexity:
-    # Keep the required context literal and evaluate the real verdict on edits.
-    # GitHub can publish an unevaluated name expression when a job is skipped.
+    # Keep the required context literal; GitHub can publish an unevaluated name
+    # expression when a job is skipped. A title or description edit of a
+    # feat-cmux-next pull request is skipped: the verdict reads neither, and that
+    # branch's landers (merge_hold, next-autoland) read past a skipped run to the
+    # newest real verdict. Into main an edit still evaluates the real verdict,
+    # since gh-merge-green reads a skipped run as a pass. Leo, 2026-11-17, on
+    # checks re-run by every edit: "why should it do that".
     name: Web complexity
+    if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') }}
     # The job reads untrusted source bytes, so it needs an ephemeral runner;
     # no repository variable may select a persistent host. CI_TRUSTED_RUNNER
     # only chooses GitHub-hosted or a one-job Blacksmith VM from the list
