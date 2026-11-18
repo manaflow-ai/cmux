@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchSnapshot: Task<LaunchSnapshot?, Never>?  // started in `main` (readAtLaunch); nil once the launch took its result
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
+    private let launchHold: LaunchBackgroundHold  // background work and hidden page spares wait for the open workspace (CMUX-629)
     /// Launch work that starts after the first window frame (perf-launch-memory).
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
@@ -76,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle = LaunchSettle(firstFrame: firstFrame)
         let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
+        launchHold = LaunchBackgroundHold(budget: mainWork.budget) { DebugTimings.markLaunch($0) } // before anything queues background work
         control = AppControl(mainWork: mainWork)
         super.init()
     }
@@ -199,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
+        launchHold.install(settled: launchSettle.whenSettled, firstFrame: firstFrame)
         daemonPrompts = DaemonPrompts.start(services)
         services.healthFeeds.start() // app health: before the daemon's first ensure
         let daemonPrestart = await withTaskCancellationHandler { await preparedDaemon.value } onCancel: { preparedDaemon.cancel() }
@@ -293,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
+        launchHold.whenReleased { [weak services] in services?.startHiddenPageSpares() } // pages nobody sees (CMUX-629)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -313,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`).
     private static func preparePalette(_ palette: PaletteController?, step: Int) {
-        IdleOnce.schedule {
+        IdleOnce().schedule {
             guard let palette, palette.prepare(step: step) else { return }
             preparePalette(palette, step: step + 1)
         }

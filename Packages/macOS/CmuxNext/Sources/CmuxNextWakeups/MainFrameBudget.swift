@@ -99,6 +99,19 @@ public final class MainFrameBudget {
     private let totalNanos: UInt64
     private let passTargetNanos: UInt64
     private let idleTimeoutNanos: UInt64
+    /// Background work waits for the launch (CMUX-629; Leo: "technically only need to draw that one workspace open
+    /// and the sidebar"): set at the composition root before anything is queued, so nothing nobody sees (the next
+    /// Cmd-N's workspace, the pane spare, the binding table warm-up) runs until the open workspace is live. The app
+    /// ends it with ``releaseLaunchHold()`` at the launch settle, or its backstop (`LaunchBackgroundHold`). Queued work
+    /// stays queued and runs from the next frame on; it waits even past ``Budgets/idleTimeout``.
+    public private(set) var holdsBackgroundForLaunch = false
+
+    /// Holds background work until ``releaseLaunchHold()``.
+    public func holdBackgroundForLaunch() { holdsBackgroundForLaunch = true }
+
+    /// Ends the launch hold (later calls do nothing).
+    public func releaseLaunchHold() { holdsBackgroundForLaunch = false }
+
     /// The longest render pass since the window opened (charged to the next window).
     private var renderSinceRoll: UInt64 = 0
     /// The render pass this window is charged with.
