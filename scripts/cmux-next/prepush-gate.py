@@ -900,7 +900,7 @@ def dropped_baseline_pairs(repo: Path, head: str, trusted_scripts: Path | None) 
 
 
 def deps_check_files(repo: Path, base: str, head: str, changed: list[str], dropped,
-                     trusted_scripts: Path | None) -> tuple[list[str], bool]:
+                     trusted_scripts: Path | None) -> tuple[list[str], bool, frozenset[str]]:
     """The files the dependency check's trees hold on a push that changes the manifest or drops IMPORT_BASELINE lines,
     and whether they are the whole package. A target judges alike on both sides when its kind, declared dependencies
     and path are the same in both manifests and the pair it names in a baseline line names no target the push adds or
@@ -912,12 +912,15 @@ def deps_check_files(repo: Path, base: str, head: str, changed: list[str], dropp
     A manifest either side cannot parse, or a checker that will not load, takes the whole package, as before.
     2026-11-18: two pushes' whole-package checks (12,863 Swift files written twice each, then scanned) were the gate's
     top cost on a person's Mac at load 21 on 15 cores (check-package-dependency-lists.py at 128% CPU, x2)."""
-    def whole() -> tuple[list[str], bool]:
+    def whole() -> tuple[list[str], bool, frozenset[str]]:
         return sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
-                       for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST}), True
+                       for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST}), True, frozenset()
     script = (trusted_scripts / Path(DEPS_CHECKER).name) if trusted_scripts else repo / DEPS_CHECKER
     saved = list(sys.path)
     try:
+        # A manual run's trees run the head's checker: read targets with the same one, never a dirty or older copy.
+        if trusted_scripts is None and script.read_bytes() != git(repo, "show", f"{head}:{DEPS_CHECKER}"):
+            return whole()
         spec = importlib.util.spec_from_file_location("cmux_next_deps_checker", script)
         checker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(checker)
@@ -940,17 +943,20 @@ def deps_check_files(repo: Path, base: str, head: str, changed: list[str], dropp
 
     def folder(entry: tuple, name: str) -> str:
         kind, _, path = entry
-        return f"{PKG}/{(path or (('Tests' if kind == 'testTarget' else 'Sources') + '/' + name)).rstrip('/')}/"
+        return os.path.normpath(f"{PKG}/{path or (('Tests' if kind == 'testTarget' else 'Sources') + '/' + name)}") + "/"
     folders = tuple({folder(side[name], name) for side in sides for name in affected if name in side})
     files = {p for p in changed if p.startswith(MANIFEST_SOURCES) and p.endswith(".swift")} | {MANIFEST}
     for rev in (base, head):
         if folders:
             files |= {p for p in ls_tree(repo, rev, PKG + "/") if p.startswith(folders) and p.endswith(".swift")}
-        if added:  # a file that names an added target (git grep exits 1 on no match)
+        if added:  # a file that names an added target (git grep exits 1 on no match; any other failure: the whole package)
             patterns = [arg for name in sorted(added) for arg in ("-e", name)]
-            out = git(repo, "grep", "-l", "-z", "-F", *patterns, rev, "--", *MANIFEST_SOURCES, check=False).decode()
-            files |= {p.split(":", 1)[1] for p in out.split("\0") if p.endswith(".swift")}
-    return sorted(files), False
+            found = git_batch.run(absolute(repo), ["grep", "-l", "-z", "-F", *patterns, rev, "--", *MANIFEST_SOURCES])
+            if found.returncode not in (0, 1):
+                return whole()
+            files |= {p.split(":", 1)[1] for p in found.stdout.decode().split("\0") if p.endswith(".swift")}
+    # Each affected target is whole in both trees, so its stale baseline lines are true there (deps_findings).
+    return sorted(files), False, frozenset(affected)
 
 
 def stale_pairs(output: str) -> set[str]:
@@ -960,7 +966,8 @@ def stale_pairs(output: str) -> set[str]:
 
 def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str, head_code: int, *,
                   full_package: bool, cmd: list[str], work: Path,
-                  trusted_scripts: Path | None, manifest_trees: bool | None = None) -> tuple[str, int]:
+                  trusted_scripts: Path | None, manifest_trees: bool | None = None,
+                  whole_targets: frozenset[str] = frozenset()) -> tuple[str, int]:
     """The dependency check's head output with its "IMPORT_BASELINE lists ...: drop its line" findings judged.
 
     Missing imports always come from the installed checker (a push cannot weaken it). Which baseline lines are stale
@@ -989,12 +996,14 @@ def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str
         keep = {p for p in head_stale if pushed is None or p in pushed}
     else:
         candidates = {p for p in head_stale - stale_pairs(base_out) if pushed is None or p in pushed}
-        keep = set()
+        # A target the trees hold whole (WHOLE_TARGETS) needs no whole-package tree to confirm its stale lines.
+        keep = {p for p in candidates if p.partition(": ")[0] in whole_targets}
+        candidates -= keep
         if candidates:
             package = sorted({p for prefix in MANIFEST_SOURCES for p in ls_tree(repo, head, prefix)
                               if p.endswith(".swift")} | {MANIFEST})
             _, full_head = build_trees(repo, base, head, package, work, trusted_scripts, index=False)
-            keep = candidates & stale_pairs(run(fill(cmd, full_head), full_head)[1])
+            keep |= candidates & stale_pairs(run(fill(cmd, full_head), full_head)[1])
     kept = [r for r in records(head_out)
             if not (m := STALE_PAIR.search(r)) or m.group(1) in keep]
     if len(kept) == len(records(head_out)):
@@ -2989,7 +2998,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
-        deps_whole = True
+        deps_whole, deps_targets = True, frozenset()
         has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
@@ -3007,7 +3016,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
             # ast-grep's, the changed production files only. Only the targets the push can judge differently.
-            package, deps_whole = deps_check_files(repo, base, head, changed + deleted, dropped, trusted_scripts)
+            package, deps_whole, deps_targets = deps_check_files(repo, base, head, changed + deleted, dropped, trusted_scripts)
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
             trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, absolute(Path(tmp)) / "deps", trusted_scripts,
                                                 index=False)
@@ -3083,7 +3092,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         manifest_trees=name in trees_for,
-                                                        full_package=name in trees_for and deps_whole, cmd=jobs[name][1],
+                                                        full_package=name in trees_for and deps_whole, whole_targets=deps_targets,
+                                                        cmd=jobs[name][1],
                                                         work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI

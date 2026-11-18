@@ -1373,14 +1373,16 @@ let package = Package(
         self.commit("the test target declares the app")
         gate = load_gate_tools()
 
-        files, whole = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"], frozenset(), None)
+        files, whole, targets = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"],
+                                                      frozenset(), None)
 
         self.assertFalse(whole)
         self.assertEqual(files, [f"{PKG}/Package.swift", f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift"])
+        self.assertEqual(targets, frozenset({"CmuxNextKitTests"}))
         # An installed copy without the checker cannot say which targets differ: the whole package, as before.
         empty = self.root / "no-checker"
         empty.mkdir()
-        files, whole = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"], frozenset(), empty)
+        files, whole, _ = gate.deps_check_files(self.repo, "HEAD~1", "HEAD", [f"{PKG}/Package.swift"], frozenset(), empty)
         self.assertTrue(whole)
         self.assertIn(f"{PKG}/Sources/CmuxNextKit/Old.swift", files)
 
@@ -1404,6 +1406,27 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(self.remote_head(), before)
         self.assertIn('Fix: add "CmuxNextFresh" to the dependencies of CmuxNextKitTests', output)
+
+    def test_a_push_that_moves_a_target_onto_a_folder_with_an_undeclared_import_is_refused(self):
+        # A changed `path:` (here spelled with `./`) makes the target's new folder its sources: its unchanged files are
+        # judged only now, so the trees hold them.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.write(f"{PKG}/Tests/Moved/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a folder no target owns")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE.replace(
+            'dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit"],\n            path: "./Tests/Moved"'))
+        self.commit("the test target moves onto it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
     def test_a_push_that_removes_a_baseline_import_s_target_must_drop_its_line(self):
         # A baseline pair whose module the push removes goes stale in an untouched target: that target's files are in
