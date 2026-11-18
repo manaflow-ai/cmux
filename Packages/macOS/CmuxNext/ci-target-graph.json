@@ -1109,7 +1109,8 @@
       ],
       "packages": [
         "CmuxAgentBrands",
-        "CmuxTheme"
+        "CmuxTheme",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextDesignTests": {
@@ -1124,7 +1125,8 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
-        "CmuxTheme"
+        "CmuxTheme",
+        "CmuxVisibleRows"
       ],
       "reads": [
         "Packages/Shared/CmuxMessagesLab/Sources/**/*.swift",

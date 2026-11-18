@@ -2140,6 +2140,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The native popup rail's harness marks (NativePopupRailTab).
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
+                // The popups' row work meter (NativePopupContent, WebPopupRows).
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2155,6 +2157,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
             ],
             swiftSettings: uiSwiftSettings
         ),

@@ -35,6 +35,8 @@ final class DeclarativePopupHost {
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
         let scroll = OverlayScrollView()
+        // Scrolls and resizes reach the content, which draws only the rows in view.
+        scroll.contentView = PopupClipView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)

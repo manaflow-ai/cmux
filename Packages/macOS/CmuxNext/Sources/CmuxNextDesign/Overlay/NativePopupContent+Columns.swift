@@ -170,16 +170,16 @@ extension NativePopupContent {
         return model?.columns?.firstIndex { $0.rows.contains { $0.id == id } }
     }
 
-    private func columnRows(_ index: Int) -> [(NativePopupRow, NSView)] {
+    private func columnRows(_ index: Int) -> [NativePopupRow] {
         guard let column = model?.columns?[safe: index] else { return [] }
         let ids = Set(column.rows.map(\.id))
-        return enabledRows.filter { ids.contains($0.0.id) }
+        return listRows.filter { ids.contains($0.id) }
     }
 
     var firstListColumnRowID: String? {
         guard let columns = model?.columns else { return nil }
         let start = columns.firstIndex { $0.rail != true } ?? 0
-        return columnRows(start).first?.0.id
+        return columnRows(start).first?.id
     }
 
     /// Up and Down stay in the highlighted row's column and stop at its ends; Left and Right move
@@ -195,13 +195,13 @@ extension NativePopupContent {
                 : Array(columns.indices.filter { $0 < current }.reversed())
             guard let target = toward.first(where: { !columnRows($0).isEmpty }) else { return true }
             let rows = columnRows(target)
-            next = (rows.first { $0.0.checked == true } ?? rows.first)?.0.id
+            next = (rows.first { $0.checked == true } ?? rows.first)?.id
         } else {
             let rows = columnRows(current)
             guard !rows.isEmpty else { return true }
-            let at = rows.firstIndex { $0.0.id == selected }
+            let at = rows.firstIndex { $0.id == selected }
             let index = at.map { min(rows.count - 1, max(0, $0 + (key == 125 ? 1 : -1))) } ?? (key == 125 ? 0 : rows.count - 1)
-            next = rows[index].0.id
+            next = rows[index].id
         }
         guard let next, next != selected else { return true }
         selected = next

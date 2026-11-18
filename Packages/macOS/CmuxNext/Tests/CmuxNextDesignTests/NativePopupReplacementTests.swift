@@ -210,6 +210,8 @@ import Testing
         model.revision += 1
         model.rows[0].slider?.stops[1].value = "replacement"
         model.rows[1].label = "Replacement action"
+        // An unchanged row keeps its view (NativePopupRowCountTests); a changed one is replaced.
+        model.rows[2].label = "Replacement toggle"
         content.update(model)
         oldSlider.slider.doubleValue = 1
         oldSlider.slider.commitValue(true)
