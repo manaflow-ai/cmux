@@ -885,8 +885,14 @@ class RawLabelVars(unittest.TestCase):
     def test_the_substitute_is_the_same_image_largest_live_size_at_most_the_dead_one(self) -> None:
         pools = runner_pools.load_pools()
         self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32}, pools), self.LIVE16)
-        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32, self.LIVE16}, pools),
-                         "blacksmith-8vcpu-ubuntu-2404")
+        # Only the variable's own pool (the one its label leads): linux_32 is [32, 16] vCPU, so with 16 dead too it
+        # stays rather than take 8 vCPU through linux_16's members.
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32, self.LIVE16}, pools))
+        # 4 vCPU leads linux and linux_4 ([4, 16]); it never steps down to 2 vCPU through linux_2 or promotion.
+        self.assertEqual(runner_pools.raw_substitute("blacksmith-4vcpu-ubuntu-2404", {"blacksmith-4vcpu-ubuntu-2404"},
+                                                     pools), self.LIVE16)
+        self.assertIsNone(runner_pools.raw_substitute(
+            "blacksmith-4vcpu-ubuntu-2404", {"blacksmith-4vcpu-ubuntu-2404", self.LIVE16}, pools))
         # Nothing smaller is live: the next size up.
         self.assertEqual(runner_pools.raw_substitute("blacksmith-2vcpu-ubuntu-2404", {"blacksmith-2vcpu-ubuntu-2404"},
                                                      pools), "blacksmith-4vcpu-ubuntu-2404")
@@ -1065,10 +1071,44 @@ class RefusedRead(unittest.TestCase):
         self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
                          (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
 
-    def test_a_refused_fallback_still_judges_on_the_probe(self) -> None:
+    def test_a_refused_read_is_no_evidence_so_a_probe_stall_marks_nothing(self) -> None:
+        # 13:18Z: both reads refused, and 8 and 16 vCPU had started nothing for 15 min only because the vCPU cap
+        # queued them. A refused read cannot tell a capped size from a dead one, so the stalls mark nothing new.
         value = self.pass_with(self.Refused())
-        self.assertIn(self.SIXTEEN, value["_dead"])
-        self.assertNotEqual(value["linux_16"], self.THIRTY_TWO)
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
+                         (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
+
+    def test_a_refused_read_keeps_an_old_mark_and_a_probe_start_still_clears_one(self) -> None:
+        # Unknown stays unknown (2026-11-01 06:12Z): a mark past DEAD_TTL on a size the probe saw stall is kept,
+        # and one on a size the probe saw start is cleared.
+        old = runner_pools.iso(NOW - runner_pools.DEAD_TTL - dt.timedelta(minutes=5))
+        current = {"_dead": {self.SIXTEEN: old, self.TWO: old}}
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            self.TWO: "started", self.FOUR: "stalled", self.EIGHT: "stalled", self.SIXTEEN: "stalled",
+            self.THIRTY_TWO: "stalled"}))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": json.dumps(current)}, api=self.Refused(),
+                                           switch=switch, now=NOW, fallback=self.Refused()), 0)
+        value = json.loads(switch.writes[0][1])
+        self.assertEqual(value["_dead"], {self.SIXTEEN: old})
+        self.assertEqual(value["linux_16"], self.EIGHT)
+
+    def test_a_recent_start_on_a_size_the_probe_does_not_check_clears_its_mark(self) -> None:
+        arm = "blacksmith-4vcpu-ubuntu-2404-arm"
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["truncated"] = True
+        snapshot["label_started"] = {arm: runner_pools.iso(NOW - dt.timedelta(minutes=3))}
+        probe = health({self.TWO: "started", self.FOUR: "started"})
+        dead, started, _ = runner_pools.label_evidence(probe, snapshot, now=NOW)
+        self.assertIn(arm, started)
+        pools = runner_pools.load_pools()
+        self.assertIn(arm, runner_pools.evidence_covers(probe, snapshot, pools, now=NOW))
+        value, _ = runner_pools.reconcile({"_dead": {arm: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}, pools,
+                                          dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(probe, snapshot, pools, now=NOW))
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux_arm64"], arm)
 
 if __name__ == "__main__":
     unittest.main()
