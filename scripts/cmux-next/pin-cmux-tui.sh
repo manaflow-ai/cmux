@@ -126,6 +126,9 @@
 #          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
 #        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
 #          building, "failed <job>: <url>", "stalled <what>", none or unknown)
+#        | tree-publisher <key> <candidate>... (who will publish tree <key>, the nightly's one
+#          reading for resolve-tree-pending.sh and await-tree-client.sh: "building <commit>",
+#          "stuck <why>", ended, none or unknown; see tree_publisher)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -541,6 +544,55 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
 print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
 PY
   rm -rf "$jobs_dir"
+}
+
+# Prints who will publish tree <key>, given <candidate>... (the commits whose
+# artifacts runs build it, oldest first), one line:
+#   building <commit>  an active run of <commit> (a candidate's first, then any
+#                      same-key run) is making progress (artifacts_run_progress)
+#   stuck <why>        active runs exist, and none of them is making progress: a
+#                      build failed on its last retry attempt, or waits for a runner
+#                      past CMUX_TUI_TREE_RUNNER_STALL_SECONDS
+#   ended              no active run, and a candidate's runs ended
+#   none               no active run, and no candidate has a run yet
+#   unknown            a runs list or a run's jobs could not be read
+# resolve-tree-pending.sh and await-tree-client.sh both read this, so the nightly
+# that decides to wait for a tree and the wait itself judge a publisher alike
+# (2026-11-18: the resolver took owner 44223233076, whose builds had sat queued with
+# no runner since 02:32Z, as a publisher; nightly 44235456054 then waited 45 min on it).
+tree_publisher() {
+  local key="$1" candidate progress found stuck="" skip="" unknown=false ended=false
+  shift
+  for candidate in "$@"; do
+    case "$(artifacts_runs_state "$candidate")" in
+      active)
+        progress="$(artifacts_run_progress "$candidate")"
+        case "$progress" in
+          # none: the run list said active a moment ago; trust it until the next check.
+          building|unknown|none) echo "building $candidate"; return 0 ;;
+          *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
+        esac ;;
+      unknown) unknown=true ;;
+      ended\ *) ended=true ;;
+    esac
+  done
+  if [[ "$unknown" == true ]]; then echo unknown; return 0; fi
+  found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" active_publisher_for_key "$key")"
+  case "$found" in
+    unknown) echo unknown; return 0 ;;
+    "") ;;
+    *)
+      progress="$(artifacts_run_progress "$found")"
+      case "$progress" in
+        # none: the commit-filtered list lags the full one; the full list said active.
+        building|unknown|none) echo "building $found"; return 0 ;;
+        *) stuck="the run of ${found:0:12} is $progress" ;;
+      esac ;;
+  esac
+  if [[ -n "$stuck" ]]; then echo "stuck $stuck"
+  elif [[ "$ended" == true ]]; then echo ended
+  else echo none
+  fi
 }
 
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
@@ -1980,6 +2032,13 @@ PY
   run-progress)
     [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run-progress takes a 40-hex commit" >&2; exit 2; }
     artifacts_run_progress "$1"
+    ;;
+  tree-publisher)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: tree-publisher takes a 40-hex tree key" >&2; exit 2; }
+    for candidate in "${@:2}"; do
+      [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || { echo "error: tree-publisher candidate $candidate is not a 40-hex commit" >&2; exit 2; }
+    done
+    tree_publisher "$@"
     ;;
   resolve-exact)
     resolve_exact_tree
