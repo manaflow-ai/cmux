@@ -7,7 +7,9 @@ import CmuxNextWakeups
 /// its own scroll past its share of the sidebar's height. When a chat's rank changes its row slides
 /// to its new place on the sidebar's move spring; a new row opens its slot and a leaving row closes its.
 /// The person can drag a row to another place; it stays there (the App keeps it, `.place`), and the
-/// other chats rank around it (Leo 2026-10-21).
+/// other chats rank around it (Leo 2026-10-21). It lists every chat with no cap, so only the rows in
+/// view and one viewport above and below exist (`drawnIndices`), at 100 chats as at 10,000 (Leo
+/// 2026-11-18: "we draw the visible area, right?").
 final class SidebarPriorityPanelView: NSView {
     var onAction: ((SidebarPriorityAction) -> Void)?
     /// The panel's height changed (rows came or went, it folded): the sidebar lays out again.
@@ -20,6 +22,7 @@ final class SidebarPriorityPanelView: NSView {
     private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
+    /// The drawn rows (`drawnIndices`), never one per chat.
     private(set) var rows: [String: SidebarPriorityRowView] = [:]
     /// Rows that left and still close their slot; they go when their move ends. They take no clicks
     /// (`FlippedDocument.hitTest`), so a right-click there opens no menu for a chat that left.
@@ -29,7 +32,27 @@ final class SidebarPriorityPanelView: NSView {
     /// clipping until the later move ends, as the main list's `opens` count does.
     private var placement = 0
     private var opensUntil: [ObjectIdentifier: Int] = [:]
-    private(set) var panel = SidebarPriorityPanel(entries: [])
+    /// Drawn rows ranked out of view, still sliding to their place: they go when the last move ends.
+    private var slidingOut: Set<String> = []
+    private(set) var panel = SidebarPriorityPanel(entries: []) { didSet { reindex() } }
+    /// Each row's top in rank order, then the rows' full height: `panel.entries[i]` spans `tops[i]..<tops[i + 1]`.
+    private var tops: [CGFloat] = [0]
+    /// Each listed chat's place in `panel.entries`.
+    private var places: [String: Int] = [:]
+    /// `tops` and `places` at the last placement: a chat that ranks into view slides in from where it was.
+    private var placed: (tops: [CGFloat], places: [String: Int]) = ([0], [:])
+    /// The panel's row work, for the count tests (`SidebarPriorityRenderCountTests`).
+    struct Counts: Equatable {
+        /// Row views made (a row coming into view).
+        var made = 0
+        /// Row configures, a new row's own included.
+        var configured = 0
+        /// Row frames set (placed, moved or landed).
+        var framed = 0
+        /// Rows a clock tick redrew (their working time read differently).
+        var ticked = 0
+    }
+    private(set) var counts = Counts()
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
@@ -54,6 +77,7 @@ final class SidebarPriorityPanelView: NSView {
         scroll.automaticallyAdjustsContentInsets = false
         // A scroll while a row is held keeps the row under the pointer (`clipScrolled`).
         clip.onScroll = { [weak self] in self?.clipScrolled() }
+        clip.onResize = { [weak self] in self?.realizeDrawnRows() }
         scroll.contentView = clip
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
@@ -76,7 +100,7 @@ final class SidebarPriorityPanelView: NSView {
     private var contentHeight: CGFloat {
         guard !panel.collapsed else { return 0 }
         guard !panel.entries.isEmpty else { return SidebarDensityTokens.rowHeight }
-        return panel.entries.reduce(0) { $0 + SidebarPriorityRowView.height($1) }
+        return tops.last ?? 0
     }
 
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
@@ -85,12 +109,12 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func show(_ panel: SidebarPriorityPanel) {
-        let old = self.panel
+        let old = self.panel, oldTops = tops
         self.panel = panel
         // Hiding invalidates even a press below the drag threshold: its release may never reach
         // the hidden row. A re-rank, a fold or a height change also invalidates the press's slot.
-        if old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
-            || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
+        if old.shown != panel.shown || old.collapsed != panel.collapsed || oldTops != tops
+            || !old.entries.elementsEqual(panel.entries, by: { $0.id == $1.id }) {
             stopPresses()
         }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
@@ -100,27 +124,27 @@ final class SidebarPriorityPanelView: NSView {
         fade.isHidden = panel.collapsed
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
-        if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count
-            || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
-            onHeightChange?()
-        }
+        if old.collapsed != panel.collapsed || oldTops != tops { onHeightChange?() }
         needsLayout = true
     }
 
-    /// Lays the rows out in rank order on the sidebar's motion (`Motion.sidebar`, the main list's `.move`
+    /// Lays the drawn rows out in rank order on the sidebar's motion (`Motion.sidebar`, the main list's `.move`
     /// spring), as the main list does (`RowMotion`, `SidebarRowTransition`): a row that moved slides
     /// there, a new row opens its slot from zero height at the top of its run of new rows, and a row
-    /// that left closes its slot at the top of its run, so the rows below slide up into it. With motion
-    /// off (the master switch, the sidebar switch, speed "off", Reduce Motion) all of it lands at once.
+    /// that left closes its slot at the top of its run, so the rows below slide up into it. A chat that ranks
+    /// into view slides in from its old place; a drawn row that ranks out of view slides there and goes when
+    /// its move ends. A row already at its slot is not set again. With motion off (the master switch, the
+    /// sidebar switch, speed "off", Reduce Motion) all of it lands at once.
     private func placeRows(animated: Bool) {
         let width = scroll.contentView.bounds.width
-        let oldFrames = rows.mapValues(\.frame)
+        let moves = animated && Motion.sidebar.animatesMovement(in: window)
         var targets: [(SidebarPriorityRowView, NSRect)] = [], opening: [(SidebarPriorityRowView, NSRect)] = []
-        let shown = Set(panel.entries.map(\.id))
         var leaving: [(SidebarPriorityRowView, NSRect)] = []
         var runTop: CGFloat?
-        for (id, frame) in oldFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
-            guard !shown.contains(id), let row = rows.removeValue(forKey: id) else { runTop = nil; continue }
+        // Only drawn rows can leave: visit those, not every chat.
+        for (id, row) in rows.sorted(by: { $0.value.frame.minY < $1.value.frame.minY }) {
+            guard places[id] == nil, rows.removeValue(forKey: id) != nil else { runTop = nil; continue }
+            let frame = row.frame
             let top = runTop ?? frame.minY
             runTop = top
             row.onAction = nil
@@ -128,44 +152,58 @@ final class SidebarPriorityPanelView: NSView {
             opensUntil[ObjectIdentifier(row)] = nil
             leaving.append((row, NSRect(x: frame.minX, y: top, width: frame.width, height: 0)))
         }
-        var y: CGFloat = 0
+        let drawn = drawnIndices()
+        var kept = Set<String>()
+        var previous: Int?
         runTop = nil
-        for entry in panel.entries {
-            let height = SidebarPriorityRowView.height(entry)
-            let frame = NSRect(x: 0, y: y, width: width, height: height)
+        for index in drawn {
+            if let previous, index != previous + 1 { runTop = nil }
+            previous = index
+            let entry = panel.entries[index]
+            let frame = slotFrame(index, width: width)
+            kept.insert(entry.id)
             if let row = rows[entry.id] {
-                if row.entry != entry { row.configure(entry) }
+                if row.entry != entry {
+                    row.configure(entry)
+                    counts.configured += 1
+                }
+                targets.append((row, frame))
+                runTop = nil
+            } else if let was = placed.places[entry.id], was + 1 < placed.tops.count {
+                let row = mount(entry)
+                row.frame = NSRect(x: 0, y: placed.tops[was], width: width, height: placed.tops[was + 1] - placed.tops[was])
                 targets.append((row, frame))
                 runTop = nil
             } else {
-                let row = SidebarPriorityRowView(entry: entry)
-                row.onAction = { [weak self] action in self?.onAction?(action) }
-                row.onMove = { [weak self, weak row] direction in
-                    guard let self, let row else { return }
-                    self.move(row.entry.id, direction: direction)
-                }
-                row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
-                document.addSubview(row)
-                rows[entry.id] = row
-                let top = runTop ?? y
+                let row = mount(entry)
+                let top = runTop ?? frame.minY
                 runTop = top
                 row.frame = NSRect(x: 0, y: top, width: width, height: 0)
                 opening.append((row, frame))
             }
-            y += height
         }
-        document.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        // A drawn row ranked out of view: it slides to its place and goes when the move ends; with no move it goes now.
+        slidingOut = []
+        for (id, row) in rows where !kept.contains(id) {
+            guard moves, let index = places[id] else { unmount(id); continue }
+            slidingOut.insert(id)
+            targets.append((row, slotFrame(index, width: width)))
+        }
+        document.frame = NSRect(x: 0, y: 0, width: width, height: tops.last ?? 0)
+        placed = (tops, places)
         // The held row stays under the pointer while another chat's text updates: only a re-rank or a
         // height change moves it, and those cancel the drag first (`show`).
         if let held = draggingID.flatMap({ rows[$0] }) { targets.removeAll { $0.0 === held } }
-        guard animated, Motion.sidebar.animatesMovement(in: window) else {
+        guard moves else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
             Motion.withoutAnimation {
-                for (row, frame) in targets + opening {
+                for (row, frame) in targets + opening where !Self.landed(row, at: frame) {
                     row.animator().frame = frame
                     row.animator().alphaValue = 1
                     row.clipsToBounds = false
+                    row.slot = frame
+                    counts.framed += 1
                 }
             }
             for row in closing + leaving.map(\.0) { row.removeFromSuperview() }
@@ -176,6 +214,8 @@ final class SidebarPriorityPanelView: NSView {
         closing += leaving.map(\.0)
         placement += 1
         let current = placement
+        // A row already headed to its slot is not moved again (one chat's change moves no other row).
+        targets.removeAll { row, frame in row.slot == frame && row.alphaValue == 1 }
         // A new row opens on this move; one still opening from an earlier move keeps opening on it. A
         // settled row whose preview made it taller also clips until its slot has grown: layout places
         // the full preview immediately while the row's frame is still on the spring.
@@ -188,6 +228,8 @@ final class SidebarPriorityPanelView: NSView {
             for (row, _) in leaving { row.clipsToBounds = true }
             for (row, _) in opening { row.alphaValue = 0 }
         }
+        for (row, frame) in targets + opening { row.slot = frame }
+        counts.framed += targets.count + opening.count
         let gone = leaving.map(\.0)
         Motion.sidebar.animate(.move, in: self, {
             for (row, frame) in targets + opening {
@@ -207,25 +249,135 @@ final class SidebarPriorityPanelView: NSView {
                 self.opensUntil[ObjectIdentifier(row)] = nil
                 row.clipsToBounds = false
             }
+            // The rows that slid out of view go; any the scroll revealed meanwhile come.
+            if current == self.placement { self.slidingOut = [] }
+            self.realizeDrawnRows()
         })
+    }
+
+    /// The row is whole at `frame` with no move in flight, so landing it there again changes nothing.
+    private static func landed(_ row: SidebarPriorityRowView, at frame: NSRect) -> Bool {
+        row.slot == frame && row.frame == frame && row.alphaValue == 1 && !row.clipsToBounds
+            && (row.layer?.animationKeys()?.isEmpty ?? true)
+    }
+
+    /// The rows to draw in rank order: those in the clip and one viewport above and below (`drawnRange`), and
+    /// the held and the focused row wherever they are (a drag or the keyboard keeps its row).
+    private func drawnIndices() -> [Int] {
+        let range = drawnRange()
+        let focused = (window?.firstResponder as? SidebarPriorityRowView).flatMap { $0.superview === document ? $0.entry.id : nil }
+        let extra = Set([draggingID, focused].compactMap { $0.flatMap { places[$0] } }.filter { !range.contains($0) })
+        guard !extra.isEmpty else { return Array(range) }
+        return (Array(range) + extra).sorted()
+    }
+
+    /// The rows in the clip's bounds and one viewport above and below; none while folded. Before the clip has a
+    /// height (a panel shown before its first layout) the panel's own body stands in for it.
+    private func drawnRange() -> Range<Int> {
+        guard !panel.collapsed, !panel.entries.isEmpty else { return 0..<0 }
+        let visible = clip.bounds
+        let height = visible.height > 0 ? visible.height : max(0, bounds.height - headerHeight)
+        guard height > 0 else { return 0..<0 }
+        let lower = row(below: visible.minY - height)
+        let upper = min(panel.entries.count, row(below: visible.minY + 2 * height) + 1)
+        return lower..<max(lower, upper)
+    }
+
+    /// The first row whose bottom is below `y` (`entries.count` past the last): a search of `tops`, not a walk.
+    private func row(below y: CGFloat) -> Int {
+        var low = 0, high = panel.entries.count
+        while low < high {
+            let mid = (low + high) / 2
+            if tops[mid + 1] <= y { low = mid + 1 } else { high = mid }
+        }
+        return low
+    }
+
+    private func slotFrame(_ index: Int, width: CGFloat) -> NSRect {
+        NSRect(x: 0, y: tops[index], width: width, height: tops[index + 1] - tops[index])
+    }
+
+    /// `tops` and `places` for `panel.entries`: four row heights at the current type sizes, not a measure per chat.
+    private func reindex() {
+        let heights = [false, true].flatMap { preview in
+            [false, true].map { SidebarPriorityRowView.height(hasPreview: preview, answerable: $0) }
+        }
+        var tops: [CGFloat] = [], places: [String: Int] = [:]
+        tops.reserveCapacity(panel.entries.count + 1)
+        places.reserveCapacity(panel.entries.count)
+        var y: CGFloat = 0
+        for (index, entry) in panel.entries.enumerated() {
+            tops.append(y)
+            places[entry.id] = index
+            y += heights[(entry.preview != nil ? 2 : 0) + (entry.answerable ? 1 : 0)]
+        }
+        tops.append(y)
+        self.tops = tops
+        self.places = places
+    }
+
+    /// After a scroll or a resize: the rows that came into the drawn range get views at their slots, and those
+    /// that left it go. The rows still drawn are not touched.
+    private func realizeDrawnRows() {
+        let width = scroll.contentView.bounds.width
+        guard document.frame.width == width else { return placeRows(animated: false) }
+        var kept = Set<String>()
+        for index in drawnIndices() {
+            let entry = panel.entries[index]
+            kept.insert(entry.id)
+            guard rows[entry.id] == nil else { continue }
+            let row = mount(entry), frame = slotFrame(index, width: width)
+            row.frame = frame
+            row.slot = frame
+            counts.framed += 1
+        }
+        for id in rows.keys where !kept.contains(id) && !slidingOut.contains(id) { unmount(id) }
+    }
+
+    /// A view for `entry`'s row in the document.
+    private func mount(_ entry: SidebarPriorityEntry) -> SidebarPriorityRowView {
+        let row = SidebarPriorityRowView(entry: entry)
+        counts.made += 1
+        counts.configured += 1
+        row.onAction = { [weak self] action in self?.onAction?(action) }
+        row.onMove = { [weak self, weak row] direction in
+            guard let self, let row else { return }
+            self.move(row.entry.id, direction: direction)
+        }
+        row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
+        document.addSubview(row)
+        rows[entry.id] = row
+        return row
+    }
+
+    /// Takes `id`'s row out of the document: it left the drawn range.
+    private func unmount(_ id: String) {
+        guard let row = rows.removeValue(forKey: id) else { return }
+        row.onAction = nil
+        row.onDrag = nil
+        row.onMove = nil
+        opensUntil[ObjectIdentifier(row)] = nil
+        row.removeFromSuperview()
     }
 
     /// The row follows the pointer over the others; released, it takes the slot its middle is in
     /// (past the middle of a row it passed), the view shows that order at once and the App keeps it.
     /// A drop back in its own slot changes nothing.
     private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
-        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
-        let heights = panel.entries.map { SidebarPriorityRowView.height($0) }
-        let top = heights[..<from].reduce(0, +)
+        guard let from = places[row.entry.id], from < panel.entries.count, panel.entries[from].id == row.entry.id else { return }
+        let top = tops[from], height = tops[from + 1] - top, total = tops.last ?? 0
         let scrollY = scroll.contentView.bounds.origin.y
         let scrollStart = dragScrollStart ?? scrollY
         let offset = offset + scrollY - scrollStart
-        let middle = top + heights[from] / 2 + offset
-        var slot = 0, y: CGFloat = 0
-        for (index, height) in heights.enumerated() {
-            if index != from, y + height / 2 < middle { slot += 1 }
-            y += height
+        let middle = top + height / 2 + offset
+        // The slot: the other rows whose middle is above the held row's. The middles rise in rank order, so a
+        // search of `tops` finds them, not a walk of every chat.
+        var low = 0, high = panel.entries.count
+        while low < high {
+            let mid = (low + high) / 2
+            if (tops[mid] + tops[mid + 1]) / 2 < middle { low = mid + 1 } else { high = mid }
         }
+        let slot = low - (top + height / 2 < middle ? 1 : 0)
         guard ended else {
             draggingID = row.entry.id
             dragScrollStart = scrollStart
@@ -233,8 +385,9 @@ final class SidebarPriorityPanelView: NSView {
             if let point = row.heldWindowPoint { updateAutoscroll(windowPoint: point) }
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
-                row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
+                row.animator().frame.origin.y = min(max(0, top + offset), max(0, total - height))
             }
+            row.slot = nil
             return
         }
         row.layer?.zPosition = 0
@@ -288,8 +441,10 @@ final class SidebarPriorityPanelView: NSView {
         if window == nil { endPointerGesture() }
     }
 
-    /// The scroll moved under a held row: the row follows it, as a pointer move would.
+    /// The scroll moved: the rows it revealed come and those it left go, and a held row follows it, as a
+    /// pointer move would.
     private func clipScrolled() {
+        realizeDrawnRows()
         guard let id = draggingID, let row = rows[id] else { return }
         drag(row, offset: dragPointerOffset, ended: false)
     }
@@ -359,7 +514,7 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func move(_ id: String, direction: SidebarPriorityRowView.MoveDirection) {
-        guard draggingID == nil, let from = panel.entries.firstIndex(where: { $0.id == id }) else { return }
+        guard draggingID == nil, let from = places[id] else { return }
         let to = direction == .earlier ? from - 1 : from + 1
         guard panel.entries.indices.contains(to) else { return }
         var order = panel.entries
@@ -375,9 +530,14 @@ final class SidebarPriorityPanelView: NSView {
         guard working else { return ticker.cancel() }
         ticker.scheduleIfIdle(after: .seconds(60)) { @MainActor [weak self] in
             guard let self else { return }
-            for row in self.rows.values { row.tick(now: Date()) }
+            self.tick(now: Date())
             self.updateTicker()
         }
+    }
+
+    /// Redraws the drawn rows whose working time reads differently at `now`; the others are not touched.
+    func tick(now: Date) {
+        for row in rows.values where row.tick(now: now) { counts.ticked += 1 }
     }
 
     override func layout() {
@@ -395,7 +555,7 @@ final class SidebarPriorityPanelView: NSView {
         let emptySize = empty.naturalSize
         empty.frame = NSRect(x: inset, y: body.minY + (SidebarDensityTokens.rowHeight - emptySize.height) / 2,
                              width: max(0, b.width - 2 * inset), height: emptySize.height)
-        if document.frame.width != scroll.contentView.bounds.width { placeRows(animated: false) }
+        if document.frame.width != scroll.contentView.bounds.width { placeRows(animated: false) } else { realizeDrawnRows() }
     }
 
     override func updateLayer() {
@@ -426,9 +586,16 @@ final class SidebarPriorityPanelView: NSView {
 }
 
 /// The Priority view's clip view: it reports each scroll (a wheel, a scroller drag, a programmatic scroll) so a held
-/// row can follow the document.
+/// row can follow the document, and each resize, so the rows drawn follow the viewport.
 final class ScrollReportingClipView: NSClipView {
     var onScroll: (() -> Void)?
+    var onResize: (() -> Void)?
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { onResize?() }
+    }
 
     override func scroll(to newOrigin: NSPoint) {
         setBoundsOrigin(newOrigin)
