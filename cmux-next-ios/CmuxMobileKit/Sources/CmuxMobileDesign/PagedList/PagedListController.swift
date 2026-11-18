@@ -114,7 +114,12 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
         let context = super.invalidationContext(forPreferredLayoutAttributes: preferred, withOriginalAttributes: original)
-        guard let collectionView, context.contentOffsetAdjustment == .zero else { return context }
+        guard let collectionView else { return context }
+        guard context.contentOffsetAdjustment == .zero else {
+            // UIKit's own adjustment for this row: a correction for the measure, not a scroll.
+            corrected?(context.contentOffsetAdjustment.y)
+            return context
+        }
         let delta = preferred.frame.height - original.frame.height
         guard abs(delta) > 0.25 else { return context }
         // The row starts above the reader's top edge: everything the reader sees is below it and would
@@ -196,7 +201,13 @@ final class PagedListCollectionView: UICollectionView {
         return super.accessibilityScroll(direction)
     }
 
+    /// Inside a layout pass: an offset move now is the layout's or UIKit's own (a self-sized row's
+    /// correction, a batch update), never the person's scroll, which moves it between passes.
+    private(set) var laying = 0
+
     override func layoutSubviews() {
+        laying += 1
+        defer { laying -= 1 }
         super.layoutSubviews()
         didLayout?()
     }
@@ -420,7 +431,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // A `.down` list following its newest row keeps the rows in place too, then slides to the
         // new top; an `.up` one slides to the new bottom (the rows below the reader are new).
         let slidesDown = direction == .down && follows && arrivals > 0 && animates
-        let anchor = rowsChanged && loaded && (!follows || slidesDown) ? captureAnchor() : nil
+        // An `.up` list at its newest row stays on it after each layout pass, except while its slide
+        // runs: then it keeps its rows too, so a page or rows landing above don't push them down
+        // (rows that arrive below move nothing above).
+        let holdsDuringSlide = direction == .up && follows && spring.isRunning
+        let anchor = rowsChanged && loaded && (!follows || slidesDown || holdsDuringSlide) ? captureAnchor() : nil
         items = next
         order = newOrder
         showsEdge = newShowsEdge
@@ -444,7 +459,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if newerEdgeChanged, present.contains(.newerEdge), newShowsNewerEdge { reconfigure.append(.newerEdge) }
         snapshot.reconfigureItems(reconfigure)
         applies += 1
-        arriving = direction == .up && follows && arrivals > 0 && animates
+        // The new rows' move to the newest end is the slide (or, without motion, the jump) below,
+        // the list's own: the layout pass doesn't pin them first.
+        arriving = direction == .up && follows && arrivals > 0
         updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
@@ -722,7 +739,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func sampleShift(from source: String) {
         guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
-        let current = firstReadable()
+        let current = referenceRow()
         let offsetY = collectionView.contentOffset.y
         defer {
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, windowY: $0.windowY, width: width, offsetY: offsetY) }
@@ -743,6 +760,24 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
                 + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count)")
         }
+    }
+
+    /// The row the measure follows: the one being read, or, for an `.up` list at its newest row, the
+    /// lowest row on screen (what the reader there reads; the list keeps it on the bottom edge).
+    private func referenceRow() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {
+        guard direction == .up, followsNewest else { return firstReadable() }
+        let bottom = collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+        var found: (CellID, Int, CGFloat)?
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted().reversed() {
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                  attributes.frame.minY < bottom - 0.5,
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            if let first = found {
+                return (first.0, id, indexPath.item - first.1, first.2)
+            }
+            found = (id, indexPath.item, windowY(attributes))
+        }
+        return found.map { ($0.0, nil, nil, $0.2) }
     }
 
     private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {
@@ -829,11 +864,17 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let userMove = scrollView.isTracking || scrollView.isDecelerating || scrollingToTop
         if corrections > 0 {
             // Putting the reader back: not part of the scroll.
+        } else if ownMoves > 0 {
+            explained += delta
+        } else if updating || collectionView.laying > 0 {
+            // Inside an update or a layout pass: the layout's or UIKit's own move (a row above
+            // that sized itself, a batch update), never the finger or a fling, which move the
+            // offset between passes.
         } else if pendingAdjustment != 0, delta * pendingAdjustment > 0, abs(delta) <= abs(pendingAdjustment) + 0.5 {
             // The layout's own correction for a row above that changed height (UIKit may apply
             // several rows' corrections one at a time or together).
             pendingAdjustment = abs(pendingAdjustment - delta) < 0.5 ? 0 : pendingAdjustment - delta
-        } else if ownMoves > 0 || userMove {
+        } else if userMove {
             explained += delta
         }
         pullToRefresh?.scrolled()

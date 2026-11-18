@@ -128,7 +128,12 @@ The lab's probe measures, after every layout pass, how far the row being read mo
 what the scroll explains (the finger, a fling's deceleration, scroll to top, the list's own slide or
 ride). Corrections the list makes (anchoring, height changes, staying on the newest row when a page
 lands above it) are not explanations: a frame where a correction left the row off its place is a
-shift. The sample is taken once per update and once per layout pass, after the list's corrections. A case fails above 0.5 pt in any frame, or above
+shift. An offset move inside an update or a layout pass (a row above that sized itself, UIKit's own
+batch-update or self-sizing adjustment) is never the finger or a fling, which move it between passes,
+so it is a correction too. The sample is taken once per update and once per layout pass, after the
+list's corrections, on the row being read, or, for an `.up` list at its newest row, on the lowest row on
+screen (the list keeps that one on the bottom edge). In the lab, `worstShift` names what the list was
+doing in the worst frame. A case fails above 0.5 pt in any frame, or above
 10 ms of hitches per second. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,
