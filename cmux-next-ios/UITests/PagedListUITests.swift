@@ -128,6 +128,50 @@ final class PagedListUITests: XCTestCase {
         }
     }
 
+    // MARK: Agent Chats (migrated screen)
+
+    @MainActor func testAgentChatsLoadsOlderChatsAsYouScroll() {
+        let app = launch("agentchats:pages")
+        let list = app.collectionViews["agentChats.list"]
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10), "no chats")
+        attach(app, "agentchats-first-page")
+        XCTAssertFalse(app.buttons["agentChats.more"].exists, "Show Older Chats is still there")
+        let last = app.descendants(matching: .any)["agentChats.row.chat-59"]
+        for _ in 0..<15 where !(last.exists && last.isHittable) { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(last.waitForExistence(timeout: 10), "older chats did not load as the list scrolled")
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.list.edge.end"].exists || !app.descendants(matching: .any)["agentChats.list.edge.more"].exists,
+                      "the list did not end after the last page")
+        attach(app, "agentchats-end")
+    }
+
+    @MainActor func testAgentChatsEdgeFailureThenTryAgain() {
+        let app = launch("agentchats:edgefail")
+        let list = app.collectionViews["agentChats.list"]
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10), "no chats")
+        let failed = app.descendants(matching: .any)["agentChats.list.edge.failed"]
+        for _ in 0..<12 where !failed.exists { list.swipeUp(velocity: .fast) }
+        XCTAssertTrue(failed.waitForExistence(timeout: 10), "the edge did not show the failure")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "a failed page still shows an alert")
+        attach(app, "agentchats-edge-failed")
+        app.buttons["agentChats.list.retry"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-25"].waitForExistence(timeout: 10), "Try Again did not load the page")
+        attach(app, "agentchats-edge-recovered")
+    }
+
+    @MainActor func testAgentChatsLoadingEdgeAndEmpty() {
+        let slow = launch("agentchats:slow")
+        let list = slow.collectionViews["agentChats.list"]
+        XCTAssertTrue(slow.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10))
+        let loading = slow.descendants(matching: .any)["agentChats.list.edge.loading"]
+        for _ in 0..<8 where !loading.exists { list.swipeUp(velocity: .fast) }
+        XCTAssertTrue(loading.waitForExistence(timeout: 5), "no loading edge")
+        attach(slow, "agentchats-edge-loading")
+        slow.terminate()
+        let empty = launch("agentchats:empty")
+        XCTAssertTrue(empty.descendants(matching: .any)["agentChats.list.empty"].waitForExistence(timeout: 10), "no empty state")
+        attach(empty, "agentchats-empty")
+    }
+
     // MARK: Flings
 
     @MainActor func testDownFlingsMeetRowsWithoutHitches() { fling("down:fast", up: false) }

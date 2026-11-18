@@ -259,14 +259,31 @@ struct AgentChatsScreen: View {
             }
             .accessibilityIdentifier("agentChats.failed")
         case .loaded:
-            list
+            AgentChatsList(model: model, macName: source.macName, openHere: openHere,
+                           openNew: { await source.openAgentChatInNewWorkspace($0) })
         }
     }
+
+    /// Opens the chat as a tab here, then goes back to the workspace on it.
+    private func openHere(_ chat: AgentChatListing) async -> String? {
+        let refusal = await source.openAgentChat(chat)
+        if refusal == nil { source.showsAgentChats = false }
+        return refusal
+    }
+}
+
+/// The Chats list on the shared infinite-scroll list (``PagedList``), apart from the screen so
+/// its DEBUG gallery (``AgentChatsGallery``) draws the same view on fixed chats.
+struct AgentChatsList: View {
+    let model: AgentChatsModel
+    let macName: String
+    let openHere: (AgentChatListing) async -> String?
+    let openNew: (AgentChatListing) async -> String?
 
     /// The chats on the shared infinite-scroll list (``PagedList``): older chats are read as the
     /// reader nears the end (no Show Older Chats button), and a page that lands never moves the row
     /// being read.
-    private var list: some View {
+    var body: some View {
         let busyID = model.busyID
         let rows = model.visible.map { AgentChatsListItem(chat: $0, busy: busyID == $0.id, locked: busyID != nil) }
         return PagedList(direction: .down, items: rows, phase: .loaded, edge: model.edge,
@@ -311,7 +328,7 @@ struct AgentChatsScreen: View {
                                    description: Text("Chats you archive show here."))
         } else {
             ContentUnavailableView("No Agent Chats", systemImage: "bubble.left.and.text.bubble.right",
-                                   description: Text("Chats you start on \(source.macName) show here."))
+                                   description: Text("Chats you start on \(macName) show here."))
         }
     }
 
@@ -334,7 +351,7 @@ struct AgentChatsScreen: View {
                 Task { await model.run(chat) { await openHere(chat) } }
             }
             Button("Open in New Workspace", systemImage: "rectangle.stack.badge.plus") {
-                Task { await model.run(chat) { await source.openAgentChatInNewWorkspace(chat) } }
+                Task { await model.run(chat) { await openNew(chat) } }
             }
             Divider()
             archiveButton(chat)
@@ -346,13 +363,6 @@ struct AgentChatsScreen: View {
         Button(chat.archived ? "Unarchive" : "Archive", systemImage: chat.archived ? "tray.and.arrow.up" : "archivebox") {
             Task { await model.setArchived(chat, !chat.archived) }
         }
-    }
-
-    /// Opens the chat as a tab here, then goes back to the workspace on it.
-    private func openHere(_ chat: AgentChatListing) async -> String? {
-        let refusal = await source.openAgentChat(chat)
-        if refusal == nil { source.showsAgentChats = false }
-        return refusal
     }
 }
 

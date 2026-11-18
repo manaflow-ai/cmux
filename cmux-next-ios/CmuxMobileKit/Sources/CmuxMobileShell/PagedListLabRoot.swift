@@ -1,5 +1,6 @@
 #if DEBUG && os(iOS)
 import CmuxMobileDesign
+import CmuxMobileWorkspaces
 import Observation
 import SwiftUI
 
@@ -25,6 +26,8 @@ public struct PagedListLabRoot: View {
     let scenario: PagedLabScenario
     let scheme: ColorScheme?
     let clean: Bool
+    /// `agentchats:SCENARIO`: the Chats list itself (``AgentChatsGallery``) instead of the lab's rows.
+    let agentChats: String?
     @State private var model: PagedListModel<PagedLabItem>
     @State private var hud = PagedLabHUD()
     @State private var probe = PagedListProbe()
@@ -36,6 +39,7 @@ public struct PagedListLabRoot: View {
             arguments.firstIndex(of: flag).flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
         }
         let parts = (value("-cmux-mobile-paged-lab") ?? "down:normal").split(separator: ":").map(String.init)
+        agentChats = parts.first == "agentchats" ? (parts.count > 1 ? parts[1] : "pages") : nil
         let direction = PagedListDirection(rawValue: parts.first ?? "down") ?? .down
         let scenario = PagedLabScenario(rawValue: parts.count > 1 ? parts[1] : "normal") ?? .normal
         self.direction = direction
@@ -48,6 +52,14 @@ public struct PagedListLabRoot: View {
     }
 
     public var body: some View {
+        if let agentChats {
+            AgentChatsGallery(scenario: agentChats).preferredColorScheme(scheme)
+        } else {
+            lab
+        }
+    }
+
+    private var lab: some View {
         NavigationStack {
             PagedList(direction: direction, items: model.items, phase: model.phase, edge: model.edge,
                       loadMore: { Task { await model.loadMore() } }, retry: { await model.retry() }) { item in
