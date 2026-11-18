@@ -21,9 +21,9 @@ chrome so the window sits in its place on the screen.
 | A spatial OS's floating windows | Legibility on glass comes from a darkening tint behind bright text, one hairline rim, no heavy shadow, and hover feedback in paint only. |
 | A launcher app's translucent panel and its chat view | Plain list rows, muted group labels and one accent for the current item. The accent never fills a large area. |
 | A browser whose sidebar takes each space's color | Identity can live in the sidebar's color (here the group colors run through an aurora gradient) while the rows stay quiet. |
-| A desktop agent app over a vivid wallpaper (design-references `codex/web/workspace-launch-home`) | The layer split Aurora uses: a pale translucent sidebar beside a solid content pane. |
+| A desktop agent app over a vivid wallpaper | The layer split Aurora uses: a pale translucent sidebar beside a solid content pane. |
 | Aurora photographs and the aurora's emission lines | The palette is physical: atomic oxygen's 557.7 nm green-teal low in the curtain, the blue-violet of ionized nitrogen at its upper fringe, a blue-black polar night and snow. |
-| cmux's own glass captures and rulings (design-references `cmux/live/*glass*`, `sidebar-translucent-background-legibility`) | Heavy translucency behind text was judged hard to read and a too-glassy composer too much; floating cards that went opaque were judged wrong the other way. So: chrome glassy, content near solid, floating cards on glass. |
+| cmux's own glass captures and rulings | Heavy translucency behind text was judged hard to read and a too-glassy composer too much; floating cards that went opaque were judged wrong the other way. So: chrome glassy, content near solid, floating cards on glass. |
 
 ## Decisions
 
@@ -167,4 +167,23 @@ showing through.
 
 ## Visual review
 
-See the verdict at the end of this file once the captures are reviewed.
+Reviewed from real captures on a fleet Mac (macOS 27, cmux NEXT nightly 4424316677601, the look
+installed with `cmux setup install` from this folder), over a warm sunset wallpaper. The method was
+the visual-review procedure: each still opened at full size and checked against the references and
+the criteria above. The captures are light and dark chat, light and dark hover card, Reduce
+Transparency in both appearances, and a 36 s video.
+
+Verdict: **FIX**, held by two app-side blockers. The look's own files have no open fix.
+
+| # | Kind | Where | Finding | Action |
+| --- | --- | --- | --- | --- |
+| 1 | pass | sidebar, tab strip, light and dark | The chrome is clear glass that takes the wallpaper's warmth. Row names, Home and App Store read at a glance on both appearances. The selected row and selected tab carry the only teal. | none |
+| 2 | pass | chat, light and dark | The chat reads as the solid content layer. In light, a trace of the wallpaper shows at 90%, but body text, inline code and the code block stay crisp. The teal "New" divider is the one accent in the transcript. | none |
+| 3 | pass | Reduce Transparency, both | It becomes opaque polar night or snow with the same teal (selection, divider, update button) and nothing missing. It is calmer, but still Aurora. | none |
+| 4 | fix (app) | prompt bubble, nightly | The bubble draws the host's neutral gray, not the teal tint and violet hairline. The nightly's chat has no `--cv-user-bubble-*` tokens yet; they arrive with the look-add-on change this folder ships with. With that change's chat bundle loaded (`cmux customize use pr:46049`), the bubble is pale teal with its violet rim, as designed (`aurora-L-chat-pr`, `aurora-D-chat-pr`). | none in the look; lands with the token change |
+| 5 | fix (app) | hover card, nightly | The built-in card shows, not Aurora's chip card. The app lists `local/customize` as installed, enabled and not hidden, and shows no "Custom card error". The documentation's own template card does not draw on this nightly either, so this is not Aurora's script. `.glass(level)` is also newer than this nightly, so the chip falls back to its padded shape (the guard). | report to the app; recapture on a nightly with the custom card and `.glass` |
+| 6 | taste | built-in hover card | The built-in card on popover glass sits well with the look: bold title, dim model line, no extra color. | none |
+
+What the video shows: the stock look switches to Aurora, the pointer hovers the chat row (the card
+fades in), a tab switch goes to Home and back, then dark and light again. Every change is paint
+only; nothing in the window moves.

@@ -6,7 +6,13 @@ accent, teal at its base and violet at its edge, shows in only a few places. Lig
 from one theme file and follow your Mac's appearance. With Reduce Transparency on, it becomes a calm
 two-tone look with the same accent.
 
-<!-- media -->
+<!-- media: aurora-L-chat, aurora-D-chat, aurora-L-hover, aurora-D-hover, aurora-L-rt, aurora-D-rt,
+     aurora-L-chat-pr, aurora-D-chat-pr (png) and aurora-demo-720p (mp4); linked here once uploaded
+     with this look's pull request (the media branch takes a PR's own captures). -->
+
+Screenshots and the demo video: see the pull request that adds this look. Its captures are light and
+dark chat, the hover card, Reduce Transparency on, and a 36 s video of switching to the look, a light
+and dark switch, a hover and a tab switch.
 
 It is built only from public surfaces, so you can copy any part of it:
 
