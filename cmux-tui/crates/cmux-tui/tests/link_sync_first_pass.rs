@@ -101,11 +101,17 @@ fn projects(at: &Path) {
 }
 
 fn cmux(state: &Path, args: &[&str]) -> (bool, Value, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-        .env("CMUX_TUI_STATE_DIR", state)
-        .args(args)
-        .output()
-        .unwrap();
+    cmux_at(state, None, args)
+}
+
+/// [`cmux`] with the link's rate at `rate` bytes a second (estimate.rs `CMUX_SYNC_COPY_RATE`).
+fn cmux_at(state: &Path, rate: Option<u64>, args: &[&str]) -> (bool, Value, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command.env("CMUX_TUI_STATE_DIR", state).env_remove("CMUX_SYNC_COPY_RATE");
+    if let Some(rate) = rate {
+        command.env("CMUX_SYNC_COPY_RATE", rate.to_string());
+    }
+    let output = command.args(args).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let line = stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line).ok());
     (
@@ -134,7 +140,11 @@ fn a_projects_folder_past_the_limits_starts_at_once_from_a_first_pass() {
     let (ok, answer, text) =
         cmux(&state, &["link", "start-chat", "preflight", "--local", local_text]);
     assert!(ok, "preflight refused: {text}");
-    assert_eq!(answer, json!({"ok": true}), "{text}");
+    assert_eq!(answer["ok"], true, "{text}");
+    // ... and says, before any machine, that the copy is a first pass and the image stays here.
+    assert_eq!(answer["estimate"]["mode"], "first_pass", "{text}");
+    assert_eq!(answer["estimate"]["why"], "size", "{text}");
+    assert!(answer["estimate"]["left_bytes"].as_u64().unwrap() >= 21 << 30, "{text}");
 
     // The copy: a first pass, not a refusal.
     let started = Instant::now();
@@ -318,4 +328,167 @@ fn a_conflicting_edit_to_a_first_pass_is_surfaced_not_dropped() {
         std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
         "one\nTWO from the cloud\nthree\n"
     );
+}
+
+/// cmuxterm-hq#11697 item 2: the agent of a Cloud chat on a first pass of `~/Projects` is told,
+/// with its first message, what stayed on this Mac (the 21 GiB image, each repository's history),
+/// with sizes, and how to get a file of it, so it asks instead of searching the machine or taking
+/// those files for missing. Its chat may open below the copy's top. The note never comes back to
+/// this Mac, and a copy sent whole later takes it away.
+#[test]
+fn the_agent_of_a_first_pass_is_told_what_stayed_on_the_mac() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let local = root.join("Projects");
+    projects(&local);
+    let state = root.join("state");
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("fp").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("m.sock");
+    serve(&socket, &home);
+    let remote = home.join("work/Projects");
+    let note = remote.join(acpmux::left_on_mac::NOTE);
+
+    let summary = push(&state, &socket, &local, &remote);
+    assert!(summary["skipped_counts"]["left_on_mac"].as_u64().unwrap_or(0) >= 1, "{summary}");
+    assert!(note.is_file(), "no note of what stayed on the Mac: {summary}");
+
+    // What a chat's session in that folder (or one inside it) gets with its first message.
+    for cwd in [remote.clone(), remote.join("cmux/src")] {
+        let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+            "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "claude",
+            "cwd": cwd, "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        let parts =
+            acpmux::context_inventory::snapshot_session(&meta, &acpmux::config::Config::default());
+        let mut blocks = Vec::new();
+        acpmux::context_inventory::append_snapshot(Some(&parts), &mut blocks);
+        let context = blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .find(|text| text.starts_with("<cmux-left-on-mac-context>"))
+            .unwrap_or_else(|| panic!("the agent is not told what stayed on the Mac: {blocks:?}"));
+        for named in [
+            "`Downloads/`: 1 file, 22.5 GB",
+            "`Downloads/disk.img`: 22.5 GB",
+            "`cmux/.git/`",
+            "`FEX/.git/`",
+            "`work/api/.git/`",
+            "repository history",
+        ] {
+            assert!(context.contains(named), "{named} is not named: {context}");
+        }
+        let request = format!("cmux link access request {}/PATH", local.display());
+        assert!(context.contains(&request), "{context}");
+        assert!(context.contains("not missing"), "{context}");
+    }
+
+    // Bring Back Local never brings the note to this Mac.
+    let (ok, _, text) = bring_back(&state, &socket, &local, &remote);
+    assert!(ok, "{text}");
+    assert!(!local.join(acpmux::left_on_mac::NOTE).exists(), "the note came back: {text}");
+
+    // Without the image the folder goes whole, and nothing stayed behind to tell of.
+    std::fs::remove_file(local.join("Downloads/disk.img")).unwrap();
+    let summary = push(&state, &socket, &local, &remote);
+    assert_eq!(summary["skipped_counts"]["left_on_mac"].as_u64().unwrap_or(0), 0, "{summary}");
+    assert!(!note.exists(), "a whole copy keeps the first pass's note: {summary}");
+}
+
+/// A folder of `files` files of 1 MiB each, under every size limit.
+fn megabytes(at: &Path, files: usize) {
+    for index in 0..files {
+        let path = at.join(format!("assets/a{index:02}.bin"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, vec![u8::try_from(index % 251).unwrap(); 1024 * 1024]).unwrap();
+    }
+    write(&at.join("README.md"), "# site\n");
+}
+
+fn push_at(state: &Path, rate: u64, socket: &Path, local: &Path, remote: &Path) -> (Value, String) {
+    let (ok, summary, text) = cmux_at(
+        state,
+        Some(rate),
+        &[
+            "link",
+            "sync",
+            "push",
+            "--socket",
+            socket.to_str().unwrap(),
+            local.to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+    );
+    assert!(ok, "the copy refused: {text}");
+    (summary, text)
+}
+
+fn on_machine(remote: &Path) -> usize {
+    std::fs::read_dir(remote.join("assets")).map_or(0, Iterator::count)
+}
+
+/// Time counts, not only size: a folder far under the limits on a slow link starts from a first
+/// pass the start names before any machine (and the copy sends what it named); the same folder on
+/// a fast link goes whole; and a re-push of a whole copy is never cut to a first pass (it would
+/// delete what the whole copy left on the machine).
+#[test]
+fn a_slow_link_starts_from_a_first_pass_and_a_fast_one_goes_whole() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let home = root.join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let sockets = tempfile::Builder::new().prefix("fp").tempdir_in("/tmp").unwrap();
+    let socket = sockets.path().join("m.sock");
+    serve(&socket, &home);
+    // 24 MiB at 10 kB/s is 40 minutes; at 1 GB/s, well under a second.
+    let (slow, fast) = (10_000, 1_000_000_000);
+
+    let state = root.join("state-slow");
+    let local = root.join("site");
+    megabytes(&local, 24);
+    let local_text = local.to_str().unwrap();
+    let (ok, answer, text) =
+        cmux_at(&state, Some(slow), &["link", "start-chat", "preflight", "--local", local_text]);
+    assert!(ok, "{text}");
+    let estimate = &answer["estimate"];
+    assert_eq!(
+        (estimate["mode"].as_str(), estimate["why"].as_str()),
+        (Some("first_pass"), Some("time")),
+        "{text}"
+    );
+    assert_eq!(estimate["folder_files"], 25, "{text}");
+    // The first pass is what a minute sends, or at least 8 MiB of the smallest files.
+    assert!(estimate["bytes"].as_u64().unwrap() <= 8 << 20, "{text}");
+    assert!(estimate["left_files"].as_u64().unwrap() >= 16, "{text}");
+    let remote = home.join("work/site");
+    let (summary, text) = push_at(&state, slow, &socket, &local, &remote);
+    assert!(text.contains("\"estimate\""), "the copy says what it sends: {text}");
+    let left = summary["skipped_counts"]["left_on_mac"].as_u64().unwrap_or(0);
+    assert_eq!(
+        left,
+        estimate["left_files"].as_u64().unwrap(),
+        "the copy sent what the start said: {summary}"
+    );
+    assert!(remote.join("README.md").is_file());
+    let first = on_machine(&remote);
+    assert!((1..24).contains(&first), "{first} of 24 on the machine: {summary}");
+
+    // The same folder on a fast link, to a machine folder of its own: whole.
+    let state = root.join("state-fast");
+    let (ok, answer, text) =
+        cmux_at(&state, Some(fast), &["link", "start-chat", "preflight", "--local", local_text]);
+    assert!(ok, "{text}");
+    assert_eq!(answer["estimate"]["mode"], "whole", "{text}");
+    assert_eq!(answer["estimate"]["seconds"], 1, "{text}");
+    let whole = home.join("work/site-whole");
+    let (summary, _) = push_at(&state, fast, &socket, &local, &whole);
+    assert_eq!(on_machine(&whole), 24, "{summary}");
+    assert!(summary["skipped_counts"].get("left_on_mac").is_none(), "{summary}");
+
+    // The link slows down; the whole copy is pushed again: nothing it left there is deleted.
+    let (summary, _) = push_at(&state, slow, &socket, &local, &whole);
+    assert_eq!(on_machine(&whole), 24, "a re-push deleted part of a whole copy: {summary}");
+    assert_eq!(summary["deleted"], 0, "{summary}");
 }
