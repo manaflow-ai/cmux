@@ -269,6 +269,26 @@ export function chipRemoved(state: {
 /// The chat a gesture was made in, with its options then (upload, local paths), for a gesture read
 /// after its own task: the person may have moved to another chat meanwhile.
 type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions };
+/// The chips one prompt went with while they loaded (`sendWith`), in its order, and those made so far.
+type SentFiles = {
+  ids: string[];
+  made: Map<string, ComposerAttachment>;
+  settle(chips: ComposerAttachment[]): void;
+  fail(error: SendFilesFailed): void;
+};
+/// A prompt's file could not be made after the prompt went (`sendWith`). `made`: its chips that
+/// were, by id; they go back with its text. The others are the composer's chips again, the one
+/// that failed showing why with its Retry.
+export class SendFilesFailed extends Error {
+  /// The prompt's attachments to give back with it, made ones in their places (Composer `handOff`).
+  attachments?: ComposerAttachment[];
+  constructor(
+    why: string,
+    readonly made: ReadonlyMap<string, ComposerAttachment>,
+  ) {
+    super(why);
+  }
+}
 
 type Intake = (
   given: (File | MadeFile)[],
@@ -372,29 +392,49 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it
   /// on the host, if anything does.
   const making = useRef(new Map<string, (() => void) | undefined>());
-  /// The chips a prompt went with while they were still loading (`sendWith`), by id: each settles
-  /// that prompt's wait with the chip it became, or fails it with why it could not be made.
-  const sentWith = useRef(new Map<string, { made(chip: ComposerAttachment): void; failed(why: string): void }>());
-  /// `id` was sent (`sentWith`): it settles its prompt's wait instead of landing in the composer.
+  /// The chips a prompt went with while they were still loading (`sendWith`), by id, each to its
+  /// prompt's group: the prompt goes once every chip of it is made, with the chips they became.
+  const sentWith = useRef(new Map<string, SentFiles>());
+  /// The chips of GROUP are the composer's again: none is the prompt's any more, and each made one
+  /// leaves the composer (it goes back with the prompt's text, `SendFilesFailed`).
+  const [release] = useState(() => (group: SentFiles) => {
+    for (const each of group.ids) sentWith.current.delete(each);
+    for (const each of group.made.keys()) sources.current.delete(each);
+    const ids = new Set(group.ids);
+    flushSync(() =>
+      setPending((chips) =>
+        chips.flatMap((chip) =>
+          !ids.has(chip.id) ? [chip] : group.made.has(chip.id) ? [] : [{ ...chip, sent: undefined }],
+        ),
+      ),
+    );
+  });
+  /// `id` was sent (`sentWith`): it is its prompt's, not the composer's. It stays a hidden chip
+  /// until the rest of its prompt's chips are made, so a failure behind it can give it back.
   const [madeForSend] = useState(() => (id: string, chip: ComposerAttachment): boolean => {
-    const waiting = sentWith.current.get(id);
-    if (!waiting) return false;
-    sentWith.current.delete(id);
-    sources.current.delete(id);
-    setPending((chips) => chips.filter((shown) => shown.id !== id));
-    waiting.made(chip);
+    const group = sentWith.current.get(id);
+    if (!group) return false;
+    group.made.set(id, chip);
+    if (group.made.size < group.ids.length) return true;
+    for (const each of group.ids) {
+      sentWith.current.delete(each);
+      sources.current.delete(each);
+    }
+    const ids = new Set(group.ids);
+    setPending((chips) => chips.filter((shown) => !ids.has(shown.id)));
+    group.settle(group.ids.map((each) => group.made.get(each)!));
     return true;
   });
+  /// `id`, sent, could not be made: its prompt comes back (`SendFilesFailed`) with the chips that
+  /// were made, and this one and those still loading are the composer's again. False: the caller
+  /// shows the failure on its chip as for any chip, with its Retry and its source kept (cmux#45759
+  /// review F1: a zero-byte stand-in came back in its place, with no reason and nothing to retry).
   const [failedForSend] = useState(() => (id: string, why: string): boolean => {
-    const waiting = sentWith.current.get(id);
-    if (!waiting) return false;
-    sentWith.current.delete(id);
-    sources.current.delete(id);
-    autoRetries.current.get(id)?.stop();
-    autoRetries.current.delete(id);
-    setPending((chips) => chips.filter((shown) => shown.id !== id));
-    waiting.failed(why);
-    return true;
+    const group = sentWith.current.get(id);
+    if (!group) return false;
+    release(group);
+    group.fail(new SendFilesFailed(why, new Map(group.made)));
+    return false;
   });
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
@@ -1069,17 +1109,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
             size: 0,
           })),
           take: () => {
-            const waits = chips.map(
-              (chip) =>
-                new Promise<ComposerAttachment>((made, failed) =>
-                  sentWith.current.set(chip.id, { made, failed: (why) => failed(new Error(why)) }),
-                ),
-            );
+            const wait = new Promise<ComposerAttachment[]>((settle, fail) => {
+              const group: SentFiles = { ids: [...ids], made: new Map(), settle, fail };
+              for (const id of ids) sentWith.current.set(id, group);
+            });
             mark(true);
             for (const chip of chips)
               if (chip.uploadFailed && !autoRetries.current.has(chip.id)) retryRef.current(chip.id);
-            return Promise.all(waits);
+            return wait;
           },
+          // Before `take` only: no chip was the prompt's yet.
           giveBack: () => {
             for (const id of ids) sentWith.current.delete(id);
             mark(false);

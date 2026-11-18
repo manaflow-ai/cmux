@@ -12,7 +12,7 @@ import type { UploadResult } from "../cloudUploads";
 import { emptySnapshot } from "../snapshotCache";
 import { StartingSends, withStartingPrompt, type StartingSend } from "../startingSends";
 import { acpmuxSendsReady, untilAcpmuxTakesSends } from "../sendWhenReady";
-import { useAttachmentIntake } from "./attachmentIntakeModel";
+import { SendFilesFailed, useAttachmentIntake } from "./attachmentIntakeModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -65,11 +65,11 @@ function recording(size = 500 * MB): File {
 /// the upload ends only when the test says.
 async function mountIntake() {
   root = createRoot(installDom());
-  let finish!: (result: UploadResult) => void;
+  const finishers: ((result: UploadResult) => void)[] = [];
   const uploads: File[][] = [];
   const upload = (files: File[]) => {
     uploads.push(files);
-    return new Promise<UploadResult>((resolve) => (finish = resolve));
+    return new Promise<UploadResult>((resolve) => finishers.push(resolve));
   };
   let intake!: ReturnType<typeof useAttachmentIntake>;
   function Probe() {
@@ -77,7 +77,12 @@ async function mountIntake() {
     return null;
   }
   await act(async () => root!.render(<Probe />));
-  return { intake: () => intake, uploads, finish: (result: UploadResult) => finish(result) };
+  return {
+    intake: () => intake,
+    uploads,
+    /// Ends the latest upload, or upload `at` (in the order they started).
+    finish: (result: UploadResult, at = finishers.length - 1) => finishers[at]!(result),
+  };
 }
 
 const settle = async () => {
@@ -132,7 +137,7 @@ test("a send the chat could not take gives its files back to the composer, still
   expect(h.intake().attachments.map((chip) => chip.path)).toEqual(["/up/Screen Recording.mov"]);
 });
 
-test("a file that fails to upload after its send fails that prompt with why, never the composer", async () => {
+test("a file that fails to upload after its send fails that prompt with why, and its chip is back with Retry", async () => {
   const h = await mountIntake();
   await act(async () => void h.intake().attach([recording()], true, "drop"));
   await settle();
@@ -148,7 +153,46 @@ test("a file that fails to upload after its send fails that prompt with why, nev
   await act(async () => h.finish({ error: "disk full", final: true }));
   await settle();
   expect(await failed).toContain("disk full");
-  expect(h.intake().pending).toEqual([]);
+  // Not lost for a zero-byte stand-in (cmux#45759 review F1): the chip itself is the composer's
+  // again, saying why, and its Retry uploads the same file.
+  const [chip] = h.intake().pending;
+  expect(chip?.name).toBe("Screen Recording.mov");
+  expect(chip?.failed).toContain("disk full");
+  expect(chip?.retryable).toBe(true);
+  await act(async () => h.intake().retry(chip!.id));
+  await settle();
+  expect(h.uploads.length).toBe(2);
+  await act(async () => h.finish({ paths: ["/up/Screen Recording.mov"] }));
+  await settle();
+  expect(h.intake().attachments.map((made) => made.path)).toEqual(["/up/Screen Recording.mov"]);
+});
+
+test("a prompt with two files, one made and one failed, gives the made one back and keeps the other a chip", async () => {
+  const h = await mountIntake();
+  await act(async () => void h.intake().attach([recording()], true, "drop"));
+  await act(async () => void h.intake().attach([recording(10 * MB)], true, "drop"));
+  await settle();
+  expect(h.intake().loading).toBe(2);
+  let ready!: Promise<ComposerAttachment[]>;
+  await act(async () => {
+    ready = h.intake().sendWith()!.take();
+  });
+  const failed = ready.then(
+    () => undefined,
+    (error: SendFilesFailed) => error,
+  );
+  // The first is made: it waits, hidden, for the other, which then fails.
+  await act(async () => h.finish({ paths: ["/up/first.mov"] }, 0));
+  await settle();
+  expect(h.intake().pending.filter((chip) => !chip.sent)).toEqual([]);
+  await act(async () => h.finish({ error: "disk full", final: true }, 1));
+  await settle();
+  const error = await failed;
+  expect(error).toBeInstanceOf(SendFilesFailed);
+  expect([...error!.made.values()].map((chip) => chip.path)).toEqual(["/up/first.mov"]);
+  // The made one goes back with the prompt; the failed one is the composer's chip, not both.
+  expect(h.intake().pending.map((chip) => chip.failed !== undefined)).toEqual([true]);
+  expect(h.intake().attachments).toEqual([]);
 });
 
 function rows(sends: StartingSends, snapshotRows: { id: string; kind: string }[] = []) {
@@ -201,6 +245,24 @@ test("a prompt whose file failed comes back to the composer with every prompt be
   expect(sent).toEqual([]);
   // Each goes back before what the composer holds, so they read A then B.
   expect(given).toEqual(["B", "A"]);
+});
+
+test("a prompt whose files failed comes back with the files that were made, never its stand-ins", async () => {
+  const given: string[][] = [];
+  const sends = new StartingSends(
+    () => undefined,
+    (_text, attachments) => given.push(attachments.map((chip) => `${chip.name}:${chip.size}`)),
+    () => ({ chat: "chat", visit: 1 }),
+  );
+  const standIns = [
+    { id: "a", kind: "link", name: "a.mov", mimeType: "", size: 0 },
+    { id: "b", kind: "link", name: "b.mov", mimeType: "", size: 0 },
+  ] as ComposerAttachment[];
+  const made = { id: "a", kind: "link", name: "a.mov", mimeType: "video/quicktime", size: 7 } as ComposerAttachment;
+  const failure = Object.assign(new SendFilesFailed("disk full", new Map([["a", made]])), { attachments: [made] });
+  sends.add("A", standIns, async () => undefined, undefined, "p", { ready: Promise.reject(failure), asSent: true });
+  await settle();
+  expect(given).toEqual([["a.mov:7"]]);
 });
 
 test("a send made while the chat still connects to acpmux is shown at once and goes once it connects", async () => {

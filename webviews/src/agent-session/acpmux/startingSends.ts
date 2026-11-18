@@ -49,6 +49,9 @@ type Item = StartingSend & {
   gesture?: SendGesture;
   ready?: Promise<ComposerAttachment[]>;
 };
+/// A rejection of `ready` may name the attachments the prompt comes back with instead of those it
+/// was added with, the stand-ins for files that never became chips (composer `SendFilesFailed`).
+export type ReadyFailure = { attachments?: ComposerAttachment[] };
 /// Sends a queued prompt, with the gesture its send bound, if any.
 type Go = (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) => Promise<unknown>;
 
@@ -168,7 +171,12 @@ export class StartingSends {
     if (!this.items.includes(item)) return;
     try {
       if (item.ready) {
-        const attachments = await item.ready;
+        const attachments = await item.ready.catch((error: unknown) => {
+          // Its files' failure names what comes back in place of the stand-ins (`ReadyFailure`).
+          const back = (error as ReadyFailure | null)?.attachments;
+          if (Array.isArray(back)) item.attachments = back;
+          throw error;
+        });
         // Removed (its row's Remove) or given back while its files were read.
         if (!this.items.includes(item)) return;
         item.attachments = attachments;

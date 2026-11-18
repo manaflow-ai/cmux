@@ -136,6 +136,7 @@ import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
+  SendFilesFailed,
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
@@ -1739,14 +1740,22 @@ function ComposerFrame({
       prompt = placed.text;
     }
     /// The prompt's whole list once the handed chips are made, each in its stand-in's place.
-    const handOff = (sent: ComposerAttachment[]) =>
-      handed?.take().then((made) => {
-        const chips = new Map(made.map((chip) => [chip.id, chip]));
-        return sent.map((attachment) => {
-          const chip = chips.get(attachment.id);
-          return chip ? { ...chip, ...(attachment.inline ? { inline: true } : {}) } : attachment;
-        });
+    const inPlaces = (sent: ComposerAttachment[], made: ReadonlyMap<string, ComposerAttachment>) =>
+      sent.flatMap((attachment) => {
+        const chip = made.get(attachment.id);
+        if (chip) return [{ ...chip, ...(attachment.inline ? { inline: true } : {}) }];
+        return handed?.standIns.some((standIn) => standIn.id === attachment.id) ? [] : [attachment];
       });
+    const handOff = (sent: ComposerAttachment[]) =>
+      handed?.take().then(
+        (made) => inPlaces(sent, new Map(made.map((chip) => [chip.id, chip]))),
+        // One could not be made: the prompt comes back with the chips that were, never a stand-in;
+        // the rest are the composer's chips already (the failed one with why and its Retry).
+        (error: unknown) => {
+          if (error instanceof SendFilesFailed) error.attachments = inPlaces(sent, error.made);
+          throw error;
+        },
+      );
     if (!handed && holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
