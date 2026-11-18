@@ -212,10 +212,10 @@ fn when(value: &str, now_ms: i64, local_day_start_ms: i64) -> Option<i64> {
 }
 
 /// Local midnight of `YYYY-MM-DD`. The zone offset is read off
-/// `local_day_start_ms`: for zones from UTC-10 to UTC+14, local midnight of
-/// day D falls in [D - 14 h, D + 10 h), so D is the UTC date 14 hours later.
-/// UTC-11 and UTC-12 read a day late, and a date across a daylight-saving
-/// change can be an hour off.
+/// `local_day_start_ms`: for zones from UTC-10 to UTC+13, local midnight of
+/// day D falls in [D - 13 h, D + 10 h], so D is the UTC date 13 hours later.
+/// UTC+14 (Line Islands) reads a day early and UTC-11 and UTC-12 a day
+/// late; a date across a daylight-saving change can be an hour off.
 fn date(value: &str, local_day_start_ms: i64) -> Option<i64> {
     let mut parts = value.splitn(3, '-');
     let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
@@ -227,7 +227,7 @@ fn date(value: &str, local_day_start_ms: i64) -> Option<i64> {
     if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
         return None;
     }
-    let utc_today = (local_day_start_ms + 14 * HOUR_MS).div_euclid(DAY_MS) * DAY_MS;
+    let utc_today = (local_day_start_ms + 13 * HOUR_MS).div_euclid(DAY_MS) * DAY_MS;
     let offset = utc_today - local_day_start_ms;
     Some(days_from_civil(year, month, day) * DAY_MS - offset)
 }
@@ -311,9 +311,9 @@ mod tests {
         let tokyo = DAY_START - 9 * HOUR_MS;
         let filter = SearchFilter::parse("before:2025-11-18", NOW, tokyo, kind);
         assert_eq!(filter.before_ms, Some(tokyo));
-        // UTC+13 (New Zealand summer) and UTC-10 (Hawaii), the ends of the
-        // zones a date reads exactly.
-        for offset_h in [13, 14, -10] {
+        // UTC+13 (New Zealand summer) and UTC-10 (Hawaii), the ends
+        // of the zones a date reads exactly.
+        for offset_h in [12, 13, -10] {
             let start = DAY_START - offset_h * HOUR_MS;
             let filter = SearchFilter::parse("after:2025-11-18", NOW, start, kind);
             assert_eq!(filter.after_ms, Some(start), "UTC{offset_h:+}");
