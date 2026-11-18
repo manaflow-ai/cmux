@@ -84,7 +84,7 @@ export function AgentToolsCard() {
                       className="button"
                       data-agent-tools-action="removeLeftover"
                       disabled={working}
-                      onClick={() => void run({ action: "removeLeftover", id: row.id })}
+                      onClick={() => run({ action: "removeLeftover", id: row.id })}
                     >
                       {t("settingsWindow.agentTools.leftover.remove")}
                     </Button>
@@ -111,7 +111,7 @@ export function AgentToolsCard() {
             className="button"
             data-agent-tools-action="turnOn"
             disabled={working || state === null}
-            onClick={() => void run({ action: "turnOn" })}
+            onClick={() => run({ action: "turnOn" })}
           >
             {t("settingsWindow.agentTools.add")}
           </Button>
