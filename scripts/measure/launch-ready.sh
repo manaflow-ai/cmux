@@ -35,6 +35,11 @@
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
 # on-screen window, and the app's own marks. Prints LR-RUN per launch, LR-MEDIAN per side, LR-PROFILE with profile=1.
+# The headline is main to Home: each LR-RUN and LR-MEDIAN carries `main_to_home` (main_start to home.first_page) and,
+# beside it and never inside it, `verify` (process start to main_start: macOS's code signature, Gatekeeper and XProtect
+# checks of the executable, and dyld; most of a copy=fresh launch's first exec). LR-HEADLINE SIDE main_to_home=MS
+# verify=MS n=N per side. Leo, CMUX-629: "for the startup times we shouldnt even count the mac verifying bit per se or
+# at least split it off from the other parts of startup times" (launch-ready-split.py).
 # Each launch's row carries load_1m, the Mac's 1-minute load average just before it (LR-MEDIAN: the side's highest).
 # Each side has its own app defaults (side_defaults, through launch-ready-defaults.py); the account's are set aside for
 # the run and put back at its end. A launch that left a launch snapshot path outside its own side's home read the
@@ -84,6 +89,7 @@ main() {
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
+  cp scripts/measure/launch-ready-split.py "$out/split.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
@@ -145,10 +151,13 @@ main() {
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
   [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  python3 -I - "$out/runs.jsonl" "$LR_STATE" <<'PY'
-import json, statistics, sys
+  python3 -I - "$out/runs.jsonl" "$LR_STATE" "$out/split.py" <<'PY'
+import importlib.util, json, statistics, sys
 from collections import Counter
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+spec = importlib.util.spec_from_file_location("launch_ready_split", sys.argv[3])
+split = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(split)
 bare = sys.argv[2] == "bare"
 for side in dict.fromkeys(r["side"] for r in rows):
     done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
@@ -157,6 +166,10 @@ for side in dict.fromkeys(r["side"] for r in rows):
     for key in ("finished_launching", "window_on_screen", "active", "request_to_start", "shell_requested"):
         vals = [r[key] for r in done if r.get(key) is not None]
         med[key] = round(statistics.median(vals), 1) if vals else None
+    # The headline, main to Home, with verify (process start to main: macOS's signature, Gatekeeper and XProtect
+    # checks, dyld) beside it, never inside it (launch-ready-split.py, CMUX-629).
+    split_med = split.medians(done)
+    med.update(split_med)
     # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
     med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
     names = dict.fromkeys(name for r in done for name in r["marks"])
@@ -195,6 +208,7 @@ for side in dict.fromkeys(r["side"] for r in rows):
     med["reopened"] = "n/a (bare: expects Home)" if bare else f"{reopened}/{measured}"
     med["usable"] = f"{usable}/{measured}"
     print("LR-MEDIAN", side, json.dumps(med), flush=True)
+    print(split.headline_line(side, split_med), flush=True)
     print("LR-REOPENED", side, med["reopened"], flush=True)
     print("LR-USABLE", side, med["usable"], flush=True)
 PY

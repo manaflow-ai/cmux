@@ -14,6 +14,9 @@
 //   window_on_screen    the app's first on-screen window (CGWindowList: layer 0, alpha > 0, at least 200 pt wide)
 //   active              NSRunningApplication.isActive turned true
 //   request_to_start    the open request to the process start (LaunchServices' own part, before exec)
+//   verify              process start to the app's main_start mark: exec, macOS's code signature, Gatekeeper and
+//                       XProtect checks, dyld (CMUX-629: kept apart from the app's own time)
+//   main_to_home        main_start to home.first_page: the headline, with verify not in it
 // and `marks`: the app's launch marks (CMUX_NEXT_LAUNCH_MARKS_PATH, a FIFO read here), the ones every build has.
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
@@ -237,6 +240,16 @@ var row: [String: Any] = [
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
+// The launch split in two (CMUX-629, launch-ready-split.py): verify is process start to main_start, macOS's code
+// signature, Gatekeeper and XProtect checks of the executable and dyld; main_to_home is main_start to Home's first page,
+// the headline. verify sits beside the headline, never inside it.
+let mainMark = marks["main_start"], homeMark = marks["home.first_page"]
+row["verify"] = mainMark.map { $0.rounded(toPlaces: 1) } ?? NSNull()
+if let mainMark, let homeMark {
+    row["main_to_home"] = (homeMark - mainMark).rounded(toPlaces: 1)
+} else {
+    row["main_to_home"] = NSNull()
+}
 if let frontAtQuit { row["front"] = frontAtQuit }
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])

@@ -47,6 +47,11 @@ class LaunchIngest(unittest.TestCase):
             self.assertEqual(row["better"], "lower")
             self.assertGreaterEqual(row["p95"], row["p50"])
         self.assertEqual(rows[("failed_launches", "head")]["value"], 0)
+        # The headline split (CMUX-629): verify is main_start; main_to_home is each launch's home.first_page less its
+        # main_start (645.4, 690.0, 648.9, 626.0, 627.1), so not the 1222.2 that counts verify in.
+        self.assertAlmostEqual(rows[("verify", "head")]["value"], 594.4, places=1)
+        self.assertAlmostEqual(rows[("main_to_home", "head")]["value"], 645.4, places=1)
+        self.assertEqual(rows[("main_to_home", "head")]["n"], 5)
         self.assertEqual(ctx.host["name"], "cmux14")
         self.assertEqual(ctx.host["chip"], "Apple M4 Pro")
         self.assertEqual(ctx.host["os"], "macOS 27.0.1")

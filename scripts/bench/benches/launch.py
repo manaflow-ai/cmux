@@ -7,6 +7,8 @@ from the app's process start:
   window_on_screen     the first on-screen window
   active               the app became active
   request_to_start     the open request to the process start (LaunchServices' part, before exec)
+  main_to_home         main_start to home.first_page: the headline (CMUX-629), with verify not in it
+  verify               process start to main_start: macOS's signature, Gatekeeper and XProtect checks, dyld
 and the app's own launch marks (main_start, main.nsapp, did_finish_launching_start, launch_snapshot_shown,
 first_window_frame_committed, home.first_page, ...). Each becomes one row (dots become underscores) with the measured
 relaunches as samples (value = median, plus p50, p95, n); the priming launch is not counted. Rows carry arm=head, or
@@ -34,7 +36,15 @@ import re
 import tarfile
 from pathlib import Path
 
-from benchlib.bench import Bench, BenchError, Context, FleetResult, parse_build
+import importlib.util
+
+from benchlib.bench import REPO_ROOT, Bench, BenchError, Context, FleetResult, parse_build
+
+# launch-ready-split.py: each launch's verify (process start to main) and main_to_home (the headline), from its row or,
+# for a row from before the split, from its marks.
+_SPLIT_SPEC = importlib.util.spec_from_file_location("launch_ready_split", REPO_ROOT / "scripts/measure/launch-ready-split.py")
+SPLIT = importlib.util.module_from_spec(_SPLIT_SPEC)
+_SPLIT_SPEC.loader.exec_module(SPLIT)
 
 RUN = re.compile(r"LR-RUN (?:(\w+) )?(\{.*\})\s*$")
 NO_RESULT = re.compile(r"LR-RUN (\w+) (\w+) no result")
@@ -164,6 +174,11 @@ class Launch(Bench):
             ctx.row("failed_launches", len(measured) - len(done), "count", labels=labels)
             for key in TOP:
                 ctx.row(key, unit="ms", samples=[r[key] for r in done if r.get(key) is not None], labels=labels)
+            # The headline, main to Home, and verify beside it (CMUX-629): verify is never inside main_to_home.
+            parts = [SPLIT.split(r) for r in done]
+            for key in ("main_to_home", "verify"):
+                if any(p[key] is not None for p in parts):
+                    ctx.row(key, unit="ms", samples=[p[key] for p in parts], labels=labels)
             if any(r.get("shell_requested") is not None for r in done):  # state=bare: the probe opened a terminal
                 ctx.row("shell_requested", unit="ms", samples=[r.get("shell_requested") for r in done], labels=labels)
             names = dict.fromkeys(n for r in done for n in (r.get("marks") or {}))
