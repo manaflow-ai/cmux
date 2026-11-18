@@ -270,6 +270,43 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-cli-image") == nil, "a create without focus opened the machine")
     }
 
+    /// cmux#45947: New Cloud Chat opens the chat in a workspace of its own on the new machine and shows
+    /// it. That opened the machine, so the image's starter workspace and its terminal joined the sidebar
+    /// as a second workspace. A workspace holding only agent chats now joins by itself: the starter stays
+    /// out, also on the next reconcile (a relaunch), until the person opens the machine.
+    @Test func aCloudChatsOwnWorkspaceDoesNotOpenItsMachine() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.chatMachine(services, id: "vm-chat")
+        services.windows.reconcileMembership()
+
+        CloudHandlers.show("ws-chat", AppActionContext(services: services))
+        services.windows.reconcileMembership()
+
+        let registry = services.windows.registry.value
+        #expect(registry.owner(of: "ws-chat") != nil, "the chat's workspace is not shown")
+        #expect(registry.owner(of: "ws-image-terminal") == nil, "the machine's starter terminal workspace joined the sidebar")
+    }
+
+    /// Opening the machine (Open Machine shows its first workspace) still brings every workspace in.
+    @Test func openingTheMachineAfterItsCloudChatBringsTheStarterIn() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.chatMachine(services, id: "vm-chat-open")
+        CloudHandlers.show("ws-chat", AppActionContext(services: services))
+
+        services.windows.reveal(workspaceID: "ws-image-terminal")
+
+        let registry = services.windows.registry.value
+        #expect(registry.owner(of: "ws-image-terminal") != nil && registry.owner(of: "ws-chat") != nil)
+    }
+
+    @Test func onlyAWorkspaceOfAgentChatsLeavesItsMachineUnopened() {
+        let held = WindowManager.unopenedCloudWorkspaces([["ws-chat", "ws-image"], ["ws-term", "ws-other"]],
+                                                         opensMachine: { $0 != "ws-chat" }) { $0 == "ws-chat" || $0 == "ws-term" }
+        #expect(held == ["ws-image"])
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
@@ -287,6 +324,23 @@ struct UnopenedCloudMachinesTests {
         session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: workspaces.enumerated().map { index, key in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: "workspace-\(index + 1)")
         }))
+        return session
+    }
+
+    /// A running Cloud machine whose image's workspace `ws-image-terminal` holds a terminal, and whose
+    /// `ws-chat` holds only an agent chat (a New Cloud Chat's own workspace).
+    @discardableResult
+    static func chatMachine(_ services: AppServices, id: String) -> CloudMachineSession {
+        let session = CloudTestLink.session(id: id, status: .running, name: id, mainWork: services.mainWork)
+        services.machines.add(session)
+        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .pty, cwd: nil)
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(id)", hostName: id, session: "s-chat", harness: "claude"))
+        let screen = { (pane: UInt64, tab: TabSnapshot) in ScreenSnapshot(id: ScreenID(rawValue: pane), layout: .leaf(PaneID(rawValue: pane)), panes: [PaneSnapshot(id: PaneID(rawValue: pane), tabs: [tab])]) }
+        session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-image-terminal"), name: "workspace-1", screens: [screen(1, terminal)]),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-chat"), name: "chat", screens: [screen(2, chat)]),
+        ]))
         return session
     }
 

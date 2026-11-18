@@ -247,8 +247,8 @@ def terminal_tab():
 
 if opts.screen:
     # Each key as the screen showed it: a report, with no judgement; the openings below do not run.
-    new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new}).run()
-    sys.exit(0)
+    # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.
+    sys.exit(new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new}).run()["exit_code"])
 
 for run in range(opts.runs):
     for key in opts.keys.split(","):

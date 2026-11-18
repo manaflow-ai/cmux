@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The panes' move at a layout change that is one commit, for one screen.
 ///
-/// A split or a close shows in one commit: the frame that shows it has each pane and its content at the place and size of the
+/// A split, a close or a zoom shows in one commit: the frame that shows it has each pane and its content at the place and size of the
 /// layout after it, and no later frame lays a pane out (`ScreenContentView+SnapFrame`). This object makes that frame
 /// the start of a move: each pane host whose rect changed gets animations of its layer's `position` and
 /// `bounds.size` that add to the layer's value, from where the pane showed to zero, so the pane's clip goes from its
@@ -14,8 +14,8 @@ import CmuxNextDesign
 ///   so the two panes' edges go together.
 /// - A pane that gets smaller shows its own ground beside its content until its edge is there (`PaneCommitMotion+Layers`).
 /// - A pane's ring and the dividers get the same move.
-/// - A pane that a close took out does not move: it stays as it shows, under the panes that take its room, and hides
-///   in the frame that ends the motion (``keepsDeparted(on:)``).
+/// - A pane that a close took out, or that a zoom covers, does not move: it stays as it shows, under the panes that
+///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
 /// - A second act while the panes move adds its own move: each pane goes on from where it shows, with no jump.
 /// - Only content that rides moves (`NSView.paneRidesCommitMotion`): an act that changes a pane with another kind
 ///   of content shows in one frame, whole.
@@ -34,11 +34,14 @@ final class PaneCommitMotion {
         case split
         /// Panes left and none came.
         case close
+        /// One pane takes its screen: it grows over the panes that it covers, which stay as they show under it.
+        case zoom
 
         var spring: MotionSpring {
             switch self {
             case .split: .split
             case .close: .paneClose
+            case .zoom: .zoom
             }
         }
 
@@ -102,13 +105,25 @@ final class PaneCommitMotion {
 
     /// `screen` is about to apply `layout` (`zoomed`: as one zoomed pane); it still has the layout before. `still`:
     /// nothing can move (the root runs no frames, a canvas, a page that has the whole window). A change that came
-    /// before the last one showed keeps what the screen showed before both.
+    /// before the last one showed keeps what the screen showed before both. A zoom moves its pane when it is the only
+    /// change that waits and one pane of the layout before takes the screen; an unzoom shows in one frame.
     func layoutWillChange(on screen: ScreenContentView, to layout: ScreenLayout, zoomed: Bool, structural: Bool, still: Bool) {
         guard structural || screen.zoomed != zoomed else { return }
+        let alone = armed == nil
         var next = armed ?? Armed(act: nil, panes: Set(screen.layout.panes), zoomed: screen.zoomed, frames: Self.shown(screen.subviews))
-        next.act = structural && !still && !next.zoomed && !zoomed ? Act(from: next.panes, to: Set(layout.panes)) : nil
+        let panes = Set(layout.panes)
+        if !structural || still || next.zoomed {
+            next.act = nil
+        } else if zoomed {
+            next.act = alone && panes.count == 1 && next.panes.isStrictSuperset(of: panes) ? .zoom : nil
+        } else {
+            next.act = Act(from: next.panes, to: panes)
+        }
         armed = next
     }
+
+    /// The change that waits for its frame is a zoom that can move its pane.
+    var zooms: Bool { armed?.act == .zoom }
 
     /// `screen` is about to give its panes the sizes of the change that waits for its frame: no pane heard a size yet.
     /// Each pane that stays and gets smaller in a change that can move, and whose content keeps its own picture, starts
@@ -125,11 +140,12 @@ final class PaneCommitMotion {
     }
 
     /// The pass that shows `screen`'s change begins, before it places the panes. Whether the panes that the change
-    /// took out stay on the screen: at a close that can move they do, as they show, so the panes that take their room
-    /// grow over them and not over the window's backdrop. ``finish()`` hides them: at the motion's end, or in this
-    /// same pass when the close shows in one frame after all.
+    /// took out stay on the screen: at a close and at a zoom that can move they do, as they show, so the panes that
+    /// take their room grow over them and not over the window's backdrop. ``finish()`` hides them: at the motion's
+    /// end, or in this same pass when the change shows in one frame after all. A zoom's panes are not torn down: the
+    /// screen keeps them for the unzoom (`LayoutViewContext.Retirement.zoom`).
     func keepsDeparted(on screen: ScreenContentView) -> Bool {
-        guard armed?.act == .close, moves(on: screen) else { return false }
+        guard let act = armed?.act, act != .split, moves(on: screen) else { return false }
         passBegan = true
         departs = { [weak screen] in
             guard let screen, screen.context.hideRetiredShown(of: screen.screenID) else { return }
@@ -148,11 +164,16 @@ final class PaneCommitMotion {
 
     /// A pass of `screen` placed the panes and the dividers. The pass that shows a change starts its move, or, for a
     /// change that shows in one frame, ends a motion in flight: its panes are at their places in that frame.
-    func panesPlaced(on screen: ScreenContentView) {
-        guard let armed else { return }
+    /// Returns the pane that a zoom moves from this pass on, for the zoom's dim; nil: no zoom's move starts here.
+    @discardableResult
+    func panesPlaced(on screen: ScreenContentView) -> Change? {
+        guard let armed else { return nil }
         self.armed = nil
         passBegan = false
-        guard let act = armed.act, moves(on: screen) else { return finish() }
+        guard let act = armed.act, moves(on: screen) else {
+            finish()
+            return nil
+        }
         var staying: [Change] = [], coming: [PaneHostView] = []
         for pane in screen.paneFrames.keys {
             guard let host = screen.context.hosts[pane], host.superview === screen, !host.isHidden, let layer = host.layer else { continue }
@@ -171,10 +192,15 @@ final class PaneCommitMotion {
         }
         let time = Motion.panes.spring(act.spring).settlingTime(within: Self.rest)
         // A close moves when each pane that it took out still shows on this screen: a pane that went to another screen
-        // would leave the window's backdrop where its neighbours grow.
-        let leaving = act == .close ? screen.subviews.compactMap { $0 as? PaneHostView }.filter { $0.isLeaving && !$0.isHidden } : []
-        let covered = act != .close || Set(leaving.map(\.pane)).isSuperset(of: armed.panes.subtracting(screen.layout.panes))
-        guard !changes.isEmpty, time > 0, covered, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else { return finish() }
+        // would leave the window's backdrop where its neighbours grow. A zoom moves when the panes that still show
+        // are the tiled panes that it covers and no other: a floating pane that goes with the zoom goes in one frame.
+        let leaving = act == .split ? [] : screen.subviews.compactMap { $0 as? PaneHostView }.filter { $0.isLeaving && !$0.isHidden }
+        let gone = armed.panes.subtracting(screen.layout.panes), kept = Set(leaving.map(\.pane))
+        let covered = act == .split || (act == .close ? kept.isSuperset(of: gone) : kept == gone)
+        guard !changes.isEmpty, time > 0, covered, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
+            finish()
+            return nil
+        }
         serial += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -200,6 +226,7 @@ final class PaneCommitMotion {
         CATransaction.commit()
         remaining = max(remaining, time)
         screen.context.requestFrames()
+        return act == .zoom ? changes.first : nil
     }
 
     /// Where a pane that comes into `rect` starts: with no room, on the edge of `rect` that is away from the pane

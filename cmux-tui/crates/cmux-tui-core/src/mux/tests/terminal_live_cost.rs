@@ -5,7 +5,7 @@
 //! cached journal hook answer, the list of changed terminals and the
 //! journal event epoch for the wake. The `session.events` streams take the
 //! last two. This test prints the time of one publish call as a
-//! distribution on a session of 826 workspaces (Lawrence's size) with 30
+//! distribution on a large session of 826 workspaces with 30
 //! printing terminals:
 //!
 //! - `alone`: no stream waits.
