@@ -10,6 +10,19 @@ import Testing
 @MainActor @Suite struct PageEventsTests {
     func settle() async { for _ in 0..<40 { await Task.yield() } }
 
+    /// Gives the main actor back until `condition` holds: the host's messages reach the model
+    /// through a main-actor task each, so how many turns that takes depends on what else the
+    /// process runs, not on this test. Bounded by turns, not time.
+    func until(_ condition: () -> Bool) async {
+        for _ in 0..<100_000 where !condition() { await Task.yield() }
+    }
+
+    /// A long press whose wait for the page's menu does not end during the test (a day): the
+    /// menu comes when the host sends it, however busy the process is.
+    static let waitsForTheMenu: @Sendable (Duration) async throws -> Void = { _ in
+        try await Task.sleep(for: .seconds(86_400))
+    }
+
     func model() async throws -> (StreamedBrowserModel, FakeStream, any BrowserStreamSink) {
         let stream = FakeStream()
         let box = SinkBox()
@@ -290,13 +303,18 @@ import Testing
                       #"{"t":"rb.closed","reason":"viewer_closed"}"#])
     func aPageThatCrashedOrClosedTakesItsDialogAndMenusWithIt(_ end: String) async throws {
         let (model, stream, sink) = try await model()
+        // The long press's 1.5 s wait for the menu is not what this test is about: on a busy
+        // runner the menu's message reached the model after it (run 44211263917).
+        model.contextMenuTimer = Self.waitsForTheMenu
         model.requestContextMenu(x: 1, y: 1) { _ in }
         await host(sink, Self.linkMenu)
         await host(sink, Self.select.replacingOccurrences(of: #""token":5"#, with: #""token":6"#))
         await host(sink, #"{"t":"rb.dialog.show","token":1,"dialog":{"kind":"alert","origin":"","message":"x","default_text":null,"is_reload":false}}"#)
         await host(sink, #"{"t":"rb.state","state":"paused"}"#)
+        await until { model.dialog?.token == 1 && model.selectMenu?.token == 6 && model.contextMenu?.token == 3 }
         #expect(model.dialog?.token == 1 && model.selectMenu?.token == 6 && model.contextMenu?.token == 3)
         await host(sink, end)
+        await until { model.dialog == nil && model.selectMenu == nil && model.contextMenu == nil }
         #expect(model.dialog == nil && model.selectMenu == nil && model.contextMenu == nil)
         model.answerDialog(1, accept: true)
         model.choose(.indices([0]), in: 6)

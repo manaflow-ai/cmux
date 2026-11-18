@@ -1,25 +1,6 @@
 import Foundation
 @testable import CmuxMobileLive
 
-/// Runs CPU-bound proof work on a thread of its own and hands back its result.
-///
-/// Not the main actor, which most suites of this package share, and not the cooperative pool,
-/// whose few threads every async test needs to wake from a sleep or a lock. The hybrid parity
-/// replay and the 6,000-case fuzz are tens of seconds of CPU in a debug build; on the main actor
-/// they stalled the whole `swift test` run for 43 to 54 s in CI (6 vCPU), and on the pool they
-/// would take most of its threads. It runs at `.utility`, below the tests' own work. Not
-/// `.background`: on Apple silicon that keeps it to the efficiency cores, and the fuzz alone then
-/// ran for 114 s, long after every other test (run 44217489118, attempt 2).
-func onProofThread<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-    await withCheckedContinuation { continuation in
-        let thread = Thread { continuation.resume(returning: work()) }
-        thread.name = "HYBRID_PROOF"
-        thread.qualityOfService = .utility
-        thread.stackSize = 8 << 20
-        thread.start()
-    }
-}
-
 /// One recorded session's parity fixture (`verify/agent-cli-hybrid/parity/NAME.json`), made by
 /// cmux-tui's `the_phones_parity_fixtures_hold_and_are_current` (cmux-agent-cli-render
 /// `tests/parity.rs`), which also checks that it is current.
