@@ -309,7 +309,9 @@ jobs:
 
       # The agent tools probe (agent-tools-probe.ts) on a clone of this image: the recorded MCP servers and
       # skills, the agent display, computer use, the cmux-rd desktop socket (rd-* checks) and the harness gate (acp ensure
-      # for every harness the Cloud chat picker offers, harness-gate.ts). The probe deletes
+      # for every harness the Cloud chat picker offers, harness-gate.ts). In a roll the gate blocks only regressions: it
+      # runs the same ensure on a clone of production's boot image (--baseline live), and a harness already failing there
+      # is a warning. The probe deletes
       # its clone. --agent-tools images only, with probes on.
       - name: Agent tools probe
         if: inputs.mode == 'bake' && inputs.agent_tools && inputs.probes
@@ -317,9 +319,10 @@ jobs:
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+          BASELINE: ${{ inputs.roll && 'live' || 'none' }}
         run: |
           set -euo pipefail
-          bun scripts/cmux-vm-image/agent-tools-probe.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/agent-tools-probe.out"
+          bun scripts/cmux-vm-image/agent-tools-probe.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR" --baseline "$BASELINE" | tee "$OUT_DIR/agent-tools-probe.out"
 
       # The fields of a channels/dev.json history entry (promote.ts promotes only a
       # recorded snapshot_id with smoke PASSED, under --var <var>).

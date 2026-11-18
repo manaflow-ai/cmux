@@ -13,6 +13,13 @@ struct SidebarGroupLine: Equatable {
     var level = 0
     /// A group with no color: `frame` is its block, the header and its members (`SidebarNoColorGroupLook`), not a rail.
     var isBlock = false
+    /// A block's members' rail (list coordinates): the rail a colored group draws over the same rows, at the same x, top
+    /// and width, drawn inside the block in a neutral color (Lawrence 2026-11-17: the host-made "Chief's workspaces", a
+    /// group with no color, had no left rail). Nil for a rail line (its `frame` is the rail) and a collapsed group.
+    var rail: CGRect?
+
+    /// `rail` in the line view's own coordinates (its `frame`'s origin at zero).
+    var localRail: CGRect? { rail?.offsetBy(dx: -frame.minX, dy: -frame.minY) }
 
     /// How much of its color a rail at `level` draws: 1 at the top, then less per level.
     static func opacity(level: Int) -> CGFloat { max(0.35, 1 - 0.2 * CGFloat(level)) }
@@ -192,19 +199,20 @@ extension SidebarGroupLine {
         let width = SidebarStyle.groupBarWidth
         // A sole member's line runs the row's height at the bar's x a header would have: no bar above it, so no cut.
         func tint(_ id: GroupID, _ row: SidebarRow) -> GroupTint { colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none }
-        func block(_ id: GroupID, _ head: CGRect, _ tail: CGRect, level: Int) -> SidebarGroupLine {
+        func block(_ id: GroupID, _ head: CGRect, _ tail: CGRect, level: Int, rail: CGRect?) -> SidebarGroupLine {
             SidebarGroupLine(group: id, frame: CGRect(x: head.minX, y: head.minY, width: max(head.maxX, tail.maxX) - head.minX,
                                                       height: max(head.maxY, tail.maxY) - head.minY),
-                             color: .none, level: level, isBlock: true)
+                             color: .none, level: level, isBlock: true, rail: rail)
         }
         let soleLines = soles.map { id, row in
             let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
+            let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX))
+                : layout == .edge ? bar + SidebarStyle.groupRailInset : bar
+            let rail = CGRect(x: x, y: head.minY, width: width, height: tail.maxY - head.minY)
             if blocks, tint(id, last[id] ?? row).isNone {
-                return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0)
+                return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0, rail: rail)
             }
-            let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
-            return SidebarGroupLine(group: id, frame: CGRect(x: x, y: head.minY,
-                                                             width: width, height: tail.maxY - head.minY),
+            return SidebarGroupLine(group: id, frame: rail,
                                     color: colors[id]?.tint ?? row.groupColor.map(GroupTint.palette) ?? .none, level: nested ? max(0, row.depth - 1) : 0)
         }
         // The groups the slot enrolls into: its group and, nested, the ancestors whose rails hold it.
@@ -212,13 +220,9 @@ extension SidebarGroupLine {
         var enrolled = enrolling?.group
         while let id = enrolled, reached.insert(id).inserted { enrolled = nested ? colors[id]?.parent : nil }
         func reach(_ id: GroupID) -> CGFloat? { reached.contains(id) ? enrolling?.bottom : nil }
-        return soleLines + headers.compactMap { id, header in
-            if blocks, tint(id, last[id] ?? header).isNone {
-                let end = header.isCollapsed ? header : [lastAny[id], last[id]].compactMap { $0 }.max { $0.y < $1.y } ?? header
-                var tail = frame(end)
-                if !header.isCollapsed, let bottom = reach(id), bottom > tail.maxY { tail.size.height = bottom - tail.minY }
-                return block(id, frame(header), tail, level: nested ? header.depth : 0)
-            }
+        // An open group's members' rail, one rule for every group (colored or not): from under its header to its last
+        // member's bottom (or the enrolling slot's), at the header bar's left edge. Nil when it has nothing to run along.
+        func railFrame(_ id: GroupID, _ header: SidebarRow) -> CGRect? {
             guard !header.isCollapsed else { return nil }
             let end = last[id].flatMap { $0.y > header.y ? $0 : nil }
             guard end != nil || reach(id) != nil else { return nil }
@@ -229,19 +233,39 @@ extension SidebarGroupLine {
             // at most the gap down to the row under the header, so the line never starts part way down that row
             // (Lawrence 2026-10-30, "alignment here is bad": a 6 pt cut under a 2.5 pt gap).
             let cutTop = below[id].map { max(head.maxY, frame($0).minY) } ?? head.maxY + SidebarStyle.groupLineCut
-            let top = layout == .joined && joinsBar ? head.maxY : min(head.maxY + SidebarStyle.groupLineCut, cutTop), bottom = tail.maxY
+            let top = layout == .joined && joinsBar ? head.maxY : min(head.maxY + SidebarStyle.groupLineCut, cutTop)
+            let bottom = tail.maxY
             guard bottom > top else { return nil }
             // At the header bar's left edge, which reaches left of the group's own members' x by the rail and its gap
             // (`SidebarListView.railReach(for:)`; not the subtree's last row, which may sit deeper). `inside`, the bar
             // reaches further and the line keeps the rail's x, its first member's less the reach.
             let insideRail = first[id].map(frame).map { $0.minX - SidebarStyle.groupRailReach }
                 ?? head.minX + SidebarStyle.groupHeaderOverhang
+            // `edge`: centred in its lane, the same room from the bar's left edge as from its members' fills (Lawrence
+            // 2026-11-17: "have slight padding on left as well"), on the rows' own half-point grid.
             let x = layout == .inside ? max(head.minX, insideRail)
-                : head.minX
-            return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),
+                : layout == .edge ? head.minX + SidebarStyle.groupRailInset : head.minX
+            return CGRect(x: x, y: top, width: width, height: bottom - top)
+        }
+        return soleLines + headers.compactMap { id, header in
+            if blocks, tint(id, last[id] ?? header).isNone {
+                let end = header.isCollapsed ? header : [lastAny[id], last[id]].compactMap { $0 }.max { $0.y < $1.y } ?? header
+                var tail = frame(end)
+                if !header.isCollapsed, let bottom = reach(id), bottom > tail.maxY { tail.size.height = bottom - tail.minY }
+                return block(id, frame(header), tail, level: nested ? header.depth : 0, rail: railFrame(id, header))
+            }
+            guard let rail = railFrame(id, header) else { return nil }
+            let end = last[id].flatMap { $0.y > header.y ? $0 : nil }
+            return SidebarGroupLine(group: id, frame: rail,
                                     color: colors[id]?.tint ?? (end ?? header).groupColor.map(GroupTint.palette) ?? .none, level: nested ? header.depth : 0)
         }
     }
+}
+
+extension GroupTint {
+    /// The color a group's rail draws in: its own, or for a group with no color the palette's neutral grey, so every
+    /// open group shows its rail (Lawrence 2026-11-17: "chief workspaces group missing left rail").
+    var railTint: GroupTint { isNone ? .palette(.grey) : self }
 }
 
 extension SidebarGroupLine {

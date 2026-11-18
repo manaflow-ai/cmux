@@ -12,6 +12,12 @@ cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_age
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_new
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_observe
+# Held until step B (hq#12220): cmux_launch_record_front_window gets its Swift caller with the stage-0 launch
+# window (the reader PR after cmux#44495). `--update` drops the line once its caller lands.
+cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_front_window
+# Held until the stage-0 launch window (launch-stage0-window lane) calls it: launch record v2 adds the
+# window list read ahead of that Swift caller.
+cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_room
@@ -175,3 +181,22 @@ cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_network_changed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_start
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_stats
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_stop
+# Held until cut D (cmux#44215): cmux#44563 added these page-driver exports and cmux#44865 re-pinned the app FFI
+# before their Swift callers landed. Cut D calls all 16 from the macOS host. `--update` drops each line when those
+# callers land.
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_new
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_free
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_connected
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_disconnected
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_visible
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_received
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_take_send
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next_event
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_taken
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_open
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_close
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_want
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_unwant
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_page
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_error_code

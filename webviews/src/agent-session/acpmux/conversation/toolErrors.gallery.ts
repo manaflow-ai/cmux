@@ -264,7 +264,9 @@ const openAnyRun = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool.is-run[aria-expanded]"));
   while (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(
-    () => ctx.document.querySelectorAll(".cv-steps .cv-tool__failed, .cv-steps .cv-command__failed").length >= 2,
+    // A failed read is its own row (reads never group since 2026-11-17, readPath.ts); the command's
+    // failure is a step of its opened run.
+    () => ctx.document.querySelectorAll(".acpmux-row .cv-tool__failed, .acpmux-row .cv-command__failed").length >= 2,
   );
 };
 
@@ -324,7 +326,7 @@ export default agentPaneEntry({
       play: openEndedStretch,
     },
     "failed-step-mixed": {
-      note: 'A run where a Read and a command failed, opened: both steps say "Failed" to a screen reader and draw no word (Codex parity).',
+      note: 'A failed Read (its own row) and a run with a failed command, opened: both say "Failed" to a screen reader and draw no word (Codex parity).',
       snapshot: mixedFailedStep,
       play: openAnyRun,
     },

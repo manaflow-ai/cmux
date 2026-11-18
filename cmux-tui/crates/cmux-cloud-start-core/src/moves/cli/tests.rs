@@ -36,6 +36,17 @@ fn an_answer_is_the_last_json_line_and_anything_else_is_a_bad_answer() {
         0,
     ));
     assert_eq!((seed.seed_started_at, seed.seed_finished_at), (Some(3.0), Some(4.5)));
+    let (refused, _) = parse(&output(
+        "{\"ok\":false,\"error_code\":\"seed_refused\",\"fallback_code\":\"seed.needs_github\",\"install_url\":\"https://x.test\"}",
+        "",
+        1,
+    ));
+    assert_eq!(refused.fallback_code.as_deref(), Some("seed.needs_github"));
+    assert_eq!(refused.install_url.as_deref(), Some("https://x.test"));
+    // The app's Swift `Answer` decodes these names.
+    let named = serde_json::to_value(&refused).unwrap();
+    assert_eq!(named["fallbackCode"], "seed.needs_github");
+    assert_eq!(named["installURL"], "https://x.test");
 }
 
 /// A start's refused line keeps how the platform's refusal is handled (cmux-platform#1192): a busy
@@ -357,6 +368,19 @@ fn each_verb_carries_its_arguments() {
             "default"
         ]
     );
+    let ask = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "onSeedRefusal": "ask"}),
+    );
+    assert_eq!(ask.args[15..], ["--work-root", "/w", "--on-seed-refusal", "ask"]);
+    let copies = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "store": true, "onSeedRefusal": "copy"}),
+    );
+    assert_eq!(
+        copies.args[15..],
+        ["--work-root", "/w", "--store", "default", "--on-seed-refusal", "copy"]
+    );
     let pin = call(json!({"verb": "start-chat-pin", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(
         pin.args,
@@ -400,6 +424,28 @@ fn each_verb_carries_its_arguments() {
             .unwrap(),
         "--or-copy"
     );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r/sub", "adopt": true})).args,
+        ["link", "seed", "fetch", "--socket", "/s", "/l", "/r/sub", "--find-root", "--adopt"]
+    );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r"}))
+            .args
+            .last()
+            .unwrap(),
+        "--find-root",
+        "a copy keeps the machine's records"
+    );
+}
+
+#[test]
+fn a_fetch_answer_names_the_folder_it_copied() {
+    let output = Output {
+        stdout: r#"{"ok":true,"mode":"git","folder":"/l","remote_root":"/r"}"#.into(),
+        stderr: String::new(),
+        status: 0,
+    };
+    assert_eq!(parse(&output).0.remote_root.as_deref(), Some("/r"));
 }
 
 #[test]
@@ -471,5 +517,44 @@ fn a_failure_says_its_result_line_else_the_end_of_stderr() {
     assert_eq!(
         ExecRun { exit_code: 0, stdout: "a\nstarted\n".into(), stderr: String::new() }.last_line(),
         "started"
+    );
+}
+
+/// A seed refusal's copy size reaches the app (its room check reads it), and a first-pass copy says what it left on
+/// this Mac, at the line's top or in its `copy` summary, so the start never reads as a whole copy.
+#[test]
+fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 0)).0).unwrap();
+    let refused = encoded(r#"{"ok":false,"error_code":"seed_refused","copy_bytes":123}"#);
+    assert_eq!(refused["copyBytes"], 123);
+    let nested =
+        encoded(r#"{"ok":true,"mode":"copy","copy":{"skipped_counts":{"left_on_mac":7}}}"#);
+    assert_eq!(nested["leftOnMac"], 7);
+    let top = encoded(r#"{"ok":true,"skipped_counts":{"left_on_mac":2,"heavy":1}}"#);
+    assert_eq!(top["leftOnMac"], 2);
+    let whole = encoded(r#"{"ok":true,"copy":{"skipped_counts":{"heavy":1}}}"#);
+    assert_eq!(whole["leftOnMac"], Value::Null);
+    let locked = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"cloud.size.locked","size_locked":{"needed":"xl"}}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(locked["sizeLocked"], json!({"needed": "xl"}));
+    let small = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"seed_refused","fallback_code":"machine.too_small","copy_bytes":5,"machine_title":"cloud-chats"}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(
+        (&small["fallbackCode"], &small["copyBytes"], &small["machineTitle"]),
+        (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
 }

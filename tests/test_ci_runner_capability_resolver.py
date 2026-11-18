@@ -334,12 +334,14 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
         # is a declared light job: GitHub-hosted Ubuntu on attempt 1, the
         # CI_TRUSTED_RUNNER selector on a re-run, so neither a stalled Blacksmith
-        # size nor a GitHub billing block stops the graph this job starts.
+        # size nor a GitHub billing block stops the graph this job starts. While
+        # RUNNER_POOLS marks GitHub-hosted saturated (the hosted-first valve), attempt 1
+        # takes the selector too.
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && !contains(vars.RUNNER_POOLS, \'"hosted_saturated"\') && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
                 )
 
 

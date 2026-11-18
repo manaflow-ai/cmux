@@ -44,9 +44,13 @@ cmux theme: the whole look of cmux as one file, ~/.config/cmux/themes/NAME.json.
   cmux theme set KEY VALUE [--theme NAME]           one look value, checked first
   cmux theme reset [KEY] [--theme NAME]             take KEY out; with no KEY, back to the stock look
   cmux theme import FILE [--name N] [--replace] [--use]   a theme file into the themes folder
-  cmux theme check [NAME|FILE]                      problems as FILE:LINE: key: message
+  cmux theme check [NAME|FILE|DIR]                  problems as FILE:LINE: key: message (DIR: a theme repo)
   cmux theme schema [--install]                     the theme file JSON Schema
-  cmux theme path [NAME]";
+  cmux theme path [NAME]
+  cmux theme install HOST/OWNER/REPO[/PATH][@REF] [--yes]   a community theme from a git repository
+  cmux theme update [ID|REF] [--yes]                follow its new releases
+  cmux theme remove ID|REF                           take it out; what was under it comes back
+  cmux theme installed                               community themes and where they came from";
 
 /// The verbs this module answers; the rest of `cmux theme` is `theme_scheme`.
 pub(super) const VERBS: &[&str] =
@@ -438,6 +442,14 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
             settings(global, prefix, &["set", theme_file::SETTING_KEY, &name])
         }
         Request::Check { target: spec } => {
+            #[cfg(unix)]
+            if let Some(dir) = spec
+                .as_deref()
+                .map(Path::new)
+                .filter(|dir| cmux_customize::community::Tier::of_dir(dir).is_some())
+            {
+                return super::community::check_dir(global, dir);
+            }
             let (name, text) = match spec {
                 Some(spec) if spec.contains('/') || spec.ends_with(".json") => {
                     let path = PathBuf::from(&spec);

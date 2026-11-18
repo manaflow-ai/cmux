@@ -267,14 +267,14 @@ export interface ChatMetrics {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/// The density's text scale (the host's `--cmux-density-text-scale`, the chrome body size over Default's): the chat's
-/// text grows and shrinks with the density (Lucas 2026-11-13: chats kept their size at every density). A page without
-/// the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and drawn at it.
+/// The chat's text scale (the host's `--cmux-chat-text-scale`, Typography+PageDensity.swift): Default's at and below
+/// Default, so Compact draws the chat as Default does (user 2026-11-16: "make it so compact and default density have
+/// same size of both imessage and chat trajectory"), and the page's above it; Text Size grows it at every density.
+/// A page without the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and
+/// drawn at it.
 const readDensityTextScale = (): number => {
   if (typeof document === "undefined") return 1;
-  const parsed = Number.parseFloat(
-    document.documentElement?.style?.getPropertyValue?.("--cmux-density-text-scale") ?? "",
-  );
+  const parsed = Number.parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-chat-text-scale") ?? "");
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 };
 let densityTextScale = readDensityTextScale();
@@ -469,14 +469,14 @@ export function resetChatDisplay(): void {
 export const chatDisplayValues = (): Readonly<Values> => raw;
 export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
-/// The density's text scale the chat draws at now (`drawnFontSize`); the bubble's padding follows it too.
+/// The chat's text scale it draws at now (`drawnFontSize`, `--cmux-chat-text-scale`); the bubble's padding follows it too.
 export const chatDensityTextScale = (): number => densityTextScale;
 
-/// The host changed the density (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
+/// The host changed the density or Text Size (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
 /// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
 if (typeof window !== "undefined") {
   // The host can set the scale before this module runs, and a chat on the default look never writes its variables
-  // (setChatDisplay returns while the look is unchanged): draw the density's size from the start.
+  // (setChatDisplay returns while the look is unchanged): draw the host's size from the start.
   if (densityTextScale !== 1 && typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
   window.addEventListener("cmux-ui-scale-change", () => {
     const next = readDensityTextScale();
