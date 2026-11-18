@@ -279,6 +279,21 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("ffi_baseline", planned)
         self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
 
+    def test_a_change_branched_before_an_app_a_repin_ahead_needs_a_build(self):
+        # cmux#44876's look: the change forked before the NIGHTLY, which pinned a newer release; hot-apply holds the
+        # daemon back (an older release does not go in), so the plan must not say `rust`.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        self.fx.git("push", "-q", "-f", "origin", f"{self.fx.base}:refs/heads/feat-cmux-next")
+        self.fx.git("fetch", "-q", "origin")
+        head = self.fx.change({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"})
+        app = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)}, "repin", parent=self.fx.base)
+        with unittest.mock.patch.object(hv.hot().ffi_part, "additive", return_value=["drops ffi_new()"]):
+            planned = self.plan(head, base=app)
+        self.assertTrue(planned["needs_build"], planned)
+        self.assertIn("Rust the app links (FFI): the app's release is not the change's", planned["build"])
+        self.assertNotIn("rust", planned["layers"])
+
     def test_a_checkout_without_the_xcode_project_reads_the_rules_root(self):
         # The 2026-11-18 swap-vs-dev-build sample planned from such a checkout: with no project file every cmux-tui
         # path read as a bundled helper's input, and 28-36% of PR heads "needed a build" (2-5% with the project).

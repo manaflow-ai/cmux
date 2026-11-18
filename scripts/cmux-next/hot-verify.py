@@ -412,6 +412,11 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
                 baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
             # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
             out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
+        elif not behind and pins_differ(repo, base, head) and not (
+                baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
+            # A change branched before the app's commit on another app FFI release: hot-apply holds its daemon back
+            # (cmux#44876's look, 2026-11-18: the NIGHTLY was a repin ahead, and that release does not go back).
+            out["build"]["Rust the app links (FFI): the app's release is not the change's"] = [FFI_PIN_FILE]
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
@@ -462,6 +467,12 @@ def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
     moved = [FFI_PIN_FILE] if any(pins) and pins[0] != pins[1] else []
     return moved + h.linked_rust(repo, sorted(set(files.get("daemon", []))))
+
+
+def pins_differ(repo: Path, base: str, head: str) -> bool:
+    """The app's commit BASE and HEAD pin different app FFI releases (app-ffi-pin.json at both, other blobs)."""
+    pins = [git(repo, "rev-parse", "--verify", "--quiet", f"{c}:{FFI_PIN_FILE}", check=False) for c in (base, head)]
+    return all(SHA.fullmatch(p or "") for p in pins) and pins[0] != pins[1]
 
 
 def lag_ffi_baseline(h, rules: Path, the_app: Path | None, head: str, base: str, out: dict) -> dict | None:
