@@ -60,6 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" -q '.[0].number // empty' || true)"
+          # A failed read prints its error body on stdout; only a number is a PR.
+          [[ "$pr" =~ ^[0-9]+$ ]] || pr=""
           fails="$(grep '^FAIL ' "$RUNNER_TEMP/guard.log" || true)"
           fixes="$(printf '%s\n' "$fails" | sed -nE 's/^FAIL ([^:]+): ([0-9a-f]{40}) -> [0-9a-f]{40}.*/git -C \1 checkout \2 \&\& git add \1/p')"
           if [ -n "$fixes" ]; then

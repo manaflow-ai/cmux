@@ -2046,9 +2046,9 @@
     "class": "brand",
     "source": "cmux BETA"
   },
-  "mobile.pairing.target.demo": {
+  "mobile.pairing.target.classic": {
     "class": "brand",
-    "source": "cmux DEMO"
+    "source": "cmux CLASSIC"
   },
   "mobile.pairing.target.dev": {
     "class": "brand",
