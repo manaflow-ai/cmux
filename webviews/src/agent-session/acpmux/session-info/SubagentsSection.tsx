@@ -8,7 +8,7 @@
 // (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
 // says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
 // `subagentCounts`).
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useState, useMemo } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -23,23 +23,39 @@ import { useAgentProgress } from "../subagents/agentProgressStore";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
-import { nestAgents } from "../subagents/agentsPillModel";
-import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
+import { useNow, ticking } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
 import { retrying } from "../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
-import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
+import { subagentStateText, type SubagentStatus } from "../summary/subagentStatusListModel";
+import { awaitsOwnWork } from "../subagents/subagentFold";
+import { sessionStateText } from "./childSessionRowsModel";
 import "./SubagentsSection.css";
 import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import {
+  SUBAGENTS_SHOWN,
+  NO_SESSIONS,
+  subagentCounts,
+  nextSubagentStatusChange,
+  splitSubagentLines,
+  type SubagentEntry,
+} from "./subagentsSectionModel";
+import { useStatusClock } from "./statusClock";
 import { WindowedRows } from "./WindowedRows";
 import { sameSubagentLook } from "../subagents/subagentLook";
 
+/// The clock the section's statuses read: it moves when a running subagent turns idle, not each
+/// second (statusClock.ts), so neither the head's counts nor the lines' order are worked out again
+/// on a tick.
+function useSubagentStatusClock(agents: readonly Subagent[], waiting: ReadonlySet<string>): number {
+  const nextChange = useCallback((now: number) => nextSubagentStatusChange(agents, waiting, now), [agents, waiting]);
+  return useStatusClock(nextChange);
+}
+
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
-/// at once; only this span re-renders on the tick.
+/// at once; counted again only when the subagents change or one turns idle.
 export function SubagentCountsMeta({
   agents,
   waiting,
@@ -50,8 +66,8 @@ export function SubagentCountsMeta({
   sessions: readonly StartedSession[];
 }) {
   const t = useT();
-  const now = useNow(agents.some(running));
-  const text = subagentCounts(t, agents, waiting, sessions, now);
+  const now = useSubagentStatusClock(agents, waiting);
+  const text = useMemo(() => subagentCounts(t, agents, waiting, sessions, now), [t, agents, waiting, sessions, now]);
   return text ? <span className="acpmux-session-info-section__value">{text}</span> : null;
 }
 
@@ -84,7 +100,11 @@ type Line = {
   state: string;
   /// acpmux retries it: its line shows the turning ring (retryState.ts).
   working?: boolean;
-  time?: string;
+  /// Its time, ticked by its own leaf (SubagentTime): from `since` to `until`, or to now while
+  /// `ticks`. A chat's line shows none.
+  since?: number;
+  until?: number;
+  ticks?: boolean;
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
@@ -115,7 +135,10 @@ const LINE_LOOK: { [K in keyof Line]-?: Same<Line[K]> | null } = {
   status: Object.is,
   state: Object.is,
   working: Object.is,
-  time: Object.is,
+  // Its time's range; SubagentTime ticks the time itself, so a second draws no line.
+  since: Object.is,
+  until: Object.is,
+  ticks: Object.is,
   task: Object.is,
   icon: Object.is,
   mark: Object.is,
@@ -137,11 +160,8 @@ function sameLineProps(a: LineRowProps, b: LineRowProps): boolean {
   );
 }
 
-const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
 /// An idle line keeps its place among the live ones but takes no part in the running shimmer.
 const working = (status: SubagentStatus) => status === "running" || status === "waiting";
-/// The ended list's order: a failed one first, then a stopped one, then the done ones.
-const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
 
 export function SubagentsSection({
   agents,
@@ -167,7 +187,9 @@ export function SubagentsSection({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const now = useNow(agents.some(running));
+  // Not the second's clock: the lines' order and groups move only when a subagent turns idle, and
+  // each line's time ticks in its own leaf (SubagentTime), so a tick sorts and draws nothing here.
+  const now = useSubagentStatusClock(agents, waiting);
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
@@ -178,9 +200,9 @@ export function SubagentsSection({
   // with the sections under it and the panel's edge (foldMotion.ts).
   const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
   const endedFold = useFoldMotion<HTMLDivElement>(endedOpen, () => 0);
-  const agentLine = (agent: Subagent, depth: number): Line => {
-    const status = subagentStatus(agent, waiting, now);
-    return {
+  // The two lists, worked out again only when the items, the words or the status clock change.
+  const { runningLines, endedLines } = useMemo(() => {
+    const agentLine = (agent: Subagent, depth: number, status: SubagentStatus): Line => ({
       key: `agent:${agent.id}`,
       identity: agent.id,
       agent,
@@ -193,46 +215,34 @@ export function SubagentsSection({
       status,
       state: subagentStateText(t, agent, waiting, now),
       working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
+      // How long it has run (subagentGroupModel.ts `elapsed`): one waiting on work of its own still counts.
+      since: agent.startedAt,
+      until: awaitsOwnWork(agent) ? undefined : agent.endedAt,
+      ticks: ticking(agent),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
       mark: foreignHarness(agent.harness, harness, senderBadge),
       depth,
       at: agent.endedAt ?? agent.startedAt,
-    };
-  };
-  const sessionLine = (child: StartedSession): Line => ({
-    key: `session:${child.sessionId}`,
-    identity: child.sessionId,
-    name: child.title,
-    status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
-    icon: "agent.chat",
-    mark: child.harness,
-    depth: 0,
-    at: child.createdAt ?? 0,
-    resumeRow: subsessionResumeRow(child),
-  });
-  // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
-  // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
-  // parent), then the running chats.
-  const waitsFirst = (a: Subagent, b: Subagent) =>
-    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
-    a.startedAt - b.startedAt;
-  const runningAgents = nestAgents(
-    agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
-  ).map(({ agent, depth }) => agentLine(agent, depth));
-  const children = orderedSessions(sessions);
-  const runningLines = [
-    ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
-    ...runningAgents,
-    ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
-  ];
-  const endedLines = [
-    ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
-    ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
-  ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
+    });
+    const sessionLine = (child: StartedSession, status: SubagentStatus): Line => ({
+      key: `session:${child.sessionId}`,
+      identity: child.sessionId,
+      name: child.title,
+      status,
+      ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+      icon: "agent.chat",
+      mark: child.harness,
+      depth: 0,
+      at: child.createdAt ?? 0,
+      resumeRow: subsessionResumeRow(child),
+    });
+    const toLine = (entry: SubagentEntry): Line =>
+      entry.agent ? agentLine(entry.agent, entry.depth, entry.status) : sessionLine(entry.session, entry.status);
+    const split = splitSubagentLines(agents, waiting, sessions, now);
+    return { runningLines: split.running.map(toLine), endedLines: split.ended.map(toLine) };
+  }, [agents, waiting, sessions, now, t, language, harness, senderBadge]);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   // Each line is its own memo boundary (SubagentLineRow): a tick, a change to another subagent or a
   // scroll draws only the lines whose words changed.
@@ -306,7 +316,11 @@ const SubagentLineRow = memo(
           name={item.name}
           status={item.status}
           state={item.state}
-          time={item.time}
+          time={
+            item.since !== undefined ? (
+              <SubagentTime since={item.since} until={item.until} ticks={item.ticks} />
+            ) : undefined
+          }
           icon={item.icon}
           mark={item.mark}
           tone={agentTone(item.identity)}
@@ -323,8 +337,20 @@ const SubagentLineRow = memo(
   sameLineProps,
 );
 
+/// How long a line's subagent has run: the one part of the line the second's clock draws, a leaf of
+/// its own, so a tick draws this text and not the line around it.
+function SubagentTime({ since, until, ticks = false }: { since: number; until?: number; ticks?: boolean }) {
+  return lineTime(since, until, useNow(ticks && until === undefined));
+}
+
+const lineTime = (since: number, until: number | undefined, now: number) =>
+  formatDuration(Math.max(0, (until ?? now) - since));
+
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
+  // The card shows only while hovered: its time keeps its own clock while it does.
+  const now = useNow(Boolean(item.ticks) && item.until === undefined);
+  const time = item.since !== undefined ? lineTime(item.since, item.until, now) : undefined;
   // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
     <SubagentCardBody
@@ -332,7 +358,7 @@ function AgentCard({ item }: { item: Line }) {
       status={item.status}
       state={[
         item.state,
-        item.time,
+        time,
         item.kind,
         progress,
         item.status === "running" || item.status === "waiting" ? item.detail : undefined,
