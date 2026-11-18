@@ -24,7 +24,9 @@
 #
 # record (after the build, before the sticky disk's post step commits it):
 # bound the disk (scripts/blacksmith-testbox-target-prune.sh), then record the
-# source mtimes and the commit next to the artifacts.
+# source mtimes and the commit next to the artifacts. The prune never removes
+# target/TRIPLE: the steps after the build read the binaries there, and that
+# dir is often the disk's least recently modified entry.
 #
 # MACHINE_CHANNEL_WARM_TOOLCHAIN (optional): what built the disk that Cargo does not
 # track, such as the macOS cross toolchain (clang, lld, zig, the SDK version label)
@@ -103,7 +105,8 @@ record() {
     echo "warm target: $link is not linked to the sticky disk; nothing to record"
     return 0
   fi
-  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" \
+  # 3 = the prune's default stale days; the fourth argument is the entry it keeps.
+  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" 3 "$triple" \
     || echo "warning: prune failed; recording as is" >&2
   rm -f "$source_record"
   python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
