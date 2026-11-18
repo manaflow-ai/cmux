@@ -219,8 +219,9 @@ PARTS = [
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
     # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
     # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
-    # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about 15 minutes and this), each home's median restartChatAttachMs
-    # (daemon_restart.<shape>_home.chat_attach_ms).
+    # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
+    # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
+    # home reading gives no metric, so the small home never stands in for the worst of both.
     {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}

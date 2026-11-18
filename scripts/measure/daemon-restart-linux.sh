@@ -76,6 +76,13 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "run*.log"))):
             per.setdefault(rec["shape"], []).append(float(ms))
             print(f"daemon-restart: {os.path.basename(path)} {rec['shape']} restartChatAttachMs {ms} "
                   f"shutdownMs {rec.get('shutdownMs')}")
+# The harness runs the small home, then the god home: a run cut in the god home, or a small home that failed its
+# assert, leaves small rows only. The worst-of row would then read the small home as the whole number, so no god
+# reading means no metric at all.
+if "god" not in per:
+    print("daemon-restart: no god home reading (a run cut or failed before it); no metric")
+    print(json.dumps({"rows": []}))
+    sys.exit(1)
 rows = []
 for shape, values in sorted(per.items()):
     med = statistics.median(values)
