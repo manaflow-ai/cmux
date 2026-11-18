@@ -611,10 +611,11 @@ def main() -> int:
                 check_comments(path.name, document, failures)
         except ExpressionError as error:
             failures.append(f"{path.name}: {error}")
-    # An entry whose workflow is here but no longer listens is stale; one whose workflow is absent is the
-    # other branch's.
+    # An entry whose workflow is here but listens to no `edited` at all is stale; one whose workflow is absent,
+    # or listens through the other event, is the other branch's.
+    listening = {name for name, _ in edited}
     for name, event in sorted(set(EDIT_READS) - edited):
-        if name in present:
+        if name in present and name not in listening:
             failures.append(f"{name} ({event}) is in EDIT_READS but no longer listens to `edited`: drop the entry")
     for name in sorted((set(COMMENT_COMMANDS) & present) - commented):
         failures.append(f"{name} is in COMMENT_COMMANDS but no longer listens to comments: drop the entry")
