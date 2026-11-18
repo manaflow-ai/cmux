@@ -10,4 +10,12 @@ extension URL {
         }
         return components?.url
     }
+
+    /// cmux.com's checkout page for `plan` under this base (`api/billing/checkout?plan=`): it signs the person in, then
+    /// opens the plan's payment page. What a cmux NEXT plan's Subscribe opens (``PaidPlanUpgrade``).
+    package nonisolated func billingCheckout(plan: String) -> URL? {
+        var components = URLComponents(url: appending(path: "api/billing/checkout"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "plan", value: plan)]
+        return components?.url
+    }
 }

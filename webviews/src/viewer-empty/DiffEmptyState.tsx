@@ -135,14 +135,7 @@ export function DiffEmptyState({ client, strings, label, onOpened, now }: DiffEm
 
   return (
     <div ref={mountRef} className="ve-root">
-      <EmptyState
-        kind="diff"
-        title={t(E.diffTitle)}
-        subtitle={t(E.diffSubtitle)}
-        dropText={t(E.dropFolder)}
-        onDrop={onDrop}
-        error={error}
-      >
+      <EmptyState kind="diff" title={t(E.diffTitle)} dropText={t(E.dropFolder)} onDrop={onDrop} error={error}>
         {step.kind === "list" ? (
           <>
             <div className="ve-actions">

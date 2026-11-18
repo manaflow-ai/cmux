@@ -15,6 +15,7 @@ type Props = {
   breakdown?: unknown;
   details?: boolean;
   wheel?: "compact" | "standard" | "minimal";
+  material?: "before" | "quieter" | "standard" | "denser";
   /// The prompt cache's time left (ms; 0 or less: expired), on a pinned clock.
   cacheLeftMs?: number;
 };
@@ -30,6 +31,7 @@ function GalleryContextRing(props: Props) {
     <div
       className={`context-ring-gallery context-ring-gallery--${props.wheel ?? "compact"}`}
       data-context-automation={requested ? "requested" : "idle"}
+      data-context-material={props.material}
     >
       <ContextRing
         used={props.used}
@@ -126,6 +128,16 @@ export default componentEntry<Props>({
     script: [{ name: "Rest", run: async () => {} }],
   },
   variants: {
+    ...Object.fromEntries(
+      (["before", "quieter", "standard", "denser"] as const).map((material) => [
+        `material-${material}`,
+        {
+          note: `${material}: the actual context ring opens its actual hover card. Only material changes; capture in both appearances. Standard reuses the shared transient token.`,
+          props: { used: 111_000, size: 475_000, setup: 21_000, details: true, material },
+          play: hoverCard,
+        },
+      ]),
+    ),
     ...Object.fromEntries(
       ([25, 68, 95] as const).map((percent) => [
         `gauge-${percent}`,

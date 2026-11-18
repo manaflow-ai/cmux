@@ -64,7 +64,7 @@ final class ChromeIconButton: ClickableButton {
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
     func setIcon(_ icon: IconName, label: String) {
-        guard icon != iconName || label != iconLabel || image == nil else { return }
+        guard icon != iconName || label != iconLabel || drawnGlyph == nil else { return }
         iconName = icon
         iconLabel = label
         applyIcon()
@@ -74,12 +74,32 @@ final class ChromeIconButton: ClickableButton {
     /// `OverflowButton.glyphSize`); read on each density change.
     var iconSide: (() -> CGFloat)? { didSet { applyIcon() } }
 
+    /// A toolbar button's glyph, its ink in the middle of the hover box on whole pixels (Lucas 2026-11-18: "the
+    /// containers/hover is not centered within the icon"); the cell would center the glyph's image instead.
+    private lazy var glyphView: InkCenteredGlyphView = {
+        let view = InkCenteredGlyphView(frame: bounds)
+        view.autoresizingMask = [.width, .height]
+        addSubview(view)
+        return view
+    }()
+
+    /// The glyph the button draws: the toolbar's in ``glyphView``, an overlay's as the cell's image.
+    var drawnGlyph: NSImage? { isToolbar ? glyphView.glyph : image }
+    /// The image the button shows, centered in its square: a toolbar button's is the box's size, its ink centered.
+    var drawnImage: NSImage? { isToolbar ? glyphView.image : image }
+
     private func applyIcon() {
         let label = iconLabel
         let side = iconSide?() ?? (isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
-        image = icon
+        if isToolbar {
+            image = nil
+            glyphView.glyph = icon
+            glyphView.contentTintColor = contentTintColor
+        } else {
+            image = icon
+        }
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
     }
@@ -159,6 +179,7 @@ final class ChromeIconButton: ClickableButton {
 
     override func layout() {
         super.layout()
+        if isToolbar { glyphView.frame = bounds }
         if progress != nil { updateProgressRing() }
     }
 
@@ -253,6 +274,7 @@ final class ChromeIconButton: ClickableButton {
             // Hover eases in and clears at once; a press shows at once (ChromeHover.fade).
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
             contentTintColor = isToolbar ? Palette.textPrimary : Palette.textSecondary
+            if isToolbar { glyphView.contentTintColor = contentTintColor }
         }
         // The ring's colors follow the theme with the fill.
         if progress != nil { updateProgressRing() }

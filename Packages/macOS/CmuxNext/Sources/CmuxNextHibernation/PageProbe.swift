@@ -1,3 +1,4 @@
+package import CmuxNextBrowserCore
 package import CmuxNextCompat
 
 /// What the page says right before it freezes or hibernates.
@@ -7,6 +8,22 @@ package import CmuxNextCompat
 /// that asks, a WebRTC connection or an open device is never discarded, at any memory pressure. Chrome lets an urgent discard take a page with form
 /// interaction; cmux does not.
 package struct PageProbe: Hashable, Sendable {
+    /// What the tab's own media state says plays: its speaker (sound outside the document too, issue
+    /// 38062), media its mute silences (cx-d0d.24), or a video in Picture in Picture, which plays on in its
+    /// floating window, paused or muted alike.
+    package static func tabPlays(_ media: BrowserMediaState?, muted: Bool) -> Bool {
+        media.map { $0.isSounding || ($0.isPlaying && muted) || $0.isPictureInPicture } ?? false
+    }
+
+    /// A page that did not answer. It used to count as playing, so a page too busy to answer
+    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
+    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
+    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
+    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
+    package static func unanswered(media: BrowserMediaState?, muted: Bool) -> PageProbe {
+        PageProbe(playingMedia: tabPlays(media, muted: muted), answered: false)
+    }
+
     /// Unmuted media playing, media the tab's mute silences, or Picture in Picture.
     package var playingMedia = false
     /// The person's form edits in the tab's frames (`BrowserPageBusy.editedForm`).

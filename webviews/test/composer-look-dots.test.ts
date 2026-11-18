@@ -82,7 +82,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
         expect(await dots(page, ".nt-style")).toEqual([]);
         expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
         expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-        expect(await page.$(".nt-create")).toBeNull();
+        expect(await page.locator(".nt-create button").count()).toBe(3);
         expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe(saved);
         await page.reload();
         await ready(page);
