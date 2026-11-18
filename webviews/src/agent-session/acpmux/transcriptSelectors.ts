@@ -13,3 +13,8 @@ export const JUMP_LATEST = `.${JUMP}:not(.${JUMP_UP})`;
 export const JUMP_LATEST_SHOWN = `${JUMP_LATEST}[data-shown]`;
 /// A transcript row that carries its row id.
 export const TRANSCRIPT_ROW = ".acpmux-row[data-row-id]";
+/// A sent prompt's image thumbnail (conversation/UserBubble.tsx SentImage).
+export const SENT_IMAGE = "img.cv-user__image";
+/// An image a tool result shows: a closed row's preview at its edge, with its hover card
+/// (conversation/ToolVisualPreview.tsx), and an opened row's strip image (ToolRow.tsx ToolImages).
+export const TOOL_SCREENSHOT = ".cv-tool-visual, .cv-tool-images .cv-thumb__img";

@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { composerProbe } from "./composerProbe";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
@@ -618,6 +619,7 @@ function ComposerFrame({
   onReconnectMachine,
 }: Props) {
   acpmuxPerf.render("composer");
+  composerProbe.render?.("composer");
   const t = useT();
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);

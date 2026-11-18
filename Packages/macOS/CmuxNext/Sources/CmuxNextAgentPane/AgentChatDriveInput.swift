@@ -1,0 +1,260 @@
+public import AppKit
+import CmuxNextCompat
+public import CmuxNextPages
+import CmuxNextWakeups
+import Foundation
+public import WebKit
+
+/// Engine-level pointer input for one chat page, with no system pointer (``AgentChatDriveControl``,
+/// `agent.chat.drive`): the page sees trusted events (`isTrusted`, real `:hover`, a real wheel that
+/// scrolls), and nothing else in the app or the system does. Nothing is posted to the window, the
+/// event queue or the window server; the person's pointer never moves, and no window is focused,
+/// raised or ordered.
+///
+/// - WebKit: AppKit events handed to the web view itself (a move through WebKit's
+///   `_simulateMouseMove:` when it has it, as the browser driver's `WebKitNativeInput` does, else
+///   `mouseMoved(with:)`; a wheel through `scrollWheel(with:)`, routed by the page host's `PageWKWebView` as a
+///   person's is). That view records only a real key or button as the person's gesture
+///   (``PageWebView/lastUserEventUptime``), never a move or a wheel, so this input never counts as theirs.
+/// - Chromium: DevTools `Input.dispatchMouseEvent` (`mouseMoved`, `mouseWheel`), as `debugHover` does.
+///
+/// Points are the page's viewport CSS pixels from its top-left, as `getBoundingClientRect` gives them.
+public struct AgentChatDriveInput {
+    private enum Engine {
+        case webKit(WKWebView)
+        case chromium(PageWebView, any PageChromiumPage)
+    }
+
+    private let engine: Engine
+
+    /// Input for a bare WebKit view (the pane's own WebKit host; tests).
+    public init(webView: WKWebView) {
+        engine = .webKit(webView)
+    }
+
+    /// Input for a page on the shared page host, in whichever engine shows it now.
+    public init(page: PageWebView) {
+        engine = page.chromiumPage.map { Engine.chromium(page, $0) } ?? Engine.webKit(page.webKitView)
+    }
+
+    /// Whether the page shows in Chromium (DevTools input and layout counters) rather than WebKit.
+    public var isChromium: Bool {
+        if case .chromium = engine { return true }
+        return false
+    }
+
+    /// Moves the page's pointer to `css` and holds it there: the element under it is hovered until
+    /// another move. False when no event could be made or sent (no window, the page is gone).
+    public func move(to css: CGPoint) async -> Bool {
+        guard css.x.isFinite, css.y.isFinite else { return false }
+        switch engine {
+        case .webKit(let webView):
+            return Self.webKitMove(webView, viewPoint: Self.viewPoint(webView, css: css))
+        case .chromium(_, let page):
+            return await Self.devToolsMove(page, css: css)
+        }
+    }
+
+    /// One wheel tick of `deltaY` CSS px at `css`, with the sign the page's `wheel` event reports
+    /// (positive scrolls the content down). False when no event could be made or sent.
+    public func wheel(at css: CGPoint, deltaY: Double) async -> Bool {
+        guard css.x.isFinite, css.y.isFinite, deltaY.isFinite else { return false }
+        switch engine {
+        case .webKit(let webView):
+            guard let window = webView.window,
+                  let event = Self.wheelEvent(window: window, location: webView.convert(Self.viewPoint(webView, css: css), to: nil), deltaY: deltaY)
+            else { return false }
+            // The view's own override routes it (`PageWKWebView.scrollWheel(with:)`), as a person's wheel.
+            webView.scrollWheel(with: event)
+            return true
+        case .chromium(_, let page):
+            return (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": "mouseWheel", "x": Double(css.x), "y": Double(css.y), "deltaX": 0.0, "deltaY": deltaY,
+                "button": "none", "buttons": 0, "modifiers": 0,
+            ])) != nil
+        }
+    }
+
+    /// Gives the hover back to the person's pointer: a move to where the real pointer is when it is
+    /// over this page (and no other window covers it there), else to a point just outside the page,
+    /// so the page drops the hover exactly as when the real pointer is elsewhere. True when the move went in.
+    public func release() async -> Bool {
+        switch engine {
+        case .webKit(let webView):
+            guard let window = webView.window else { return false }
+            let pointer = Self.realPointer(in: webView, window: window)
+            let outside = NSPoint(x: -1, y: webView.isFlipped ? -1 : webView.bounds.height + 1)
+            guard Self.webKitMove(webView, viewPoint: pointer ?? outside) else { return false }
+            // WebKit drops a move outside its visible rect while the view is first responder (the chat the
+            // person types in), so the hover there ends the way the real pointer's leaving ends it: an exit.
+            if pointer == nil, window.firstResponder === webView,
+               let exit = NSEvent.enterExitEvent(with: .mouseExited, location: webView.convert(outside, to: nil), modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
+                webView.mouseExited(with: exit)
+            }
+            return true
+        case .chromium(let view, let page):
+            let zoom = max(view.pageZoom, 0.01)
+            // The page view is flipped (top-left origin), as the page's viewport is.
+            let css = view.window.flatMap { Self.realPointer(in: view, window: $0) }.map { CGPoint(x: $0.x / zoom, y: $0.y / zoom) }
+            return await Self.devToolsMove(page, css: css ?? CGPoint(x: -1, y: -1))
+        }
+    }
+
+    /// Waits until the engine has handled the input sent so far, so a page read after it sees its
+    /// effect: WebKit's next presentation update, then its pending mouse events (each bounded to
+    /// `bound`); Chromium handled each DevTools input before it answered.
+    public func settle(bound: Duration = .seconds(1)) async {
+        guard case .webKit(let webView) = engine else { return }
+        // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
+        await Self.afterWebKitCallback(webView, "_doAfterNextPresentationUpdate:", bound: bound)
+        await Self.afterWebKitCallback(webView, "_doAfterProcessingAllPendingMouseEvents:", bound: bound)
+    }
+
+    // MARK: Chromium layout counters
+
+    /// The counters ``engineCounters(since:)`` reports deltas of.
+    public nonisolated static let counterNames = ["LayoutCount", "RecalcStyleCount", "LayoutDuration", "RecalcStyleDuration"]
+
+    /// Chromium's layout and style counters now (`Performance.enable`, then `Performance.getMetrics`),
+    /// the start of a span; nil on WebKit, which has none for the app, or when Chromium gave none.
+    public func startEngineCounters() async -> [String: Double]? {
+        guard case .chromium(_, let page) = engine else { return nil }
+        guard (try? await page.devTools("Performance.enable", params: [:])) != nil else { return nil }
+        return await Self.metrics(page)
+    }
+
+    /// How much each counter grew since `start` (Chromium's names; the durations in seconds), and
+    /// `Performance.disable`. Nil on WebKit or when Chromium gave no metrics.
+    public func engineCounters(since start: [String: Double]?) async -> [String: Double]? {
+        guard case .chromium(_, let page) = engine else { return nil }
+        let end = start == nil ? nil : await Self.metrics(page)
+        _ = try? await page.devTools("Performance.disable", params: [:])
+        guard let start, let end else { return nil }
+        var deltas: [String: Double] = [:]
+        for name in Self.counterNames { if let to = end[name], let from = start[name] { deltas[name] = to - from } }
+        return deltas
+    }
+
+    private static func metrics(_ page: any PageChromiumPage) async -> [String: Double]? {
+        guard let json = try? await page.devTools("Performance.getMetrics", params: [:]),
+              let data = json.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let metrics = object["metrics"] as? [[String: Any]] else { return nil }
+        var values: [String: Double] = [:]
+        for metric in metrics {
+            if let name = metric["name"] as? String, counterNames.contains(name), let value = metric["value"] as? Double { values[name] = value }
+        }
+        return values
+    }
+
+    // MARK: Points and events
+
+    /// CSS pixels (viewport top-left) to the web view's own coordinates: times its page zoom and
+    /// magnification (a page's UI scale and chat zoom are its `pageZoom`), flipped when the view is not.
+    static func viewPoint(_ webView: WKWebView, css: CGPoint) -> NSPoint {
+        let scale = max(webView.pageZoom * webView.magnification, 0.01)
+        let y = css.y * scale
+        return NSPoint(x: css.x * scale, y: webView.isFlipped ? y : webView.bounds.height - y)
+    }
+
+    /// Where the person's real pointer is in `view`'s coordinates, when it is over the view's
+    /// visible part and this window is the one under it there; nil otherwise.
+    static func realPointer(in view: NSView, window: NSWindow) -> NSPoint? {
+        let screen = NSEvent.mouseLocation
+        guard isTopmost(window, at: screen) else { return nil }
+        let point = view.convert(window.convertPoint(fromScreen: screen), from: nil)
+        return view.visibleRect.contains(point) ? point : nil
+    }
+
+    /// Whether `window`, or one of its child windows (a Chromium page shows in its own child window
+    /// over the host's), is the window on top at `screen` (global coordinates).
+    static func isTopmost(_ window: NSWindow, at screen: NSPoint) -> Bool {
+        let top = NSWindow.windowNumber(at: screen, belowWindowWithWindowNumber: 0)
+        return top == window.windowNumber || (window.childWindows ?? []).contains { $0.windowNumber == top }
+    }
+
+    private static func webKitMove(_ webView: WKWebView, viewPoint: NSPoint) -> Bool {
+        guard let window = webView.window,
+              let event = NSEvent.mouseEvent(with: .mouseMoved, location: webView.convert(viewPoint, to: nil), modifierFlags: [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return false }
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let simulate = NSSelectorFromString("_simulateMouseMove:")
+        if webView.responds(to: simulate) { webView.perform(simulate, with: event) } else { webView.mouseMoved(with: event) }
+        return true
+    }
+
+    private static func devToolsMove(_ page: any PageChromiumPage, css: CGPoint) async -> Bool {
+        // DevTools input is in the viewport's CSS pixels; Chromium scales it by the zoom itself (debugHover).
+        (try? await page.devTools("Input.dispatchMouseEvent", params: [
+            "type": "mouseMoved", "x": Double(css.x), "y": Double(css.y), "button": "none", "buttons": 0, "modifiers": 0,
+        ])) != nil
+    }
+
+    /// A one-wheel pixel scroll at `location` (window coordinates) that AppKit and WebKit read as a
+    /// trackpad's, never posted: made from a Quartz event (`scrollWheelEvent2Source`) whose place is
+    /// the window point's screen location (top-left origin), as `WebKitNativeInput` makes its wheel.
+    private static func wheelEvent(window: NSWindow, location: NSPoint, deltaY: Double) -> NSEvent? {
+        // Page deltas scroll content; wheel deltas are the finger direction.
+        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                               wheel1: Int32(clamping: Int(-deltaY.rounded())), wheel2: 0, wheel3: 0) else { return nil }
+        // The Quartz location AppKit gives its own event at this window point.
+        guard let place = NSEvent.mouseEvent(with: .mouseMoved, location: location, modifierFlags: [], timestamp: 0,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                             clickCount: 0, pressure: 0)?.cgEvent?.location else { return nil }
+        cg.location = place
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        // Without a window the event's location stays in screen space and WebKit hit-tests the wheel elsewhere.
+        cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        guard var event = NSEvent(cgEvent: cg) else { return nil }
+        // WebKit reads the wheel's place from `locationInWindow`, which AppKit derives from the Quartz
+        // location; move it until it reads `location` (Quartz y grows down, Cocoa y up).
+        for _ in 0..<3 where event.locationInWindow != location {
+            let read = event.locationInWindow
+            cg.location = CGPoint(x: cg.location.x + location.x - read.x, y: cg.location.y - (location.y - read.y))
+            guard let moved = NSEvent(cgEvent: cg) else { return nil }
+            event = moved
+        }
+        return event
+    }
+
+    /// Runs WebKit's private `selector` (one block argument, called once) and waits for its block,
+    /// at most `bound`; at once when the view has no such selector.
+    private static func afterWebKitCallback(_ webView: WKWebView, _ name: String, bound: Duration) async {
+        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
+        let selector = NSSelectorFromString(name)
+        guard webView.responds(to: selector) else { return }
+        typealias Action = @convention(block) () -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+        let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+        let wait = CallbackWait()
+        let deadline = DemandTimer(owner: "agent.chat-drive.webkit-callback")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            wait.start(continuation)
+            deadline.schedule(after: bound) { wait.finish() }
+            // WebKit keeps the block until it runs: it must be an escaping one.
+            let action: Action = { wait.finish() }
+            function(webView, selector, action)
+        }
+        deadline.cancel()
+    }
+}
+
+/// One wait that the WebKit callback or its deadline ends, whichever comes first.
+private nonisolated final class CallbackWait: Sendable {
+    private let continuation = Mutex<CheckedContinuation<Void, Never>?>(nil)
+
+    func start(_ waiting: CheckedContinuation<Void, Never>) {
+        continuation.withLock { $0 = waiting }
+    }
+
+    func finish() {
+        continuation.withLock { held in
+            defer { held = nil }
+            return held
+        }?.resume()
+    }
+}

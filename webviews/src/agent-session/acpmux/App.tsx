@@ -196,6 +196,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { chatPerfCapture } from "./chatPerfCapture";
+import { chatDrive, type DriveOptions } from "./chatDrive";
 import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
@@ -957,6 +958,14 @@ declare global {
       /// `cmux app chat perf` (the app's `agent.chat.perf`, every build): frames, long tasks,
       /// layout shift and each arriving record's time to paint for `seconds` (chatPerfCapture.ts).
       perfCapture?(options: { seconds?: unknown }): Promise<Record<string, unknown>>;
+      /// `cmux app chat drive` (every build): while the host holds a hover on a thumbnail and wheels,
+      /// the composer's renders and DOM changes, the hover, card, scroll and focus per frame (chatDrive.ts).
+      drive?: {
+        begin(options: DriveOptions): Promise<Record<string, unknown>>;
+        state(): Record<string, unknown>;
+        personActive(): Record<string, unknown>;
+        end(): Promise<Record<string, unknown>>;
+      };
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -7951,6 +7960,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.cmuxAcpmuxBridge = {
       toggleInspector,
       perfCapture: (options) => chatPerfCapture.capture(options),
+      drive: {
+        begin: (options) =>
+          chatDrive.begin(options ?? {}, {
+            busy: () => snapshotRef.current?.isWorking === true,
+            draft: () => composerHandle.current?.draft(),
+          }),
+        state: () => chatDrive.state(),
+        personActive: () => chatDrive.personActive(),
+        end: () => chatDrive.end(),
+      },
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       composerState: () => {
         const draft = composerHandle.current?.draft();

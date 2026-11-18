@@ -137,6 +137,7 @@ usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
+       cmux app chat drive --tab <tab> --hover <test-id> [--wheel <n>] [--type <text>]  (hover, wheel and type in a chat; per-frame counts)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
