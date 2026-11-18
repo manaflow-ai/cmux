@@ -201,12 +201,6 @@ extension BrowserVimKeysSetting {
     public nonisolated static let fallback = true
 }
 
-extension BrowserPageShortcutsSetting {
-    /// `browser.pageShortcuts`: Who gets a shortcut that cmux and a web page both use (CMUX-641, Austin 2026-11-16: Linear's Cmd-K opened cmux Search Chats). ask: cmux runs it, but the first app shortcut pressed in a page holds its key and asks which should get it (Austin 2026-11-18). page: the page gets it first; cmux runs it when the page leaves it unhandled. cmux: cmux runs it, the page never sees it (Lawrence 2026-11-11). App and window keys (Cmd-W, Cmd-Q, Cmd-Shift-P) stay with cmux in every mode; browser focus mode gives the page every key.
-    public nonisolated static let configPath = ["browser", "pageShortcuts"]
-    public nonisolated static let fallback: BrowserPageShortcuts = .ask
-}
-
 extension LinkRouting {
     /// `browser.enabled`: Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.
     public nonisolated static let enabledPath = ["browser", "enabled"]
@@ -229,6 +223,12 @@ extension LinkRouting {
     /// `browser.urlsToAlwaysOpenExternally`.
     public nonisolated static let rulesPath = ["browser", "urlsToAlwaysOpenExternally"]
     public nonisolated static let rulesDefault: [String] = []
+}
+
+extension BrowserPageShortcutsSetting {
+    /// `browser.pageShortcuts`: Who gets a shortcut that cmux and a web page both use (CMUX-641, Austin 2026-11-16: Linear's Cmd-K opened cmux Search Chats). ask: cmux runs it, but the first app shortcut pressed in a page holds its key and asks which should get it (Austin 2026-11-18). page: the page gets it first; cmux runs it when the page leaves it unhandled. cmux: cmux runs it, the page never sees it (Lawrence 2026-11-11). App and window keys (Cmd-W, Cmd-Q, Cmd-Shift-P) stay with cmux in every mode; browser focus mode gives the page every key.
+    public nonisolated static let configPath = ["browser", "pageShortcuts"]
+    public nonisolated static let fallback: BrowserPageShortcuts = .ask
 }
 
 extension BrowserPageShortcutSites {

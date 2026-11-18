@@ -1742,12 +1742,26 @@ mark {
   border-radius: 0;
 }
 
-/* Key and value lists (browser.siteEngines). */
+/* Key and value lists (browser.siteEngines, browser.pageShortcutSites). */
 .string-map {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
   gap: var(--ds-space-1);
+}
+
+/* A long map scrolls (the page shortcuts dialog adds a site per answer); the add line stays under it. */
+.string-map-items {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--ds-space-1);
+  max-height: var(--page-size-260);
+  overflow-y: auto;
+}
+
+.string-map-items:empty {
+  display: none;
 }
 
 .string-map-item {

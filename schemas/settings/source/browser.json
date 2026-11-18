@@ -1543,6 +1543,38 @@
             "scroll",
             "hjkl"
           ]
+        }
+      ]
+    },
+    {
+      "name": "openingLinks",
+      "section": "browser",
+      "group": {
+        "key": "settings.group.openingLinks",
+        "text": "Opening Links"
+      },
+      "rows": [
+        {
+          "key": "browser.enabled",
+          "name": "enabled",
+          "note": "Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.",
+          "title": {
+            "key": "settings.browser.enabled",
+            "text": "Enable cmux Browser"
+          },
+          "help": {
+            "key": "settings.browser.enabled.help",
+            "text": "Off: every link opens in your default browser."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "browser",
+            "disable",
+            "turn off",
+            "default browser",
+            "web"
+          ]
         },
         {
           "key": "browser.pageShortcuts",
@@ -1596,38 +1628,6 @@
             "focus mode",
             "page",
             "website"
-          ]
-        }
-      ]
-    },
-    {
-      "name": "openingLinks",
-      "section": "browser",
-      "group": {
-        "key": "settings.group.openingLinks",
-        "text": "Opening Links"
-      },
-      "rows": [
-        {
-          "key": "browser.enabled",
-          "name": "enabled",
-          "note": "Classic's Disable cmux Browser switch: false sends every link to the system and opens no browser tab for a web page.",
-          "title": {
-            "key": "settings.browser.enabled",
-            "text": "Enable cmux Browser"
-          },
-          "help": {
-            "key": "settings.browser.enabled.help",
-            "text": "Off: every link opens in your default browser."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "browser",
-            "disable",
-            "turn off",
-            "default browser",
-            "web"
           ]
         },
         {

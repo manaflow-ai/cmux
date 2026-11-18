@@ -571,8 +571,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.links.optionClick` | string | `"download"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Option-Click. Chromium tabs always download. |
 | `browser.links.middleClick` | string | `"backgroundTab"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Middle-Click. Chromium tabs use the Command-Click setting. |
 | `browser.vimKeys` | boolean | `true` |  | Vim Keys in Pages. Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends. |
-| `browser.pageShortcuts` | string | `"ask"` | `ask`, `page`, `cmux` | Shortcuts in Web Pages. For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux. |
 | `browser.enabled` | boolean | `true` |  | Enable cmux Browser. Off: every link opens in your default browser. |
+| `browser.pageShortcuts` | string | `"ask"` | `ask`, `page`, `cmux` | Shortcuts in Web Pages. For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux. |
 | `browser.pageShortcutSites` | dictionary | `{}` |  | Shortcuts in Web Pages by Site. Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages. |
 | `browser.openLinksInCmuxBrowser` | boolean | `true` |  | Open Links in cmux Browser. Off: links open in your default browser. Shift-Cmd-click opens the other one. |
 | `browser.openSignInPagesInCmux` | boolean | `true` |  | Open Sign-In Pages in cmux Browser. Sign-in pages open in cmux even when other links open in your default browser. |
