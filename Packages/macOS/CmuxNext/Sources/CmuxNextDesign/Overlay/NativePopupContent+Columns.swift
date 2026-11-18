@@ -11,6 +11,8 @@ extension NativePopupContent {
     /// The band's cap when the page names none, as the web frame's (259 px less its search row).
     static let columnsDefaultHeight: CGFloat = 220
 
+    /// The search accessory, the spanning rows and the footer are drawn always (a few); each
+    /// column is its own list, drawn by band in its own scroll view.
     func addColumns(_ model: NativePopupModel) {
         var views: [(NativePopupRow, NSView)] = []
         if let accessory = model.searchAccessory {
@@ -24,30 +26,16 @@ extension NativePopupContent {
             addSubview(tab)
             views.append((accessory, tab))
         }
+        let spanningIcons = model.rows.contains { $0.icon != nil }
         for row in model.rows {
-            let view = makeRow(row, hasIconColumn: model.rows.contains { $0.icon != nil })
+            let view = makeRow(row, hasIconColumn: spanningIcons)
             addSubview(view)
             views.append((row, view))
         }
         for column in model.columns ?? [] {
             let view = NativePopupColumnView(column: column)
-            let hasIcons = column.rows.contains { $0.icon != nil }
-            for row in column.rows {
-                let cell: NSView
-                if column.rail == true {
-                    let tab = NativePopupRailTab(row: row, placement: .symbols)
-                    tab.showsAccentBar = false
-                    tab.onActivate = { [weak self, weak tab] in
-                        guard let self, let tab else { return }
-                        activate(row, view: tab)
-                    }
-                    cell = tab
-                } else {
-                    cell = makeRow(row, hasIconColumn: hasIcons)
-                }
-                view.document.addSubview(cell)
-                views.append((row, cell))
-            }
+            view.document.follow = { [weak self] in self?.realizeVisibleRows() }
+            addWindow(view.document, layout: .column(column), rows: column.rows)
             columnViews.append(view)
             addSubview(view)
         }
@@ -101,22 +89,10 @@ extension NativePopupContent {
         let flexible = columns.filter { $0.width == nil }.count
         let rest = flexible > 0 ? max(0, (width - CGFloat(fixed)) / CGFloat(flexible)) : 0
         var heights: [CGFloat] = []
-        for column in columns {
-            var cursor = inset
-            let columnWidth = column.width.map { CGFloat($0) } ?? rest
-            for item in column.rows {
-                guard let cell = byID[item.id] else { continue }
-                if let tab = cell as? NativePopupRailTab {
-                    let side = PopupStyle.standard.rowHeight
-                    tab.frame = NSRect(x: (columnWidth - side) / 2, y: cursor, width: side, height: side)
-                    cursor += side + Metrics.space1
-                } else {
-                    let height = Self.height(of: item, view: cell)
-                    cell.frame = NSRect(x: inset, y: cursor, width: max(0, columnWidth - inset * 2), height: height)
-                    cursor += height
-                }
-            }
-            heights.append(cursor + inset)
+        for index in columns.indices {
+            // Its rows' lengths are known without their views (NativePopupWindowLayout.column).
+            let length = rowWindows.indices.contains(index) ? rowWindows[index].layout.length(of: 0) : 0
+            heights.append(inset + length + inset)
         }
         let cap = CGFloat(model.columnsHeight ?? Double(Self.columnsDefaultHeight))
         let band = min(cap, max(columnsBandFloor, heights.max() ?? 0))
@@ -165,15 +141,11 @@ extension NativePopupContent {
     // MARK: Keys
 
     /// The column each row sits in, by the row's id.
-    private func columnIndex(of id: String?) -> Int? {
-        guard let id else { return nil }
-        return model?.columns?.firstIndex { $0.rows.contains { $0.id == id } }
-    }
+    private func columnIndex(of id: String?) -> Int? { id.flatMap { columnOf[$0] } }
 
+    /// The rows of column `index` the keys reach (indexed once per rebuild).
     private func columnRows(_ index: Int) -> [NativePopupRow] {
-        guard let column = model?.columns?[safe: index] else { return [] }
-        let ids = Set(column.rows.map(\.id))
-        return listRows.filter { ids.contains($0.id) }
+        columnListRows.indices.contains(index) ? columnListRows[index] : []
     }
 
     var firstListColumnRowID: String? {
@@ -199,7 +171,7 @@ extension NativePopupContent {
         } else {
             let rows = columnRows(current)
             guard !rows.isEmpty else { return true }
-            let at = rows.firstIndex { $0.id == selected }
+            let at = selected.flatMap { columnListPosition[$0] }
             let index = at.map { min(rows.count - 1, max(0, $0 + (key == 125 ? 1 : -1))) } ?? (key == 125 ? 0 : rows.count - 1)
             next = rows[index].id
         }
@@ -216,7 +188,7 @@ extension NativePopupContent {
 @MainActor
 final class NativePopupColumnView: OverlayScrollView {
     let column: NativePopupColumn
-    let document = NativePopupRailStripDocument()
+    let document = NativePopupColumnDocument()
 
     init(column: NativePopupColumn) {
         self.column = column
@@ -228,6 +200,8 @@ final class NativePopupColumnView: OverlayScrollView {
         autohidesScrollers = true
         horizontalScrollElasticity = .none
         verticalScrollElasticity = .none
+        // Scrolls reach the document, which draws the rows that came into view.
+        contentView = PopupClipView()
         documentView = document
         setAccessibilityLabel(column.label)
         setAccessibilityIdentifier(column.id)
@@ -237,6 +211,10 @@ final class NativePopupColumnView: OverlayScrollView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
-private extension Array {
-    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+/// A column's flipped document: a scroll or a resize of its column draws the rows in view.
+@MainActor
+final class NativePopupColumnDocument: NSView, PopupViewportFollowing {
+    var follow: () -> Void = {}
+    override var isFlipped: Bool { true }
+    func viewportDidChange() { follow() }
 }
