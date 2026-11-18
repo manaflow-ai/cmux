@@ -12,6 +12,8 @@ import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
+import { currentCloudPlan } from "./cloudMachines";
+import type { CloudSize } from "./cloudPlans";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
@@ -40,6 +42,9 @@ export type CloudStart = {
   /** This tab's empty local chat, which the start replaces: the host accepts a start from a tab whose
    *  chat is this one, and closes the tab with it once the Cloud chat opens (AgentPaneHandOff). */
   replacesChat?: string;
+  /** The largest size the account's plan gives; none: the plan the page last read (`cloudMachine.list`), when active.
+   *  The host asks it, its disk grown, for a folder past it that the plan's disk holds (AgentPaneCloudStart `planMax`). */
+  planMax?: CloudSize;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -292,6 +297,9 @@ export async function startCloudChat(
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
   if (start.replacesChat) params.replacesChat = start.replacesChat;
+  const plan = currentCloudPlan();
+  const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
+  if (planMax) params.planMax = planMax;
   try {
     await call("cloud.startChat", params);
     return { ok: true };
