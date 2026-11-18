@@ -387,6 +387,17 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if collectionView.pagedScreensToEdge(direction) < readAheadScreens { loadMore() }
     }
 
+    /// Pull to refresh at the top of a `.down` list (nil: none).
+    func setRefresh(_ action: (() async -> Void)?) {
+        refreshAction = action
+        if action != nil, direction == .down, pullToRefresh == nil {
+            pullToRefresh = ListPullToRefresh(scrollView: collectionView) { [weak self] in await self?.refreshAction?() }
+        } else if action == nil, let pullToRefresh {
+            pullToRefresh.detach()
+            self.pullToRefresh = nil
+        }
+    }
+
     // MARK: Scrolling
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
