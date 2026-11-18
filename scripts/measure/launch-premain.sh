@@ -2,8 +2,12 @@
 # What makes a cmux NEXT launch reach `main` 600 to 1170 ms late (CMUX-629): run 5 of the pre-main study, on a fleet
 # Mac's console session, one copy of the NIGHTLY and one home:
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
-#     --script scripts/measure/launch-premain.sh --ref <sha> [--arg=dmg=nightly|URL] [--arg=reps=5] \
-#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f] --artifact .build/launch-premain/report.tgz --timeout 5400
+#     --script scripts/measure/launch-premain.sh --ref <sha> [--arg=dmg=nightly|URL|sha256:HEX] [--arg=reps=5] \
+#     [--arg=arms=h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6] --artifact .build/launch-premain/report.tgz --timeout 5400
+# dmg=sha256:HEX is a DMG in the fleet's artifact store (`cmux-ci artifact-put FILE --sha256 HEX --lane W`): a build
+# with no public URL, such as a pull request's signed candidate. The step is submitted with CMUX_WORKSPACE_ID=W, and the
+# download is checked against HEX. Every run prints LP-GATE rows for the DMG and its app before the arms:
+# `spctl --assess` (open for the DMG, exec for the app) and `stapler validate`, as Gatekeeper sees the copy it runs.
 # A launch reaches `main` in 30 to 80 ms when launches follow each other closely, and 600 to 1170 ms when about 60 s
 # have passed since a full run began. Each arm is one pair (A, then the measured launch B), interleaved per rep, each
 # pair started only while the Mac's 1-minute load is under 8. A and B are open (LaunchServices) launches, as the Dock
@@ -17,6 +21,9 @@
 #   d   A short, then `purge` (root) before B: slow means evicted pages alone reproduce it (no root: no B)
 #   k   A short, then `ln EXE x; rm x` before B: slow means a new link count and ctime alone make the system scan the
 #       executable again, as Chromium's code-sign clone links it on every full run (cmux#44204)
+#   t1, t3, t6  A kept 1, 3 or 6 s past its first window, quit as Cmd-Q does; B: at which point of a run the next
+#       launch turns slow (a 6 s run and quit already does, launch-ready back to back), and B's nlink and ctime_age_s
+#       say whether the executable was linked by then
 #   e   our executable exec'd to main (X), Calculator opened and kept 60 s, quit, 3 s, B exec'd to main
 #   e2  as e with 63 s of idle in place of Calculator (e's control)
 #   x   as a, B exec'd to main (no LaunchServices)
@@ -30,20 +37,51 @@
 # process is stopped at its main_start mark). Prints LP-RUN per launch (with arm and rep), LP-TABLE at the end.
 set -uo pipefail
 
+# store_fetch HEX FILE: the fleet artifact store's object sha256:HEX into FILE, through the controller's signed URL
+# (never printed), else its own GET; FILE must hash to HEX.
+store_fetch() {
+  local hex="$1" file="$2" controller="${CMUX_CI_CONTROLLER:-http://100.89.225.106:18765}" signed fetched=0
+  signed="$(curl --fail --silent --connect-timeout 5 --max-time 30 -A cmux-launch-premain/1 \
+    "${controller%/}/v1/artifacts/sha256:$hex/url" 2>/dev/null |
+    /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
+  case "$signed" in https://*|http://*)
+    curl --fail --silent --location --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 \
+      -A cmux-launch-premain/1 -o "$file" "$signed" 2>/dev/null && fetched=1 ;;
+  esac
+  unset signed
+  if (( ! fetched )); then
+    curl --fail --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 5 --max-time 900 \
+      -A cmux-launch-premain/1 -o "$file" "${controller%/}/v1/artifacts/sha256:$hex" || return 1
+  fi
+  [[ "$(/usr/bin/shasum -a 256 "$file" | /usr/bin/awk '{print $1}')" == "$hex" ]] || { echo "LP download is not sha256:$hex"; return 1; }
+}
+
+# gate WHAT TYPE PATH: one LP-GATE row each for `spctl --assess --type TYPE` and `stapler validate` of PATH, with the
+# exit code and spctl's source line (a notarized Developer ID build reads "source=Notarized Developer ID"). A rejected
+# gate is reported, not fatal: the arms still run.
+gate() {
+  local what="$1" type="$2" path="$3" text rc context=()
+  [[ "$type" == open ]] && context=(--context context:primary-signature)
+  text="$(spctl --assess --type "$type" ${context[@]+"${context[@]}"} -vv "$path" 2>&1)"; rc=$?
+  echo "LP-GATE $what spctl rc=$rc $(printf '%s' "$text" | grep -E 'accepted|rejected|source=' | sed "s#$path#PATH#" | tr '\n' ' ')"
+  text="$(xcrun stapler validate "$path" 2>&1)"; rc=$?
+  echo "LP-GATE $what stapler rc=$rc $(printf '%s' "$text" | tail -1)"
+}
+
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f" arg rc=0 rep arm
+  local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" arg rc=0 rep arm
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   for arg in "$@"; do
     case "$arg" in
-      dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
+      dmg=nightly|dmg=https://*|dmg=sha256:*) dmg="${arg#dmg=}" ;;
       reps=*) reps="${arg#reps=}" ;;
       arms=*) arms="${arg#arms=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f)(,(h|a|b|c|g|d|k|e|e2|x|f))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f" >&2; exit 2; }
+  [[ "$arms" =~ ^(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6)(,(h|a|b|c|g|d|k|e|e2|x|f|t1|t3|t6))*$ ]] || { echo "arms= takes h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" >&2; exit 2; }
   echo "LP host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LP root yes" || echo "LP root no (arms d and f need it: their rows say so)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -52,9 +90,16 @@ main() {
     dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
       | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
   fi
-  [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; exit 3; }
-  echo "LP dmg $dmg"
-  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$out/app.dmg" "$dmg" || { echo "LP download failed"; exit 3; }
+  if [[ "$dmg" == sha256:* ]]; then
+    [[ "$dmg" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "dmg=sha256: takes 64 lowercase hex" >&2; exit 2; }
+    echo "LP dmg $dmg"
+    store_fetch "${dmg#sha256:}" "$out/app.dmg" || { echo "LP download failed"; exit 3; }
+  else
+    [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; exit 3; }
+    echo "LP dmg $dmg"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$out/app.dmg" "$dmg" || { echo "LP download failed"; exit 3; }
+  fi
+  gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
   local mount="$out/mnt" found
@@ -64,9 +109,15 @@ main() {
   ditto "$found" "$out/copy/$(basename "$found")" || exit 3
   hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
   APP="$out/copy/$(basename "$found")"
+  gate app exec "$APP"
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
-  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB")"
+  # The app's code on a stub-executable build (cmux#44204): its link count and ctime are recorded beside the
+  # executable's, so a run shows whether a scan moved onto it.
+  FW="$APP/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
+  [[ -e "$FW" ]] || FW=""
+  [[ -f "$APP/Contents/Info.plist" ]] || { echo "LP-FAIL $APP has no Contents/Info.plist"; exit 3; }
+  echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB") framework_bytes=$([[ -n "$FW" ]] && stat -L -f %z "$FW")"
   OUT="$out"
   # The copy's first exec pays its first-look cost (3.4 to 4.4 s, not this study's subject); the priming launch makes
   # the home's state, so every launch after it is a person's relaunch.
@@ -97,7 +148,8 @@ for arm in dict.fromkeys(r["arm"] for r in rows if r.get("role") == "B"):
     b = [r for r in rows if r["arm"] == arm and r.get("role") == "B" and r.get("main_start") is not None]
     table = {"arm": arm, "n": len(b)}
     for key in ("main_start", "pageins", "system_pageins", "user_ms", "system_ms", "disk_read_kb", "resident_before",
-                "resident_at_main", "pages_touched"):
+                "resident_at_main", "pages_touched", "fw_resident_before", "fw_resident_at_main", "fw_pages_touched",
+                "fw_nlink", "fw_ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
     for key in ("nlink", "ctime_age_s"):
         table[key] = med([r.get(key) for r in b])
@@ -156,6 +208,7 @@ pair() {
     g) launch open A 0 term && quiesce 0 && sleep 60 && measured open ;;
     d) launch open A 0 term && quiesce 0 && root /usr/sbin/purge && sleep 3 && measured open ;;
     k) launch open A 0 term && ended && relink && measured open ;;
+    t1|t3|t6) launch open A "${ARM#t}" quit && ended && measured open ;;
     e) launch exec X && other_app 60 && sleep 3 && measured exec ;;
     e2) launch exec X && sleep 63 && measured exec ;;
     x) launch open A 60 quit && ended && measured exec ;;
@@ -167,7 +220,25 @@ ended() { quiesce 0; sleep 3; }
 
 # relink: a second hard link to the executable made and removed, as Chromium's code-sign clone links it into
 # $DARWIN_USER_TEMP/../X/<bundle id>.code_sign_clone/ (cmux#44204): the link count and ctime change, the bytes do not.
-relink() { ln "$EXE" "$OUT/exe-link" && rm -f "$OUT/exe-link"; }
+# First as the step's user; if that is refused, as the console user the app runs as (Chromium links as the app). A row
+# (role relink) says who made the link, or both errors.
+relink() {
+  local direct console="" by=step nlink
+  nlink="$(stat -f %l "$EXE")"
+  if ! direct="$(ln "$EXE" "$OUT/exe-link" 2>&1)"; then
+    rm -f "$OUT/home/exe-link"
+    if console="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/sh -c \
+        'ln "$1" "$2" && rm -f "$2"' sh "$EXE" "$OUT/home/exe-link" 2>&1 >/dev/null)"; then
+      by=console
+    else
+      by=none
+    fi
+  fi
+  rm -f "$OUT/exe-link"
+  record relink "LP-RUN $(python3 -I -c 'import json,sys; print(json.dumps({"relink_by": sys.argv[1], "nlink_before": int(sys.argv[2]), "nlink_after": int(sys.argv[3]), "direct_error": sys.argv[4][-300:], "console_error": sys.argv[5][-300:]}))' \
+    "$by" "$nlink" "$(stat -f %l "$EXE")" "$direct" "$console")"
+  [[ "$by" != none ]]
+}
 
 # measured open|exec|sampled: the measured launch B (open: SIGTERM at its first window), with the executable's link
 # count and seconds since its ctime before it, and the CPU the system's code checkers (syspolicyd, XprotectService,
@@ -176,6 +247,7 @@ measured() {
   local before after
   before="$(checker_cpu)"
   B_STATE="\"nlink\": $(stat -f %l "$EXE"), \"ctime_age_s\": $(($(date +%s) - $(stat -f %c "$EXE")))"
+  [[ -n "$FW" ]] && B_STATE="$B_STATE, \"fw_nlink\": $(stat -L -f %l "$FW"), \"fw_ctime_age_s\": $(($(date +%s) - $(stat -L -f %c "$FW")))"
   case "$1" in
     open) launch open B 0 term ;;
     exec) launch exec B ;;

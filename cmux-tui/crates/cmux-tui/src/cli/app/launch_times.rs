@@ -27,20 +27,27 @@ pub(in crate::cli) struct Command {
     pub limit: Option<usize>,
     /// Another file than the app's.
     pub file: Option<PathBuf>,
+    /// Each row's launch phases on a line under it (the human view; JSON always has them).
+    pub phases: bool,
 }
 
 /// `rest` starts with `launch-times`.
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let usage = || UsageError::new(crate::localization::catalog().app_control.launch_times.usage);
-    let options = Options::parse(rest.get(1..).unwrap_or_default(), &["limit", "file"], &[])
-        .map_err(|_| usage())?;
+    let options =
+        Options::parse(rest.get(1..).unwrap_or_default(), &["limit", "file"], &["phases"])
+            .map_err(|_| usage())?;
     let limit = match options.value("limit") {
         Some(text) => {
             Some(text.parse::<usize>().ok().filter(|limit| *limit > 0).ok_or_else(usage)?)
         }
         None => None,
     };
-    Ok(AppCommand::LaunchTimes(Command { limit, file: options.value("file").map(PathBuf::from) }))
+    Ok(AppCommand::LaunchTimes(Command {
+        limit,
+        file: options.value("file").map(PathBuf::from),
+        phases: options.flag("phases"),
+    }))
 }
 
 /// The app's file: `<home>/Library/Application Support/<bundle id>/launch-times.jsonl`, for the app
@@ -76,9 +83,41 @@ pub(super) fn read(path: &Path, limit: Option<usize>) -> std::io::Result<Vec<Val
     Ok(records)
 }
 
-/// One row per launch under the record's own key names.
-pub(super) fn table(records: &[Value]) -> String {
-    const HEADER: [&str; 10] = [
+/// The row's launch phases (its `phases` object: mark name to ms since process start) in the order
+/// they came, each with its step from the one before: `phases: dfl.menu=130.6 (+10.5)  ...`. `None`
+/// for a row without phases (one written before the app recorded them).
+pub(super) fn phase_line(record: &Value) -> Option<String> {
+    let mut phases: Vec<(&str, f64)> = record
+        .get("phases")?
+        .as_object()?
+        .iter()
+        .filter_map(|(name, ms)| Some((name.as_str(), ms.as_f64()?)))
+        .collect();
+    if phases.is_empty() {
+        return None;
+    }
+    phases.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(b.0)));
+    let shown = |ms: f64| {
+        let ms = (ms * 10.0).round() / 10.0;
+        if ms.fract() == 0.0 { format!("{ms:.0}") } else { format!("{ms:.1}") }
+    };
+    let mut before = 0.0;
+    let cells: Vec<String> = phases
+        .into_iter()
+        .map(|(name, ms)| {
+            let step = ms - before;
+            before = ms;
+            format!("{name}={} (+{})", shown(ms), shown(step))
+        })
+        .collect();
+    Some(format!("  phases: {}", cells.join("  ")))
+}
+
+/// One row per launch under the record's own key names. The prior chat's columns (CMUX-119) are `-`
+/// for a launch whose restored front tab was not an agent chat. With `phases`, each row that has
+/// them is followed by its [`phase_line`].
+pub(super) fn table(records: &[Value], phases: bool) -> String {
+    const HEADER: [&str; 15] = [
         "started_at",
         "build",
         "commit",
@@ -87,6 +126,11 @@ pub(super) fn table(records: &[Value]) -> String {
         "first_window_frame_ms",
         "home_first_page_ms",
         "home_revealed_by",
+        "window_usable_ms",
+        "first_shell_live_ms",
+        "no_snapshot",
+        "prior_chat_painted_ms",
+        "prior_chat_live_ms",
         "prewarmed",
         "first_launch_of_build",
     ];
@@ -119,11 +163,16 @@ pub(super) fn table(records: &[Value]) -> String {
         })
         .collect();
     let mut out = String::new();
-    for row in &rows {
+    for (index, row) in rows.iter().enumerate() {
         let line: Vec<String> =
             row.iter().zip(&widths).map(|(text, width)| format!("{text:<width$}")).collect();
         out.push_str(line.join("  ").trim_end());
         out.push('\n');
+        let record = index.checked_sub(1).and_then(|index| records.get(index));
+        if let Some(extra) = record.filter(|_| phases).and_then(phase_line) {
+            out.push_str(&extra);
+            out.push('\n');
+        }
     }
     out
 }
@@ -157,7 +206,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
             0
         }
         OutputMode::Human => {
-            print!("{}", table(&records));
+            print!("{}", table(&records, command.phases));
             0
         }
         _ => super::super::wire::print_local_success(
