@@ -46,4 +46,27 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<20 { await Task.yield() }
         #expect(ran == 1)
     }
+
+    /// The step the shown page waits on (Chromium's map under a restored chat) runs first when the frame is in, ahead
+    /// of the launch work added before it; the rest keeps its order. Base red: work ran only in the order it was added.
+    @Test func firstWorkRunsAheadOfWorkAddedBeforeIt() async {
+        let gate = FirstFrameGate(backstop: DemandTimer(owner: "test", clock: ManualClock()))
+        var ran: [String] = []
+        gate.whenOpen { ran.append("updater") }
+        gate.whenOpenFirst { ran.append("chromium") }
+        gate.whenOpen { ran.append("warm-ups") }
+        gate.whenOpenFirst { ran.append("prep") }
+        let waiter = Task { @MainActor in
+            await gate.openedFirst()
+            ran.append("resumed")
+        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(ran.isEmpty)
+        gate.open()
+        #expect(ran == ["chromium", "prep", "updater", "warm-ups"])
+        await waiter.value
+        #expect(ran.last == "resumed")
+        gate.whenOpenFirst { ran.append("late") }
+        #expect(ran.last == "late", "once open: at once")
+    }
 }
