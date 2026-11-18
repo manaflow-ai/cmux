@@ -113,16 +113,21 @@ function mount() {
       node.dispatchEvent(new dom.window.Event("scroll"));
       await nextFrame();
     });
-  /// The rows in view now, by the transcript's own row boxes (absolutely placed by its layout).
+  /// The rows in view now, by where the transcript's layout places them (each row's `top`; jsdom draws no height, so
+  /// a row reaches down to the next row's top, and the last to the content's end).
   const inView = () => {
     const node = scroller();
     const top = node.scrollTop;
-    return [...node.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
-      .filter((element) => {
-        const at = element.offsetTop || parseFloat(element.style.top || "NaN");
-        return !Number.isFinite(at) || (at < top + VIEWPORT && at + (element.offsetHeight || 1) > top);
+    const placed = [...node.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+      .map((element) => ({ id: element.dataset.rowId!, at: parseFloat(element.style.top) }))
+      .filter((entry) => Number.isFinite(entry.at))
+      .sort((a, b) => a.at - b.at);
+    return placed
+      .filter((entry, index) => {
+        const end = placed[index + 1]?.at ?? node.scrollHeight;
+        return entry.at < top + VIEWPORT && end > top;
       })
-      .map((element) => element.dataset.rowId!);
+      .map((entry) => entry.id);
   };
   return { root, told, following, render, scrollUp, scroller, inView };
 }
@@ -162,7 +167,7 @@ test("opening a chat names one of its own rows, at its latest row", async () => 
 });
 
 test("switching from a chat scrolled up names a row of the chat switched to, never one of the chat left", async () => {
-  const { root, told, following, render, scrollUp } = mount();
+  const { root, told, following, render, scrollUp, inView } = mount();
   try {
     await render({ sessionId: "left", rows: chat("left", 30) });
     await act(async () => nextFrame());
@@ -174,6 +179,7 @@ test("switching from a chat scrolled up names a row of the chat switched to, nev
     await act(async () => nextFrame());
     expect(following.at(-1), "the chat switched to opens at its latest row").toBe(true);
     expectCurrent(told, from, rows);
+    expect(told.at(-1)!.id, "the row named last is the first in view").toBe(inView()[0]!);
   } finally {
     await act(async () => root.unmount());
   }
@@ -205,7 +211,7 @@ test("a send while scrolled up names the row in view at the new latest row, from
     expectCurrent(told, from, rows);
     // Each row named since the send is the one the view keeps now: no row from the layout before the send.
     const settled = told.at(-1)!.id;
-    expect(inView(), "the row named is in view").toContain(settled!);
+    expect(settled, "the row named is the first in view").toBe(inView()[0]!);
     expect(
       told.slice(from).map((entry) => entry.id),
       "every row named since the send",
