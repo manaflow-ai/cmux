@@ -166,11 +166,13 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # notarization then covers its new signature; its old stapled ticket is dropped.
   restamp_screen_helper=0
   if [[ "$SIGN_MODE" == "all-except-computer-use" ]]; then
-    app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-    app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    app_bundle_id="" app_bundle_name=""
+    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
     for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
       [[ -d "$screen_helper" ]] || continue
-      helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
+      helper_bundle_id=""
+      [[ -f "$screen_helper/Contents/Info.plist" ]] && helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
       if [[ "$helper_bundle_id" != "$app_bundle_id.screen-sharing" || "$(basename "$screen_helper")" != "$app_bundle_name Screen Sharing.app" ]]; then
         echo "==> the Screen Sharing helper is stamped for $helper_bundle_id; re-stamping it for $app_bundle_id"
         restamp_screen_helper=1
@@ -311,6 +313,7 @@ for entitlement in \
   com.apple.security.personal-information.calendars \
   com.apple.security.personal-information.location \
   com.apple.security.personal-information.photos-library; do
+  # plist-exists: codesign -d wrote $SIGNED_ENTITLEMENTS above or the script exited
   value="$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   if [[ "$value" != "true" ]]; then
     echo "error: signed app missing enabled $entitlement" >&2
