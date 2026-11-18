@@ -273,10 +273,12 @@ struct MacScreenAppKitViewTests {
         window.close()
     }
 
-    /// The device-control prompt is the cmux dialog card on its glass (Lawrence 2026-11-17, "think liquid glass"):
-    /// the request, the fingerprint in two lines of four groups on a well, and the four answers stacked the card's
-    /// width with Allow Once first (Return) and Deny last as quiet red text (Escape).
-    @Test func approvalShowsTheRequestAndItsFourAnswers() throws {
+    /// The device-control prompt is the cmux dialog card on its glass (Lawrence 2026-11-17, "think liquid glass"),
+    /// worded plainly (Leo, 2026-11-16: "super ugly", "i dont want to have to click share this mac allow every single
+    /// time"): who asks and what it can do, what Allow keeps, the key in two lines of four groups on a well, and three
+    /// answers stacked the card's width: Allow first (the one fill, the hub's Always; no key: only the person's click
+    /// allows), Allow Only This Time, and Not Now last as quiet text (Escape).
+    @Test func approvalAsksPlainlyWithAllowFirst() throws {
         let prompt = MacScreenApprovalPrompt()
         defer { prompt.update([]) }
         let fingerprint = "78be18e0c08c9c4d7443d95e2db68074" + String(repeating: "ab", count: 16)
@@ -285,20 +287,38 @@ struct MacScreenAppKitViewTests {
         view.window?.contentView?.layoutSubtreeIfNeeded()
         let shown = texts(under: view)
         #expect(shown.contains(String(format: L.t("macScreen.approval.titleFull", "%@ wants to control this Mac"), "Laptop")))
+        #expect(shown.contains(L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")))
         #expect(shown.contains("78BE 18E0 C08C 9C4D\n7443 D95E 2DB6 8074"))
         #expect(view.spec.layout == .stacked)
         #expect(views(under: view).contains { $0 is OverlaySurfaceView }, "on the dialog glass")
-        let ids = ["once", "alwaysView", "alwaysFull", "deny"]
+        let ids = ["alwaysFull", "once", "deny"]
+        #expect(view.spec.buttons.map(\.id) == ids)
+        #expect(view.spec.buttons.map(\.title) == [MacScreenApprovalWords.allow, MacScreenApprovalWords.onlyThisTime,
+                                                   MacScreenApprovalWords.notNow])
+        #expect(view.spec.buttons.map(\.personOnly) == [true, true, false])
         let buttons = try ids.map { try #require(view.buttonView($0), "\($0)") }
         let frames = buttons.map { $0.convert($0.bounds, to: nil) }
         for (upper, lower) in zip(frames, frames.dropFirst()) {
             #expect(lower.maxY <= upper.minY)
             #expect(lower.width == upper.width && lower.minX == upper.minX)
         }
-        #expect(buttons[0].keyHint == .return && buttons[3].keyHint == .escape && buttons[3].isQuiet)
-        #expect(MacScreenApprovalChoice.allCases.allSatisfy { ids.contains($0.rawValue) })
+        #expect(buttons[0].keyHint == nil && buttons[2].keyHint == .escape && buttons[2].isQuiet)
         let card = try #require(prompt.panelFrame)
         #expect(abs(card.width - view.fittingSize.width) < 1 && card.height > 100)
+    }
+
+    /// Allow is the hub's Always at the scope asked for: View Only for a request to see, Full Control
+    /// for a request to control, so the same Mac's next request of that scope is not asked.
+    @Test func allowRemembersTheScopeAskedFor() {
+        for (scope, choice, stored) in [(SessionScope.view, MacScreenApprovalChoice.alwaysView, SessionScope.view),
+                                        (.full, .alwaysFull, .full)] {
+            let request = SessionRequest(id: "s", viewerId: "v", viewerName: "Laptop", scope: scope)
+            let words = MacScreenApprovalWords(request)
+            #expect(words.allowChoice == choice)
+            #expect(MacScreenApprovalPrompt.spec(request, error: nil).buttons.first?.id == choice.rawValue)
+            let answer = words.allowChoice.answer(requested: scope)
+            #expect(answer.decision == .always && answer.scope == stored && answer.thenPermission == nil)
+        }
     }
 
     @Test func aFailedAnswerShowsInTheCard() {

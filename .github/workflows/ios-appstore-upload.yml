@@ -1,12 +1,15 @@
 name: iOS TestFlight (cmux.app)
 
 on:
-  # Upload the official bundle for internal testing. App Review remains manual.
-  # Hourly polls batch main: they upload once IOS_APPSTORE_MIN_COMMITS
-  # (default 10) commits are pending or the oldest is
-  # IOS_APPSTORE_MAX_AGE_MINUTES (default 360) old.
-  schedule:
-    - cron: "17 * * * *"
+  # Upload the classic app's official bundle for internal testing, by hand
+  # only. The hourly poll is off (as on main, #40930): classic iOS is
+  # deprecated and the App Store record com.cmux.app (6783338052) is the
+  # permanent home of the NEXT app (cmux-next-ios, project.yml's AppStore
+  # configuration), so a scheduled classic upload would land a classic build on
+  # the record NEXT ships to. Classic's TestFlight lane moves to its own app,
+  # cmux CLASSIC (dev.cmux.app.classic), never com.cmux.app. The NEXT App Store
+  # lane is not wired yet. The scheduled-poll batching below stays in place and
+  # only runs if a schedule comes back.
   workflow_dispatch:
     inputs:
       build_number:
