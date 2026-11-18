@@ -91,6 +91,12 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
     rows.extend(app.sessions.iter().cloned());
     let filtered: Vec<usize> = (0..rows.len()).filter(|i| app.row_visible(*i)).collect();
+    // Per-frame work (cmux-view-rows frame_work): every row is copied and filtered.
+    #[cfg(test)]
+    {
+        cmux_view_rows::frame_work::cloned(rows.len());
+        cmux_view_rows::frame_work::walked(rows.len());
+    }
     // Every session of a project sits under one header; groups are ordered
     // by their most recent session (the list is already recency-sorted).
     let group_of = |s: &Value| -> String {
@@ -144,6 +150,9 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             entries.push(Entry::More(g, hidden));
         }
     }
+    // Per-frame work: an entry per listed row and header, in view or not.
+    #[cfg(test)]
+    cmux_view_rows::frame_work::built(entries.len());
     let body_y = area.y + 2;
     let body_h = area.height.saturating_sub(2 + footer_h) as usize;
     let sel_pos =

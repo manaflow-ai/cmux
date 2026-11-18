@@ -1,0 +1,101 @@
+The rows of the visible-only check (src/visible_only.rs), read by visible_only_tests.rs. Each row
+starts with `=== KIND ARGS :: TITLE`; its source (a file under a `ui` module) runs to the next
+`===` line. KIND is
+  passes                        the check finds nothing
+  flags LINE KIND [& LINE KIND] the check finds exactly these (KIND walk or clone), each once
+The first rows are the shapes of the candidates read in acpmux and cmux-tui at the check's start.
+
+=== flags 3 clone & 4 walk & 6 walk :: acpmux's sidebar: clones every session and groups them all
+fn draw_sidebar(f: &mut ratatui::Frame, app: &mut App) {
+    let mut rows: Vec<Value> = Vec::with_capacity(app.sessions.len());
+    rows.extend(app.sessions.iter().cloned());
+    for &i in &filtered {
+    }
+    let sel = entries.iter().position(|e| e.selected).unwrap_or(0);
+    for (line, entry) in entries.iter().skip(offset).take(body_h).enumerate() {
+    }
+}
+=== flags 2 clone :: the files rail: every name cloned before the skip/take row loop
+fn draw_files(app: &mut App, frame: &mut Frame) {
+    let entries = app.files.visible_entries().map(|e| (e.name.clone(), e.is_dir())).collect::<Vec<_>>();
+    for (line, (name, is_dir)) in entries.iter().skip(offset).take(body_height).enumerate() {
+        draw(name);
+    }
+}
+=== flags 2 clone & 3 clone :: whole copies: to_vec and a plural field's clone
+fn draw_machines(app: &mut App, frame: &mut Frame) {
+    let managed = app.ui.managed_machines().to_vec();
+    let machines = app.ui.snapshot.machines.clone();
+}
+=== flags 2 walk :: a walk that only paints the visible rows still walks them all
+fn draw_workspaces(app: &mut App, frame: &mut Frame) {
+    for (i, ws) in app.tree.workspaces().iter().enumerate() {
+        let Some(y) = viewport.body_y(i) else { continue };
+        draw(ws, y);
+    }
+}
+=== flags 2 walk :: a fn named otherwise is a draw fn when it takes a ratatui Buffer
+fn paint(buf: &mut ratatui::buffer::Buffer, rows: &[Row]) {
+    for row in rows {
+        buf.set(row);
+    }
+}
+=== passes :: bounded walks: a range, a range slice, skip/take, a constant, text, an array
+fn draw_rows(frame: &mut ratatui::Frame, rows: &[Row], area: Rect) {
+    for x in area.x..area.x + area.width {
+        frame.paint(x);
+    }
+    for row in rows[offset..offset + h].iter() {
+        frame.draw(row);
+    }
+    for row in rows.iter().skip(offset).take(h) {
+        frame.draw(row);
+    }
+    let first = rows.iter().next();
+    for (k, v) in KEYS.iter() {
+        frame.label(k, v);
+    }
+    let w: usize = label.chars().map(|c| c.len_utf8()).sum();
+    for word in label.split_whitespace() {
+        frame.word(word);
+    }
+    for part in [a, b, c] {
+        frame.part(part);
+    }
+    let shown = rows[a..b].to_vec();
+}
+=== passes :: a marked line is bounded for a reason the tree does not show
+fn draw_status(app: &App, frame: &mut Frame) {
+    // visible-only: at most the four hosts of a box
+    for host in &app.hosts {
+        frame.host(host);
+    }
+    let n = app.chips.iter().count(); // visible-only: chips are capped at 6
+}
+=== passes :: test code and fns that draw nothing are not judged
+fn rows_for(app: &App) -> Vec<Row> {
+    app.sessions.iter().cloned().collect()
+}
+#[cfg(test)]
+mod tests {
+    fn draw_all(app: &App) {
+        for s in &app.sessions {}
+    }
+}
+#[test]
+fn render_rows_cost() {
+    for s in &app.sessions {}
+}
+=== flags 2 walk :: a walk nested in a draw fn's closure is the draw fn's; one in its walk's closure is that walk's
+fn draw_tabs(app: &App, frame: &mut Frame) {
+    let widths: Vec<usize> = app.tabs.iter().map(|t| t.spans.iter().map(|s| s.width()).sum()).collect();
+    let paint = |frame: &mut Frame| {
+        let n = 3;
+    };
+}
+=== flags 3 walk :: a nested draw fn is judged on its own, not as its parent's
+fn draw_outer(app: &App, frame: &mut Frame) {
+    fn draw_inner(app: &App) {
+        for s in &app.sessions {}
+    }
+}
