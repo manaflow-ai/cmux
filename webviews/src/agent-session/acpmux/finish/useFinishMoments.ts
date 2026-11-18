@@ -26,7 +26,7 @@ export function playFinishSound(kind: FinishKind, play = callNative): void {
   void play("pane.finishSound", { kind }).catch(() => undefined);
 }
 
-/// The turn ends that are no success: stopped or failed (conversation/TurnRows.tsx `UNFINISHED`).
+/// The turn ends that are no success: stopped or failed .
 const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
 
 /// The chat's newest turn summary row (snapshot rows of kind `turnSummary`): its id and how the turn ended.

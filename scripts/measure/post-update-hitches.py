@@ -1294,13 +1294,34 @@ def run(opts, root: Path, report):
         subprocess.run(["defaults", "write", bundle_id, "home.firstRun.historyImportShown", "-bool", "YES"],
                        capture_output=True, timeout=30)
         home = root / "h"
+        # A login keychain, as a person's home has: without one every quit held in CefShutdown behind Chromium's
+        # "cmux Safe Storage" Keychain dialog (12 of 12 hang files, cmuxterm-hq#11994). Not CMUX_MOCK_KEYCHAIN:
+        # the app strips it from an inherited environment (smoke.login_keychain).
+        smoke.login_keychain(smoke.fresh_env(root, app.sock, 0))
         (home / ".config/cmux").mkdir(parents=True, exist_ok=True)
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
             # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
             # (setting_user_only), so it goes in the person's own file, before the launch.
             {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
             indent=1))
+        # A file that already went through the one-time "forget stored defaults" pass
+        # (SettingsController+StoredDefaults.swift, record `cmux-next.json.defaults-forgotten.json`), as a person's
+        # file has: without the record, FROM's first launch drops installOnQuit (true was a former default) and
+        # quit cancels the staged update instead of installing it (cmux9s, 2026-11-16, builds 438256712380x).
+        (home / ".config/cmux/cmux-next.json.defaults-forgotten.json").write_text(json.dumps(
+            {"note": "post-update-hitches: this home's settings are a person's picks, not copies of defaults",
+             "dropped": {}, "kept": {}}, indent=1))
         (home / ".zshrc").touch()
+        # Sparkle's installer runs from launchd with the account's own home, so it stages under the account's
+        # Library/Caches, while the app (CFFIXED_USER_HOME = the private home) looks for the staged bundle under the
+        # private one: its pre-warm found nothing (cmux9s, 2026-11-16: "no staged bundle ... (scan 0 ms)"), which a
+        # person's app never sees. The private folder points at the account's, so the app and Sparkle share it.
+        sparkle = Path("Library/Caches") / bundle_id / "org.sparkle-project.Sparkle"
+        account_sparkle = Path(os.path.expanduser("~")) / sparkle
+        account_sparkle.mkdir(parents=True, exist_ok=True)
+        (home / sparkle).parent.mkdir(parents=True, exist_ok=True)
+        if not (home / sparkle).exists():
+            (home / sparkle).symlink_to(account_sparkle, target_is_directory=True)
         # N: seed, settle, stage, quit -> install. Its own log stream (with Sparkle's processes) and diagnostics.
         app.diagnostics = Diagnostics(out / "N", home, Path(opts.tools))
         report["N_diagnostics"] = app.diagnostics.taken  # the list itself: filled as they are taken
@@ -1394,7 +1415,7 @@ def main(argv=None):
     status = 3
     try:
         status = run(opts, root, report)
-    except CannotRun as error:
+    except (CannotRun, smoke.CannotRun) as error:
         say(f"CANNOT RUN: {error}")
         report["verdict"] = f"cannot-run: {error}"
         status = 3

@@ -35,6 +35,12 @@ nonisolated enum RemoteSocket {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 ? pid : nil
     }
 
+    /// The connected peer's effective user id (`getpeereid`), or nil.
+    static func peerUID(_ descriptor: Int32) -> uid_t? {
+        var uid: uid_t = 0, gid: gid_t = 0
+        return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
+    }
+
     static func writeAll(_ descriptor: Int32, _ data: Data) -> Bool {
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return true }

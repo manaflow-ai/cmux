@@ -247,6 +247,10 @@ pub struct OpenH264Options {
     pub frame_skip: bool,
     /// Worker threads and slices; `None` is the config's.
     pub threads: Option<u16>,
+    /// Slices of each picture; `None` is one per thread.
+    pub slices: Option<u16>,
+    /// OpenH264 moves slice boundaries toward equal coding time per thread.
+    pub load_balancing: bool,
     /// 0 low (the default), 1 medium, 2 high.
     pub complexity: u8,
     pub min_qp: Option<u8>,
@@ -280,6 +284,8 @@ impl Default for OpenH264Options {
         Self {
             frame_skip: true,
             threads: None,
+            slices: None,
+            load_balancing: false,
             complexity: 0,
             min_qp: None,
             max_qp: None,
@@ -302,6 +308,8 @@ impl OpenH264Options {
             match k {
                 "frameskip" => o.frame_skip = num()? != 0,
                 "threads" => o.threads = Some(num()?.clamp(1, 16) as u16),
+                "slices" => o.slices = Some(num()?.clamp(1, 35) as u16),
+                "lb" => o.load_balancing = num()? != 0,
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
@@ -328,6 +336,12 @@ impl OpenH264Options {
         let mut s = Vec::new();
         if self.threads.is_some() {
             s.push(format!("threads={}", self.threads.unwrap_or(1)));
+        }
+        if let Some(n) = self.slices {
+            s.push(format!("slices={n}"));
+        }
+        if self.load_balancing {
+            s.push("lb=on".into());
         }
         if self.complexity != d.complexity {
             s.push(format!("complexity={}", self.complexity));
@@ -459,6 +473,16 @@ impl OpenH264 {
         }
     }
 
+    /// Turns OpenH264's frame skipping on or off on the live instance.
+    fn set_frame_skip(&self, on: bool) {
+        let Some(set) = self.vtbl().SetOption else { return };
+        let mut value = on;
+        // SAFETY: a live encoder; the option's payload is a bool.
+        unsafe {
+            set(self.enc, ENCODER_OPTION_RC_FRAME_SKIP, (&mut value as *mut bool).cast::<c_void>());
+        }
+    }
+
     fn vtbl(&self) -> &ISVCEncoderVtbl {
         // SAFETY: `enc` points at a live encoder whose first field is its vtable pointer.
         unsafe { &**self.enc }
@@ -511,7 +535,7 @@ unsafe fn init(
     p.bEnableFrameSkip = opts.frame_skip;
     p.bEnableLongTermReference = opts.ltr > 0;
     p.iMultipleThreadIdc = threads;
-    p.bUseLoadBalancing = false;
+    p.bUseLoadBalancing = opts.load_balancing;
     p.iLoopFilterDisableIdc = 0;
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
@@ -534,9 +558,10 @@ unsafe fn init(
     l.iMaxSpatialBitrate = bitrate;
     l.uiProfileIdc = PRO_BASELINE;
     l.uiLevelIdc = LEVEL_UNKNOWN;
-    if threads > 1 {
+    let slices = opts.slices.unwrap_or(threads).max(1);
+    if slices > 1 {
         l.sSliceArgument.uiSliceMode = SM_FIXEDSLCNUM_SLICE;
-        l.sSliceArgument.uiSliceNum = u32::from(threads);
+        l.sSliceArgument.uiSliceNum = u32::from(slices);
     } else {
         l.sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
         l.sSliceArgument.uiSliceNum = 1;
@@ -557,6 +582,23 @@ unsafe fn init(
         )?;
     }
     Ok(())
+}
+
+/// A new instance's first frame (the share's start keyframe, or the one after a usage move)
+/// codes with frame skipping off, so its bits never enter the skip buffer. OpenH264 v2.6.0
+/// codes a new instance's first IDR at one QP from a bits-per-pixel table (RcCalculateIdrQp),
+/// whatever it costs: a dense 1080p desktop at the 8 Mbit/s start rate came to ~760 KB, 0.77 s
+/// of the rate. The skip buffer holds half a second of the rate (SKIP_RATIO), so it dropped
+/// every frame after that keyframe until the excess drained: 16 frames, ~270 ms in which a new
+/// share's first key presses showed nothing. A smaller keyframe does not fix it: coded at an eighth of the rate, the table's QP reaches 35, the top of screen
+/// usage's range, and screen text shrank only 22 %; a session-wide QP floor capped steady
+/// quality. The keyframe's bits still count against the rate controller's eight-frame budget,
+/// which carries the overshoot, so it repays them by coding every other frame for a while
+/// instead of none, and the rate holds as before (tests/start_keyframe.rs). A keyframe forced
+/// on a running instance (the viewer's recovery after loss) keeps skipping as before: it
+/// comes on a lossy link, where frames skipped after it are bits the link can't carry.
+fn keyframe_codes_with_skip_off(opts: &OpenH264Options, fresh: bool) -> bool {
+    opts.frame_skip && fresh
 }
 
 impl H264Encoder for OpenH264 {
@@ -582,13 +624,19 @@ impl H264Encoder for OpenH264 {
             bPsnrU: false,
             bPsnrV: false,
         };
-        // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
-        unsafe {
-            if force_idr {
-                ok(force(self.enc, true), "force idr")?;
-            }
-            ok(encode(self.enc, &src, &mut *self.info), "encode")?;
+        let skip_off = keyframe_codes_with_skip_off(&self.opts, self.motion.fresh);
+        if skip_off {
+            self.set_frame_skip(false);
         }
+        // SAFETY: the encoder reads the planes (kept alive by `pic`) and writes into self.info.
+        let coded = unsafe {
+            if force_idr { ok(force(self.enc, true), "force idr") } else { Ok(()) }
+                .and_then(|()| ok(encode(self.enc, &src, &mut *self.info), "encode"))
+        };
+        if skip_off {
+            self.set_frame_skip(true);
+        }
+        coded?;
         let info = &*self.info;
         if info.eFrameType == videoFrameTypeSkip {
             return Ok(false);
@@ -772,5 +820,160 @@ mod bitrate_tests {
             assert_eq!(read_rate(&enc, ENCODER_OPTION_BITRATE, layer), 8_000_000);
             assert_eq!(read_rate(&enc, ENCODER_OPTION_MAX_BITRATE, layer), 8_000_000);
         }
+    }
+}
+
+/// OpenH264's decoder behind [`crate::VideoDecoder`], on the same entry points as the encoder:
+/// Cisco's binary loaded at run time (`cmux-rd view`, the Linux viewer) or the source build
+/// (tests). It decodes Constrained Baseline, the profile a host sends a viewer that offers
+/// the `h264.baseline` cap.
+pub struct OpenH264Decoder {
+    api: OpenH264Api,
+    dec: *mut ISVCDecoder,
+}
+
+// SAFETY: the decoder instance is used from one thread at a time (owned by the viewer's loop).
+unsafe impl Send for OpenH264Decoder {}
+
+impl OpenH264Decoder {
+    pub fn new(api: OpenH264Api) -> Res<Self> {
+        let mut dec: *mut ISVCDecoder = std::ptr::null_mut();
+        // SAFETY: WelsCreateDecoder writes one decoder pointer to `dec`.
+        ok(unsafe { api.0.WelsCreateDecoder(&mut dec) } as c_int, "WelsCreateDecoder")?;
+        if dec.is_null() {
+            return Err("openh264 WelsCreateDecoder returned no decoder".into());
+        }
+        let this = Self { api, dec };
+        // SAFETY: a zeroed SDecodingParam is the library's "defaults" (its own tests do the same).
+        let mut param: SDecodingParam = unsafe { std::mem::zeroed() };
+        param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
+        let vtbl = this.vtbl()?;
+        let initialize = vtbl.Initialize.ok_or("openh264 decoder has no Initialize")?;
+        // SAFETY: a live decoder and an initialized parameter block.
+        ok(unsafe { initialize(this.dec, &param) } as c_int, "decoder Initialize")?;
+        if let Some(set_option) = vtbl.SetOption {
+            let mut quiet: c_int = WELS_LOG_QUIET as c_int;
+            // Error concealment off: a frame with a hole is not shown; the viewer asks for
+            // recovery instead of drawing a smeared picture.
+            let mut conceal: c_int = ERROR_CON_DISABLE as c_int;
+            // SAFETY: each option takes a pointer to an int.
+            unsafe {
+                set_option(this.dec, DECODER_OPTION_TRACE_LEVEL, (&mut quiet as *mut c_int).cast());
+                set_option(
+                    this.dec,
+                    DECODER_OPTION_ERROR_CON_IDC,
+                    (&mut conceal as *mut c_int).cast(),
+                );
+            }
+        }
+        Ok(this)
+    }
+
+    fn vtbl(&self) -> Res<&ISVCDecoderVtbl> {
+        // SAFETY: a live decoder points at its vtable pointer, which points at the vtable.
+        unsafe { (*self.dec).as_ref() }.ok_or_else(|| "openh264 decoder has no vtable".into())
+    }
+}
+
+impl Drop for OpenH264Decoder {
+    fn drop(&mut self) {
+        // SAFETY: the decoder was created by this API and is destroyed once.
+        unsafe {
+            if let Ok(Some(uninitialize)) = self.vtbl().map(|v| v.Uninitialize) {
+                uninitialize(self.dec);
+            }
+            self.api.0.WelsDestroyDecoder(self.dec);
+        }
+    }
+}
+
+impl crate::VideoDecoder for OpenH264Decoder {
+    fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool> {
+        let decode =
+            self.vtbl()?.DecodeFrameNoDelay.ok_or("openh264 decoder has no DecodeFrameNoDelay")?;
+        let mut planes = [std::ptr::null_mut::<u8>(); 3];
+        // SAFETY: zeroed SBufferInfo is the empty answer the decoder fills.
+        let mut info: SBufferInfo = unsafe { std::mem::zeroed() };
+        // SAFETY: `au` stays alive for the call; `planes` and `info` are ours to fill.
+        let state = unsafe {
+            decode(self.dec, au.as_ptr(), au.len() as c_int, planes.as_mut_ptr(), &mut info)
+        };
+        if state != 0 {
+            return Err(format!("openh264 decode failed: state {state:#x}").into());
+        }
+        if info.iBufferStatus != 1 {
+            return Ok(false);
+        }
+        // SAFETY: with iBufferStatus 1 the system buffer describes the three planes.
+        let sys = unsafe { info.UsrData.sSystemBuffer };
+        let (w, h) = (sys.iWidth.max(0) as usize, sys.iHeight.max(0) as usize);
+        let (ys, cs) = (sys.iStride[0].max(0) as usize, sys.iStride[1].max(0) as usize);
+        if w == 0 || h == 0 || planes.iter().any(|p| p.is_null()) {
+            return Ok(false);
+        }
+        if out.width != w || out.y.len() != w * h {
+            *out = I420::new(w, h);
+        }
+        let (cw, ch) = (w / 2, h / 2);
+        for (i, (dst, pw, ph, stride)) in
+            [(&mut out.y, w, h, ys), (&mut out.u, cw, ch, cs), (&mut out.v, cw, ch, cs)]
+                .into_iter()
+                .enumerate()
+        {
+            for row in 0..ph {
+                // SAFETY: OpenH264's plane `i` covers `stride * ph` bytes until the next call.
+                let src = unsafe { std::slice::from_raw_parts(planes[i].add(row * stride), pw) };
+                dst[row * pw..(row + 1) * pw].copy_from_slice(src);
+            }
+        }
+        Ok(true)
+    }
+
+    fn codec(&self) -> crate::Codec {
+        crate::Codec::H264
+    }
+
+    fn name(&self) -> String {
+        "openh264 decoder".into()
+    }
+}
+
+#[cfg(all(test, feature = "openh264-source"))]
+mod decoder_tests {
+    use super::*;
+    use crate::{VideoDecoder, VideoEncoder};
+
+    /// The encoder's own stream decodes back to its size, and the picture is close to the source.
+    #[test]
+    fn decodes_what_the_encoder_makes() {
+        let (w, h) = (64usize, 48usize);
+        let cfg = EncCfg {
+            width: w as u32,
+            height: h as u32,
+            fps: 30,
+            kbps: 2000,
+            threads: 1,
+            screen_content: true,
+        };
+        let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
+        let mut dec = OpenH264Decoder::new(OpenH264Api::from_source()).expect("decoder");
+        let mut src = I420::new(w, h);
+        src.y.iter_mut().enumerate().for_each(|(i, p)| *p = 16 + (i % 200) as u8);
+        let mut out = I420::new(2, 2);
+        let mut decoded = 0;
+        let mut au = Vec::new();
+        for frame in 0..5 {
+            au.clear();
+            if !enc.encode(&src, frame == 0, frame, &mut au).expect("encode") || au.is_empty() {
+                continue;
+            }
+            if dec.decode(&au, &mut out).expect("decode") {
+                decoded += 1;
+            }
+        }
+        assert!(decoded > 0, "no picture came out");
+        assert_eq!((out.width, out.y.len()), (w, w * h));
+        let err: u64 = out.y.iter().zip(&src.y).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
+        assert!(err / (w * h) as u64 <= 8, "mean luma error {}", err / (w * h) as u64);
     }
 }

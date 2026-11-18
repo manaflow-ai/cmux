@@ -439,7 +439,10 @@ mod imp {
     }
 
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
-    fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
+    ///
+    /// # Safety
+    /// `T` must be the C struct the kernel writes for `flavor`: integers only, valid for any bytes.
+    unsafe fn pidinfo<T>(pid: libc::c_int, flavor: libc::c_int) -> Option<T> {
         let mut out = std::mem::MaybeUninit::<T>::zeroed();
         let size = libc::c_int::try_from(std::mem::size_of::<T>()).ok()?;
         // SAFETY: the buffer is `size` bytes of a `T`, which the kernel fills for this flavor.
@@ -483,8 +486,10 @@ mod imp {
     #[allow(deprecated)]
     pub(super) fn state(pid: u32) -> Option<HarnessState> {
         let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
-        let task: libc::proc_taskinfo = pidinfo(id, libc::PROC_PIDTASKINFO)?;
-        let bsd: libc::proc_bsdinfo = pidinfo(id, libc::PROC_PIDTBSDINFO)?;
+        // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+        let task: libc::proc_taskinfo = unsafe { pidinfo(id, libc::PROC_PIDTASKINFO) }?;
+        // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+        let bsd: libc::proc_bsdinfo = unsafe { pidinfo(id, libc::PROC_PIDTBSDINFO) }?;
         // The task's CPU times are in Mach time units (nanoseconds only on Intel).
         let mut base = libc::mach_timebase_info { numer: 1, denom: 1 };
         // SAFETY: the call fills the struct it is given.
@@ -503,14 +508,19 @@ mod imp {
         let kids: Vec<(libc::c_int, libc::c_int, libc::proc_taskinfo)> = tree(id)
             .into_iter()
             .skip(1)
-            .filter_map(|(kid, parent)| Some((kid, parent, pidinfo(kid, libc::PROC_PIDTASKINFO)?)))
+            .filter_map(|(kid, parent)| {
+                // SAFETY: proc_taskinfo is the integer-only struct PROC_PIDTASKINFO writes.
+                let task = unsafe { pidinfo(kid, libc::PROC_PIDTASKINFO) }?;
+                Some((kid, parent, task))
+            })
             .collect();
         // Its first process: of those it started itself, the one that started first.
         let first_child = kids
             .iter()
             .filter(|(_, parent, _)| *parent == id)
             .filter_map(|(kid, _, t)| {
-                let b: libc::proc_bsdinfo = pidinfo(*kid, libc::PROC_PIDTBSDINFO)?;
+                // SAFETY: proc_bsdinfo is the integer-only struct PROC_PIDTBSDINFO writes.
+                let b: libc::proc_bsdinfo = unsafe { pidinfo(*kid, libc::PROC_PIDTBSDINFO) }?;
                 Some(((b.pbi_start_tvsec, b.pbi_start_tvusec), *kid, name_of(&b), t))
             })
             .min_by_key(|(started, kid, _, _)| (*started, *kid))

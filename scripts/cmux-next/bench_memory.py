@@ -185,12 +185,10 @@ def kind_of(cmd: str, bundle: str) -> str:
         return "cef-helper"
     if rel.startswith("/Contents/MacOS/"):
         return "app"
+    if "/bin/cmux-holder" in rel:
+        return "holder"
     if "/bin/cmux-tui" in rel or "/bin/cmux " in rel or rel.endswith("/bin/cmux"):
-        if "__terminal-host" in rel:
-            return "terminal-host"
-        if "--session cmux-chief" in rel:
-            return "tui-daemon-chief"
-        return "tui-daemon"
+        return tui_kind(rel)
     if "/bin/acpmux" in rel:
         return "acpmux-" + (rel.split("/bin/acpmux", 1)[1].split() or ["agent"])[0]
     if "/bin/" in rel:
@@ -200,16 +198,88 @@ def kind_of(cmd: str, bundle: str) -> str:
     return os.path.basename(cmd.split()[0])
 
 
-def owned(app_pid: int, bundle: str):
-    """{pid: (kind, command)} for every process from the bundle, plus the
-    WebKit processes the app is responsible for."""
-    found = {}
-    for pid, _ppid, cmd in process_table():
+def tui_kind(rel: str) -> str:
+    """The kind of a cmux-tui (or cmux) process, by its first argument. The daemon starts with a flag
+    (`--headless ...`) or as `<scope> start`. Every other bundle process of the binary runs one hidden
+    subcommand (`__terminal-host`, `__holder`, `__provider-authority`, ...) and gets a kind of its own,
+    so the daemon's row is the daemon alone (it was 4 processes summed into one 86 MB `tui-daemon`)."""
+    tail = rel.split("/bin/", 1)[1].split()[1:] if "/bin/" in rel else rel.split()[1:]
+    first = tail[0] if tail else ""
+    if first == "__terminal-host":
+        return "terminal-host"
+    if first == "__holder":
+        return "holder"
+    if first.startswith("__"):
+        return "tui-" + first.lstrip("_")
+    if first and not first.startswith("-") and (tail[1:2] != ["start"]):
+        return "cmux-" + first
+    if "--session cmux-chief" in rel:
+        return "tui-daemon-chief"
+    return "tui-daemon"
+
+
+# The processes the daemon starts with a bare argv[0] (host_exe.rs `arg0("cmux-tui")`, the holder's
+# `cmux-holder`): their command line has no bundle path, so they are found by their executable or by
+# the daemon that owns them.
+BARE_NAMES = ("cmux-tui", "cmux-tui-host", "cmux-holder", "cmux")
+OWNER = re.compile(r"--owner \S*@(\d+)")
+
+
+def exe_path(pid: int) -> str | None:
+    """The process's executable (proc_pidpath), whatever its argv[0] says."""
+    buf = ctypes.create_string_buffer(4096)
+    try:
+        size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
+    except (AttributeError, TypeError, ctypes.ArgumentError):
+        return None
+    if not isinstance(size, int) or size <= 0:
+        return None
+    return buf.value.decode("utf-8", "replace")
+
+
+def bundle_processes(table, bundle: str, exe_of=exe_path) -> dict[int, tuple[str, str]]:
+    """{pid: (kind, command)} for every process of the bundle in `table` ((pid, ppid, command) rows):
+    a command that starts with the bundle path; else an executable inside the bundle (a bare argv[0]),
+    named by that path; else a bare-named cmux-tui or holder process whose `--owner ...@<pid>` or
+    parent is one of these (repeated, so a host of the holder counts too)."""
+    found: dict[int, tuple[str, str]] = {}
+    bare = []
+    for pid, ppid, cmd in table:
         if in_bundle(cmd, bundle) is not None:
-            _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
-            found[pid] = (kind_of(cmd, bundle), cmd)
+            continue
+        name = os.path.basename(cmd.split(None, 1)[0]) if cmd.strip() else ""
+        if name not in BARE_NAMES:
+            continue
+        exe = exe_of(pid)
+        if exe and in_bundle(exe, bundle) is not None:
+            named = exe + (" " + cmd.split(None, 1)[1] if len(cmd.split(None, 1)) > 1 else "")
+            found[pid] = (kind_of(named, bundle), named)
+        else:
+            bare.append((pid, ppid, cmd, name))
+    grew = True
+    while grew:
+        grew = False
+        for pid, ppid, cmd, name in bare:
+            if pid in found:
+                continue
+            owner = OWNER.search(cmd)
+            if ppid in found or (owner and int(owner.group(1)) in found):
+                found[pid] = (kind_of("/bin/" + cmd, bundle), cmd)
+                grew = True
+    return found
+
+
+def owned(app_pid: int, bundle: str):
+    """{pid: (kind, command)} for every process of the bundle (bundle_processes), plus the WebKit
+    processes the app is responsible for."""
+    table = process_table()
+    found = bundle_processes(table, bundle)
+    _run_pids.update(found)
+    if _responsible is not None:
+        for pid, _ppid, cmd in table:
+            if pid not in found and "com.apple.WebKit." in cmd and webkit_owned(pid, app_pid):
+                found[pid] = (kind_of(cmd, bundle), cmd)
     return found
 
 

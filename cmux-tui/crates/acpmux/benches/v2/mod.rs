@@ -365,7 +365,7 @@ mod tests {
     use super::*;
 
     /// Rows intentionally left without a source writer while a later PR owns their gate.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr12.follow_driver_views"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`. A PR's
     /// part is its number and then any letters and digits (`03a3`).

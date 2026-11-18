@@ -1,5 +1,9 @@
 import CmuxNextWakeups
 public import Foundation
+import os
+
+/// States only (a wait, a read's counts, an offer shown), never mail, senders or codes.
+private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "verification-autofill")
 
 /// Runs email verification AutoFill for the app's browser tabs
 /// (plans/cmux-next/email-verification-autofill/DESIGN.md): a tab's detector says its page
@@ -21,6 +25,7 @@ public final class VerificationAutofillCoordinator {
     private let inbox: VerificationInbox
     private let source: any VerificationEmailSource
     private let isEnabled: () -> Bool
+    private let accounts: () -> Set<String>
     private let now: () -> Date
     private let pollInterval: Duration
     private let pollTimer: DemandTimer
@@ -39,24 +44,35 @@ public final class VerificationAutofillCoordinator {
     ///   - inbox: The waits and offers.
     ///   - source: The mail source the person chose.
     ///   - isEnabled: Reads `browser.verificationAutofill.enabled`.
+    ///   - accounts: Reads `browser.verificationAutofill.accounts`: the mailbox addresses the
+    ///     person opted in, lowercased. Mail of any other account is never offered.
     ///   - now: The current time (tests pass a fixed one).
     ///   - clock: Paces the reads while a page waits.
     ///   - pollInterval: Time between reads while a page waits.
     public init(inbox: VerificationInbox, source: any VerificationEmailSource, isEnabled: @escaping () -> Bool,
+                accounts: @escaping () -> Set<String>,
                 now: @escaping () -> Date = Date.init, clock: any Clock<Duration> = ContinuousClock(),
                 pollInterval: Duration = .seconds(3)) {
         self.inbox = inbox
         self.source = source
         self.isEnabled = isEnabled
+        self.accounts = accounts
         self.now = now
         self.pollInterval = pollInterval
         self.pollTimer = DemandTimer(owner: "VerificationAutofill.poll", clock: clock)
     }
 
+    /// The live tabs that wait for a verification email, oldest first: a source that reads mail
+    /// through the browser (``CEFGmailFeedFetcher``) reads in their profile.
+    public var waitingTabs: [any BrowserTab] {
+        tabs.sorted { $0.key.rawValue < $1.key.rawValue }.compactMap(\.value.tab)
+    }
+
     /// The tab's detector reported that its top frame waits for a verification email.
     /// - Parameter tab: The tab.
     public func pageWaiting(_ tab: any BrowserTab) {
-        guard isEnabled(), let url = tab.state.url else { return }
+        guard isEnabled(), let url = tab.state.url else { return log.debug("page waits; feature off or no URL") }
+        log.debug("page waits (agent-driven: \(tab.isAgentDriven, privacy: .public))")
         tabs[tab.id] = WeakTab(tab)
         inbox.pageStartedWaiting(VerificationPageSignal(tab: tab.id, pageURL: url, startedAt: now(), agentDriven: tab.isAgentDriven))
         schedulePoll()
@@ -78,17 +94,23 @@ public final class VerificationAutofillCoordinator {
         guard isEnabled() else { return settingChanged() }
         refreshTabs()
         guard let start = inbox.earliestWaitStart else { return }
+        let optedIn = Set(accounts().map { $0.lowercased() })
+        guard !optedIn.isEmpty else { return }
         let emails: [VerificationEmail]
         do {
-            emails = try await source.emails(receivedSince: start.addingTimeInterval(-VerificationOfferPolicy.lookback))
+            emails = try await source.emails(receivedSince: start.addingTimeInterval(-VerificationOfferPolicy.lookback), accounts: optedIn)
             lastSourceError = nil
         } catch {
             lastSourceError = error
+            log.error("mail read failed: \(String(describing: type(of: error)), privacy: .public)")
             return
         }
+        log.debug("mail read: \(emails.count, privacy: .public) new messages")
         guard isEnabled() else { return settingChanged() }
         let time = now()
-        for email in emails.sorted(by: { $0.receivedAt < $1.receivedAt }) {
+        // A source already reads only opted-in accounts; mail without a known account is never offered.
+        let current = Set(accounts().map { $0.lowercased() })
+        for email in emails.sorted(by: { $0.receivedAt < $1.receivedAt }) where email.account.map(current.contains) == true {
             for tab in inbox.receive(email, enabled: true, now: time) { present(on: tab, now: time) }
         }
     }
@@ -145,7 +167,8 @@ public final class VerificationAutofillCoordinator {
         guard let prompt = tab.offerVerification(offer, completion: { [weak self, weak tab] response in
             guard let self, let tab else { return }
             self.respond(response, emailID: emailID, tab: tab)
-        }) else { return }
+        }) else { return log.error("offer not shown: the tab refused the prompt") }
+        log.debug("offer shown")
         shown[id] = (prompt, emailID)
     }
 
@@ -153,6 +176,8 @@ public final class VerificationAutofillCoordinator {
         if shown[tab.id]?.emailID == emailID { shown[tab.id] = nil }
         switch response {
         case .accept, .allowOnce:
+            // An agent may have taken the tab since the offer showed: its input would release the code.
+            guard !tab.isAgentDriven else { return inbox.decline(for: tab.id, emailID: emailID) }
             guard let url = tab.state.url,
                   let offer = inbox.take(for: tab.id, emailID: emailID, currentURL: url, now: now()) else { return }
             if response == .accept, let code = offer.code {

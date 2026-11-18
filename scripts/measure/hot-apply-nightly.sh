@@ -33,7 +33,7 @@ done
 git fetch -q origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && git fetch -q --unshallow origin
 if [[ -z "$dmg" ]]; then
-  dmg="$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+  dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
     | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
 fi
 [[ "$dmg" == https://* ]] || { echo "no nightly DMG in the feed" >&2; exit 3; }
@@ -50,7 +50,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fsSL --proto '=https' --retry 3 -o "$work/nightly.dmg" "$dmg" || { echo "HAN download failed"; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -o "$work/nightly.dmg" "$dmg" || { echo "HAN download failed"; exit 3; }
 mnt="$work/mnt"; mkdir -p "$mnt" "$work/app"
 hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null || exit 3
 ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$work/app/cmux NIGHTLY.app"

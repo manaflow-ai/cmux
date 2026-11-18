@@ -137,7 +137,6 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }
