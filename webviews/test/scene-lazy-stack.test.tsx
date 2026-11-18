@@ -77,7 +77,7 @@ afterAll(async () => {
 const { createRoot } = await import("react-dom/client");
 const { SceneRenderer } = await import("../src/apps/scene/SceneRenderer");
 const { SceneMount } = await import("../src/apps/scene/panels");
-const { VisibleSliceInput } = await import("../src/apps/scene/panelsClient");
+const { VisibleSliceInput } = await import("../src/ui/visibleSlice");
 const { SceneStore } = await import("../src/apps/scene/store");
 
 /** A LazyVStack of `n` Rows (`r0`...), `spacing` apart, optionally inside a ForEach. */
@@ -182,6 +182,8 @@ test("in a scroller the page owns, the focused child stays mounted when it scrol
 async function inPanel(store: SceneStoreType) {
   const layouts: number[] = [];
   const visibleSlice = new VisibleSliceInput();
+  // The scene drawn is revision 1 (its first batch), as the panels client counts it.
+  visibleSlice.setDrawn(1);
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -257,18 +259,24 @@ test("in a panel, a slice mounts the slice's band and the scene keeps its height
   expect(stackHeight(spacing)).toBe(whole);
 
   // The top of the scene: no leading spacer, rows 0 to 34 (those that start above 1120).
-  await act(async () => visibleSlice.show({ revision: 2, top: 0, height: VIEW }));
+  await act(async () => visibleSlice.show({ revision: 1, top: 0, height: VIEW }));
   expect(mountedIds()).toEqual(Array.from({ length: 35 }, (_, index) => `r${index}`));
   expect(stackHeight(spacing)).toBe(whole);
 
   // Scrolled out: nothing mounts, one spacer keeps the height.
-  await act(async () => visibleSlice.show({ revision: 3, top: 0, height: 0 }));
+  await act(async () => visibleSlice.show({ revision: 1, top: 0, height: 0 }));
   expect(mountedIds().length).toBe(0);
   expect(stackHeight(spacing)).toBe(whole);
 
-  // An older slice is dropped.
-  await act(async () => visibleSlice.show({ revision: 2, top: 3_400, height: VIEW }));
+  // The next scene batch is revision 2: a slice measured against revision 1 is dropped.
+  await act(async () => {
+    store.apply([{ op: "update", id: "r3", props: { title: "Changed" } }]);
+    visibleSlice.setDrawn(2);
+  });
+  await act(async () => visibleSlice.show({ revision: 1, top: 3_400, height: VIEW }));
   expect(mountedIds().length).toBe(0);
+  await act(async () => visibleSlice.show({ revision: 2, top: 3_400, height: VIEW }));
+  expect(mountedIds()[0]).toBe("r88");
 });
 
 test("in a panel, a slice over a stack of up to 100 children changes nothing", async () => {
@@ -282,6 +290,43 @@ test("in a panel, a slice windows a LazyVStack's ForEach rows too", async () => 
   expect(mountedIds().length).toBe(1_000);
   // Rows 1 apart by 28 px: the band [2800 - 560, 2800 + 1120] meets rows 80 to 139.
   await act(async () => visibleSlice.show({ revision: 1, top: 2_800, height: VIEW }));
+  expect(mountedIds().length).toBe(60);
+  expect(mountedIds()[0]).toBe("r80");
+});
+
+test("in a panel, a slice that arrives before the first scene windows it only when the revisions match", async () => {
+  const store = new SceneStore();
+  const visibleSlice = new VisibleSliceInput();
+  // Sent before any scene is drawn: for revision 2, while the first batch (revision 1) is on its way.
+  visibleSlice.show({ revision: 2, top: 2_800, height: VIEW });
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  const mounted = {
+    panel: { app: "local/test", section: "list", title: "List" },
+    store,
+    dispatch: () => {},
+    reload: () => {},
+    layout: () => {},
+    resolveAsset: () => undefined,
+    visibleSlice,
+  };
+  await act(async () => root!.render(<SceneMount mounted={mounted} />));
+  const full = lazyScene(1_000);
+  const ops: SceneOp[] = [{ op: "create", id: "list", type: "LazyVStack", props: {} }];
+  for (const id of full.getNode("list")!.children)
+    ops.push({ op: "create", id, type: "Row", props: { title: `Row ${id}` } });
+  ops.push({ op: "children", id: "list", children: full.getNode("list")!.children }, { op: "root", id: "list" });
+  await act(async () => {
+    store.apply(ops, true);
+    visibleSlice.setDrawn(1);
+  });
+  expect(mountedIds().length).toBe(1_000);
+  // The second batch is revision 2: the waiting slice names it, so it applies now.
+  await act(async () => {
+    store.apply([{ op: "update", id: "r3", props: { title: "Changed" } }]);
+    visibleSlice.setDrawn(2);
+  });
   expect(mountedIds().length).toBe(60);
   expect(mountedIds()[0]).toBe("r80");
 });

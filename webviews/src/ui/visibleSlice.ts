@@ -1,61 +1,103 @@
 // The visible slice: the part of a page in sight when the host, not the page, scrolls it. A page as tall
-// as its content (the sidebar chats blocks, an app panel's scene) never sees its own scroll, so the host
-// streams `{revision, top, height}` in CSS px from the page's top (`height` 0: scrolled out). A list on
-// such a page mounts only the items that meet the band around it, one slice height each side
-// (`sliceBand`), between spacers that keep the page's height; before the first slice it draws whole.
-// The streams that carry it share this shape: `cmux.sidebarChats.slice` (pages/sidebar-chats/model.ts)
-// and `cmux.apps.panels.slice` (apps/scene/panelsClient.ts).
+// as its content (an app panel's scene) never sees its own scroll, so the host streams one slice per frame
+// at most on `VISIBLE_SLICE_OP`. A list on such a page mounts only the items that meet the band around it,
+// one slice height each side (`sliceBand`), between spacers that keep the page's height; before the
+// first slice for the drawn content it draws whole. Every host-scrolled list uses this one stream.
+//
+// The sidebar chats blocks still have their own `cmux.sidebarChats.slice` and their own copy of the parse
+// and range math (pages/sidebar-chats/model.ts `parseSlice`, `sliceRange`): dedupe them into this module
+// when the sidebar moves to the generic stream.
 
-/** The visible part of a page, in CSS px from its top. `revision` orders slices (the page's own drawn
- * revision where it has one). */
+/** Stream, host to page, subscribed with `{surface}`: `{surface, revision, top, height}` in CSS px, the
+ * part of `surface`'s content in sight, from its top (`height` 0: scrolled out). `surface` names what the
+ * page drew (an app panel's mount id); `revision` is the content revision the slice was measured against.
+ * The page drops an event for another surface, and applies a slice only to the content revision it names. */
+export const VISIBLE_SLICE_OP = "cmux.page.visibleSlice";
+
+/** The visible part of a surface's content, in CSS px from its top, for content `revision`. */
 export interface VisibleSlice {
   revision: number;
   top: number;
   height: number;
 }
 
-/** A slice event from the host, checked: anything that is not one (a missing or non-finite field, a
- * negative height) is dropped. */
-export function parseVisibleSlice(data: unknown): VisibleSlice | null {
+/** A `VISIBLE_SLICE_OP` event, checked: one for another surface (or none), with a missing or non-finite
+ * field, or a negative height, is dropped. */
+export function parseVisibleSlice(data: unknown, surface: string): VisibleSlice | null {
   if (!data || typeof data !== "object") return null;
-  const { revision, top, height } = data as Record<string, unknown>;
+  const event = data as Record<string, unknown>;
+  if (typeof event.surface !== "string" || event.surface !== surface) return null;
+  const { revision, top, height } = event;
   const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
   if (!finite(revision) || !finite(top) || !finite(height) || height < 0) return null;
   return { revision, top, height };
 }
 
+/** One surface's slice, bound to the content revision drawn (for `useSyncExternalStore`). A slice applies
+ * only to the revision it names: one for the drawn revision shows at once; one for a revision not drawn yet
+ * (it raced the content) waits and shows only if exactly that revision is drawn next; any other is dropped.
+ * Before any content is drawn (revision 0) nothing shows. A shown slice holds across later content until
+ * the host's next one, as the host sends one after each layout. */
+export class VisibleSliceInput {
+  private drawn = 0;
+  private slice: VisibleSlice | null = null;
+  private pending: VisibleSlice | null = null;
+  private readonly listeners = new Set<() => void>();
+
+  get = (): VisibleSlice | null => this.slice;
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** The content revision now drawn (it only grows). */
+  setDrawn(revision: number): void {
+    if (!(revision > this.drawn)) return;
+    this.drawn = revision;
+    const pending = this.pending;
+    if (pending && pending.revision <= revision) {
+      this.pending = null;
+      if (pending.revision === revision) this.publish(pending);
+    }
+  }
+
+  /** A parsed slice from the host. */
+  show(next: VisibleSlice): void {
+    if (next.revision > this.drawn) {
+      if (!this.pending || next.revision >= this.pending.revision) this.pending = next;
+      return;
+    }
+    if (next.revision === this.drawn && this.drawn > 0) this.publish(next);
+  }
+
+  private publish(next: VisibleSlice): void {
+    const last = this.slice;
+    if (last && last.revision === next.revision && last.top === next.top && last.height === next.height) return;
+    this.slice = next;
+    for (const listener of this.listeners) listener();
+  }
+}
+
 /** The band a slice mounts, `[top - height, top + 2 * height]` (one slice height of overscan each side),
- * in the coordinates of a list that starts `origin` px below the page's top. Null when nothing is in
+ * in the coordinates of a list that starts `origin` px below the content's top. Null when nothing is in
  * sight (`height` 0). */
 export function sliceBand(slice: VisibleSlice, origin = 0): { low: number; high: number } | null {
   if (slice.height <= 0) return null;
   return { low: slice.top - slice.height - origin, high: slice.top + 2 * slice.height - origin };
 }
 
-export interface ItemRange {
-  start: number;
-  end: number;
-}
-
-/** The items `[start, end)` of `count` items each `stride` px apart from 0 that meet `[low, high]`: item i
- * spans `[i * stride, (i + 1) * stride)` and meets it when it starts before `high` and ends after `low`. */
-export function strideRange(count: number, stride: number, { low, high }: { low: number; high: number }): ItemRange {
-  if (count <= 0) return { start: 0, end: 0 };
-  if (!(stride > 0)) return { start: 0, end: count };
-  const start = Math.min(count, Math.max(0, Math.floor(low / stride)));
-  const end = Math.min(count, Math.max(start, Math.ceil(high / stride)));
-  return { start, end };
-}
-
-/** The same for items of any size laid out top to bottom (`startOf` and `endOf` never decrease with the
- * index), by binary search: the first item that ends after `low`, up to the first that starts at or after
- * `high`. */
+/** The items `[start, end)` of `count` items laid out top to bottom (`startOf` and `endOf` never decrease
+ * with the index) that meet `[low, high]`, by binary search: the first item that ends after `low`, up to
+ * the first that starts at or after `high`. */
 export function offsetRange(
   count: number,
   startOf: (index: number) => number,
   endOf: (index: number) => number,
   { low, high }: { low: number; high: number },
-): ItemRange {
+): { start: number; end: number } {
   const first = (test: (index: number) => boolean) => {
     let lo = 0;
     let hi = count;

@@ -1,5 +1,5 @@
 import { isPageError, type PageClient } from "../../pages/shared/pageClient";
-import { parseVisibleSlice, type VisibleSlice } from "../../ui/visibleSlice";
+import { parseVisibleSlice, VISIBLE_SLICE_OP, VisibleSliceInput } from "../../ui/visibleSlice";
 import type { SceneAssetResolver } from "./SceneRenderer";
 import { SceneStore, type SceneOp } from "./store";
 
@@ -12,34 +12,6 @@ export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInf
 export type SceneEvent =
   | { mount_id: string; ops: SceneOp[]; reset?: boolean }
   | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
-/** Stream, host to page, filtered by `{mount_id}`: `{mount_id, revision, top, height}` in CSS px, the part of
- * the mount's scene in sight (`height` 0: scrolled out) while the host scrolls the panel outside the page
- * (ui/visibleSlice.ts). `revision` only grows. A LazyVStack over its whole-draw cap then mounts only the
- * children near it; before the first, or against a host without the stream, the scene draws whole. */
-export const APP_PANELS_SLICE = "cmux.apps.panels.slice";
-
-/** The host's last visible slice of one mount (null before the first), for `useSyncExternalStore`. */
-export class VisibleSliceInput {
-  private slice: VisibleSlice | null = null;
-  private readonly listeners = new Set<() => void>();
-  get = (): VisibleSlice | null => this.slice;
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-  /** Takes a slice event; drops one that is not a slice, is older than the last, or changes nothing. */
-  show(data: unknown): void {
-    const next = parseVisibleSlice(data);
-    const last = this.slice;
-    if (!next || (last && next.revision < last.revision)) return;
-    if (last && last.revision === next.revision && last.top === next.top && last.height === next.height) return;
-    this.slice = next;
-    for (const listener of this.listeners) listener();
-  }
-}
-
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
   panel: AppPanel;
@@ -51,11 +23,14 @@ export type MountedPanel = {
   layout: (height: number) => void;
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
-  /** The part of the scene the host shows (`APP_PANELS_SLICE`); null until the host sends one. */
+  /** The part of the scene the host shows (`VISIBLE_SLICE_OP`, surface = the mount id), bound to the
+   * scene revision drawn; null until the host sends one for it. */
   visibleSlice?: VisibleSliceInput;
 };
 type Entry = MountedPanel & {
   visibleSlice: VisibleSliceInput;
+  /** The scene revision drawn: the scene batches applied (a reset included), 1 for the first. */
+  revision: number;
   cancelled: boolean;
   failed: boolean;
   mountId?: string;
@@ -214,6 +189,7 @@ export class AppPanelsClient {
           },
           resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
           visibleSlice: new VisibleSliceInput(),
+          revision: 0,
         };
         entry = created;
         this.entries.set(id, entry);
@@ -269,7 +245,10 @@ export class AppPanelsClient {
         (event) => {
           if (entry.cancelled || event?.mount_id !== mountId) return;
           if ("status" in event) entry.store.setStatus(event.status, event.reason);
-          else if (Array.isArray(event.ops)) entry.store.apply(event.ops, event.reset === true);
+          else if (Array.isArray(event.ops)) {
+            entry.store.apply(event.ops, event.reset === true);
+            entry.visibleSlice.setDrawn(++entry.revision);
+          }
         },
         { mount_id: mountId },
       );
@@ -287,16 +266,18 @@ export class AppPanelsClient {
     }
   }
 
-  /** The host's slice stream for this mount, when it has one; without it the scene draws whole. */
+  /** The host's visible slice of this mount (`VISIBLE_SLICE_OP`, the mount id as its surface), when it has
+   * the stream; without it the scene draws whole. A slice applies only to the scene revision it names: the
+   * host counts the scene batches it sent this mount (1 for the first), as `entry.revision` counts them. */
   private watchSlice(entry: Entry, mountId: string): void {
     void this.client
       ?.subscribe<unknown>(
-        APP_PANELS_SLICE,
+        VISIBLE_SLICE_OP,
         (event) => {
-          if (!entry.cancelled && (event as { mount_id?: unknown } | null)?.mount_id === mountId)
-            entry.visibleSlice.show(event);
+          const slice = entry.cancelled ? null : parseVisibleSlice(event, mountId);
+          if (slice) entry.visibleSlice.show(slice);
         },
-        { mount_id: mountId },
+        { surface: mountId },
       )
       .then((stop) => (entry.cancelled ? stop() : (entry.unsubscribeSlice = stop)))
       .catch((error: unknown) => {
