@@ -148,6 +148,247 @@ import Testing
         #expect(store.turns.count == head.records.count / 5)
     }
 
+    // MARK: Partial writes and the whole copy's refill (head file + whole copy)
+
+    static func seqs(_ entry: AgentTranscriptEntry?) -> [Int] {
+        entry?.records.map { Int($0["seq"]?.numberValue ?? 0) } ?? []
+    }
+
+    static func onDisk(_ url: URL) -> AgentTranscriptEntry? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(AgentTranscriptEntry.self, from: data)
+    }
+
+    /// 120 turns kept (seq 1...600, the head the newest of them); the Mac has run three more since
+    /// (seq 601...615). The fake's log holds fewer than one page, so the attach from the kept copy
+    /// reads forward (more than a page behind would drop the kept copy, ``keptCopyTooFarBehindOpensFresh``).
+    static let keptTurns = 120
+    static let macLog = (60..<123).flatMap(Long.turnRecords)
+    static let macTurnIDs = (0..<123).map { "t\($0)" }
+
+    static func keepWholeAndHead(_ directory: URL, _ key: String, turns: Int = keptTurns) {
+        let writer = cache(directory)
+        writer.save(key, sessionID: "s1", earlier: false, records: json((0..<turns).flatMap(Long.turnRecords)))
+        writer.flush()
+    }
+
+    /// Opens the chat on a relaunch's cache, lets the Mac answer, and returns the store, the
+    /// attach's request, and whether the kept turns were restored in the source's init.
+    static func reopenAndCatchUp(_ cache: AgentTranscriptCache, beforeBind: (AgentChatStore) async -> Void = { _ in })
+        async throws -> (store: AgentChatStore, attach: (method: String, params: [String: Any]), sameTurn: Bool) {
+        let hub = hub(cache)
+        let source = hub.source(sessionID: "s1", summary: summary)
+        let sameTurn = source.replayCount > 0
+        let store = AgentChatStore(source: source)
+        await beforeBind(store)
+        let requests = Long.Requests()
+        await hub.bind(try await Long.fakeAcpmux(macLog, requests).openChannel(service: "acpmux", args: [:]))
+        await Long.waitUntil { store.turns.last?.id == "t122" && !store.isLoadingHistory }
+        let attach = try #require(requests.all.first { $0.method == "_acpmux/attach" })
+        #expect(requests.count("_acpmux/attach") == 1, "one attach: the kept copy was not dropped")
+        return (store, attach, sameTurn)
+    }
+
+    /// The turns end in order, each once, through the Mac's newest.
+    static func expectInOrderThroughNewest(_ store: AgentChatStore) {
+        let ids = store.turns.map(\.id)
+        #expect(Set(ids).count == ids.count, "no turn twice")
+        #expect(ids.last == "t122")
+        let first = ids.first.flatMap { macTurnIDs.firstIndex(of: $0) } ?? 0
+        #expect(ids == Array(macTurnIDs[first...]), "the turns in order with none missing")
+    }
+
+    /// Both files hold the same records after the next save: contiguous through seq 615, from a
+    /// prompt, the head the newest of the whole copy; nothing older than what was saved stays.
+    static func expectBothFilesCurrent(_ cache: AgentTranscriptCache, _ key: String, wholeFrom: Int) throws {
+        cache.flush()
+        let whole = try #require(onDisk(cache.file(for: key)), "the whole copy written again")
+        let head = try #require(onDisk(cache.headFile(for: key)), "the head written again")
+        #expect(seqs(whole) == Array(wholeFrom...615))
+        #expect(head.lastSeq == 615)
+        #expect(seqs(whole).suffix(head.records.count) == seqs(head)[...])
+        #expect(AgentTranscriptCache.isPrompt(try #require(whole.records.first)))
+        #expect(AgentTranscriptCache.isPrompt(try #require(head.records.first)))
+    }
+
+    /// Partial write: the head is on disk without its whole copy (the whole copy's write failed,
+    /// or it was trimmed away). The chat still opens on the head's turns in the same turn, the
+    /// attach reads after the head's newest seq, and the next save writes both files again.
+    @Test func aHeadWithoutItsWholeCopyOpensAndTheNextSaveWritesBoth() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+        let probe = Self.cache(directory)
+        try FileManager.default.removeItem(at: probe.file(for: key))
+        let head = try #require(Self.onDisk(probe.headFile(for: key)))
+        #expect(head.lastSeq == 600)
+
+        let relaunched = Self.cache(directory)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched)
+        #expect(sameTurn, "the head's turns, restored in init")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        Self.expectInOrderThroughNewest(store)
+        #expect(store.turns.first?.id == head.records.first?["msg"]?["turnId"]?.stringValue)
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: try #require(Self.seqs(head).first))
+    }
+
+    /// Partial write: the whole copy is on disk without a head (kept before head files, or the
+    /// head's write failed). The chat opens from the whole copy, read off the main thread, the
+    /// attach waits for it and reads after its newest seq, and the next save writes both.
+    @Test func aWholeCopyWithoutItsHeadOpensAndTheNextSaveWritesBoth() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+        try FileManager.default.removeItem(at: Self.cache(directory).headFile(for: key))
+
+        let relaunched = Self.cache(directory)
+        #expect(relaunched.firstScreen(key) == nil)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched) { store in
+            await Long.waitUntil { store.turns.count == Self.keptTurns }
+        }
+        #expect(!sameTurn, "no head: the whole copy is read off the main thread")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        Self.expectInOrderThroughNewest(store)
+        #expect(store.turns.first?.id == "t0")
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: 1)
+    }
+
+    /// Failed write: a head cut short (the app killed mid-write, a bad sector) is no head. The
+    /// chat opens from the whole copy and the next save writes a good head.
+    @Test func aBrokenHeadOpensFromTheWholeCopy() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+        let headURL = Self.cache(directory).headFile(for: key)
+        let cut = try Data(contentsOf: headURL).prefix(200)
+        try cut.write(to: headURL)
+
+        let relaunched = Self.cache(directory)
+        #expect(relaunched.firstScreen(key) == nil)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched) { store in
+            await Long.waitUntil { store.turns.count == Self.keptTurns }
+        }
+        #expect(!sameTurn, "no head: the whole copy is read off the main thread")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        Self.expectInOrderThroughNewest(store)
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: 1)
+    }
+
+    /// Partial write: the app stopped between the whole copy's write and the head's, so the head
+    /// is a save behind (seq 600, the whole copy 610). The chat opens on the head; the whole copy's
+    /// refill does not land (it is not the head's copy: its records past 600 would come twice);
+    /// the attach reads after 600; nothing is shown twice or kept twice.
+    @Test func aHeadBehindItsWholeCopyNeverDoublesTurns() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+        let headURL = Self.cache(directory).headFile(for: key)
+        let oldHead = try Data(contentsOf: headURL)
+        Self.keepWholeAndHead(directory, key, turns: 122)
+        try oldHead.write(to: headURL)
+
+        let relaunched = Self.cache(directory)
+        let head = try #require(relaunched.firstScreen(key))
+        #expect(head.earlier)
+        #expect(head.lastSeq == 600)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched) { _ in
+            // The refill's read of the whole copy is done (it remembers what it read).
+            await Long.waitUntil { relaunched.cached(key)?.lastSeq == 610 }
+            await Task.yield()
+        }
+        #expect(sameTurn, "the head's turns, restored in init")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        Self.expectInOrderThroughNewest(store)
+        let kept = Self.seqs(relaunched.cached(key))
+        #expect(kept == Array(try #require(Self.seqs(head).first)...615), "the head's records, then the Mac's, each once")
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: try #require(Self.seqs(head).first))
+    }
+
+    /// Partial write the other way: the whole copy's write failed and the head's landed, so the
+    /// head is ahead (seq 610, the whole copy 600). The chat opens on the head, the refill does
+    /// not land (it would drop records 601...610), the attach reads after 610.
+    @Test func aHeadAheadOfItsWholeCopyKeepsItsNewestTurns() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+        let wholeURL = Self.cache(directory).file(for: key)
+        let oldWhole = try Data(contentsOf: wholeURL)
+        Self.keepWholeAndHead(directory, key, turns: 122)
+        try oldWhole.write(to: wholeURL)
+
+        let relaunched = Self.cache(directory)
+        let head = try #require(relaunched.firstScreen(key))
+        #expect(head.lastSeq == 610)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched) { _ in
+            await Long.waitUntil { relaunched.cached(key)?.lastSeq == 600 }
+            await Task.yield()
+        }
+        #expect(sameTurn, "the head's turns, restored in init")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 610)
+        Self.expectInOrderThroughNewest(store)
+        #expect(Self.seqs(relaunched.cached(key)) == Array(try #require(Self.seqs(head).first)...615))
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: try #require(Self.seqs(head).first))
+    }
+
+    /// Attach/refill order: the whole copy's refill lands before the attach. The chat drew the
+    /// head; the attach reads after the head's newest seq (600), and the kept copy saved after it
+    /// is the whole copy's records then the Mac's newer ones, in order, each once.
+    @Test func theRefillBeforeTheAttachKeepsTheWholeCopyThenTheNewerRecords() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+
+        let relaunched = Self.cache(directory)
+        let head = try #require(relaunched.firstScreen(key))
+        #expect(head.earlier && head.lastSeq == 600)
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched) { _ in
+            await Long.waitUntil { relaunched.cached(key)?.records.count == 600 }
+            await Task.yield()
+        }
+        #expect(sameTurn, "the head's turns, restored in init")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        Self.expectInOrderThroughNewest(store)
+        #expect(Self.seqs(relaunched.cached(key)) == Array(1...615), "the whole copy, then 601...615, each once")
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: 1)
+    }
+
+    /// Attach/refill order: the whole copy's refill lands after the attach caught up (its read held
+    /// on the cache's queue until then). The newer records the attach applied stay, in order, each
+    /// once; the late refill changes nothing; the attach read after the head's newest seq.
+    @Test func theRefillAfterTheAttachNeverDropsOrReordersTheNewerRecords() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+
+        let relaunched = Self.cache(directory)
+        let head = try #require(relaunched.firstScreen(key))
+        let headFirst = try #require(Self.seqs(head).first)
+        // Holds the cache's queue: the refill's disk read waits behind it.
+        let gate = DispatchSemaphore(value: 0)
+        relaunched.queue.async { gate.wait() }
+        let (store, attach, sameTurn) = try await Self.reopenAndCatchUp(relaunched)
+        #expect(sameTurn, "the head's turns, restored in init")
+        #expect((attach.params["afterSeq"] as? NSNumber)?.intValue == 600)
+        let caughtUp = Self.seqs(relaunched.cached(key))
+        #expect(caughtUp == Array(headFirst...615))
+        let turnsCaughtUp = store.turns.map(\.id)
+
+        gate.signal()
+        relaunched.flush()
+        for _ in 0..<5 { try? await Task.sleep(for: .milliseconds(10)) } // test: lets the late refill resume
+        #expect(Self.seqs(relaunched.cached(key)) == caughtUp, "the late refill changed nothing")
+        #expect(store.turns.map(\.id) == turnsCaughtUp)
+        Self.expectInOrderThroughNewest(store)
+        try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: headFirst)
+    }
+
     /// Records kept for another session of the tab (the Mac started a new one) are not shown.
     @Test func keptRecordsOfAnotherSessionAreIgnored() async throws {
         let cache = Self.cache()
