@@ -121457,6 +121457,534 @@
         }
       }
     },
+    "composer.cacheCompact": {
+      "comment": "Agent pane composer: chip beside Send once a big Claude chat's prompt cache has expired; the next send compacts the conversation first, then sends. {tokens} is the context size in compact notation (e.g. 312K). Click flips it to 'Keep'",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضغط · {tokens}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažmi · {tokens}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimer · {tokens}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimieren · {tokens}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact · {tokens}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactar · {tokens}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compacter · {tokens}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compatta · {tokens}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圧縮 · {tokens}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្រួម · {tokens}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "압축 · {tokens}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimer · {tokens}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktuj · {tokens}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactar · {tokens}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжать · {tokens}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บีบอัด · {tokens}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıkıştır · {tokens}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиснути · {tokens}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nén · {tokens}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "压缩 · {tokens}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "壓縮 · {tokens}"
+          }
+        }
+      }
+    },
+    "composer.cacheKeep": {
+      "comment": "Agent pane composer: the cache chip beside Send after a click: the next send goes as is, without compacting the conversation (the whole context is read again, uncached). Click flips it back to 'Compact'",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إبقاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadrži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantener"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Garder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantieni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そのまま"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zachowaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оставить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คงไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koru"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Залишити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ nguyên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保留"
+          }
+        }
+      }
+    },
+    "composer.cacheCompactTooltip": {
+      "comment": "Agent pane composer: tooltip of the cache chip in its 'Compact' state",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت صلاحية ذاكرة التخزين المؤقت للطلبات: يتم ضغط المحادثة أولًا ثم الإرسال. انقر للإرسال دون ضغط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keš upita je istekao: razgovor se prvo sažima, zatim šalje. Kliknite da pošaljete bez sažimanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt-cachen er udløbet: samtalen komprimeres først og sendes derefter. Klik for at sende uden at komprimere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Prompt-Cache ist abgelaufen: Die Unterhaltung wird zuerst komprimiert, dann gesendet. Klicken, um ohne Komprimieren zu senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The prompt cache expired: compact the conversation first, then send. Click to send without compacting."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La caché de prompts caducó: primero se compacta la conversación y luego se envía. Haz clic para enviar sin compactar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cache des prompts a expiré : la conversation est d’abord compactée, puis envoyée. Cliquez pour envoyer sans compacter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La cache dei prompt è scaduta: la conversazione viene prima compattata, poi inviata. Fai clic per inviare senza compattare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトキャッシュの期限が切れました。会話を圧縮してから送信します。クリックすると圧縮せずに送信します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលបានផុតកំណត់៖ បង្រួមការសន្ទនាជាមុន រួចផ្ញើ។ ចុចដើម្បីផ្ញើដោយមិនបង្រួម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 캐시가 만료되었습니다. 대화를 먼저 압축한 뒤 보냅니다. 클릭하면 압축하지 않고 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt-hurtigbufferen er utløpt: samtalen komprimeres først og sendes deretter. Klikk for å sende uten å komprimere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pamięć podręczna promptów wygasła: najpierw kompaktowanie rozmowy, potem wysłanie. Kliknij, aby wysłać bez kompaktowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cache de prompts expirou: a conversa é compactada primeiro e depois enviada. Clique para enviar sem compactar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кеш запросов истёк: сначала разговор будет сжат, затем отправлен. Нажмите, чтобы отправить без сжатия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แคชพรอมต์หมดอายุแล้ว: บีบอัดบทสนทนาก่อนแล้วจึงส่ง คลิกเพื่อส่งโดยไม่บีบอัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem önbelleğinin süresi doldu: konuşma önce sıkıştırılır, sonra gönderilir. Sıkıştırmadan göndermek için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кеш запитів закінчився: спершу розмову буде стиснуто, потім надіслано. Натисніть, щоб надіслати без стискання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ nhớ đệm lời nhắc đã hết hạn: nén cuộc trò chuyện trước rồi mới gửi. Bấm để gửi mà không nén."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示缓存已过期：先压缩对话，再发送。点按以不压缩直接发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示快取已過期：先壓縮對話，再傳送。按一下以不壓縮直接傳送。"
+          }
+        }
+      }
+    },
+    "composer.cacheKeepTooltip": {
+      "comment": "Agent pane composer: tooltip of the cache chip in its 'Keep' state",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإرسال دون ضغط: تتم قراءة السياق كاملًا مرة أخرى دون ذاكرة تخزين مؤقت. انقر للضغط أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slanje bez sažimanja: cijeli kontekst se ponovo čita bez keša. Kliknite da prvo sažmete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send uden at komprimere: hele konteksten læses igen uden cache. Klik for at komprimere først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne Komprimieren senden: Der ganze Kontext wird erneut ohne Cache gelesen. Klicken, um zuerst zu komprimieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send without compacting: the whole context is read again, uncached. Click to compact first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar sin compactar: todo el contexto se vuelve a leer sin caché. Haz clic para compactar primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoyer sans compacter : tout le contexte est relu, sans cache. Cliquez pour compacter d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia senza compattare: l’intero contesto viene riletto senza cache. Fai clic per compattare prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圧縮せずに送信します。コンテキスト全体がキャッシュなしで再度読み込まれます。クリックすると先に圧縮します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើដោយមិនបង្រួម៖ បរិបទទាំងមូលត្រូវបានអានម្តងទៀត ដោយគ្មានឃ្លាំងសម្ងាត់។ ចុចដើម្បីបង្រួមជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "압축하지 않고 보냅니다. 전체 컨텍스트를 캐시 없이 다시 읽습니다. 클릭하면 먼저 압축합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Send uten å komprimere: hele konteksten leses på nytt uten hurtigbuffer. Klikk for å komprimere først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyślij bez kompaktowania: cały kontekst zostanie odczytany ponownie, bez pamięci podręcznej. Kliknij, aby najpierw skompaktować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enviar sem compactar: todo o contexto é lido de novo, sem cache. Clique para compactar primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправить без сжатия: весь контекст будет прочитан заново, без кеша. Нажмите, чтобы сначала сжать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งโดยไม่บีบอัด: บริบททั้งหมดจะถูกอ่านใหม่โดยไม่มีแคช คลิกเพื่อบีบอัดก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıkıştırmadan gönder: tüm bağlam önbelleksiz olarak yeniden okunur. Önce sıkıştırmak için tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надіслати без стискання: увесь контекст буде прочитано знову, без кешу. Натисніть, щоб спершу стиснути."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi mà không nén: toàn bộ ngữ cảnh được đọc lại, không dùng bộ nhớ đệm. Bấm để nén trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不压缩直接发送：整个上下文将在无缓存的情况下重新读取。点按以先压缩。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不壓縮直接傳送：整個上下文將在無快取的情況下重新讀取。按一下以先壓縮。"
+          }
+        }
+      }
+    },
     "composer.suggestDraft": {
       "comment": "Agent pane: a new chat's suggested prompt (Tab puts it in the prompt) when another chat in this folder has a draft pull request. {number} is the PR number (keep the #), {title} its title.",
       "extractionState": "manual",
@@ -276903,6 +277431,138 @@
         }
       }
     },
+    "compaction.completedCacheReturn": {
+      "comment": "Agent pane: transcript note where cmux compacted the conversation before the person's message, because the prompt cache had expired (Settings > Prompt Cache, When You Return); nobody typed /compact",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الضغط قبل رسالتك: انتهت صلاحية ذاكرة التخزين المؤقت للطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažeto prije vaše poruke: keš upita je istekao"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimeret før din besked: prompt-cachen var udløbet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vor deiner Nachricht komprimiert: Der Prompt-Cache war abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacted before your message: the prompt cache had expired"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactada antes de tu mensaje: la caché de prompts había caducado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactée avant votre message : le cache des prompts avait expiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compattata prima del tuo messaggio: la cache dei prompt era scaduta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージの前に会話を圧縮しました（プロンプトキャッシュの期限切れ）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្រួមមុនសាររបស់អ្នក៖ ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលបានផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 전에 대화를 압축함: 프롬프트 캐시가 만료되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimert før meldingen din: prompt-hurtigbufferen hadde utløpt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skompaktowano przed Twoją wiadomością: pamięć podręczna promptów wygasła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactada antes da sua mensagem: o cache de prompts tinha expirado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжато перед вашим сообщением: кеш запросов истёк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บีบอัดก่อนข้อความของคุณแล้ว: แคชพรอมต์หมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesajınızdan önce sıkıştırıldı: istem önbelleğinin süresi dolmuştu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиснуто перед вашим повідомленням: кеш запитів закінчився"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã nén trước tin nhắn của bạn: bộ nhớ đệm lời nhắc đã hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在你的消息前压缩：提示缓存已过期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在你的訊息前壓縮：提示快取已過期"
+          }
+        }
+      }
+    },
     "compaction.runningCacheExpiry": {
       "comment": "Agent pane: transcript note while cmux compacts the conversation on its own, before the prompt cache expires (Settings > Prompt Cache, Compact Before the Cache Expires); nobody typed /compact",
       "extractionState": "manual",
@@ -277031,6 +277691,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "正在提示快取過期前壓縮對話…"
+          }
+        }
+      }
+    },
+    "compaction.runningCacheReturn": {
+      "comment": "Agent pane: transcript note while cmux compacts the conversation before the person's message, because the prompt cache had expired (Settings > Prompt Cache, When You Return); the message runs after it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ ضغط المحادثة قبل رسالتك: انتهت صلاحية ذاكرة التخزين المؤقت للطلبات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažimanje razgovora prije vaše poruke: keš upita je istekao…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer samtalen før din besked: prompt-cachen var udløbet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung wird vor deiner Nachricht komprimiert: Der Prompt-Cache war abgelaufen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacting before your message: the prompt cache had expired…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando antes de tu mensaje: la caché de prompts había caducado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactage avant votre message : le cache des prompts avait expiré…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compattazione prima del tuo messaggio: la cache dei prompt era scaduta…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージの前に会話を圧縮しています（プロンプトキャッシュの期限切れ）…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងបង្រួមមុនសាររបស់អ្នក៖ ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូលបានផុតកំណត់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 전에 대화를 압축하는 중: 프롬프트 캐시가 만료되었습니다…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komprimerer før meldingen din: prompt-hurtigbufferen hadde utløpt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktowanie przed Twoją wiadomością: pamięć podręczna promptów wygasła…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compactando antes da sua mensagem: o cache de prompts tinha expirado…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатие перед вашим сообщением: кеш запросов истёк…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังบีบอัดก่อนข้อความของคุณ: แคชพรอมต์หมดอายุแล้ว…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesajınızdan önce sıkıştırılıyor: istem önbelleğinin süresi dolmuştu…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стискання перед вашим повідомленням: кеш запитів закінчився…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang nén trước tin nhắn của bạn: bộ nhớ đệm lời nhắc đã hết hạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在你的消息前压缩：提示缓存已过期…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在你的訊息前壓縮：提示快取已過期…"
           }
         }
       }
@@ -404217,6 +405009,798 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "快取已過期"
+          }
+        }
+      }
+    },
+    "context.cacheHit": {
+      "comment": "Agent pane composer: the context ring hover card's prompt cache line: the share of the last model call's prompt that was read from the cache. {percent} is a whole number",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصابة ذاكرة التخزين المؤقت {percent}%"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pogodak keša {percent}%"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cache-hit {percent} %"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cache-Treffer {percent} %"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache hit {percent}%"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acierto de caché {percent} %"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Succès du cache {percent} %"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hit della cache {percent}%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キャッシュヒット {percent}%"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការប្រើឃ្លាំងសម្ងាត់ {percent}%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캐시 적중 {percent}%"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Treff i hurtigbuffer {percent} %"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trafienia w pamięci podręcznej {percent}%"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acerto de cache {percent}%"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попадание в кеш {percent}%"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แคชฮิต {percent}%"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önbellek isabeti %{percent}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Влучання в кеш {percent}%"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tỷ lệ trúng bộ nhớ đệm {percent}%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "缓存命中 {percent}%"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快取命中 {percent}%"
+          }
+        }
+      }
+    },
+    "context.cacheMissExpired": {
+      "comment": "Agent pane composer: the context ring hover card: the last model call missed the prompt cache because the cache had expired",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آخر إخفاق: انتهت صلاحية ذاكرة التخزين المؤقت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posljednji promašaj: keš je istekao"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidste miss: cachen udløb"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzter Fehltreffer: Cache abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last miss: cache expired"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último fallo: la caché caducó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernier échec : cache expiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultimo miss: cache scaduta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直近のミス: キャッシュ期限切れ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការខកខានចុងក្រោយ៖ ឃ្លាំងសម្ងាត់ផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 실패: 캐시 만료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste bom: hurtigbufferen utløp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie chybienie: pamięć podręczna wygasła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última falha: cache expirado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последний промах: кеш истёк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พลาดล่าสุด: แคชหมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son ıska: önbelleğin süresi doldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останній промах: кеш закінчився"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần trượt gần nhất: bộ nhớ đệm hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：缓存已过期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：快取已過期"
+          }
+        }
+      }
+    },
+    "context.cacheMissModel": {
+      "comment": "Agent pane composer: the context ring hover card: the last model call missed the prompt cache because the chat's model changed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آخر إخفاق: تغيّر النموذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posljednji promašaj: model je promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidste miss: modellen blev skiftet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzter Fehltreffer: Modell gewechselt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last miss: model changed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último fallo: cambió el modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernier échec : modèle changé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultimo miss: modello cambiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直近のミス: モデル変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការខកខានចុងក្រោយ៖ បានប្តូរម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 실패: 모델 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste bom: modellen ble endret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie chybienie: zmiana modelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última falha: modelo alterado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последний промах: модель изменена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พลาดล่าสุด: เปลี่ยนโมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son ıska: model değişti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останній промах: модель змінено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần trượt gần nhất: đã đổi mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：模型已更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：模型已變更"
+          }
+        }
+      }
+    },
+    "context.cacheMissEffort": {
+      "comment": "Agent pane composer: the context ring hover card: the last model call missed the prompt cache because the chat's reasoning effort changed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آخر إخفاق: تغيّر مستوى الجهد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posljednji promašaj: napor je promijenjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidste miss: indsatsen blev ændret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzter Fehltreffer: Aufwand geändert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last miss: effort changed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último fallo: cambió el esfuerzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernier échec : effort changé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultimo miss: impegno cambiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直近のミス: 推論レベル変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការខកខានចុងក្រោយ៖ បានប្តូរកម្រិតការខិតខំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 실패: 추론 강도 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste bom: innsatsen ble endret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie chybienie: zmiana wysiłku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última falha: esforço alterado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последний промах: изменён уровень усилий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พลาดล่าสุด: เปลี่ยนระดับความพยายาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son ıska: efor değişti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останній промах: змінено рівень зусиль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần trượt gần nhất: đã đổi mức nỗ lực"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：推理强度已更改"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：推理強度已變更"
+          }
+        }
+      }
+    },
+    "context.cacheMissCompaction": {
+      "comment": "Agent pane composer: the context ring hover card: the last model call missed the prompt cache because the conversation was compacted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آخر إخفاق: تم ضغط المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posljednji promašaj: razgovor je sažet"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidste miss: samtalen blev komprimeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzter Fehltreffer: komprimiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last miss: compacted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último fallo: conversación compactada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernier échec : conversation compactée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultimo miss: conversazione compattata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直近のミス: 会話を圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការខកខានចុងក្រោយ៖ បានបង្រួម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 실패: 대화 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste bom: samtalen ble komprimert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie chybienie: rozmowa skompaktowana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última falha: conversa compactada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последний промах: разговор сжат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พลาดล่าสุด: บีบอัดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son ıska: sıkıştırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останній промах: розмову стиснуто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần trượt gần nhất: đã nén"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：已压缩"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：已壓縮"
+          }
+        }
+      }
+    },
+    "context.cacheMissUnknown": {
+      "comment": "Agent pane composer: the context ring hover card: the last model call missed the prompt cache for a reason cmux could not tell",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "آخر إخفاق: سبب غير معروف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posljednji promašaj: nepoznat uzrok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sidste miss: ukendt årsag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Letzter Fehltreffer: Ursache unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last miss: cause unknown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último fallo: causa desconocida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dernier échec : cause inconnue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ultimo miss: causa sconosciuta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "直近のミス: 原因不明"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការខកខានចុងក្រោយ៖ មិនស្គាល់មូលហេតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 실패: 원인 알 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siste bom: ukjent årsak"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostatnie chybienie: nieznana przyczyna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última falha: causa desconhecida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Последний промах: причина неизвестна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พลาดล่าสุด: ไม่ทราบสาเหตุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son ıska: neden bilinmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Останній промах: причина невідома"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần trượt gần nhất: không rõ nguyên nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：原因未知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上次未命中：原因不明"
           }
         }
       }

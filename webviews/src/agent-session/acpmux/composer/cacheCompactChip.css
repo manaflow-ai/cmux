@@ -1,0 +1,12 @@
+/* The cache chip beside Send (CacheCompactChip.tsx): the composer's own chip (.acpmux-picker-button),
+   quiet like the Options chip, its count on tabular figures. Undesigned: tokens only, no accent. */
+.acpmux-cache-compact.acpmux-picker-button {
+  flex: none;
+  width: auto;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-cache-compact.acpmux-picker-button:hover,
+.acpmux-cache-compact.acpmux-picker-button[data-choice="keep"] {
+  color: var(--agent-text);
+}

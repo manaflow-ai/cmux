@@ -15,7 +15,7 @@
 import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
-import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
+import { CACHE_EXPIRY_REASON, CACHE_RETURN_REASON } from "./cacheCompaction";
 import { compactTokens } from "./compactionNoteModel";
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
@@ -25,13 +25,17 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
   const accountSwitch = reason === "account_switch";
   // acpmux's cache timer ran it (cacheCompaction.ts): the note says so, since no one typed /compact.
   const cacheExpiry = reason === CACHE_EXPIRY_REASON;
+  // Or before the person's message, the cache having expired (Settings > Prompt Cache, When You Return).
+  const cacheReturn = reason === CACHE_RETURN_REASON;
   let text: string;
   if (state === "running")
     text = accountSwitch
       ? t("compaction.runningAccountSwitch")
       : cacheExpiry
         ? t("compaction.runningCacheExpiry")
-        : t("compaction.running");
+        : cacheReturn
+          ? t("compaction.runningCacheReturn")
+          : t("compaction.running");
   else if (unheard) text = t("compaction.ended");
   else if (state === "failed") text = error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
   else {
@@ -39,7 +43,9 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
       ? t("compaction.completedAccountSwitch")
       : cacheExpiry
         ? t("compaction.completedCacheExpiry")
-        : t("compaction.completed");
+        : cacheReturn
+          ? t("compaction.completedCacheReturn")
+          : t("compaction.completed");
     if (preTokens !== undefined && postTokens !== undefined)
       text = t("compaction.withSizes", { text, before: compactTokens(preTokens), after: compactTokens(postTokens) });
   }

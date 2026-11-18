@@ -145,6 +145,14 @@ export type AcpmuxBackgroundState = {
   endedAt?: number;
 };
 
+/// The last main-loop call that missed the prompt cache (acpmux usage_update `_meta.acpmux.cacheMiss`):
+/// it read under half of the context the call before left. `cause` is acpmux's likely reason.
+export type AcpmuxCacheMiss = {
+  cause: "expired" | "compaction" | "model" | "effort" | "unknown";
+  /// unix ms
+  at: number;
+};
+
 /// A compaction of the chat's context (acpmux `compaction`): running, then how it ended. `reason`
 /// is a wrapper's ("account_switch": subrouter compacted before moving the chat to another account).
 export type AcpmuxCompaction = {
@@ -1297,6 +1305,13 @@ export type AcpmuxSnapshot = {
       setup?: number;
       /// When the chat's prompt cache lapses (unix ms; acpmux claude_stdio/prompt_cache.rs).
       cacheExpiresAt?: number;
+      /// acpmux compacts before the person's next prompt once the cache has expired (Settings >
+      /// Prompt Cache, "When You Return"); the composer offers Compact or Keep (cacheCompactChip.ts).
+      compactOnReturn?: boolean;
+      /// The last main-loop call's cache reads over its prompt tokens (0..1).
+      cacheHit?: number;
+      /// The last call that missed the cache, and its likely cause.
+      cacheMiss?: AcpmuxCacheMiss;
     };
     /// What the context holds by category, as Claude Code's /context said after the last turn
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,

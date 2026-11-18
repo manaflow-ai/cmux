@@ -12724,6 +12724,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onPromptEdit={quick ? undefined : wakeOnTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
+            onCacheCompact={(choice) => directClient.current?.chooseCacheCompact(choice)}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args, attachments, gesture) =>
               handleCmuxCommand(command, args, false, attachments, gesture)
