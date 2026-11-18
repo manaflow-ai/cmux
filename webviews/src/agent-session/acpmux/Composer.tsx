@@ -1327,6 +1327,10 @@ function ComposerFrame({
     const changed = value !== textRef.current;
     textRef.current = value;
     caretRef.current = at;
+    // A typed key renders nothing, so the field's `value` prop can lag what it shows: an outside value equal to that
+    // prop would pass its memo and leave the old text up (a switch into a chat whose draft matches, and the next key
+    // writes the other chat's text into it). Set the field itself whenever it shows something else.
+    if (field.current && field.current.value() !== value) field.current.reset(value);
     if (changed && write) writeDraft();
     pushUnsentDraft();
     redraw();
