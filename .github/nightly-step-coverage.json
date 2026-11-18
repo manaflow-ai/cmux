@@ -378,14 +378,15 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Republish deltas and revised appcasts": {"nightly_only": "republishes deltas to GitHub release"},
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
-        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
+        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next deltas and appcasts to R2, then fails if the live feed offers no delta (tests/test_nightly_next_delta_check.py)"}},
       "dispatch-published-in": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Record the published build": {"nightly_only": "records a publication's job outputs (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"},
         "Ask for this build's post-publication run": {"nightly_only": "dispatches nightly.yml with nightly_next_post_publish naming this run (tests/test_nightly_next_tail_off_push_group.py)"}},
       "wake-nightly-next-tick": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
-        "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"}},
+        "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"},
+        "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
       "dispatch-nightly-next-sign": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask for this build's sign run": {"nightly_only": "dispatches nightly.yml with nightly_next_sign_stage and this run's unsigned app (tests/test_nightly_next_pipeline.py)"}},
@@ -469,6 +470,7 @@
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
         "Start the Computer Use helper notarization": {"nightly_only": "submits helper to Apple notary"},
+        "Fetch the published Chromium framework": {"nightly_only": "downloads the Developer ID signed Chromium framework from the DMG the nightly feed serves now, for sign-cef.sh to reuse at codesign; a pull request has no signed release app to compare it with (best effort, always exits 0)"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Verify the Computer Use helper signature": {"nightly_only": "verifies Developer ID signed helper"},
         "Delete signing keychain before runtime checks": {"nightly_only": "deletes the signing keychain"},

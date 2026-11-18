@@ -41,15 +41,15 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// `github:owner/name`, over the folders for a chat set to Cloud (`githubFirst`), else under them.
 /// The GitHub row is a fixed action under Add folder…: Choose more repositories… (the installation's
 /// page on GitHub) once connected, so a connected team always sees it; Retry, its second line the
-/// error, when the repositories' list failed to load (a click reads it again, the menu still open);
-/// until then (the cmux GitHub
-/// App not installed, signed out, no GitHub App on this Cloud service, or the check did not answer)
-/// Connect to GitHub, which one click connects in place: the host opens the install page, or sign-in when signed out, the menu
-/// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
-/// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
-/// Before the first status read answers the row says it is checking, so GitHub is never missing; a
-/// click on it then does nothing. With the repositories listed first, the folders after them are
-/// headed This Mac, so they never read as part of the GitHub group.
+/// error, when the repositories' list failed to load (a click reads it again, the menu still open).
+/// GitHub is optional: while the cmux GitHub App is not installed, or the person is signed out, the
+/// row is Connect to GitHub (none on a Cloud service with no GitHub App, none while the check did
+/// not answer, none before the first status read answers), and one click connects in place: the host
+/// opens the install page, or sign-in when signed out, the menu stays open and lists the repositories
+/// once the status says ready. The row is its title alone; only a refusal (a click tries again) adds
+/// a second line. GitHub's own page is the one wait: no Waiting for GitHub… under the row. It never
+/// picks a folder. With the repositories listed first, the folders after them are headed This Mac,
+/// so they never read as part of the GitHub group.
 export function FolderPopover({
   label,
   menu,
@@ -177,16 +177,21 @@ export function FolderPopover({
     () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
     [githubReady, githubRepos, typed],
   );
-  // Connect to GitHub (not connected yet), Choose more repositories… (connected) or Retry (connected,
-  // the repositories' list failed) is pinned with the actions under the list: the folder list scrolls
-  // (thousands of projects), and a row at its end would sit below the fold where nobody finds it.
+  // The GitHub row is pinned with the actions under the list: the folder list scrolls (thousands of
+  // projects), and a row at its end would sit below the fold where nobody finds it. Connected: Choose
+  // more repositories…, or Retry when the repositories' list failed. Connect to GitHub only where a
+  // click can connect: not connected, or signed out (the click signs in first). Never while the check
+  // did not answer (a connected team's check can fail), nor on a Cloud service with no GitHub App (#46018).
   const githubAction =
     github && !addingExtra
       ? githubReady
         ? GITHUB_MORE
         : githubStatus === "ready"
           ? GITHUB_RETRY
-          : GITHUB_ADD
+          : githubStatus === "not_connected" ||
+              (githubStatus === "unavailable" && github.state.status?.reason === "signed_out")
+            ? GITHUB_ADD
+            : undefined
       : undefined;
   const githubRows = repos.map((repo) => GITHUB_REPO + repo.fullName);
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
@@ -317,9 +322,9 @@ export function FolderPopover({
     const section = sectionOf(value);
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
-      // One line at rest, in every status. A second line only for what follows a click: the
-      // host's refusal, else the wait for the browser.
-      const detail = github?.state.connectError ?? (github?.state.waiting ? t("composer.githubWaiting") : undefined);
+      // The title alone: GitHub's own page is the one place the person waits, so the row adds no
+      // Waiting for GitHub… nor a reason under it. Only a click the host refused says why (#46018).
+      const detail = github?.state.connectError;
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
