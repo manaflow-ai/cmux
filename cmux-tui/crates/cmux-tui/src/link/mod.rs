@@ -134,6 +134,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
+    if args.first().map(String::as_str) == Some("project") {
+        return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(
             args.get(1).map(String::as_str),

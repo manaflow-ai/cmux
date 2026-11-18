@@ -3511,6 +3511,67 @@ def cmd_report(o):
     print_calls("report")
 
 
+def load_budgets():
+    """The budgets module and perf-budgets.json (with the animation budgets), for rows_of_part."""
+    mod = load_budgets_module()
+    budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
+    budgets["_animations"] = animation_budgets(mod)
+    return mod, budgets
+
+
+def part_rows_named(cur, name, p, report, mod, budgets, worker):
+    """A finished part's rows as the measurement stores them (named row@host, with the refresh, macOS, measurement
+    version and part config they were measured under), and the refresh the part saw (None when it saw none). One
+    function for the finish of a measurement and for the part-by-part store (store_part_rows), so a row reads the same
+    in both."""
+    part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
+    # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
+    # report): a part that saw none leaves its frame rows unknown, never another part's rate.
+    r = refresh_ms_of(report)
+    if not is_linux_part(name):
+        for row in part_rows.values():
+            row.setdefault("refresh_ms", r)
+            row.setdefault("macos", macos_minor(p.get("macos")))
+            if isinstance(cur.get("measure_version"), int):
+                row.setdefault("measure_version", cur["measure_version"])
+    config = (cur.get("configs") or {}).get(name) if isinstance(cur.get("configs"), dict) else None
+    if isinstance(config, str):
+        for row in part_rows.values():
+            row.setdefault("part_config", config)
+    # Each part's rows carry the host that ran that part (a Mac worker, or the Linux part's runner class).
+    return host_rows(part_rows, worker), r
+
+
+def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
+    """Store a finished tip part's rows now, tagged with the tip's SHA (state['part_rows'], state['part_stored']),
+    instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
+    host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
+    store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
+    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
+    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+        return 0
+    named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
+    store = state.setdefault("part_rows", {})
+    keep = ("p50", "p95", "unit", "refresh_ms", "macos", "measure_version", "part_config")
+    for row_name, row in named.items():
+        if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
+            store[row_name] = {**{k: v for k, v in row.items() if k in keep},
+                               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
+    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    return len(named)
+
+
+def stale_parts(state, now):
+    """The parts whose newest stored rows (store_part_rows) are older than STALE_HOURS, oldest first; per part, not
+    per measurement: a measurement that keeps failing one part leaves the others' rows fresh."""
+    old = []
+    for name, e in (state.get("part_stored") or {}).items():
+        at = parse_iso((e or {}).get("at")) if isinstance(e, dict) else None
+        if at and hours_between(at, now) > STALE_HOURS:
+            old.append((e["at"], name))
+    return [n for _, n in sorted(old)]
+
+
 def report(o):
     t = now_utc()
     state = load_state(o.dir, t)
@@ -3588,11 +3649,15 @@ def report(o):
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                 json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
+            if isinstance(report_value, dict):
+                try:
+                    stored_mod, stored_budgets = load_budgets()
+                    store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
+                except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
+                    print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
-        mod = load_budgets_module()
-        budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
-        budgets["_animations"] = animation_budgets(mod)
+        mod, budgets = load_budgets()
         rows, refresh = {}, []
         for name, p in cur["parts"].items():
             # Only a part that finished in THIS measurement: a failed, yielded-out or build_failed part, or a file
@@ -3624,24 +3689,10 @@ def report(o):
                     # for next_now(): do not immediately chain another tick
                     # into a still-open regression after partial coverage.
                     fleet_done = False
-            part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
-            # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
-            # report): a part that saw none leaves its frame rows unknown, never another part's rate.
-            r = refresh_ms_of(report)
+            named, r = part_rows_named(cur, name, p, report, mod, budgets, worker)
             if r:
                 refresh.append(r)
-            if not is_linux_part(name):
-                for row in part_rows.values():
-                    row.setdefault("refresh_ms", r)
-                    row.setdefault("macos", macos_minor(p.get("macos")))
-                    if isinstance(cur.get("measure_version"), int):
-                        row.setdefault("measure_version", cur["measure_version"])
-            config = (cur.get("configs") or {}).get(name) if isinstance(cur.get("configs"), dict) else None
-            if isinstance(config, str):
-                for row in part_rows.values():
-                    row.setdefault("part_config", config)
-            # Each part's rows carry the host that ran that part (a Mac worker, or the Linux part's runner class).
-            rows.update(host_rows(part_rows, worker))
+            rows.update(named)
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
         sha = cur["sha"]
         fleet_ran = any(p.get("state") in ("done", "incomplete") and not is_linux_part(n)
@@ -3671,6 +3722,10 @@ def report(o):
     stale = stale_hours(state, t) > STALE_HOURS
     if stale:
         line += f"; stale: no finished measurement since {stale_basis(state)}"
+    old_parts = stale_parts(state, t)
+    if old_parts:
+        line += (f"; {len(old_parts)} of {len(state.get('part_stored') or {})} part(s) stored no rows for over "
+                 f"{STALE_HOURS} h: {', '.join(old_parts[:8])}")
     # An issue update GitHub refused for the rate limit is made by the next tick (its event and summary are kept).
     retry = state.pop("issue_retry", None) if not event else None
     if retry:

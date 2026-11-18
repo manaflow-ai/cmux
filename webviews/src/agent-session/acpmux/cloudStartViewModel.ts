@@ -118,6 +118,11 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
       parts.push(`${Math.min(100, Math.floor((progress.objects / total) * 100))}%`);
     else if (progress?.receivedBytes) parts.push(size(progress.receivedBytes));
   }
+  // A first pass of a very large folder: the files it left here, so the copy does not read as complete.
+  if (operation.leftOnMac)
+    parts.push(
+      t("cloudStartup.leftOnMac", { n: operation.leftOnMac, count: operation.leftOnMac.toLocaleString(language) }),
+    );
   return parts.filter(Boolean).join(" · ") || operation.error;
 }
 
@@ -152,11 +157,13 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.phase.checkout": "Checking out files",
   "cloudStartup.phase.submodules": "Getting submodules",
   "cloudStartup.phase.lfs": "Getting large files",
+  "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
+  "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
 export function startupChecklist(
   start: CloudStartProgress,
   t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[key] ?? key)
+    (DEFAULT_STARTUP_STRINGS[values.n === 1 ? `${key}#one` : key] ?? DEFAULT_STARTUP_STRINGS[key] ?? key)
       .replace("{harness}", String(values.harness ?? "Harness"))
       .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
   now = Date.now(),

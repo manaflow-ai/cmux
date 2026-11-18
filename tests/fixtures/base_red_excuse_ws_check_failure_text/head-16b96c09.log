@@ -1,0 +1,42 @@
+2026-11-17T10:38:25.2436578Z ##[group].github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step; exclusions carry a reason) [test_text_io_encoding.py]
+2026-11-17T10:38:25.2437025Z ws-check collect: test_text_io_encoding.py
+2026-11-17T10:38:25.2437295Z test_import_env_reads_a_non_ascii_module (__main__.CLocale.test_import_env_reads_a_non_ascii_module) ... ok
+2026-11-17T10:38:25.2437665Z test_the_binders_test_reads_a_non_ascii_module (__main__.CLocale.test_the_binders_test_reads_a_non_ascii_module) ... ok
+2026-11-17T10:38:25.2437980Z test_the_locale_is_ascii (__main__.CLocale.test_the_locale_is_ascii) ... ok
+2026-11-17T10:38:25.2438184Z test_hits (__main__.Detector.test_hits) ... ok
+2026-11-17T10:38:25.2438360Z test_passes (__main__.Detector.test_passes) ... ok
+2026-11-17T10:38:25.2438713Z test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry (__main__.Ratchet.test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry) ... FAIL
+2026-11-17T10:38:25.2439125Z test_the_fixed_files_are_not_listed (__main__.Ratchet.test_the_fixed_files_are_not_listed)
+2026-11-17T10:38:25.2439441Z The files the review named, and this check itself, hold no unnamed encoding and never come back. ... ok
+2026-11-17T10:38:25.2439628Z 
+2026-11-17T10:38:25.2439701Z ======================================================================
+2026-11-17T10:38:25.2440051Z FAIL: test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry (__main__.Ratchet.test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry)
+2026-11-17T10:38:25.2440410Z ----------------------------------------------------------------------
+2026-11-17T10:38:25.2440597Z Traceback (most recent call last):
+2026-11-17T10:38:25.2440929Z   File "/home/runner/_work/cmuxterm-hq/cmuxterm-hq/tools/test_text_io_encoding.py", line 195, in test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry
+2026-11-17T10:38:25.2441281Z     self.assertEqual(problems, [], "\n".join(problems))
+2026-11-17T10:38:25.2441532Z AssertionError: Lists differ: ['tools/stalled_designs.py: 3 text read(s)[381 chars]-8"'] != []
+2026-11-17T10:38:25.2441977Z 
+2026-11-17T10:38:25.2442042Z First list contains 3 additional elements.
+2026-11-17T10:38:25.2442188Z First extra element 0:
+2026-11-17T10:38:25.2442488Z 'tools/stalled_designs.py: 3 text read(s) or write(s) with no encoding= (allowed 0): 132 write_text(), 142 read_text(), 158 open() in text mode; pass encoding="utf-8"'
+2026-11-17T10:38:25.2442749Z 
+2026-11-17T10:38:25.2442790Z + []
+2026-11-17T10:38:25.2442951Z - ['tools/stalled_designs.py: 3 text read(s) or write(s) with no encoding= '
+2026-11-17T10:38:25.2443195Z -  '(allowed 0): 132 write_text(), 142 read_text(), 158 open() in text mode; '
+2026-11-17T10:38:25.2443389Z -  'pass encoding="utf-8"',
+2026-11-17T10:38:25.2443571Z -  'tools/test_merge_hold.py: 1 text read(s) or write(s) with no encoding= '
+2026-11-17T10:38:25.2443789Z -  '(allowed 0): 10384 read_text(); pass encoding="utf-8"',
+2026-11-17T10:38:25.2444017Z -  'tools/test_stalled_designs.py: 1 text read(s) or write(s) with no encoding= '
+2026-11-17T10:38:25.2444465Z -  '(allowed 0): 70 write_text(); pass encoding="utf-8"'] : tools/stalled_designs.py: 3 text read(s) or write(s) with no encoding= (allowed 0): 132 write_text(), 142 read_text(), 158 open() in text mode; pass encoding="utf-8"
+2026-11-17T10:38:25.2444978Z tools/test_merge_hold.py: 1 text read(s) or write(s) with no encoding= (allowed 0): 10384 read_text(); pass encoding="utf-8"
+2026-11-17T10:38:25.2445349Z tools/test_stalled_designs.py: 1 text read(s) or write(s) with no encoding= (allowed 0): 70 write_text(); pass encoding="utf-8"
+2026-11-17T10:38:25.2445560Z 
+2026-11-17T10:38:25.2445643Z ----------------------------------------------------------------------
+2026-11-17T10:38:25.2445813Z Ran 7 tests in 6.590s
+2026-11-17T10:38:25.2445891Z 
+2026-11-17T10:38:25.2445940Z FAILED (failures=1)
+2026-11-17T10:38:25.2446123Z ws-check collect: FAILED test_text_io_encoding.py (exit 1)
+2026-11-17T10:38:25.2446336Z ws-check collect: 1 suites, 1 failed: test_text_io_encoding.py
+2026-11-17T10:38:25.2446612Z ##[endgroup]
+2026-11-17T10:38:25.2447014Z ws-check step FAILED: .github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step; exclusions carry a reason) [test_text_io_encoding.py] (exit 1, ran 7, skipped 0, gh calls 0, cpu 6.7 s, 6.7 s)
