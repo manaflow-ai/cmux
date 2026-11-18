@@ -97,9 +97,12 @@ async fn a_daemon_killed_and_restarted_starts_the_agent_again_on_its_launch_cred
         TOKEN,
         "the agent the restarted daemon started runs on the launch credential again"
     );
-    // Still never written down by the daemon: its meta holds no value.
-    let meta =
-        std::fs::read_to_string(daemon.home.join("sessions").join(&session).join("session.json"))
-            .unwrap_or_default();
-    assert!(!meta.contains(TOKEN));
+    // Still never written down by the daemon. The stand-in agent itself said the value in the chat
+    // (`env:`), so the chat's own text (its preview, title, last prompt) is left out.
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    for chat_text in ["preview", "title", "lastPrompt"] {
+        meta.as_object_mut().unwrap().remove(chat_text);
+    }
+    assert!(!meta.to_string().contains(TOKEN), "the session meta holds the credential: {meta}");
 }
