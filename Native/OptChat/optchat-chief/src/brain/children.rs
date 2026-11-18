@@ -546,6 +546,85 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
     (replies, last_end, cancelled)
 }
 
+/// The goal snapshot of a `session_info_update` (`_meta.goal`; null when
+/// cleared), if `event` is one.
+fn goal_of(event: &AcpmuxEvent) -> Option<&Value> {
+    event.msg.get("params")?.pointer("/update/_meta/goal")
+}
+
+/// Whether the session reported a goal in `events` (Codex's own, set from
+/// the stop condition: goal.rs).
+pub(super) fn has_goal(events: &[AcpmuxEvent]) -> bool {
+    events
+        .iter()
+        .any(|e| goal_of(e).is_some_and(|g| !g.is_null()))
+}
+
+/// The state of an acpmux `background_turn` record (`started` / `ended`):
+/// a turn the agent ran by itself.
+fn background_state(event: &AcpmuxEvent) -> Option<&str> {
+    (event.dir == "mux" && event.kind == "background_turn")
+        .then(|| event.msg.get("state").and_then(Value::as_str))
+        .flatten()
+}
+
+/// The seq and final words of the last background turn that ended in
+/// `events` (its words after its last own tool call), when it said any.
+pub(super) fn last_background_reply(events: &[AcpmuxEvent]) -> Option<(u64, String)> {
+    let mut text: Option<String> = None;
+    let mut last = None;
+    for event in events {
+        match background_state(event) {
+            Some("started") => text = Some(String::new()),
+            Some("ended") => {
+                if let Some(t) = text.take()
+                    && !t.trim().is_empty()
+                {
+                    last = Some((event.seq, t.trim().to_owned()));
+                }
+            }
+            _ => {
+                let Some(t) = text.as_mut() else { continue };
+                if is_own_tool_call(event) {
+                    t.clear();
+                } else if event.kind == "agent_message_chunk"
+                    && let Some(words) = event
+                        .msg
+                        .get("params")
+                        .and_then(|p| p.pointer("/update/content/text"))
+                        .and_then(Value::as_str)
+                {
+                    t.push_str(words);
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Whether the session's goal goes on in `events`: its last goal snapshot
+/// has status `active`, or a turn it ran by itself is still open (Codex
+/// marks the goal complete inside its last turn and says its final words
+/// after). Never once its last event is older than `quiet` at `now` (one
+/// with no time counts as young), so a goal Codex dropped holds no one
+/// forever. Codex (codex-acp 1.10.0) runs its next turns toward an active
+/// goal itself, so a turn end then is not the subagent's end.
+pub(super) fn goal_goes_on(events: &[AcpmuxEvent], now: u64, quiet: std::time::Duration) -> bool {
+    let active = events
+        .iter()
+        .rev()
+        .find_map(goal_of)
+        .is_some_and(|goal| goal.get("status").and_then(Value::as_str) == Some("active"));
+    let open =
+        has_goal(events) && events.iter().rev().find_map(background_state) == Some("started");
+    let young = events
+        .iter()
+        .rev()
+        .find_map(|e| e.at)
+        .is_none_or(|at| now.saturating_sub(at) < quiet.as_millis() as u64);
+    (active || open) && young
+}
+
 /// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
 /// session, or `_meta.acpmux.subagent`) is not the turn's.
 fn is_own_tool_call(event: &AcpmuxEvent) -> bool {
