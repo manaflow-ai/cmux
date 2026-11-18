@@ -76,7 +76,7 @@ async function chat(browser) {
   try {
     await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"], null, { timeout: 120000 });
     await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
-    await page.waitForTimeout(6500);
+    await page.waitForTimeout(1500);
     await shot(page, "chat-live", errors);
     await page.waitForFunction(() => document.querySelector('.acpmux-scroll [data-row-id^="summary-"]'), null, {
       timeout: 30000,
