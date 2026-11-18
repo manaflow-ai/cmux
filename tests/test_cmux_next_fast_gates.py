@@ -554,7 +554,7 @@ class WorkflowShape(unittest.TestCase):
         names = [s.get("name", "") for s in steps]
         first, last = names.index("Setup Node") + 1, names.index("Test webviews")
         gate = steps[names.index("Fail on the gate checks")]
-        self.assertEqual(gate["if"], "${{ !cancelled() }}")
+        self.assertEqual(gate["if"], "${{ always() }}")
         gated = list(gate["env"].values())
         for step in steps[first:last]:
             with self.subTest(step=step["name"]):

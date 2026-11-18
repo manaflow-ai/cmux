@@ -747,8 +747,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+      # always(), not !cancelled(): a shard cut off at its time limit still reports the check reds it had
+      # already found (job 134839261712 logged a TS2322 nothing reported). A step the cancel cut short
+      # has outcome `cancelled`, never `failure`, so only finished reds count.
       - name: Fail on the gate checks
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
