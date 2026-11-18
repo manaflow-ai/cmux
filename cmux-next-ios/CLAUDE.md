@@ -1,8 +1,8 @@
 # cmux-next iPhone app: agent notes
 
 For work under `cmux-next-ios/`, the NEXT iPhone app. The root [CLAUDE.md](../CLAUDE.md) still applies.
-`ios/` is the classic app, with its own [ios/AGENTS.md](../ios/AGENTS.md). iOS is Aziz's area
-(`azooz2003-bit`).
+This is the iPhone app. `ios/` is the retired classic app: don't change or install it. iOS is
+Aziz's area (`azooz2003-bit`).
 
 **Manaflow AI team members and their agents:** also read the private
 [cmux-next-ios skill](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/ios/cmux-next-ios/SKILL.md)
@@ -21,12 +21,91 @@ covers your change:
 | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
 | Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
 
+## Hand-off command (under verification)
+
+This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
+iPhone app. Its phone leg has not yet had one green end-to-end run; report any failure as the
+phone's blocker. It leaves the task's build on every connected iPhone,
+signed in and paired with the same-tag Mac build, from one command at the pushed head:
+
+```bash
+cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --no-auth]
+```
+
+The default is the rule for every dev build on a phone: signed in with the `personal` account and
+paired with the same-tag Mac at once, and still both after the person relaunches the app or the
+Mac. Those relaunches run the app's production persistence path: a launch with no
+`CMUX_MOBILE_STACK_*` has no auto-login credentials, so the session comes back from the Keychain
+token store the same way it does in Release, and the pairing state is the app's own. The two
+flags are for checking the other paths, and are never the hand-off:
+
+| Flag | The phone | The proof | Its report line |
+| --- | --- | --- | --- |
+| (none) | signed in, paired by the Mac's code | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
+| `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
+| `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
+
+`--no-auth` implies no pairing; given both, `--no-auth` wins.
+
+It does, in order, and exits non-zero if any phone fails a check or none is connected:
+
+1. Builds on the fleet at the pushed head: the tagged cmux NEXT Mac app (`cmux-ci build cmux`,
+   published to HQ, Tag Opener `http://127.0.0.1:17320/<task-slug>`), and in one simulator step
+   (`cmux-next-ios-sim.sh handoff tag=<task-slug>`) the iPhone app (Demo configuration with the
+   DEBUG developer surface, bundle `dev.cmux.mobile.<task-slug>`, home-screen name
+   "cmux <task-slug>", an unsigned device app) plus the fleet simulator check: signed in with the
+   agent account's session (from your Mac, `--sign-in agent`), relaunched with no credentials and
+   signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
+2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
+   never frontmost), signed in to the `personal` account.
+3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+   Apple Development identity and a development profile that names the phone, installs it through
+   the sanctioned install, and launches it signed in with the `personal` profile and the tagged
+   Mac's own single-use pairing code, the code a scan would open (no Allow prompt, no seed).
+4. Proves each phone with the app's DEBUG readiness receipt (a fresh nonce per launch): signed in,
+   paired and linked with this tag's Mac, which lists the phone as paired and connected; then a
+   credential-free relaunch (the person's own cold launch) comes back signed in and linked; then
+   the Mac app quits as the person quits it and starts again, and each phone links to it again.
+5. Prints the report, in the root "Finishing a task" format:
+
+```text
+Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <id>, published to HQ, head <sha>)
+Simulator:  fleet simulator (<worker>, <device>), signed in (agent account), restored after a credential-free relaunch: <evidence dir> (...)
+iPhone:     <name> (<model>, <udid>): installed, signed in (auto_login), paired and linked with <Mac>; ...; after the Mac app relaunched: signed in (restored), paired and linked with <Mac>
+```
+
+A phone line that says `BLOCKED: <reason>; retry: <command>` is a blocker to report as it is.
+Never install the app with raw `devicectl`, skip a phone, or replace the phone with the simulator.
+
+What it needs:
+
+- iPhone connections on in the person's cmux-next (Settings > Mobile > Allow iPhone connections,
+  `mobile.allowIPhoneConnections`). The setting lives in the shared `~/.config/cmux/cmux-next.json`
+  that every build reads, so a fresh tag starts with the person's choice. Only the person turns it
+  on; when it is off, `review.sh` reports that as the blocker.
+- The `personal` profile in `~/.secrets/cmuxterm-dev.env` and `~/.config/cmux/dev-account` naming
+  it, so the tagged Mac signs in to the same account as the phone (`scripts/setup-team-dev.sh`).
+- A development profile on this Mac for each bundle (the app and its two notification
+  extensions) that names each phone; the team wildcard profile covers all three. A phone no
+  profile names gets a `BLOCKED: signing failed` line: register it in the team first. The phone
+  needs Developer Mode, to be unlocked, and to trust this Mac. No Tailscale.
+- A fleet simulator worker. It needs no agent account file: the step is sent with
+  `cmux-ci run --sign-in agent`, which signs the shared agent
+  account in on this Mac for that step alone, seals it to the worker, and revokes it when the step
+  ends (hq build-fleet `sign_in`; the step reads it with `scripts/lib/fleet-signin-session.sh`).
+  `cmux-ci run` follows the step while it delivers the session, so review.sh never detaches it.
+
+Its scripts: `scripts/review.sh` (the command), `scripts/sign_device_app.py` (local signing),
+`scripts/review_mac.py` (the tagged Mac over its control socket), `scripts/handoff_receipt.py`
+(the receipt check), `CmuxMobileKit/Sources/CmuxMobileShell/DogfoodReadiness.swift` (the DEBUG
+receipt). Their Linux tests: `python3 ios/tests/test_cnx_review.py`.
+
 ## Terminal on iPhone
 
-- **Projection** ([#42219](https://github.com/manaflow-ai/cmux/pull/42219), the default per Leo): the
+- **Projection** ([#42219](https://github.com/manaflow-ai/cmux/pull/42219), open): the
   phone re-wraps the Mac's terminal text at its own width, and the Mac pane keeps its grid. The phone
   claims a size only for the exception, a full-screen app on the alternate screen, and releases it
-  when the app exits. Settings → Terminal → Fit to Phone is the old resize, one tap away. The logic
+  when the app exits. Settings → Terminal → Fit to Phone (off by default) keeps the old resize. The logic
   is Rust (the `cmux-terminal-projection` crate); Swift is glue. Size claims:
   [PROTOCOL.md](PROTOCOL.md), "Terminal size claims".
 - **Lean agent-CLI view** ([#44052](https://github.com/manaflow-ai/cmux/pull/44052), off by default,

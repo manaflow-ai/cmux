@@ -149,13 +149,25 @@ extension AppStore {
         ]
         // CMUX_MOBILE_MOCK_BARE_ROWS=1: two idle workspaces with no branch and no
         // folder, whose rows have nothing on line 2 (before/after captures).
+        // CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1: first, two workspaces whose terminal runs Claude Code
+        // or Codex (Toggle Terminal and Chat's pairs; tab links tab_…10 and tab_…20).
+        let terminalAgents = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_TERMINAL_AGENTS"] == "1" ? [
+            Workspace(id: "ws-term-claude", macID: "mac-studio", title: "relay", directory: "~/Development/relay", branch: "main",
+                      tabs: [WorkspaceTab(id: "t-term-claude", kind: .terminal, title: "claude", subtitle: "~/Development/relay",
+                                          harness: "claude-code")],
+                      lastActivityAt: ago(2)),
+            Workspace(id: "ws-term-codex", macID: "mac-studio", title: "parser", directory: "~/Development/parser", branch: "main",
+                      tabs: [WorkspaceTab(id: "t-term-codex", kind: .terminal, title: "codex", subtitle: "~/Development/parser",
+                                          harness: "codex")],
+                      lastActivityAt: ago(4)),
+        ] : []
         let bare = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_BARE_ROWS"] == "1" ? [
             Workspace(id: "ws-bare-1", macID: "mac-studio", title: "scratch", directory: "",
                       tabs: [WorkspaceTab(id: "t-bare-1", kind: .terminal, title: "zsh")], lastActivityAt: ago(8)),
             Workspace(id: "ws-bare-2", macID: "mac-studio", title: "notes to self", directory: "",
                       tabs: [WorkspaceTab(id: "t-bare-2", kind: .terminal, title: "zsh")], lastActivityAt: ago(20)),
         ] : []
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
     }
 

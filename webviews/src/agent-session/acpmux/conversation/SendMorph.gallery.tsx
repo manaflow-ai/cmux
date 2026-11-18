@@ -18,6 +18,7 @@ import { THINKING } from "./turns";
 // The scale's send step is 0 (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just
 // do it."), so the product's send is instant. This gallery compares the send's styles on their old
 // 180 ms clock, set on its shell (the send code reads the token from the rows' ancestors).
+// motion-allow: the old send clock, compared on purpose (the send is now 0)
 const COMPARE_SEND_CLOCK = { "--agent-motion-send": "180ms", "--agent-motion-send-fade": "180ms" } as CSSProperties;
 
 const TYPED = "why does the sidebar jump when I open this?";

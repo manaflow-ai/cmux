@@ -328,6 +328,9 @@ pub struct PresentationSnapshot {
     pub home_workspace: Option<String>,
     /// The app of every live app workspace, by workspace key (`app-screens-v1`).
     pub app_workspaces: HashMap<String, String>,
+    /// Terminal ids the daemon recovered from orphaned hosts (`workspace-recovered-v1`): their
+    /// durable rows keep the recovered launch spec (`mux/orphan_hosts.rs`).
+    pub recovered_terminals: HashSet<String>,
     /// App tab records, by public browser id (`app-screens-v1`).
     pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
