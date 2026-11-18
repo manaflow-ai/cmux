@@ -142,7 +142,7 @@ usage: cmux app ping | identify | capabilities
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
-       cmux app launch-times [--limit <n>] [--file <path>]  (the last launches' times, from a file; no app needed)
+       cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
        cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
                                                 (this Cloud machine's preview as a new app version; no app needed)
        cmux app versions NAME | rollback NAME [--to N] | ls  (published apps on this machine)

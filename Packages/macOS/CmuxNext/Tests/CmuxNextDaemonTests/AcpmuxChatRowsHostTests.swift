@@ -133,7 +133,7 @@ struct AcpmuxChatRowsHostTests {
         print("v2.pr06 batch bound: \(batches.count) batches, largest \(framed.max() ?? 0) bytes, window change \(window.changes[0].count) bytes")
     }
 
-    @Test("a hidden pane takes no batch; shown again, it takes and the stream goes on")
+    @Test("a hidden pane's ops wait out the hidden pace; shown again, they go and the stream goes on")
     func hiddenTakesNothing() async throws {
         let fed = FedChatRowsHost()
         #expect(await fed.host.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
@@ -149,7 +149,7 @@ struct AcpmuxChatRowsHostTests {
         fed.host.setHidden(false)
         #expect(await eventually { fed.receiver.rowIds == Array(1...12) })
 
-        // A batch the page takes while hidden is acknowledged only when it shows: nothing more is read.
+        // A batch the page takes while hidden is acknowledged; what is read next waits out the pace.
         fed.receiver.hold(true)
         try await fed.feed(ChatWire.op(13), chunk: 1 << 20)
         #expect(await eventually { fed.receiver.rowIds.last == 13 })

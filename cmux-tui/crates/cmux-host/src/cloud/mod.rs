@@ -26,7 +26,7 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
-//! [`github_repos`] (repository discovery through the platform connector),
+//! [`github_repos`] (repository discovery through cmux-api, as the machine),
 //! [`github_status`] (the person's connected GitHub account, no token),
 //! [`carrier_ticket`] (the session host's relay Register ticket),
 //! `carrier_server` (the thread and socket that answer it off the poll loop),

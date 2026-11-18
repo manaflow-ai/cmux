@@ -222,9 +222,14 @@ extension WindowRules {
         public var handOff: HandOff?
         public var handOffOpen: Bool
         public var now: Double
+        /// A chat: this app cannot start a terminal for its session (its acpmux run is another
+        /// machine's, or this app has no acpmux). With no terminal running it, no toggle shows.
+        public var cannotStartTerminal: Bool
 
         public init(terminal: Bool = false, chat: Bool = false, agent: String?, session: String?, running: Bool = false,
-                    busy: Bool = false, handOff: HandOff? = nil, handOffOpen: Bool = false, now: Double = 0) {
+                    busy: Bool = false, handOff: HandOff? = nil, handOffOpen: Bool = false, now: Double = 0,
+                    cannotStartTerminal: Bool = false) {
+            self.cannotStartTerminal = cannotStartTerminal
             self.terminal = terminal
             self.chat = chat
             self.agent = agent
@@ -264,6 +269,8 @@ extension WindowRules {
         case handingOff(tab: String?)
         /// The chat is mid-turn: stopping it would cut the turn off.
         case busy
+        /// A chat no terminal runs, where none can start (`cannotStartTerminal`): only a chat, no toggle.
+        case noTerminal
 
         private enum CodingKeys: String, CodingKey { case route, harness, session, tab }
 
@@ -281,6 +288,7 @@ extension WindowRules {
                                                               session: try container.decode(String.self, forKey: .session))
             case "handingOff": self = .handingOff(tab: try container.decodeIfPresent(String.self, forKey: .tab))
             case "busy": self = .busy
+            case "noTerminal": self = .noTerminal
             case let other: throw DecodingError.dataCorruptedError(forKey: .route, in: container, debugDescription: "route \(other)")
             }
         }

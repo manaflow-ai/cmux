@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
+import { MOTION_MS } from "../src/motion/scale.generated";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -135,7 +136,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       await page.close();
     }
   });
-  test("stepped arm: hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
+  test(`stepped arm: hover grows the tick to 26 px within ${MOTION_MS.micro} ms, with no delay, on the spring curve`, async () => {
     // The stepped fisheye (wave.experiment.ts `stepped`) grows each tick on its own CSS transition.
     const page = await open(false, "stepped");
     const style = await page.evaluate(() => {
@@ -151,7 +152,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     // at once and run the scale's micro step.
     expect(style.property).toBe("transform, opacity");
     expect(style.delay).toBe("0s, 0s");
-    expect(style.duration).toBe("0.12s, 0.12s");
+    expect(style.duration).toBe(`${MOTION_MS.micro / 1000}s, ${MOTION_MS.micro / 1000}s`);
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
@@ -202,7 +203,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     expect(transition).toBeDefined();
     expect(transition!.wait).toBeLessThan(60);
     // 120 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
-    expect(transition!.duration).toBe(120);
+    expect(transition!.duration).toBe(MOTION_MS.micro);
     expect(transition!.delay).toBe(0);
     const [w0, w30, w60, w84, w120] = transition!.widths;
     // From the 6 px rest through the lengths between (a transition, not a jump) to 26 px.
@@ -217,7 +218,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return { delay: css.transitionDelay, duration: css.transitionDuration };
     });
-    expect(hovered).toEqual({ delay: "0s", duration: "0.12s" });
+    expect(hovered).toEqual({ delay: "0s", duration: `${MOTION_MS.micro / 1000}s` });
     await page.close();
   });
 
