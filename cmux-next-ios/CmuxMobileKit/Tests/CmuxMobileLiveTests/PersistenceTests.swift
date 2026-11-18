@@ -243,7 +243,7 @@ import Testing
     func signOut(_ f: Fixture, chief: @escaping @MainActor () -> Void = {},
                  keptChats: @escaping @MainActor () -> Void = {}) -> AccountSignOut {
         AccountSignOut(snapshots: f.snapshots, feedStore: f.feed, feedArchive: f.archive, readMarks: f.marks,
-                       preferences: AccountPreferences(defaults: f.defaults), discardChiefOutbox: chief,
+                       preferences: AccountPreferences(defaults: f.defaults), discardChiefTranscripts: chief,
                        discardKeptChats: keptChats)
     }
 

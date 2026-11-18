@@ -75,13 +75,20 @@ extension NSWindow {
             }
             let name = String(format: "frame-%03d.png", index)
             writes.append((frame, (dir as NSString).appendingPathComponent(name)))
-            rows.append([
+            var row: [String: Any] = [
                 "ms": (frame.milliseconds - sentAt).rounded(), "file": name,
                 "outside_vs_before": m.outsideBefore, "outside_vs_final": m.outsideFinal, "intermediate": isIntermediate,
                 "blank": isBlank, "blank_panes": Double(blankPanes), "content_blank": isContentBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
                 // The content area's own differences, for a script's first-content and final-frame times.
                 "content_vs_before": insideBefore, "content_vs_final": insideFinal, "flatness": m.flatness,
-            ])
+            ]
+            // The pane's strip's own differences, for a script's frame of the new tab. Not in the row when no strip
+            // is in view: a difference of 0 would say that the strip stayed the same.
+            if strip != nil {
+                row["strip_vs_before"] = stripBefore
+                row["strip_vs_final"] = stripFinal
+            }
+            rows.append(row)
         }
         await WindowFrame.writeAll(writes, strip: frames.filter { $0.milliseconds >= before.milliseconds },
                                    stripPath: (dir as NSString).appendingPathComponent("strip.png"), in: dir)

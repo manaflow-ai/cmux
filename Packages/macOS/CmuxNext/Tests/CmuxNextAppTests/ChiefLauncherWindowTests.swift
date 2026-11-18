@@ -249,7 +249,8 @@ struct ChiefLauncherWindowTests {
         #expect(!launcher.isVisible && !f.controller.frameChiefPanelShown && chief.window !== launcher, "a click outside did not hide it")
     }
 
-    /// A link clicked in the Chief on Home opens its workspace with the Chief floating in its window, without the
+    /// A link clicked in the Chief on Home (with `home.chiefDock.openBeside` on) opens its workspace with the Chief
+    /// floating in its window, without the
     /// keys (the workspace has them), so it does not hide until it had them.
     @Test func aLinkOpensItFloatingWithoutTheKeys() async throws {
         let chief = Chief()
