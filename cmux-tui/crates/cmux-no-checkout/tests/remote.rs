@@ -1,0 +1,122 @@
+#![cfg(unix)]
+//! A chat on a GitHub branch with nothing cloned, against the loopback stand-in: reads on first
+//! use, only the run's paths on disk (gone after), a patch applied to the touched files alone,
+//! and the edits committed as a branch through the git data API, then a pull request.
+
+use cmux_no_checkout::mock::Mock;
+use cmux_no_checkout::{GitHub, Remote, patch};
+
+const CORE: &[u8] = b"def add(a, b):\n    return a + b\n";
+const TEST: &[u8] = b"from pkg.core import add\n\ndef test_add():\n    assert add(1, 2) == 3\n";
+
+async fn repo() -> Mock {
+    Mock::start(
+        "o/r",
+        &[
+            ("README.md", b"# r\n", "100644"),
+            ("bin/run.sh", b"#!/bin/sh\necho hi\n", "100755"),
+            ("docs/big.txt", &[b'x'; 100_000], "100644"),
+            ("src/pkg/__init__.py", b"", "100644"),
+            ("src/pkg/core.py", CORE, "100644"),
+            ("tests/test_core.py", TEST, "100644"),
+        ],
+    )
+    .await
+    .unwrap()
+}
+
+async fn open(mock: &Mock) -> Remote {
+    let gh = GitHub::new(&mock.url, &mock.repo, None, None).unwrap();
+    Remote::open(gh, None).await.unwrap()
+}
+
+fn patterns(p: &[&str]) -> Vec<String> {
+    p.iter().map(|s| (*s).to_owned()).collect()
+}
+
+#[tokio::test]
+async fn only_the_paths_a_run_names_reach_the_disk_and_the_folder_is_gone_after() {
+    let mock = repo().await;
+    let mut remote = open(&mock).await;
+    assert_eq!(&**remote.read("src/pkg/core.py").await.unwrap(), CORE);
+    remote.write("src/pkg/core.py", b"def add(a, b):\n    return b + a\n".to_vec()).await.unwrap();
+
+    let projected =
+        remote.project(&patterns(&["src/pkg", "tests/test_core.py", "bin/**"])).await.unwrap();
+    let root = projected.path().to_owned();
+    assert_eq!(projected.files, 4);
+    // The edit, not the base.
+    assert_eq!(
+        std::fs::read(root.join("src/pkg/core.py")).unwrap(),
+        b"def add(a, b):\n    return b + a\n"
+    );
+    assert_eq!(std::fs::read(root.join("tests/test_core.py")).unwrap(), TEST);
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = std::fs::metadata(root.join("bin/run.sh")).unwrap().permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "the executable bit comes with it");
+    // Nothing else: the 100 kB file the run does not name never crossed the network.
+    assert!(!root.join("docs").exists() && !root.join("README.md").exists());
+    let down = remote.github().meter().bytes_down();
+    assert!(down < 50_000, "{down} bytes read");
+    projected.close().unwrap();
+    assert!(!root.exists(), "the projected folder is deleted when the run ends");
+    mock.close().await;
+}
+
+#[tokio::test]
+async fn a_patch_becomes_a_commit_on_a_new_branch_and_a_pull_request() {
+    let mock = repo().await;
+    let mut remote = open(&mock).await;
+    let diff = "diff --git a/src/pkg/core.py b/src/pkg/core.py\n--- a/src/pkg/core.py\n+++ b/src/pkg/core.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a + b\n+    return int(a) + int(b)\n\
+diff --git a/NEW.md b/NEW.md\nnew file mode 100644\n--- /dev/null\n+++ b/NEW.md\n@@ -0,0 +1 @@\n+new\n\
+diff --git a/docs/big.txt b/docs/big.txt\ndeleted file mode 100644\n--- a/docs/big.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-gone\n";
+    // `big.txt`'s deletion hunk does not match its bytes, so git apply refuses the whole patch,
+    // and nothing changes.
+    assert!(patch::apply(&mut remote, diff).await.is_err());
+    assert!(remote.edits().is_empty());
+    let diff = diff.split("diff --git a/docs").next().unwrap();
+    let mut changed = patch::apply(&mut remote, diff).await.unwrap();
+    changed.sort();
+    assert_eq!(changed, ["NEW.md", "src/pkg/core.py"]);
+    remote.delete("docs/big.txt").await.unwrap();
+
+    let commit = remote.commit("lane/fix", "core: add numbers").await.unwrap();
+    assert!(!commit.is_empty());
+    let branch = mock.branch("lane/fix").unwrap();
+    assert_eq!(branch["src/pkg/core.py"].0, b"def add(a, b):\n    return int(a) + int(b)\n");
+    assert_eq!(branch["NEW.md"].0, b"new\n");
+    assert!(!branch.contains_key("docs/big.txt"));
+    assert_eq!(branch["bin/run.sh"].1, "100755", "untouched files keep their mode");
+    // The base is untouched.
+    assert_eq!(mock.branch("main").unwrap()["src/pkg/core.py"].0, CORE);
+
+    // A second edit commits on top, to the same branch (a fast-forward).
+    remote.write("README.md", b"# r, edited\n".to_vec()).await.unwrap();
+    remote.commit("lane/fix", "readme").await.unwrap();
+    let branch = mock.branch("lane/fix").unwrap();
+    assert_eq!(branch["README.md"].0, b"# r, edited\n");
+    assert_eq!(branch["NEW.md"].0, b"new\n");
+
+    let gh = remote.github();
+    let pull = gh.open_pull("Add numbers", "body", "lane/fix", "main", true).await.unwrap();
+    assert_eq!(pull.number, 1);
+    assert_eq!(mock.pulls()[0]["head"], "lane/fix");
+    gh.close_pull(pull.number).await.unwrap();
+    gh.delete_branch("lane/fix").await.unwrap();
+    assert!(mock.branch("lane/fix").is_none());
+    assert_eq!(mock.pulls()[0]["state"], "closed");
+    mock.close().await;
+}
+
+#[tokio::test]
+async fn nothing_to_commit_and_paths_outside_the_repository_are_refused() {
+    let mock = repo().await;
+    let mut remote = open(&mock).await;
+    assert!(remote.commit("lane/x", "m").await.is_err());
+    assert!(remote.write("../escape", b"x".to_vec()).await.is_err());
+    assert!(remote.write(".git/config", b"x".to_vec()).await.is_err());
+    assert!(remote.read("missing.txt").await.is_err());
+    assert!(remote.delete("missing.txt").await.is_err());
+    assert!(mock.branch("lane/x").is_none());
+    mock.close().await;
+}
