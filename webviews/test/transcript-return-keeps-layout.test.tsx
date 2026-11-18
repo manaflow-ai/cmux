@@ -10,6 +10,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { MeasurableRenderer, NativeRegistry, RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { KeptLayouts, keptHeightFor } from "../src/agent-session/acpmux/conversation/keptLayouts";
 import { teardownDom } from "./support/domTeardown";
 
@@ -73,14 +74,17 @@ const chat = (name: string, count: number): AcpmuxRow[] =>
 
 test("a chat shown again measures only its rows that changed while it was away", async () => {
   const measured = new Map<string, number>();
-  const counting = (kind: string) => ({
-    ...defaultRegistry[kind]!,
-    measure: (row: AcpmuxRow) => {
+  /// The kind's own renderer, measuring through a counter (40 px a row).
+  const counting = (kind: string): MeasurableRenderer => {
+    const Renderer = defaultRegistry[kind]!;
+    const Counted: MeasurableRenderer = (props: RowProps) => <Renderer {...props} />;
+    Counted.measure = (row: AcpmuxRow) => {
       measured.set(row.id, (measured.get(row.id) ?? 0) + 1);
       return 40;
-    },
-  });
-  const registry = { ...defaultRegistry, user: counting("user"), assistant: counting("assistant") };
+    };
+    return Counted;
+  };
+  const registry: NativeRegistry = { ...defaultRegistry, user: counting("user"), assistant: counting("assistant") };
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
