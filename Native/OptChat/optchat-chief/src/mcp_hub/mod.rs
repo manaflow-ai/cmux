@@ -2470,11 +2470,8 @@ pub fn cli(words: &[String]) -> i32 {
     let args = match word(0) {
         "" | "list" | "ls" => json!({"action": "list"}),
         "add" | "connect" => {
-            let rest: Vec<&str> = words[1..]
-                .iter()
-                .map(String::as_str)
-                .filter(|w| *w != "--")
-                .collect();
+            // `add -- CMD ARGS...` stays a local command (resolve's `-- ` rule).
+            let rest: Vec<&str> = words[1..].iter().map(String::as_str).collect();
             json!({"action": "add", "target": rest.join(" ")})
         }
         "signin" | "auth" => json!({"action": "signin", "server": word(1)}),
