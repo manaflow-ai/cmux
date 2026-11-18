@@ -1946,25 +1946,27 @@ function TranscriptView({
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below), the offset it last read and the
-  /// one it handled. Made in the first render, before the rows' observer (`observer` below), so its read
-  /// runs first in a frame's ResizeObserver callbacks.
+  /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below) and the offset it last read and
+  /// the one it handled. Made in the first render (one guard for the transcript's life), before the rows'
+  /// observer (`observer` below), so its read runs first in a frame's ResizeObserver callbacks.
   const guardRead = useRef<() => void>(() => {});
-  const frameGuard = useRef<{ guard: FrameGuard | undefined; seen: number | undefined; handled: number | undefined }>({
-    guard: undefined,
+  const frameGuard = useRef<{ seen: number | undefined; handled: number | undefined }>({
     seen: undefined,
     handled: undefined,
   });
-  frameGuard.current.guard ??= new FrameGuard({
-    read: () => guardRead.current(),
-    // An offset handled a frame ago has had its scroll event by now (or never gets one).
-    frame: () => {
-      frameGuard.current.handled = undefined;
-    },
-    node: () => (transcriptMounted.current ? ref.current : null),
-    idleMs: SCROLL_GUARD_IDLE_MS,
-    observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
-  });
+  const [guard] = useState(
+    () =>
+      new FrameGuard({
+        read: () => guardRead.current(),
+        // An offset handled a frame ago has had its scroll event by now (or never gets one).
+        frame: () => {
+          frameGuard.current.handled = undefined;
+        },
+        node: () => (transcriptMounted.current ? ref.current : null),
+        idleMs: SCROLL_GUARD_IDLE_MS,
+        observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
+      }),
+  );
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
@@ -2172,15 +2174,13 @@ function TranscriptView({
     transcriptMounted.current = true;
     // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
     noteTranscriptMount();
-    // One object for the transcript's life (its fields change, never it).
-    const guard = frameGuard.current;
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
       clearTimeout(scrollLeadTimer.current);
-      guard.guard?.stop();
+      guard.stop();
     };
-  }, []);
+  }, [guard]);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
@@ -6159,7 +6159,7 @@ function TranscriptView({
     const live = node.scrollTop;
     // Only a move restarts the idle clock: an offset the handler leaves unhandled (a chat not opened
     // yet, a hidden pane) would otherwise keep the guard running.
-    if (live !== state.seen) state.guard?.moved();
+    if (live !== state.seen) guard.moved();
     // The pacer may have committed this offset already, inside the room: given back only by the handler.
     if (Math.abs(live - scrollRef.current.top) > 0.5 || (node.clientHeight > 0 && inRoom(node, roomAbove()))) {
       motionScroll.current(node, true);
@@ -6171,7 +6171,7 @@ function TranscriptView({
     const node = ref.current;
     if (node && transcriptMounted.current) guardOffset(node);
   };
-  const armFrameGuard = () => frameGuard.current.guard?.arm();
+  const armFrameGuard = () => guard.arm();
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     armFrameGuard();
     pacing.scrolled();
