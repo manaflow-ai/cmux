@@ -44,6 +44,8 @@ import {
   type ProviderAccount,
   type IntegrationsRun,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -688,6 +690,32 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.mcp.state": () => this.mcpServers,
+      "cmux.settings.mcp.run": (params) => {
+        const run = params as McpServersRun;
+        if (run.action === "refresh") return {};
+        const row = this.mcpServers.servers.find((entry) => entry.name === run.name);
+        // Like the host: only a listed server.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "name must be a listed server");
+        this.mcpServerRuns.push(run);
+        this.mcpServers = {
+          ...this.mcpServers,
+          servers:
+            run.action === "remove"
+              ? this.mcpServers.servers.filter((entry) => entry.name !== run.name)
+              : this.mcpServers.servers.map((entry) =>
+                  entry.name === run.name
+                    ? {
+                        ...entry,
+                        signingIn: true,
+                        page: "https://linear.app/oauth/authorize?client_id=mock",
+                        error: null,
+                      }
+                    : entry,
+                ),
+        };
+        return {};
+      },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
         return {};
@@ -757,6 +785,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
+      "cmux.settings.mcp.state",
+      "cmux.settings.mcp.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -1359,6 +1389,57 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
+  /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
+  mcpServers: McpServersState = {
+    loading: false,
+    problem: null,
+    servers: [
+      {
+        name: "linear",
+        kind: "remote",
+        address: "https://mcp.linear.app/mcp",
+        publisher: "linear.app",
+        verified: true,
+        state: "connected",
+        problem: null,
+        scope: "agents",
+        tools: 23,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+      {
+        name: "slack",
+        kind: "remote",
+        address: "https://mcp.slack.com/mcp",
+        publisher: "slack.com",
+        verified: true,
+        state: "signInNeeded",
+        problem: null,
+        scope: "chief",
+        tools: 0,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+      {
+        name: "notes",
+        kind: "local",
+        address: "npx -y @example/notes-mcp",
+        publisher: "local",
+        verified: false,
+        state: "failed",
+        problem: "the command exited with status 1",
+        scope: "chat",
+        tools: 0,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+    ],
+  };
+  /** MCP Servers gestures the page sent (sign in, remove). */
+  readonly mcpServerRuns: McpServersRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 

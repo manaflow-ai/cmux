@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 import Testing
 @testable import MessagesLabHome
@@ -168,6 +169,68 @@ import Testing
             for _ in 0..<4 { r.frame() }
             #expect(r.view.debugOpenThread == nil, "a click beside the breadcrumb at \(spot) did not close the thread")
         }
+    }
+
+    /// The real Home draws no header above an open thread's root (Messages draws none, cmux#26686: no host sets
+    /// `HostHooks.threadHeader`), so the space where one would sit is backdrop: a click there closes the thread.
+    @Test func theRealHomeDrawsNoThreadHeaderSoAClickAboveTheRootCloses() async throws {
+        let r = try await threadRig()
+        defer { r.stop() }
+        let demo = try #require(r.view.controller.demo)
+        let (p, band) = try opener(demo)
+        try open(r, at: p)
+        #expect(demo.threadHeaderFrame == nil, "the real Home drew a thread header")
+        let top = try #require(demo.threadViews.map(\.frame.minY).min())
+        let spot = CGPoint(x: demo.threadArea.midX, y: max(demo.threadArea.minY + 4, top + RowDraw.margin - 14))
+        try #require(demo.hit(spot) == nil && !band.contains(spot), "no empty spot above the root at \(spot)")
+        r.view.controller.clicked(spot)
+        for _ in 0..<4 { r.frame() }
+        #expect(r.view.debugOpenThread == nil, "a click above the thread's root at \(spot) did not close the thread")
+    }
+
+    /// A host that takes no replies (`ChatIntents.canReply` false: a read-only chat) can still show a thread (a
+    /// permalink opens it). Closing it is not replying: an outside click closes it there too.
+    @Test func anOutsideClickClosesAThreadInAChatThatTakesNoReplies() async throws {
+        let r = try await threadRig()
+        defer { r.stop() }
+        let demo = try #require(r.view.controller.demo)
+        let (p, band) = try opener(demo)
+        try open(r, at: p)
+        let readOnly = ReadOnlyIntents()
+        let replying = r.view.controller.intents
+        r.view.controller.intents = readOnly
+        defer { r.view.controller.intents = replying }
+        let spots = emptySpots(demo, opener: band)
+        let spot = try #require(spots.first, "no empty spot in the open thread view")
+        r.view.controller.clicked(spot.1)
+        for _ in 0..<4 { r.frame() }
+        #expect(r.view.debugOpenThread == nil, "a click \(spot.0) at \(spot.1) did not close the thread in a read-only chat")
+    }
+
+    /// A host that takes no replies, reactions or attachments (a read-only chat).
+    private final class ReadOnlyIntents: ChatIntents {
+        func threadMovedByUser() {}
+        func messageLink(_ id: ID) -> String? { nil }
+        func send() -> String? { nil }
+        func react(_ ref: MessagesLabHome.PartRef, _ kind: MessagesLabHome.Reaction.Kind) {}
+        var canReact: Bool { false }
+        var canReply: Bool { false }
+        func pickAttachments() {}
+        func takeAttachments(from pasteboard: NSPasteboard) -> Bool { false }
+        func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { false }
+        func statusLineClicked(_ rect: CGRect, in view: NSView) {}
+        func draftChanged() {}
+        func linkTapped(_ ref: MessagesLabHome.PartRef, url: String) {}
+        func canCancelSend(_ message: ID) -> Bool { false }
+        func cancelSend(_ message: ID) {}
+        func canRetrySend(_ message: ID) -> Bool { false }
+        func retrySend(_ message: ID) {}
+        func deleteFailedSend(_ message: ID) {}
+        func openAttachment(_ message: ID, _ attachment: ID) {}
+        func toggleVideo(_ ref: MessagesLabHome.PartRef, _ attachment: ID) {}
+        func videoState(_ ref: MessagesLabHome.PartRef) -> HomeVideoState { .poster }
+        func scrolled() {}
+        func rowsPlaced() {}
     }
 
     @Test func aClickOnABubbleOrTheMessageBoxKeepsTheThreadOpen() async throws {
