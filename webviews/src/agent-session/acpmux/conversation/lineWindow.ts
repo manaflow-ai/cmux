@@ -69,7 +69,6 @@ export function useLineWindow(
   name: string,
   lines = total,
 ): LineWindow {
-  const t = useT();
   const on = enabled && total > WINDOW_FROM;
   const [range, setRange] = useState<Range>(() => ({
     from: 0,
@@ -230,11 +229,34 @@ export function useLineWindow(
     };
   }, [box, on, measure]);
 
+  useLinesRegion(box, on, name, lines, () => topNode.current?.parentElement);
+
+  const setsize = windowed ? lines : undefined;
+  return useMemo(
+    () => ({ from, to, before, after, top, bottom, setsize }),
+    [from, to, before, after, top, bottom, setsize],
+  );
+}
+
+/// While `on`, `box` is one focusable region named with its true line count (`name`, `lines`), and
+/// the element `list()` returns (its lines' parent, read when it turns on) is their list; both put
+/// back as they were when it turns off. lineWindow.ts's own window, and a highlighted read's lines
+/// that Pierre windows (usePierreCode.ts), whose list is in its shadow root.
+export function useLinesRegion(
+  box: RefObject<HTMLElement | null>,
+  on: boolean,
+  name: string,
+  lines: number,
+  list?: () => Element | null | undefined,
+) {
+  const t = useT();
+  const listRef = useRef(list);
+  listRef.current = list;
   useLayoutEffect(() => {
     const scroller = box.current;
     if (!on || !scroller) return;
     // The region and its list, named with the count, put back as they were when the window goes.
-    const host = topNode.current?.parentElement;
+    const host = listRef.current?.();
     const restore = [
       // A call's output holds its lines itself: the box is then the list, named the same.
       ...exposeAttributes(scroller, {
@@ -252,12 +274,6 @@ export function useLineWindow(
       for (const put of restore) put();
     };
   }, [box, on, t, name, lines]);
-
-  const setsize = windowed ? lines : undefined;
-  return useMemo(
-    () => ({ from, to, before, after, top, bottom, setsize }),
-    [from, to, before, after, top, bottom, setsize],
-  );
 }
 
 /// Sets `values` on `node`; returns what puts each back as it was.

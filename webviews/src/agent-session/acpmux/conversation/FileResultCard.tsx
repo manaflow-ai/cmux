@@ -19,7 +19,8 @@ import { useMoreBelow } from "./moreBelow";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { highlightsCode } from "./highlightLimits";
-import { useLineWindow } from "./lineWindow";
+import { useLineWindow, useLinesRegion, WINDOW_FROM } from "./lineWindow";
+import type { DrawnLines, PierreLineWindow } from "./usePierreCode";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -83,16 +84,30 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const lines = read.end - read.start + 1;
   const preview = usePreview(lines, reveal);
   const body = useMoreBelow<HTMLDivElement>(read.code);
-  // Past the highlight limits its lines draw plain: cut to the box, only those in its view are
-  // mounted, the gutter's numbers with them (lineWindow.ts).
-  const lineWindow = useLineWindow(body, lines, preview.cut && !highlightsCode(read.code), pathName(read.path));
-  const numbers = useMemo(
+  // Cut to the box, only the lines in its view are mounted, the gutter's numbers with them: plain
+  // lines (past the highlight limits, and before Pierre has painted) by lineWindow.ts, highlighted
+  // ones by Pierre's own virtualizer on the box (usePierreCode.ts), which says what it drew.
+  const highlighted = highlightsCode(read.code);
+  const [drawn, setDrawn] = useState<DrawnLines | undefined>(undefined);
+  const pierre = highlighted && drawn ? drawn : undefined;
+  const lineWindow = useLineWindow(body, lines, preview.cut && !pierre, pathName(read.path));
+  const pierreWindows = highlighted && lines > WINDOW_FROM;
+  const pierreWindow = useMemo<PierreLineWindow | undefined>(
     () =>
-      Array.from(
-        { length: Math.max(0, Math.min(lines, lineWindow.to) - lineWindow.from) },
-        (_, index) => read.start + lineWindow.from + index,
-      ).join("\n"),
-    [lines, read.start, lineWindow.from, lineWindow.to],
+      pierreWindows
+        ? { box: body, whole: !preview.cut, setsize: preview.cut ? lines : undefined, onLines: setDrawn }
+        : undefined,
+    [pierreWindows, lines, body, preview.cut],
+  );
+  // While Pierre windows the lines, the box is the same named region (its list is in Pierre's shadow
+  // root, usePierreCode.ts), as lineWindow.ts makes it for the plain lines.
+  useLinesRegion(body, preview.cut && pierreWindows && Boolean(pierre), pathName(read.path), lines);
+  const shown = pierre ?? lineWindow;
+  const from = Math.min(lines, shown.from);
+  const to = Math.min(lines, shown.to);
+  const numbers = useMemo(
+    () => Array.from({ length: Math.max(0, to - from) }, (_, index) => read.start + from + index).join("\n"),
+    [read.start, from, to],
   );
   return (
     <div id={id} className="cv-edit-diff cv-filepeek">
@@ -114,15 +129,11 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
             className="cv-filepeek__gutter"
             aria-hidden
             data-find-skip
-            style={
-              lineWindow.before || lineWindow.after
-                ? { paddingTop: lineWindow.before, paddingBottom: lineWindow.after }
-                : undefined
-            }
+            style={shown.before || shown.after ? { paddingTop: shown.before, paddingBottom: shown.after } : undefined}
           >
             {numbers}
           </pre>
-          <CodeLines code={read.code} path={read.path} lineWindow={lineWindow} />
+          <CodeLines code={read.code} path={read.path} lineWindow={lineWindow} pierreWindow={pierreWindow} />
         </div>
       </div>
     </div>
