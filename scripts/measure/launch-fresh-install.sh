@@ -128,7 +128,7 @@ PY
   exit "$rc"
 }
 
-console() { GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$@"; }
+# console CMD...: launch-premain.sh's (sourced above), as is fresh_keychain.
 
 # The fleet's dialog alarm (cmuxterm-hq, "expected dialogs") pages for every system prompt on a fleet Mac's screen
 # unless a live job declared it: one marker per run, <owner>-<pid>.json, written atomically, its expiry at most 2 h
@@ -177,20 +177,6 @@ prompts() {
 # sweep_prompts Open|Cancel WHEN: press the button on each "downloaded from the Internet" prompt this job raised (none
 # from before it), and name any keychain or password panel on screen (never pressed): LF-PROMPT lines.
 sweep_prompts() { prompts press "$1" "${PROMPT_BASELINE:-}" "$2" 2>>"${OUT:-/tmp}/prompts.log"; return 0; }
-
-# fresh_keychain HOME: a login keychain in the launch's empty home, as a person's home has. Without one, the app's
-# Chromium makes "cmux Safe Storage" through a "Keychain Not Found" SecurityAgent panel nobody answers (one was left
-# on screen after the job). CMUX_MOCK_KEYCHAIN is no way out: the app drops it from an inherited environment
-# (fresh_home_launch_smoke.py login_keychain, which this follows). Every call has the home's own HOME and
-# CFFIXED_USER_HOME, so the console user's own keychains and search list are untouched.
-fresh_keychain() {
-  local home="$1" keychain="$1/Library/Keychains/login.keychain-db" step
-  console /bin/mkdir -p "$home/Library/Keychains"
-  for step in "create-keychain -p ''" "list-keychains -d user -s" "default-keychain -d user -s" "set-keychain-settings"; do
-    console /usr/bin/env HOME="$home" CFFIXED_USER_HOME="$home" /bin/sh -c "exec /usr/bin/security $step \"\$0\"" "$keychain" \
-      >>"$OUT/keychain.log" 2>&1 || { echo "LF keychain: security ${step%% *} failed in $home; a Keychain panel may show"; return 1; }
-  done
-}
 
 # quarantine FILE: a quarantine attribute as a browser's download writes it (flags 0083, now, the agent, a new event).
 quarantine() {
