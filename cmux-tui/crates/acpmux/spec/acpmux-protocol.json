@@ -7923,6 +7923,13 @@
             "null"
           ]
         },
+        "shown": {
+          "description": "Whether the page that watches is shown (capability `session-list-shown-v1`,\n`server/list_shown.rs`). False: the connection hears `_acpmux/session_changed` only for\nthe chats it is attached to (the reply is the usual list or follow). True after false,\nwith `afterSeq`: the follow starts no later than the last position the connection was\nsent while shown, so it holds exactly the rows changed while hidden. Absent: unchanged\n(shown for a client that never says).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "withTools": {
           "description": "Include tool inventories explicitly; default census rows omit them.",
           "type": [

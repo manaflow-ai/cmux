@@ -175,7 +175,14 @@ import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
-import { SessionPageError, SessionPager, type SessionPage, withUsage, LIST_FOLLOW_CAPABILITY } from "./sessionPages";
+import {
+  SessionPageError,
+  SessionPager,
+  type SessionPage,
+  withUsage,
+  LIST_FOLLOW_CAPABILITY,
+  LIST_SHOWN_CAPABILITY,
+} from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import {
   isCodexSleep,
@@ -4307,6 +4314,8 @@ export class AcpmuxDirectClient {
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
+      // A hidden page hears only its own chats (acpmux server/list_shown.rs): every watch says.
+      this.sessionPages.shown = this.capabilities?.has(LIST_SHOWN_CAPABILITY) ? pageShown : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -6139,11 +6148,16 @@ export class AcpmuxDirectClient {
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
-    if (this.listChangedWhileHidden && pageShown() && !this.closed) {
+    if (this.closed) return;
+    // An acpmux that takes `shown` (acpmux server/list_shown.rs) sends a hidden page only its own
+    // chats; shown again, the page follows the rows changed meanwhile, and draws once (Leo,
+    // 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?").
+    if (this.listShownChanged()) this.listChangedWhileHidden = false;
+    else if (this.listChangedWhileHidden && pageShown()) {
+      // An older acpmux sent every chat while hidden: they draw now.
       this.listChangedWhileHidden = false;
       this.emitInFrame("session changed");
     }
-    if (this.closed) return;
     if (pageShown()) this.wake();
     if (pageShown() && this.readAheadOwed) {
       this.readAheadOwed = false;
@@ -6161,6 +6175,23 @@ export class AcpmuxDirectClient {
     if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
       this.checkStall(sessionId, "stop");
   };
+
+  /// Tells acpmux the page was hidden or shown, when it takes `shown` (sessionPages.ts `shown`).
+  /// True when a show's follow reads the rows changed while hidden; `refreshSessions` draws them.
+  /// A socket that is not open says it on its reconnect's watch.
+  private listShownChanged(): boolean {
+    const pages = this.sessionPages;
+    if (!pages.shown || pages.shownSent === undefined) return false;
+    if (this.socket?.readyState !== WebSocket.OPEN || this.endedSocket === this.socket) return false;
+    const shown = pageShown();
+    if (shown === pages.shownSent) return false;
+    if (!shown) {
+      void pages.hide().catch(() => undefined);
+      return false;
+    }
+    void this.refreshSessions().catch(() => this.rereadSessionsLater());
+    return true;
+  }
 
   private stopAttention?: () => void;
   /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears the

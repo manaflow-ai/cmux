@@ -55,6 +55,10 @@ export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run
  *  `afterSeq` (acpmux hub/row_log.rs). */
 export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
 
+/** The `initialize` capability of an acpmux that takes `shown` on `_acpmux/watch`: a hidden page
+ *  hears only the chats it is attached to (acpmux server/list_shown.rs). */
+export const LIST_SHOWN_CAPABILITY = "session-list-shown-v1";
+
 /** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
 type Cursor = { epoch: string; seq: number };
 
@@ -141,12 +145,38 @@ export class SessionPager<S extends Summary> {
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
+  /**
+   * Whether the page shows, when this connection's acpmux has `LIST_SHOWN_CAPABILITY` (acpmux
+   * server/list_shown.rs; Leo, 2026-11-18: "Why should non visible thing even affect the renderer
+   * thread anyways?"): every watch says it, and a hidden page hears only the chats it is attached
+   * to. Undefined: an older acpmux, which hears every chat. `shownSent`: what the last watch said.
+   */
+  shown?: () => boolean;
+  shownSent?: boolean;
 
   /** `held`: the rows the client holds now, which a follow lays its changes over. */
   constructor(
     private readonly request: Request,
     private readonly held: () => S[] = () => [],
   ) {}
+
+  /** A watch's params with `shown`, when acpmux takes it. */
+  private watchParams(params: Record<string, unknown>): Record<string, unknown> {
+    if (!this.shown) return params;
+    this.shownSent = this.shown();
+    return { ...params, shown: this.shownSent };
+  }
+
+  /** The page was hidden: acpmux stops sending other chats' changes until a watch shows it again
+   *  (`first`, which follows the rows changed meanwhile). Asked as a follow from the cursor (or a
+   *  page of one row), so its answer is small; the rows it holds came as notices already. */
+  async hide(): Promise<void> {
+    if (!this.shown || this.shownSent === false) return;
+    this.shownSent = false;
+    const from = this.follows ? this.cursor : undefined;
+    const at = from ? { afterSeq: from.seq, listEpoch: from.epoch } : { limit: 1 };
+    await this.request("_acpmux/watch", { enabled: true, shown: false, ...at });
+  }
 
   /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile.
    *  With a cursor (`follows`) it answers the held rows with every change since laid over them, as
@@ -163,7 +193,10 @@ export class SessionPager<S extends Summary> {
     this.listedAt = 0;
     const from = this.follows ? this.cursor : undefined;
     const params = from ? { enabled: true, afterSeq: from.seq, listEpoch: from.epoch } : {};
-    let reply = await this.request("_acpmux/watch", { enabled: true, limit: SESSION_PAGE, ...params });
+    let reply = await this.request(
+      "_acpmux/watch",
+      this.watchParams({ enabled: true, limit: SESSION_PAGE, ...params }),
+    );
     if (run !== this.run) return undefined;
     if (reply?.follow !== true) {
       this.listedFrom(reply);
@@ -175,12 +208,10 @@ export class SessionPager<S extends Summary> {
       this.listedFrom(reply);
       const at = cursorOf(reply);
       if (reply.more !== true || at === undefined) break;
-      reply = await this.request("_acpmux/watch", {
-        enabled: true,
-        limit: SESSION_PAGE,
-        afterSeq: at.seq,
-        listEpoch: at.epoch,
-      });
+      reply = await this.request(
+        "_acpmux/watch",
+        this.watchParams({ enabled: true, limit: SESSION_PAGE, afterSeq: at.seq, listEpoch: at.epoch }),
+      );
       if (run !== this.run) return undefined;
       // One acpmux cannot follow from its own position (it restarted between the two): its first page.
       if (reply?.follow !== true) {
@@ -239,6 +270,9 @@ export class SessionPager<S extends Summary> {
   fresh(listSeq: unknown): boolean {
     if (typeof listSeq !== "number" || !Number.isSafeInteger(listSeq)) return true;
     if (listSeq < this.listedAt) return false;
+    // Hidden, the page hears only its own chats: their positions may pass other rows it was not
+    // sent, so the cursor stays where the page last heard every chat (a reconnect follows from it).
+    if (this.shownSent === false) return true;
     if (this.cursor && !this.loading && listSeq > this.cursor.seq) this.cursor = { ...this.cursor, seq: listSeq };
     if (this.reading && listSeq > this.reading.seq) this.reading = { ...this.reading, seq: listSeq };
     return true;
@@ -250,7 +284,7 @@ export class SessionPager<S extends Summary> {
    * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
    */
   async whole(): Promise<S[]> {
-    const reply = await this.pacedRequest("_acpmux/watch", { enabled: true });
+    const reply = await this.pacedRequest("_acpmux/watch", this.watchParams({ enabled: true }));
     let page = wholePageOf<S>(reply);
     this.listedFrom(reply);
     const sessions = page.sessions;
