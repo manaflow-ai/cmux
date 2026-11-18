@@ -1882,6 +1882,24 @@ class RecentPages(Case):
             self.assertFalse(os.path.exists(os.path.join(self.out, "report.json")))
 
 
+class SessionLimit(unittest.TestCase):
+    """`session_limit` of the report: what the session does not have, with no recent pages and with them."""
+
+    def limit(self, sites):
+        sentence = getattr(M, "session_limit", None)
+        self.assertIsNotNone(sentence, "the tool has no sentence of the session's limit for the option")
+        return sentence(sites)
+
+    def test_a_run_with_no_option_has_the_sentence_of_before(self):
+        self.assertEqual(self.limit(0), M.SEED_LIMIT)
+
+    def test_a_run_with_recent_pages_does_not_say_that_no_favicon_work_is_in_its_rows(self):
+        text = self.limit(40)
+        self.assertNotIn("favicon work and", text)  # the sentence of before: no favicon work is in the rows
+        self.assertIn("`recent_pages`", text)  # where the report says what the icons are, and their limits
+        self.assertIn("one folder", text)  # the folders' limit holds with the option
+
+
 class Engine(unittest.TestCase):
     """`page_engine`: the app's own word on its page engine (`debug.cef`), in each case."""
 
