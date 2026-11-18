@@ -947,9 +947,33 @@ class DeadLabelRescueTests(unittest.TestCase):
         summary = self.rescue(actions)
         # Only the cancelled jobs re-run: jobs that already passed keep their result.
         self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun-failed", 10)])
-        for run_id, why in ((13, "release/publish"), (14, "signing/deploy"), (15, "signing/deploy"),
-                            (16, "attempt 2")):
-            self.assertRegex(summary, rf"run {run_id} \(.*left alone \(.*{why}")
+        # Protected (publish, signing, promotion) and already re-run runs leave before the window is cut.
+        for run in actions.in_flight:
+            reason = switch.protected_reason(run, dead=True)
+            self.assertEqual(bool(reason), run["id"] in (13, 14, 15, 16), run)
+        self.assertNotIn("run 13", summary)
+
+    def test_protected_and_retried_runs_never_fill_the_window(self) -> None:
+        retried = [{"id": 100 + n, "status": "queued", "event": "push", "name": "CI", "created_at": ago(300 - n),
+                    "run_attempt": 2} for n in range(switch.MAX_RUN_LISTINGS + 5)]
+        fresh = {"id": 500, "status": "queued", "event": "push", "name": "cmux-tui artifacts", "created_at": ago(20)}
+        jobs = {run["id"]: [self.DEAD_16] for run in [*retried, fresh]}
+        actions = FakeActions(None, [*retried, fresh], jobs)
+        self.rescue(actions)
+        self.assertEqual(actions.calls, [("force-cancel", 500), ("rerun-failed", 500)])
+
+    def test_a_macos_label_is_never_rescued(self) -> None:
+        # MACOS_RUNNER_* variables, which no pool step moves, can still name it.
+        self.assertNotIn("blacksmith-6vcpu-macos-26",
+                         switch.dead_labels({"_dead": {"blacksmith-6vcpu-macos-26": "x"}, "macos_26": "other"}))
+
+    def test_a_read_timeout_is_a_failed_call(self) -> None:
+        api = switch.GitHub("t", "o/r")
+        def boom(*_: object) -> None:
+            raise TimeoutError("read timed out")
+        api._send = boom  # type: ignore[method-assign]
+        with self.assertRaises(RuntimeError):
+            api.run(1)
 
     def test_a_dry_run_bad_value_or_no_dead_label_touch_nothing(self) -> None:
         actions = self.stranded()
@@ -975,6 +999,10 @@ class DeadLabelRescueTests(unittest.TestCase):
                                          log=lambda _: None, dry_run=False)
         self.assertEqual(actions.calls, [("force-cancel", 21), ("force-cancel", 20), ("rerun", 21), ("rerun", 20)])
         self.assertTrue(any("run 21" in line for line in lines))
+        logged: list[str] = []
+        switch.rescue_stuck_runs(FakeActions(None, runs, {20: [self.DEAD_16]}), own_run_id=1, minutes=5,
+                                 now=clock.now, sleep=clock.sleep, log=logged.append, dry_run=False)
+        self.assertEqual(logged, [])  # the overflow rescue's output is unchanged
 
     def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

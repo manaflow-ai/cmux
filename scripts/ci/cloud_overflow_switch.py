@@ -172,7 +172,7 @@ PROTECTED_WORKFLOW = re.compile(r"release|publish|notar|testflight|app[-_ ]?stor
 # dead label, and a second cancel would only repeat that.
 DEAD_PROTECTED_WORKFLOW = re.compile(r"sign|deploy|promot|rollback|nightly|train", re.IGNORECASE)
 DEAD_MAX_RESCUES = 10
-DEAD_CANCEL_WAIT_SECONDS = 180
+DEAD_CANCEL_WAIT_SECONDS = 120
 
 
 def parse_time(value: object) -> dt.datetime | None:
@@ -612,6 +612,10 @@ class GitHub:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+        except (OSError, ValueError) as error:
+            # A read timeout (TimeoutError) or a body that is not JSON: a failed call like any other, so a
+            # rescue that already force-cancelled runs still re-runs the rest.
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({type(error).__name__})") from error
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict[str, Any]]:
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
@@ -748,6 +752,10 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
                 seen.setdefault(int(run["id"]), run)
         except RuntimeError as error:
             lines.append(f"could not list {status} {event or ''} runs ({error})".replace("  ", " "))
+    if dead:
+        # Protected and already re-run runs leave the window before it is cut, so they cannot fill it
+        # pass after pass (a re-run keeps its created_at, so it stays oldest).
+        seen = {run_id: run for run_id, run in seen.items() if not protected_reason(run, dead)}
     candidates = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
                         key=lambda run: (dead and run.get("event") != "push",
                                          str(run.get("created_at") or "")))[:MAX_RUN_LISTINGS]
@@ -782,8 +790,9 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         try:
             api.force_cancel(int(run["id"]))
             cancelled.append(int(run["id"]))
-            # Logged now: if this step is killed before the re-run, the log still names the run.
-            log(f"run {run['id']}: force-cancelled; re-running it once it ends")
+            if dead:
+                # Logged now: if the step is killed before the re-run, its log still names the run.
+                log(f"run {run['id']}: force-cancelled; re-running it once it ends")
         except RuntimeError as error:
             lines.append(f"run {run['id']}: force-cancel failed ({error})")
     deadline = now() + dt.timedelta(seconds=wait_seconds)
@@ -827,13 +836,15 @@ def dead_labels(pools_value: Mapping[str, Any]) -> set[str]:
     2 and 32 vCPU served: an outcome this switch leaves to per-size routing, and the
     cmux-tui tree owners queued there held the NEXT nightly for hours until they were
     cancelled and re-run by hand. A dead label a pool still names is skipped: a re-run
-    would come back to it.
+    would come back to it, and so is any macOS label (below).
     """
     marks = pools_value.get(POOLS_DEAD_KEY)
     if not isinstance(marks, Mapping):
         return set()
     routed = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
-    return {str(label) for label in marks if cloud_label(str(label)) and str(label) not in routed}
+    # Linux only: a MACOS_RUNNER_* variable (which runner_pools.py never moves) can still name a dead
+    # macOS label, and a re-run would go straight back to it.
+    return {str(label) for label in marks if linux_cloud_label(str(label)) and str(label) not in routed}
 
 
 def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, own_run_id: int, minutes: int,
