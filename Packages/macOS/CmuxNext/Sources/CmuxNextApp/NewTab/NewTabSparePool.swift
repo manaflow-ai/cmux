@@ -381,7 +381,7 @@ final class NewTabSparePool {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
-        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: { [weak self] in self?.armWarmTimer() }) { return }
+        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) + shownChats.home(shown: services.windows.shownWorkspaceIDs.allSatisfy { services.workspace(id: $0).map { $0.kind == "home" } ?? true }) }, then: { [weak self] in self?.armWarmTimer() }) { return } // Home's page too (none shown yet: it may come)
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
