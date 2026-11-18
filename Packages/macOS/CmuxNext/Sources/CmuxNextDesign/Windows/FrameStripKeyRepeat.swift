@@ -1,12 +1,12 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 /// When the later keys of one frame strip go in (`debug.new_tab {action: "frame_strip"}` with `repeat`).
 ///
-/// A key's own work runs inside its send. A later key comes one interval after the key before it returned
-/// from its send:
+/// A key's own work runs inside its send. A person's second key does not come later because that work is long, so
+/// a later key is due a whole number of intervals after the first key WENT IN, not after the key before it returned:
 ///
 /// ```swift
 /// let keys = FrameStripKeyRepeat(intervalMilliseconds: 100)
-/// keys.delay(beforeKey: 1, elapsed: .milliseconds(34))  // 100 ms
+/// keys.delay(beforeKey: 1, elapsed: .milliseconds(34))  // 66 ms: the first key's work took 34 of the 100
 /// ```
 public nonisolated struct FrameStripKeyRepeat: Sendable, Equatable {
     /// The time between two keys (1 ms at least).
@@ -24,9 +24,9 @@ public nonisolated struct FrameStripKeyRepeat: Sendable, Equatable {
     /// - Parameters:
     ///   - index: The key: 1 is the second key of the strip.
     ///   - elapsed: The time since the first key went in (taken before that key's own work).
-    /// - Returns: The time from now at which the key goes in.
+    /// - Returns: The time from now at which the key goes in: zero when it is due already (the keys before it took longer).
     public func delay(beforeKey index: Int, elapsed: Duration) -> Duration {
-        interval
+        max(.zero, interval * index - elapsed)
     }
 }
 #endif
