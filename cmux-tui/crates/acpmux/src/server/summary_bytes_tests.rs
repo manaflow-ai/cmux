@@ -155,8 +155,8 @@ const READERS: &[(&str, Readers, Sent)] = &[
     ("usageWarnings", &["mac", "cli"], WhenSet),
 ];
 
-/// The bytes of a row of a chat with nothing set ([`default_row`]): 1,449 on base 0ecbcadd62.
-const DEFAULT_ROW_BUDGET: usize = 1_150;
+/// The bytes of a row of a chat with nothing set ([`default_row`]): 1,884 on base bf96eb2dfe1.
+const DEFAULT_ROW_BUDGET: usize = 1_600;
 
 fn empty(value: &Value) -> bool {
     match value {
@@ -197,8 +197,8 @@ fn chat(i: usize) -> Value {
     let id = format!("01a1{i:04x}-0490-7a21-acbb-57ab336c4e57");
     let mut meta = json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": format!("codex-{i}"),
-        "harness": if i % 3 == 0 { "claude" } else { "codex" },
-        "family": if i % 3 == 0 { "claude" } else { "codex" },
+        "harness": if i.is_multiple_of(3) { "claude" } else { "codex" },
+        "family": if i.is_multiple_of(3) { "claude" } else { "codex" },
         "cwd": "/home/cmux/Projects/leo-workspace",
         "agentSessionId": format!("019a{i:04x}-5af8-79a2-b224-82c697a12687"),
         "status": if live { "idle" } else { "closed" },
@@ -206,7 +206,7 @@ fn chat(i: usize) -> Value {
         "lastSeq": 400, "transcriptSeq": 380, "eventCount": 400, "turnCount": 3,
         "title": format!("Fix the session row's wire size, part {i} of the list audit for Leo"),
         "titleSource": "generated",
-        "lastPrompt": "x".repeat(208), "preview": "y".repeat(241), "unread": i % 7 == 0,
+        "lastPrompt": "x".repeat(208), "preview": "y".repeat(241), "unread": i.is_multiple_of(7),
         "permissionPolicy": "allow",
         "gitBranch": "lane/summary-slim-wire",
         "lastTurn": {"endedAt": 1_793_305_423_848u64, "promptId": format!("01a1894d-af4d-78e2-82bd-{i:012x}"),
@@ -217,7 +217,7 @@ fn chat(i: usize) -> Value {
         meta["lineage"] = json!({"parent": parent, "root": parent, "depth": 1});
         meta["tags"] = json!({"lane.reportsTo": {"value": parent}});
     }
-    if i % 50 == 0 {
+    if i.is_multiple_of(50) {
         meta["pullRequests"] =
             json!([format!("https://github.com/manaflow-ai/cmux/pull/{}", 40_000 + i)]);
     }
