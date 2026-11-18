@@ -218,10 +218,10 @@ env:
 jobs:
   # Fails the run in minutes when a label its jobs would wait on has no online runner, instead of every job sitting
   # queued for hours (2026-11-10: CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z;
-  # the nightly sat queued for 3+ h). It runs on the dedicated nightly-only pool, never on vars.CI_NIGHTLY_MINI, so a
-  # dead CI_NIGHTLY_MINI still fails in minutes; a dead nightly-only pool holds decide on the same label anyway. It
-  # was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted queue held it 1h25m+ (run 44207617943) and
-  # with it every nightly, while the nightly Macs were idle. It holds
+  # the nightly sat queued for 3+ h). It takes decide's own route, so it never waits longer than decide would, and in
+  # one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run (never split across Macs); there a dead
+  # mini holds it like every other job. It was on GitHub-hosted Ubuntu until 2026-11-18, when the org-wide hosted
+  # queue held it 1h25m+ (run 44207617943) and with it every nightly, while the nightly Macs were idle. It holds
   # no secret and reads only vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py). It never cancels anything;
   # an unreadable or stale census lets the run go on. A failure files the nightly's failure incident with the job's
   # token (report-nightly-failure never runs then). hq docs/handbook/runner-var-points-at-dead-host.md.
@@ -229,8 +229,8 @@ jobs:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    timeout-minutes: 3
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}
     steps:
       - name: Check out the preflight
         if: github.repository == 'manaflow-ai/cmux'
@@ -4668,6 +4668,12 @@ jobs:
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
+          # nightly-next ships the deltas from its nearest earlier builds with the build itself (hq#13299).
+          # A build tree from before it has no script: that build publishes full-only, as before.
+          if [ "$TRACK" = nightly-next ] && [ -f scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh ]; then
+            bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh
+            exit 0
+          fi
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
@@ -6560,15 +6566,7 @@ jobs:
 
       - *wipe-owned-credentials
 
-  # nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in
-  # runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the
-  # tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held
-  # the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done,
-  # and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign.
-  # It stays on GitHub-hosted Ubuntu (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the Sentry token keeps it
-  # off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would
-  # hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the
-  # published binary, as keep-published-dsyms finds them.
+  # Why: docs/ci/nightly-workflow-notes.md#note-28
   sentry-dsyms-nightly:
     needs: [published-build]
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.run_tail == 'true'"
@@ -6633,6 +6631,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.published-build.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.published-build.outputs.release_tag }}
       NIGHTLY_DELTAS_PREBUILD_ONLY: 1
+      # nightly-next shipped its 3 nearest deltas with the build (hq#13299): only the ~1 and ~3 day bases here.
+      NIGHTLY_DELTAS_NEAREST_SHIPPED: ${{ needs.published-build.outputs.track == 'nightly-next' && 'true' || '' }}
       # BinaryDelta peaks near 6 GB a delta; two at a time leave the mini's light work its memory.
       SPARKLE_DELTA_JOBS: 2
     steps:
@@ -6739,6 +6739,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.published-build.outputs.release_tag }}
       NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
       TRACK: ${{ needs.published-build.outputs.track }}
+      NIGHTLY_DELTAS_NEAREST_SHIPPED: ${{ needs.published-build.outputs.track == 'nightly-next' && 'true' || '' }}
       # Every item starts on the new build's ring; republish-nightly-deltas
       # moves the ones whose canary passed back to Nightly.
       SPARKLE_CHANNEL: ${{ needs.published-build.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
@@ -6922,6 +6923,7 @@ jobs:
             scripts/ci/publish-release-assets.py
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
+            scripts/ci/nightly_next_delta_check.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
@@ -7520,6 +7522,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+      # The detector (hq#13299): the build this run published must reach the feed with its deltas, each
+      # served at its length; a newer build already live passes with a notice. Red here names a feed
+      # where every Mac downloads the full 243 MB DMG.
+      - name: Check the published feed offers deltas
+        if: needs.nightly-next-one.outputs.feed_written == 'true'
+        env:
+          BUILD: ${{ needs.nightly-next-one.outputs.build }}
+        run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
@@ -7615,15 +7625,7 @@ jobs:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: python3 scripts/ci/nightly_published_build.py outputs
 
-  # The push run's half of the nightly-next pipeline (decide's pipeline): once the unsigned app and what the
-  # resume restores beside it are uploaded, ask for this build's sign run. It is the unsigned resume of this run
-  # (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run
-  # and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in
-  # the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited
-  # behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries
-  # again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's
-  # dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other
-  # failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
+  # Why: docs/ci/nightly-workflow-notes.md#note-27
   dispatch-nightly-next-sign:
     # It waits for the preparation too (prepare-nightly-variant, the app the signer signs): the sign run restores
     # that prepared app and starts at the signer.
