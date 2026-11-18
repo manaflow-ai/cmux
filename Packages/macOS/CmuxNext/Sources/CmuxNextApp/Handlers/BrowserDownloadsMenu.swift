@@ -30,7 +30,7 @@ enum BrowserDownloadsMenu {
             ("browser.download.copyLink", BrowserHitStrings.downloadCopyLink, "link"),
         ]
         for (id, title, symbol) in rows where offers(id, download) {
-            submenu.addItem(closure(title, symbol) { [weak registry] in if let registry { run(id, on: download, in: registry) } })
+            submenu.addItem(closure(title, symbol) { [weak registry] in run(id, on: download, list: list, in: registry) })
         }
         return submenu.items.isEmpty ? nil : submenu
     }
@@ -49,11 +49,11 @@ enum BrowserDownloadsMenu {
     }
 
     /// A row's palette action on `download`: the menu's choice, confirmed (Cancel asks nothing there), on the
-    /// browser the popup stands in for.
-    static func run(_ id: ActionID, on download: BrowserDownload, in registry: ActionRegistry) {
+    /// browser the popup stands in for; refused (or with no registry), the row's own effect (``perform``), as before.
+    static func run(_ id: ActionID, on download: BrowserDownload, list: BrowserDownloadList, in registry: ActionRegistry?) {
         var invocation = ActionInvocation(arguments: ["download": .string(download.id.uuidString)], origin: .user).confirmed()
-        invocation.keyContext = registry.context.union(.browserFocused)
-        registry.perform(id, invocation: invocation)
+        invocation.keyContext = registry?.context.union(.browserFocused)
+        if registry?.perform(id, invocation: invocation) != true { _ = perform(id, on: download, list: list) }
     }
 
     /// What the row of `id` does to `download` (the action's handler); false when the download has no such row now.
