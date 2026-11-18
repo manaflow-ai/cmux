@@ -57,11 +57,11 @@ sidebar's looks use the same bare names.
 | `userMessage.radius` | 0 to 28 points | 12 | The bubble's corner radius. |
 | `userMessage.paddingBlock` | 0 to 20 points | 10 | The space above and below the text in the bubble. |
 | `userMessage.paddingInline` | 0 to 24 points | 16 | The space beside the text in the bubble. |
-| `userMessage.fill` | 0 to 0.3 | 0.1 | How much of the text color the bubble's fill mixes in. 0 means no fill. |
-| `toolCard.radius` | 0 to 20 points | 8 | The corner radius of the transcript's cards: tool output, errors, plans and questions. |
+| `userMessage.fill` | 0 to 0.3 | 0.14 | How much of the text color the bubble's fill mixes in. 0 means no fill. |
+| `toolCard.radius` | 0 to 20 points | 6 to 12, by card | The corner radius of the transcript's cards: tool output, errors, plans and questions. |
 | `toolCard.border` | `hairline`, `none` | `hairline` | Whether those cards draw a hairline edge. |
 | `toolCards` | `row`, `card`, `minimal` | `row` | How a run of tool calls draws: rows with icons, the rows on a card, or quiet rows with no icons. |
-| `codeCard.radius` | 0 to 20 points | 8 | The corner radius of code blocks. |
+| `codeCard.radius` | 0 to 20 points | 16 | The corner radius of code blocks. |
 | `timestamps` | `hover`, `always`, `off` | `hover` | When a message's time shows. |
 
 Only these tokens change where rows sit: `density`, `rowSpacing`, `messageWidth`, the font tokens,
