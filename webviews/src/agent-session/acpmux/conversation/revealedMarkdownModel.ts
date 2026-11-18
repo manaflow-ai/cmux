@@ -64,6 +64,30 @@ type Loop = {
   grewAt?: number;
 };
 
+/// The replies (by row id, RevealedMarkdown's `artifactIdentity`) whose reveal still holds back text
+/// it has: their last lines show over the next frames (StreamReveal drains them in finishMs once
+/// the stream ends). The turn's end reads it (VirtualTranscript, turnEndFold.ts `hold`): the rows
+/// that would come down as the turn folds wait for those lines, which raise them again.
+const heldReveals = new Map<string, number>();
+
+/// Whether the reply `id` still holds back text it has. O(1).
+export function revealHolds(id: string): boolean {
+  return (heldReveals.get(id) ?? 0) > 0;
+}
+
+/// Notes, from the commit that draws it, whether the reply `id` holds back text it has.
+export function useHeldReveal(id: string | undefined, held: boolean): void {
+  useLayoutEffect(() => {
+    if (id === undefined || !held) return;
+    heldReveals.set(id, (heldReveals.get(id) ?? 0) + 1);
+    return () => {
+      const count = (heldReveals.get(id) ?? 1) - 1;
+      if (count > 0) heldReveals.set(id, count);
+      else heldReveals.delete(id);
+    };
+  }, [id, held]);
+}
+
 /// The part of `text` to show this frame, and the steps still fading in.
 export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
   const reveal = useRef<StreamReveal | null>(null);
