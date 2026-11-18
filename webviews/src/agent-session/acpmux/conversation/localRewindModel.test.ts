@@ -67,6 +67,18 @@ test("a prompt rewinds only when its turn ended with a rewind field, with its ow
   expect(localRewindMap(localRewindKey(ready))).toEqual(ready);
 });
 
+test("a rows-store prompt (row-<n>, no seq) rewinds by its prompt id", () => {
+  const rows = [
+    user("row-12", { promptId: "p:1" } as Partial<AcpmuxRow>),
+    summary(13, { rewind: { checkpointId: "cp" } }),
+    user("row-14"),
+    summary(15, { rewind: { checkpointId: "cp" } }),
+  ];
+  const ready = localRewindPrompts(rows);
+  expect([...ready]).toEqual([["row-12", "p:1"]]);
+  expect(localRewindMap(localRewindKey(ready))).toEqual(ready);
+});
+
 test("a prompt with no seq, a failed one or a waiting steer never rewinds", () => {
   const rows = [
     user("local-x"),

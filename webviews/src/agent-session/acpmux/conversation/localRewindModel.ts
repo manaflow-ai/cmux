@@ -37,16 +37,23 @@ export function promptSeqOf(row: AcpmuxRow): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-/// The prompts that rewind here, each with its seq: a prompt that opened a turn whose summary
-/// carries the turn's rewind fields. A prompt with no seq, and one whose turn has not ended, has none.
-export function localRewindPrompts(rows: readonly AcpmuxRow[]): Map<string, number> {
-  const ready = new Map<string, number>();
+/// The prompt a rewind names: its seq (`_acpmux/rewind {seq}`), else its prompt id
+/// (`{promptId}`), which a row of the rows store (`row-<n>`, no seq) still has.
+export type RewindAt = number | string;
+
+const rewindAtOf = (row: AcpmuxRow): RewindAt | undefined => promptSeqOf(row) ?? (row.promptId || undefined);
+
+/// The prompts that rewind here, each with what names it: a prompt that opened a turn whose summary
+/// carries the turn's rewind fields. A prompt with neither seq nor prompt id, and one whose turn has
+/// not ended, has none.
+export function localRewindPrompts(rows: readonly AcpmuxRow[]): Map<string, RewindAt> {
+  const ready = new Map<string, RewindAt>();
   let open: AcpmuxRow | undefined;
   for (const row of rows) {
     if (row.kind === "turnSummary") {
       if (open && row.rewind) {
-        const seq = promptSeqOf(open);
-        if (seq !== undefined) ready.set(open.id, seq);
+        const at = rewindAtOf(open);
+        if (at !== undefined) ready.set(open.id, at);
       }
       open = undefined;
     } else if (open === undefined && opensTurn(row)) open = row;
@@ -55,17 +62,11 @@ export function localRewindPrompts(rows: readonly AcpmuxRow[]): Map<string, numb
 }
 
 /// The same prompts as a string, so the App rebuilds its actions only when they change.
-export const localRewindKey = (ready: ReadonlyMap<string, number>) =>
-  [...ready].map(([id, seq]) => `${id}:${seq}`).join(",");
+export const localRewindKey = (ready: ReadonlyMap<string, RewindAt>) => (ready.size ? JSON.stringify([...ready]) : "");
 
 /// The prompts back from `localRewindKey`.
-export function localRewindMap(key: string): Map<string, number> {
-  const ready = new Map<string, number>();
-  for (const entry of key ? key.split(",") : []) {
-    const at = entry.lastIndexOf(":");
-    ready.set(entry.slice(0, at), Number(entry.slice(at + 1)));
-  }
-  return ready;
+export function localRewindMap(key: string): Map<string, RewindAt> {
+  return new Map<string, RewindAt>(key ? (JSON.parse(key) as [string, RewindAt][]) : []);
 }
 
 /// Why acpmux won't reset the files (dry run `filesBlocked.reason`, an error's `data.reason`).
@@ -247,20 +248,20 @@ export async function undoRewind(
   if (undo.rewound) await io.open(undo.original);
 }
 
-/// The steps a confirmed rewind takes: acpmux's rewind of prompt `seq`; then a conversation that
+/// The steps a confirmed rewind takes: acpmux's rewind of prompt `at`; then a conversation that
 /// went back opens its fork in this pane and gets the prompt's text in the composer, unsent. Settles
 /// with the Undo the notice offers.
 export async function applyRewind(
-  seq: number,
+  at: RewindAt,
   choice: RewindChoice,
   io: {
     original: string;
-    rewind(seq: number, choice: RewindChoice): Promise<unknown>;
+    rewind(at: RewindAt, choice: RewindChoice): Promise<unknown>;
     open(sessionId: string): Promise<unknown>;
     restorePrompt(text: string): void;
   },
 ): Promise<RewindUndo> {
-  const applied = parseApplied(await io.rewind(seq, choice), io.original);
+  const applied = parseApplied(await io.rewind(at, choice), io.original);
   const rewound = applied.sessionId && applied.sessionId !== applied.undo.sessionId ? applied.sessionId : undefined;
   if (rewound) await io.open(rewound);
   if (choice.conversation && applied.prompt?.text) io.restorePrompt(applied.prompt.text);

@@ -2255,7 +2255,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const rewindRows = useMemo(() => readyPromptMap(rewindRowsKey), [rewindRowsKey]);
   const rewindReady = useMemo<ReadonlySet<string>>(() => new Set(rewindRows.keys()), [rewindRows]);
   // Back to before this turn in a chat on this machine (conversation/localRewindModel.ts): the prompts
-  // whose turn acpmux took a rewind checkpoint for (`agents.turnCheckpoints`), each with its seq.
+  // whose turn acpmux took a rewind checkpoint for (`agents.turnCheckpoints`), each with its seq (or
+  // its prompt id, for a rows-store row).
   // None with the setting off, so no prompt draws it. Rebuilt only when they change.
   const localRewindRowsKey = localRewindKey(localRewindPrompts(snapshot.rows));
   const localRewindRows = useMemo(() => localRewindMap(localRewindRowsKey), [localRewindRowsKey]);
@@ -4314,19 +4315,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           localRewind: {
             ready: localRewindReady,
             dryRun: async (rowId: string) => {
-              const seq = localRewindRows.get(rowId);
+              const at = localRewindRows.get(rowId);
               const client = directClient.current;
-              if (seq === undefined || !client) throw new Error(translate("error.notOpen"));
-              return parseDryRun(await client.rewind(seq, { conversation: true, files: true }, true));
+              if (at === undefined || !client) throw new Error(translate("error.notOpen"));
+              return parseDryRun(await client.rewind(at, { conversation: true, files: true }, true));
             },
             apply: async (rowId: string, choice: RewindChoice) => {
-              const seq = localRewindRows.get(rowId);
+              const at = localRewindRows.get(rowId);
               const client = directClient.current;
               const original = snapshotRef.current?.sessionId;
-              if (seq === undefined || !client || !original) throw new Error(translate("error.notOpen"));
-              const undo = await applyRewind(seq, choice, {
+              if (at === undefined || !client || !original) throw new Error(translate("error.notOpen"));
+              const undo = await applyRewind(at, choice, {
                 original,
-                rewind: (at, parts) => client.rewind(at, parts, false, original),
+                rewind: (prompt, parts) => client.rewind(prompt, parts, false, original),
                 open: (sessionId) => callNative("chat.select", { sessionId }),
                 restorePrompt: (text) => composerHandle.current?.restore(text, []),
               });

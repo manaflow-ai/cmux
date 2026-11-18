@@ -14769,12 +14769,12 @@ export class AcpmuxDirectClient {
     }
   }
   /// Back to before this turn (conversation/localRewindModel.ts): acpmux's rewind of the shown chat to
-  /// before prompt `seq`, its conversation (a fork through the turn before, or the harness's own
-  /// rewind) and/or its files (back to the checkpoint taken before that prompt). `dryRun` changes
-  /// nothing and answers what would go back and why the files can't. A refusal rejects with acpmux's
-  /// `reason` (`shared`, `not_git`, `fork.unsupported`, ...).
+  /// before prompt `at` (its seq, else its prompt id), its conversation (a fork through the turn
+  /// before, or the harness's own rewind) and/or its files (back to the checkpoint taken before that
+  /// prompt). `dryRun` changes nothing and answers what would go back and why the files can't. A
+  /// refusal rejects with acpmux's `reason` (`shared`, `not_git`, `fork.unsupported`, ...).
   rewind(
-    seq: number,
+    at: number | string,
     choice: { conversation: boolean; files: boolean },
     dryRun = false,
     sessionId = this.actingSessionId,
@@ -14782,7 +14782,7 @@ export class AcpmuxDirectClient {
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     return this.request("_acpmux/rewind", {
       sessionId,
-      seq,
+      ...(typeof at === "number" ? { seq: at } : { promptId: at }),
       conversation: choice.conversation,
       files: choice.files,
       ...(dryRun ? { dryRun: true } : {}),
