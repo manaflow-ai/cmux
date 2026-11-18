@@ -600,6 +600,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteFetch",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
             ],
             resources: [
@@ -628,6 +629,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWindowRules",
             ],
             swiftSettings: uiSwiftSettings
         ),
