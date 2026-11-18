@@ -55,6 +55,8 @@ mod streaming_restart_gap;
 mod take_over_replaced_binary;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/translator_panic.rs"]
+mod translator_panic;
 #[path = "durable_agents/unread_store.rs"]
 mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]

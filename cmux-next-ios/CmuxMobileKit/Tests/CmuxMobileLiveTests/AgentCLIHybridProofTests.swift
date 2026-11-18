@@ -7,7 +7,13 @@ import Testing
 /// The proofs that the phone's lean decoder draws agent CLI screens right (Leo, 2026-11-16:
 /// "prove it correct" / "i think we prob need more ways to prove things correct in ios").
 /// Each prints one `HYBRID_PROOF` line of JSON with what it ran.
-@MainActor @Suite struct AgentCLIHybridProofTests {
+///
+/// The suite is not on the main actor: the parity and fuzz proofs are tens of seconds of
+/// synchronous work in a debug build, and on the main actor they held the main thread for all
+/// of it, so every other main-actor test in the same `swift test` process stalled and its
+/// `eventually` or deadline wait ran out (the macOS kit-test leg, ~42 s in). Only the tests
+/// that drive a `DaemonTerminalSession` are `@MainActor`.
+@Suite struct AgentCLIHybridProofTests {
     // MARK: 1. Parity with the reference terminal
 
     /// Every frame of four recorded sessions (Claude Code 2.1.310, Codex 0.164.0, opencode 1.19.5
@@ -19,6 +25,7 @@ import Testing
     /// ghostty-vt for the same check.
     @Test(arguments: HybridParityFixture.names)
     func everyFrameDrawsTheReferenceScreen(name: String) throws {
+        #expect(!Thread.isMainThread, "the parity proof holds the main thread")
         let fixture = try #require(HybridParityFixture.load(name), "\(name): no fixture at \(HybridParityFixture.url(name).path)")
         var parser = DaemonTerminalEventParser(surface: 1)
         var decoder = AgentCLIHybridLeanDecoder()
@@ -163,6 +170,7 @@ import Testing
     /// falls back (a full resync, then bytes mode) before it draws a wrong one. Seeded:
     /// the same 6,000 cases on every run.
     @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() throws {
+        #expect(!Thread.isMainThread, "6,000 fuzz cases hold the main thread")
         let fixtures = HybridParityFixture.all
         try #require(fixtures.count == HybridParityFixture.names.count, "the parity fixtures")
         var rng = SeededGenerator(seed: 0x4405_2C0F_FEE0_7CEE)
@@ -409,14 +417,14 @@ import Testing
         #expect(frame([.set(row: 0, column: 0, cells: [.init(text: "界", style: plain), .init(text: "", style: plain)])]).invalidReason == nil)
     }
 
-    private func waitUntil(attempts: Int = 500, _ condition: @MainActor () -> Bool) async throws {
+    @MainActor private func waitUntil(attempts: Int = 500, _ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(condition())
     }
 
-    private func defaults(hybrid: Bool) throws -> UserDefaults {
+    @MainActor private func defaults(hybrid: Bool) throws -> UserDefaults {
         let defaults = try #require(UserDefaults(suiteName: "AgentCLIHybridProofTests-\(UUID().uuidString)"))
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
         return defaults
@@ -433,7 +441,7 @@ import Testing
     /// A frame the phone cannot draw makes the session attach again at once for a full resync
     /// (no resume: the Mac sends a keyframe); a second one, in bytes mode (no hybrid
     /// capability declared: the PTY's bytes, as before the hybrid stream).
-    @Test func aFrameThatCannotBeDrawnResyncsThenFallsBackToBytes() async throws {
+    @MainActor @Test func aFrameThatCannotBeDrawnResyncsThenFallsBackToBytes() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.hybridEvents = [v1Event(frame: 1, base: nil), v1Event(frame: 2, base: 9, data: Data([0, 0, 0, 0]))]
         let link = MockMacLink { service, line in daemon.respond(service, line) }
@@ -459,7 +467,7 @@ import Testing
     /// daemon's `identify` did not list `agent-cli-hybrid-v1`, and such a daemon refuses those
     /// fields. The phone resumes only on a daemon that lists the capability, otherwise it
     /// attaches for bytes as before.
-    @Test func aResumeGoesOnlyToADaemonThatListsTheHybridStream() async throws {
+    @MainActor @Test func aResumeGoesOnlyToADaemonThatListsTheHybridStream() async throws {
         for daemonStillLists in [true, false] {
             let daemon = FakeTerminalDaemon()
             daemon.advertisesHybrid = true
@@ -503,7 +511,7 @@ import Testing
     }
 
     /// The screen's output and the commands of one attach, a link drop and a reattach.
-    private func attachTwice(hybridSetting: Bool, daemonKnowsHybrid: Bool) async throws -> (output: String, daemon: FakeTerminalDaemon) {
+    @MainActor private func attachTwice(hybridSetting: Bool, daemonKnowsHybrid: Bool) async throws -> (output: String, daemon: FakeTerminalDaemon) {
         let daemon = FakeTerminalDaemon()
         if daemonKnowsHybrid {
             // A new daemon: it would send frames to a phone that declared the capability.
@@ -540,7 +548,7 @@ import Testing
     /// phone (the setting on) on an old daemon (it never sends a frame) gets the same bytes and
     /// never asks to resume a stream. The daemon's side of both is cmux-tui's
     /// `old_viewers_get_what_they_got_before` and the SDK's `a_new_viewer_on_an_old_daemon_falls_back_to_bytes`.
-    @Test func oldPhonesAndOldDaemonsKeepTheByteStream() async throws {
+    @MainActor @Test func oldPhonesAndOldDaemonsKeepTheByteStream() async throws {
         let oldPhone = try await attachTwice(hybridSetting: false, daemonKnowsHybrid: true)
         let newPhone = try await attachTwice(hybridSetting: true, daemonKnowsHybrid: false)
         #expect(capabilities(oldPhone.daemon) == [DaemonTerminalSession.clientCapabilities, DaemonTerminalSession.clientCapabilities])
