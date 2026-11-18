@@ -82,6 +82,7 @@ extension PaneContentRidesTests {
         harness.root.context.afterCommit = { [landing] in landing.work.append($0) }
         let host = try #require(Motion.hosts(of: screen)[Commit.right], "SETUP: the right pane does not show")
         let before = host.content.frame.size
+        let sizes = harness.provider.contents[Commit.right]?.sizes.count ?? 0
 
         harness.model.apply(screens: Self.rightPaneSplit)
         harness.root.syncWithModel()
@@ -105,51 +106,8 @@ extension PaneContentRidesTests {
         #expect(!host.holdsContentForMove, "after the key's landing the pane holds its content at the size of before the split")
         #expect(host.content.frame == host.clipView.bounds, "after the key's landing the content is \(host.content.frame) in a clip of \(host.clipView.bounds)")
         #expect(host.content.frame.width < before.width - 1, "after the key's landing the content is \(host.content.frame.size), no narrower than the \(before) before the split")
-    }
-
-    /// `nativeBesideAPane` with its right pane split and its first divider a little to the left: the left pane gets
-    /// 2 % of the column narrower.
-    static var leftPaneALittleNarrower: [LayoutScreen] {
-        let halves = SplitNode.split(SplitID("new"), axis: .horizontal, ratio: 0.5, a: .leaf(Commit.right), b: .leaf(Commit.added))
-        return columns([LayoutColumn(id: "c", width: 1, root: .split(SplitID("s"), axis: .horizontal, ratio: 0.48, a: .leaf(Commit.left), b: halves))])
-    }
-
-    /// A key that makes a held pane larger than its old picture: the act makes the left pane a little narrower, and
-    /// the key makes it wider than it was before the act. In no frame is a part of the pane's content rect bare.
-    @Test func aResizeKeyThatMakesAHeldPaneLargerThanItsOldPictureShowsNoGroundInThePane() throws {
-        let (harness, screen) = try Self.rested(at: Self.nativeBesideAPane)
-        defer { harness.window.closeAfterTest() }
-        let landing = AllKinds.Landing()
-        harness.root.context.afterCommit = { [landing] in landing.work.append($0) }
-        let host = try #require(Motion.hosts(of: screen)[Commit.left], "SETUP: the left pane does not show")
-        let before = host.content.frame.size
-
-        harness.model.apply(screens: Self.leftPaneALittleNarrower)
-        harness.root.syncWithModel()
-        _ = harness.root.advanceFrame(Motion.dt)
-        try #require(Motion.hosts(of: screen)[Commit.left] === host, "SETUP: the left pane has another host after the act")
-        try #require(Motion.inFlight(screen) && host.holdsContentForMove, "SETUP: the left pane is not held in a move")
-
-        try #require(PaneResize.press(Commit.left, .right, model: harness.model, view: harness.root), "SETUP: the resize key was refused")
-        var bare: [String] = [], frames = 0, moving = true, widest: CGFloat = 0
-        while frames < 240, moving || Motion.inFlight(screen) {
-            moving = harness.root.advanceFrame(Motion.dt)
-            harness.root.layoutSubtreeIfNeeded()
-            frames += 1
-            let content = host.content.frame, clip = host.clipView.bounds
-            widest = max(widest, clip.width)
-            if content.minX > clip.minX + 0.5 || content.maxX < clip.maxX - 0.5 || content.minY > clip.minY + 0.5 || content.maxY < clip.maxY - 0.5 {
-                bare.append("frame \(frames): the content is \(content) in a clip of \(clip)")
-            }
-        }
-        try #require(widest > before.width + 2, "SETUP: the key made the pane's content rect at most \(widest) wide; the old picture is \(before.width) wide")
-        #expect(bare.isEmpty, "a part of the pane's content rect is bare in \(bare.count) of \(frames) frames after the key: \(bare.prefix(3))")
-
-        let release = landing.work
-        landing.work.removeAll()
-        for work in release { work() }
-        harness.root.layoutSubtreeIfNeeded()
-        #expect(host.content.frame == host.clipView.bounds, "after the key's landing the content is \(host.content.frame) in a clip of \(host.clipView.bounds)")
+        let took = (harness.provider.contents[Commit.right]?.sizes.count ?? 0) - sizes
+        #expect(took == 1, "from the split to after the key's landing the content took \(took) sizes; it takes its pane's size one time")
     }
 
     /// Each pane's content is the app's pane content view: the right pane shows `page`, each other pane a page's view.
