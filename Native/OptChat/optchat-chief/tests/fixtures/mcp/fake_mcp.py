@@ -10,6 +10,7 @@
                  (session era; --token T makes it answer 401 without it).
 """
 import json, sys, threading, time, uuid
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 ERA = "stateless" if "--era" in sys.argv and sys.argv[sys.argv.index("--era") + 1] == "stateless" else "session"
 lock = threading.Lock()

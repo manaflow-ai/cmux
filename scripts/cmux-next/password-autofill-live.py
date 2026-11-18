@@ -22,6 +22,7 @@ the tab agent-driven and turns filling off: the page reports its own form
 Quits the app through the socket (by PID if it hangs) and stops the tag's daemons at the end.
 """
 import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402

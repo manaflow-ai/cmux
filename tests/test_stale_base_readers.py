@@ -29,6 +29,7 @@ import time
 import unittest
 import unittest.mock
 from pathlib import Path
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 _git_fixture_spec = importlib.util.spec_from_file_location(

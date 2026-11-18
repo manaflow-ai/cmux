@@ -16,6 +16,7 @@ Nothing is printed: the panels are left open and the app is quit at the end. Sna
 what opened go to --out. GUI host only (a capture mini). Exits 1 when a check fails.
 """
 import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402

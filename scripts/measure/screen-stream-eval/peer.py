@@ -32,6 +32,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 POLL_S = 20  # how long one /next request waits for a command
 CALL_WAIT_S = 900  # how long a call waits for its result (a window verb runs about 90 s)

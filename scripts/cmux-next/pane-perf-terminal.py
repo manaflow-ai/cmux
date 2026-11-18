@@ -58,6 +58,7 @@ Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--b
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)

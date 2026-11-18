@@ -587,6 +587,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Checks that a Python script's line right before it stops a process never skips the kill on a closed stdout (BrokenPipeError): behaviour rows on three cmux-next cleanups and an AST scan of scripts/; run python3 -I tests/test_python_guard_logs_survive_closed_pipe.py yourself after adding or changing a script that prints right before it stops a process (about 20 s; python3 and ps)."
 
 [[test]]
+path = "tests/test_python_http_server_no_lookup.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that every tracked Python file starting an http.server or wsgiref server sets the one-line prelude that binds with no reverse DNS lookup of its own address (the system's Local Network prompt), and that nothing calls getfqdn() itself; run python3 -I tests/test_python_http_server_no_lookup.py yourself after adding or changing a Python HTTP server (`--fix` inserts the prelude; about 30 s, python3 and git, no build)."
+
+[[test]]
 path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 

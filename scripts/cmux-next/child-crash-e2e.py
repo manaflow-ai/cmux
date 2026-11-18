@@ -19,6 +19,7 @@ socket; the script never launches or quits it.
 Usage: child-crash-e2e.py --socket <path> [--app-pid PID] [--only renderer,gpu,webkit,agent]
 """
 import argparse, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 

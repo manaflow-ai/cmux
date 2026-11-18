@@ -23,6 +23,7 @@ With --budget, a breach of any limit in the file (see browser-idle-cost-budget.j
 Quits the app through the socket, then ends the tag's daemons (TagTeardown).
 """
 import argparse, glob, http.server, importlib.util, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)

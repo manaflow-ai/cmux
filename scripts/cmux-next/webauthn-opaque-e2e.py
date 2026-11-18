@@ -22,6 +22,7 @@ Usage: webauthn-opaque-e2e.py --tag <tag> [--timeout 60]
 """
 import argparse, glob, http.server, json, os, re, signal, socket, subprocess, sys, tempfile, threading, time
 from urllib.parse import parse_qs, quote, urlparse
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 

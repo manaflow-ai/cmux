@@ -80,6 +80,7 @@ Prints one line `STRESS-SESSION {json}`: workspaces, the measured workspace id, 
 kind, busy terminals, Chromium pages elsewhere and the build time.
 """
 import argparse, http.server, json, os, signal, socket, sys, tempfile, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
