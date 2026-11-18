@@ -28,14 +28,14 @@ export function AgentToolsCard() {
     },
     [store],
   );
-  const run = async (gesture: AgentToolsCardRun) => {
+  const run = (gesture: AgentToolsCardRun) => {
     setBusy(true);
-    try {
-      const next = await store.runAgentTools(gesture);
-      if (next) setState(next);
-    } finally {
-      setBusy(false);
-    }
+    void store
+      .runAgentTools(gesture)
+      .then((next) => {
+        if (next) setState(next);
+      })
+      .finally(() => setBusy(false));
   };
   const rows = state?.rows ?? [];
   const manual = state?.manual ?? [];
