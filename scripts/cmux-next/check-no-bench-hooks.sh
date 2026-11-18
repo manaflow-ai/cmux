@@ -11,6 +11,7 @@ expect=0
 if [[ "${1:-}" == --expect ]]; then expect=1; shift; fi
 [[ $# -eq 1 && -d "$1" ]] || { echo "usage: $0 [--expect] <app bundle>" >&2; exit 2; }
 app="$1"
+[[ -f "$app/Contents/Info.plist" ]] || { echo "error: $app has no Contents/Info.plist" >&2; exit 2; }
 exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || true)"
 exe="$app/Contents/MacOS/$exe_name"
 [[ -n "$exe_name" && -f "$exe" ]] || { echo "error: no main executable in $app" >&2; exit 2; }
