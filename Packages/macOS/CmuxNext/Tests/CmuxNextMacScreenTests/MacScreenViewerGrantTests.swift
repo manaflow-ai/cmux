@@ -6,12 +6,12 @@ import Foundation
 @testable import CmuxNextMacScreen
 import Testing
 
-private let hostID = "6f1c2a7e-0b1d-4c55-9a63-2f1e7d9b8a10"
-private let viewerID = "0d4b9e21-77aa-4f0e-8c3b-5a6d1e2f3c40"
+nonisolated private let hostID = "6f1c2a7e-0b1d-4c55-9a63-2f1e7d9b8a10"
+nonisolated private let viewerID = "0d4b9e21-77aa-4f0e-8c3b-5a6d1e2f3c40"
 
 /// One side of a hub session socket. Grant frames go to the other side's handler through `relay`
 /// (the Session DO), which a test may rewrite in transit; screen signals come in through `feed`.
-nonisolated private final class Socket: MacScreenGrantChannel, Sendable {
+nonisolated final class GrantTestSocket: MacScreenGrantChannel, Sendable {
     private struct State {
         var handler: (@Sendable (String) -> Void)?
         var relay: (@Sendable (String) -> Void)?
@@ -36,7 +36,7 @@ nonisolated private final class Socket: MacScreenGrantChannel, Sendable {
     func setGrantHandler(_ handler: (@Sendable (String) -> Void)?) { state.withLock { $0.handler = handler } }
     func sendGrantFrame(_ text: String) async throws { state.withLock { $0.relay }?(text) }
 
-    func relay(to peer: Socket, rewrite: @escaping @Sendable (String) -> String = { $0 }) {
+    func relay(to peer: GrantTestSocket, rewrite: @escaping @Sendable (String) -> String = { $0 }) {
         state.withLock { $0.relay = { [weak peer] text in peer?.deliver(rewrite(text)) } }
     }
     func deliver(_ text: String) { state.withLock { $0.handler }?(text) }
@@ -47,7 +47,7 @@ nonisolated private final class Socket: MacScreenGrantChannel, Sendable {
 /// acpmux's two person-line calls, as `viewer_grant_host.rs` answers them (the Rust tests hold the
 /// real rules): a one-time challenge per session, a key registered on its first signed proof, and a
 /// proof admitted only for this host, the ticket's viewer and session, the fresh challenge and the key.
-@MainActor private final class Acpmux {
+@MainActor final class GrantTestAcpmux {
     var keys: [String: P256.Signing.PublicKey] = [:]
     var challenges: [String: String] = [:]
     var calls: [String] = []
@@ -103,22 +103,22 @@ private func ticket(_ session: String, role: SessionTicket.Role) -> SessionTicke
 }
 
 /// A frame the viewer sent, kept as it crossed the relay.
-nonisolated private final class Captured: Sendable {
+nonisolated final class GrantTestCaptured: Sendable {
     let frame = Mutex<String?>(nil)
 }
 
 @Suite @MainActor struct MacScreenViewerGrantTests {
     struct Run {
-        let host: Socket
+        let host: GrantTestSocket
         let gated: MacScreenGrantGatedSignaling
         let got: [ScreenSignal]
     }
 
     /// One session: the host's ticket was refused by its consent and serves gated; the viewer answers.
     /// The host's side signals `hello` and the viewer's offer; `got` is what the screen path received.
-    func run(_ session: String, acpmux: Acpmux, answer: @escaping MacScreenGrantAnswer,
+    func run(_ session: String, acpmux: GrantTestAcpmux, answer: @escaping MacScreenGrantAnswer,
              rewrite: @escaping @Sendable (String) -> String = { $0 }) async throws -> Run {
-        let (host, viewer) = (Socket(), Socket())
+        let (host, viewer) = (GrantTestSocket(), GrantTestSocket())
         host.relay(to: viewer)
         viewer.relay(to: host, rewrite: rewrite)
         let gated = MacScreenGrantGatedSignaling(inner: host, ticket: ticket(session, role: .host), gate: acpmux.gate, timeout: .seconds(10))
@@ -137,7 +137,7 @@ nonisolated private final class Captured: Sendable {
     }
 
     @Test func aGenuineGrantServesAndNothingLeavesBeforeIt() async throws {
-        let acpmux = Acpmux()
+        let acpmux = GrantTestAcpmux()
         let key = P256.Signing.PrivateKey()
         let first = try await run("s1", acpmux: acpmux, answer: answer(with: key, register: true))
         #expect(first.got == [.hello(peerPresent: true), .offer("v=0 offer")])
@@ -154,7 +154,7 @@ nonisolated private final class Captured: Sendable {
     }
 
     @Test func theHostRefusesAForgedGrantEndToEnd() async throws {
-        let acpmux = Acpmux()
+        let acpmux = GrantTestAcpmux()
         let genuine = P256.Signing.PrivateKey()
         _ = try await run("s1", acpmux: acpmux, answer: answer(with: genuine, register: true))
         let registered = acpmux.keys
@@ -179,9 +179,9 @@ nonisolated private final class Captured: Sendable {
     }
 
     @Test func theHostRefusesACopiedGrantEndToEnd() async throws {
-        let acpmux = Acpmux()
+        let acpmux = GrantTestAcpmux()
         let key = P256.Signing.PrivateKey()
-        let captured = Captured()
+        let captured = GrantTestCaptured()
         let genuine = try await run("s1", acpmux: acpmux, answer: answer(with: key, register: true)) { text in
             captured.frame.withLock { $0 = text }
             return text
@@ -197,9 +197,9 @@ nonisolated private final class Captured: Sendable {
     }
 
     @Test func noProofEndsTheSessionUnserved() async throws {
-        let acpmux = Acpmux()
+        let acpmux = GrantTestAcpmux()
         let silent: MacScreenGrantAnswer = { _, _ in nil }
-        let (host, viewer) = (Socket(), Socket())
+        let (host, viewer) = (GrantTestSocket(), GrantTestSocket())
         host.relay(to: viewer)
         viewer.relay(to: host)
         let gated = MacScreenGrantGatedSignaling(inner: host, ticket: ticket("s1", role: .host), gate: acpmux.gate, timeout: .milliseconds(200))
