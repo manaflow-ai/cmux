@@ -86,8 +86,10 @@ ensure_helper() {
   have="$("${SSH[@]}" "sha256sum $BASE/bin/vm_stack.py 2>/dev/null | cut -d' ' -f1" || true)"
   if [ "$want" != "$have" ]; then
     "${SSH[@]}" "mkdir -p -m 700 $BASE/bin"
-    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/vm_stack.py.new"
-    "${SSH[@]}" "mv $BASE/bin/vm_stack.py.new $BASE/bin/vm_stack.py"
+    # A per-caller name: two ups at once both see an old copy and both install it.
+    local tmp="vm_stack.py.new.$$.$RANDOM"
+    scp -q -o BatchMode=yes "$helper" "$VM_USER@$HOST:$BASE/bin/$tmp"
+    "${SSH[@]}" "mv -f $BASE/bin/$tmp $BASE/bin/vm_stack.py"
     vm install >/dev/null
   fi
 }
