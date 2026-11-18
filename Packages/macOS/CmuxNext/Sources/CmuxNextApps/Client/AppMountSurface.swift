@@ -5,9 +5,12 @@
 /// it), the hover card (only the user's own `local/customize` app, as
 /// ``SidebarCustomizationService`` resolves it), a Session Info section of a visible app, and a
 /// visible app's whole New Tab page (`cmux.newtab/1`; the page asks only for the app the person
-/// named in `tabs.newTabApp`), and a visible app's widget (`cmux.widget/1`: the page mounts only
-/// the tiles the person placed, with `context {place, size, instance}`, which the daemon checks
-/// against the widget's sizes and places). The raw value is the mount's `surface` in its context.
+/// named in `tabs.newTabApp`). The raw
+/// value is the mount's `surface` in its context.
+///
+/// A visible app's widget (`cmux.widget/1`) mounts too: the page mounts only the tiles the person
+/// placed, with `context {place, size, instance}`, which the daemon checks against the widget's
+/// sizes and places.
 public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterable {
     case pane
     case sidebarSection

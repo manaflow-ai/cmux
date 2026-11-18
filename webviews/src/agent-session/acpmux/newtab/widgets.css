@@ -16,7 +16,7 @@
   margin-block: var(--ds-space-4);
 }
 .nt-widgets[data-look="solid"] {
-  --nt-widget-card: var(--agent-surface, var(--acpmux-base));
+  --nt-widget-card: var(--agent-surface, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   --nt-widget-card-edge: var(--agent-border);
 }
 .nt-widgets[data-look="tinted"] {
@@ -66,6 +66,19 @@
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   backdrop-filter: blur(24px) saturate(1.4);
 }
+/* Reduce Transparency: an opaque card, no blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .nt-widget-card {
+    background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .nt-widget-card {
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .nt-widget-card > .cmux-app-scene-root,
 .nt-widget-card > * {
   flex: 1 1 auto;
@@ -79,9 +92,10 @@
   position: absolute;
   right: var(--ds-space-2);
   bottom: var(--ds-space-2);
-  padding: 2px var(--ds-space-2);
+  padding: var(--grid-half-step) var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  /* Opaque over the dimmed scene, so the words never mix with the widget's own. */
+  background: color-mix(in srgb, var(--agent-text) 10%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   color: var(--agent-muted);
   font-size: var(--text-caption);
 }
@@ -105,7 +119,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
-  height: 26px;
+  height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
   border: 0;
   border-radius: var(--ds-radius-control);
@@ -120,11 +134,11 @@
 }
 .nt-widget-bar-button[data-primary] {
   background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  color: var(--agent-on-accent, var(--acpmux-base, var(--agent-page-bg, Canvas)));
 }
 .nt-widget-bar-button:focus-visible,
 .nt-widget-frame:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline: var(--cmux-focus-ring-width) solid color-mix(in srgb, var(--agent-text) 55%, transparent);
   outline-offset: 2px;
 }
 .nt-widget-frame {
@@ -154,13 +168,13 @@
   left: calc(-1 * var(--ds-space-2));
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-text) 72%, var(--acpmux-base));
-  color: var(--acpmux-base);
+  background: color-mix(in srgb, var(--agent-text) 72%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
+  color: var(--acpmux-base, var(--agent-page-bg, Canvas));
   box-shadow: var(--elevation-1);
 }
 .nt-widget-remove:hover {
@@ -173,8 +187,8 @@
 .nt-widget-size-button {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   border: 0;
   border-radius: 50%; /* radius-allow: Apple's round badge on a widget's corner, as the minus badge */
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
@@ -183,8 +197,8 @@
 .nt-widget-corner {
   right: 0;
   bottom: 0;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   padding: 0;
   border: 0;
   background: transparent;
@@ -192,10 +206,10 @@
 }
 .nt-widget-corner > span {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 9px;
-  height: 9px;
+  right: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
   border-right: 2px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
   border-bottom: 2px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
   border-bottom-right-radius: 4px;
@@ -203,6 +217,10 @@
 .nt-widget-chips {
   display: flex;
   gap: var(--ds-space-1);
+}
+/* The size chips sit under each tile, so the rows open up for them while editing. */
+.nt-widgets[data-editing][data-edit-look="chips"] .nt-widget-grid {
+  row-gap: calc(var(--nt-widget-gap) + var(--ds-control-row));
 }
 .nt-widget-frame .nt-widget-chips {
   position: absolute;
@@ -225,12 +243,18 @@
   color: var(--agent-text);
 }
 .nt-widget-meter {
+  /* Along the card's bottom edge, one line, clear of the widget's title and of the size control on
+     the right (badge and corner looks). */
   position: absolute;
-  top: var(--ds-space-2);
-  right: var(--ds-space-2);
-  padding: 1px var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  left: var(--ds-space-2);
+  max-width: calc(100% - var(--ds-space-2) * 2 - var(--ds-control-compact));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: var(--grid-half-step) var(--ds-space-2);
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--acpmux-base) 80%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   color: var(--agent-muted);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
@@ -239,10 +263,10 @@
 /* The jiggle: small, alternate tiles out of step. Still with Reduce Motion or animations off. */
 @media (prefers-reduced-motion: no-preference) {
   .nt-widget-frame:not([data-dragging]) {
-    animation: nt-widget-jiggle 0.26s ease-in-out infinite alternate; /* motion-allow: the edit-mode jiggle is a loop, not a transition; still under Reduce Motion and animations off */
+    animation: nt-widget-jiggle var(--cmux-motion-large) var(--cmux-ease-out) infinite alternate; /* motion-allow: the edit-mode jiggle is a loop, not a transition; still under Reduce Motion and animations off */
   }
   .nt-widget-frame:nth-child(even) {
-    animation-delay: -0.13s;
+    animation-delay: calc(-0.5 * var(--cmux-motion-large));
   }
 }
 :root[data-agent-motion="off"] .nt-widget-frame,
@@ -258,10 +282,24 @@
   }
 }
 
-/* The Add Widget gallery sheet. */
+/* The Add Widget gallery sheet: a column no taller than the window, whose rows scroll under the
+   title and Done (cmux#44995: on an 858 px window its 3rd and 4th rows could not be reached). The
+   shipped agent pane loads ui/popupSurface.css but not ui/ui.css, so `.ui-sheet`'s overflow and
+   bottom anchor never apply there: the sheet starts 12vh down (popupSurface.css `.ui-dialog`) and
+   bounds itself here, as the paste sheet does (composerAttachments.css .acpmux-paste-view). Both
+   classes, so ui.css's `.ui-sheet` (where a host loads it) never outranks it. */
+.ui-sheet.nt-widget-gallery,
 .nt-widget-gallery {
+  display: flex;
+  flex-direction: column;
   width: min(760px, calc(100vw - 2 * var(--ds-space-6)));
-  max-height: min(640px, calc(100vh - 2 * var(--ds-space-6)));
+  max-height: min(640px, calc(88vh - var(--ds-space-6)));
+  overflow: hidden;
+}
+/* Its surface is the sheet role's glass (AddWidgetGallery.tsx; popupSurface.css `.ui-dialog.ui-glass`, which the
+   shipped pane loads), its corner concentric with the body's padding. */
+.ui-dialog.ui-glass.nt-widget-gallery {
+  --ui-dialog-padding: var(--ds-space-4);
 }
 .nt-widget-gallery-body {
   --nt-widget-unit: 132px;
@@ -271,15 +309,26 @@
   --nt-widget-card-edge: color-mix(in srgb, var(--agent-text) 9%, transparent);
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: var(--ds-space-4);
   min-height: 0;
-  padding: var(--ds-space-4);
-  overflow: auto;
+  padding: var(--ui-dialog-padding, var(--ds-space-4));
 }
 .nt-widget-gallery-head {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+/* The rows' scroller: it takes what the head leaves and scrolls the rest. Padded by a step and pulled
+   out by the same, so a preview's focus ring at its edge is not cut off. */
+.nt-widget-gallery-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: calc(-1 * var(--ds-space-1));
+  padding: var(--ds-space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .nt-widget-gallery-title {
   margin: 0;
@@ -356,17 +405,17 @@
   left: calc(-1 * var(--ds-space-2));
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   border-radius: 50%;
   background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  color: var(--agent-on-accent, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   box-shadow: var(--elevation-1);
 }
 .nt-widget-preview:hover .nt-widget-card {
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 60%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 60%, transparent);
 }
 .nt-widget-preview:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline: var(--cmux-focus-ring-width) solid color-mix(in srgb, var(--agent-text) 55%, transparent);
   outline-offset: 3px;
 }

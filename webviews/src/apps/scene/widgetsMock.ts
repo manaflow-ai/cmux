@@ -74,22 +74,36 @@ export function mockWidgetScene(app: string, size: WidgetSize, now = FIXED_NOW):
       day: "numeric",
       timeZone: "UTC",
     }).format(now);
-    const big = text(time, { font: size === "small" ? 34 : 44, weight: "semibold" });
+    // Apple's clock: the time on one line, its AM/PM smaller beside it.
+    const [digits, meridiem] = time.split(" ");
+    const big = node("HStack", { spacing: 3, alignment: "bottom" }, [
+      text(digits!, { font: size === "small" ? 36 : 48, weight: "semibold" }),
+      text(meridiem ?? "", { font: size === "small" ? 15 : 20, weight: "semibold", color: "secondary" }),
+    ]);
     const date = text(day.toUpperCase(), { font: 11, weight: "semibold", color: "secondary" });
     const kids = [date, big];
     if (size !== "small") {
       const cities = [
         ["Cupertino", "9:41 AM"],
-        ["Tokyo", "2:41 AM"],
+        ["New York", "12:41 PM"],
         ["London", "5:41 PM"],
+        ["Lisbon", "5:41 PM"],
+        ["Tokyo", "2:41 AM"],
+        ["Sydney", "4:41 AM"],
       ].map(([city, at]) =>
         node("HStack", { spacing: 8 }, [
-          text(city!, { font: 13 }),
+          text(city!, { font: size === "large" ? 15 : 13 }),
           node("Spacer", {}),
-          text(at!, { font: 13, color: "secondary" }),
+          text(at!, { font: size === "large" ? 15 : 13, color: "secondary" }),
         ]),
       );
-      kids.push(node("Spacer", {}), ...(size === "large" ? cities : cities.slice(0, 1)));
+      // The large tile lists the world clock down to its bottom edge, a row per city.
+      const list = node(
+        "VStack",
+        { spacing: size === "large" ? 10 : 4, alignment: "leading" },
+        size === "large" ? cities : cities.slice(0, 1),
+      );
+      kids.push(node("Spacer", {}), list);
     }
     root = frame(kids);
   } else if (app === "cmux/weather") {
@@ -114,18 +128,16 @@ export function mockWidgetScene(app: string, size: WidgetSize, now = FIXED_NOW):
     root = frame(kids);
   } else if (app === "cmux/todo") {
     const items = ["Water the plants", "Book the flights", "Call the bank", "Review PR 412", "Buy coffee"];
-    const rows = items
-      .slice(0, size === "large" ? 5 : 3)
-      .map((item, index) =>
-        node("HStack", { spacing: 8 }, [
-          node("Icon", {
-            symbol: index === 0 ? "checkmark.circle.fill" : "circle",
-            size: 14,
-            color: index === 0 ? "accent" : "tertiary",
-          }),
-          text(item, { font: 13, color: index === 0 ? "secondary" : "primary", strikethrough: index === 0 }),
-        ]),
-      );
+    const rows = items.slice(0, size === "large" ? 5 : 3).map((item, index) =>
+      node("HStack", { spacing: 8 }, [
+        node("Icon", {
+          symbol: index === 0 ? "checkmark.circle.fill" : "circle",
+          size: 14,
+          color: index === 0 ? "accent" : "tertiary",
+        }),
+        text(item, { font: 13, color: index === 0 ? "secondary" : "primary", strikethrough: index === 0 }),
+      ]),
+    );
     root = frame([
       node("HStack", { spacing: 6 }, [
         text("To Do", { font: 15, weight: "semibold" }),
@@ -150,6 +162,10 @@ export class MockWidgetsHost implements PageClient {
   revision = 1;
   /** An older host: the widget ops are unknown. */
   unsupported = false;
+  /** While set, an edit waits for it before the daemon applies and answers it. */
+  holdEdits: Promise<void> | undefined;
+  /** Every edit is refused (a daemon that turned the person's edit down). */
+  refuseEdits = false;
   /** Apps whose mount is refused (an uninstalled widget). */
   readonly refused = new Set<string>();
   /** Every call, in order (`op` and its params). */
@@ -180,6 +196,8 @@ export class MockWidgetsHost implements PageClient {
       case WIDGET_OPS.list:
         return { widgets: this.widgets, layout: this.layout() } as R;
       case WIDGET_OPS.edit:
+        if (this.holdEdits) await this.holdEdits;
+        if (this.refuseEdits) throw pageError("cmux.apps.widgets.failed", "the edit was refused");
         return this.edit(params) as R;
       case WIDGET_OPS.visible: {
         const id = String(params.mount_id);

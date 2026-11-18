@@ -182,3 +182,63 @@ test("the listing reads only well-formed widgets and tiles", () => {
     ),
   ).toEqual([{ instance: "w1", app: "a/x", size: "medium" }]);
 });
+
+test("a resize ends the old mount and mounts the widget again at the new size", async () => {
+  const host = new MockWidgetsHost([{ instance: "w1", app: "cmux/clock", size: "small" }]);
+  const owner = new AppWidgetsClient(host);
+  owner.start();
+  await settled();
+  const first = [...host.mounts.keys()];
+  await owner.edit({ op: "resize", instance: "w1", size: "large" });
+  await settled();
+  expect(host.calls.some((call) => call.op === "cmux.apps.panels.unmount" && call.params.mount_id === first[0])).toBe(
+    true,
+  );
+  expect([...host.mounts.values()].map((mount) => mount.context.size)).toEqual(["large"]);
+  owner.stop();
+});
+
+test("a refused edit reads the layout again, so a removed tile comes back", async () => {
+  const host = new MockWidgetsHost([
+    { instance: "w1", app: "cmux/clock", size: "small" },
+    { instance: "w2", app: "cmux/todo", size: "medium" },
+  ]);
+  const owner = new AppWidgetsClient(host);
+  owner.start();
+  await settled();
+  host.refuseEdits = true;
+  const sent = owner.edit({ op: "remove", instance: "w1" });
+  expect(owner.getView().tiles.map((t) => t.instance)).toEqual(["w2"]);
+  await sent;
+  await settled();
+  expect(owner.getView().tiles.map((t) => t.instance)).toEqual(["w1", "w2"]);
+  owner.stop();
+});
+
+test("a list answered while an edit is pending never brings back what the edit removed", async () => {
+  const host = new MockWidgetsHost([
+    { instance: "w1", app: "cmux/clock", size: "small" },
+    { instance: "w2", app: "cmux/todo", size: "medium" },
+  ]);
+  const owner = new AppWidgetsClient(host);
+  owner.start();
+  await settled();
+  let release = () => {};
+  host.holdEdits = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const sent = owner.edit({ op: "remove", instance: "w1" });
+  const mountsBefore = host.mountCalls;
+  // Another page's change makes this page list while the daemon still holds the remove.
+  await owner.refresh();
+  await settled();
+  expect(owner.getView().tiles.map((t) => t.instance)).toEqual(["w2"]);
+  expect(host.mountCalls).toBe(mountsBefore);
+  host.holdEdits = undefined;
+  release();
+  await sent;
+  await settled();
+  expect(owner.getView().tiles.map((t) => t.instance)).toEqual(["w2"]);
+  expect(host.mountCalls).toBe(mountsBefore);
+  owner.stop();
+});

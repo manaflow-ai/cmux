@@ -39,5 +39,14 @@ export default componentEntry<WidgetFixtureProps>({
       note: "Every preview in one tile grid (the Lock Screen Add Widgets sheet)",
       play: open,
     },
+    // A short window (a laptop with the Dock up, a split screen): the header and Done stay, and the
+    // rows scroll inside the sheet down to the last one (the 858 px DEV window could not reach its
+    // 3rd and 4th rows).
+    "short-window": {
+      props: { editing: true, gallery: true, galleryLook: "rows", tiles: [] },
+      height: 500,
+      note: "A 500 px window: the title and Done stay put, the rows scroll inside the sheet",
+      play: open,
+    },
   },
 });

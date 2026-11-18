@@ -210,13 +210,13 @@ export class WidgetTileMount {
 
 const key = (tile: WidgetTilePlacement) => `${tile.instance}\n${tile.app}\n${tile.size}`;
 let editSeq = 0;
-/** A fresh idempotency key per edit: the daemon applies a retried edit once. */
 /** The person's locale and time zone, for a widget's own formatting (a clock's hours, a calendar's
  * days); the mount context carries them so the widget never guesses from the daemon's machine. */
 export function widgetLocaleContext(): { locale: string; timeZone: string } {
   return { locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
 }
 
+/** A fresh idempotency key per edit: the daemon applies a retried edit once. */
 export function widgetEditKey(): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `widget-edit-${random}-${++editSeq}`;
@@ -233,6 +233,10 @@ export class AppWidgetsClient {
   private lifetime = 0;
   private listing = 0;
   private edits = 0;
+  /** Edits sent and not yet answered; a list read meanwhile may predate them. */
+  private pending = 0;
+  /** A list read while edits were pending kept its tiles out; read again once they settle. */
+  private deferred = false;
   private stops: (() => void)[] = [];
   private healthWatch: Promise<void> | undefined;
 
@@ -278,10 +282,13 @@ export class AppWidgetsClient {
     for (const stop of this.stops) stop();
     this.stops = [];
     this.healthWatch = undefined;
+    this.pending = 0;
+    this.deferred = false;
     for (const tile of this.mounts.values()) tile.mount.stop();
     this.mounts.clear();
     this.byMountId.clear();
     this.view = EMPTY_VIEW;
+    for (const listener of this.listeners) listener();
   }
 
   async refresh(): Promise<void> {
@@ -300,8 +307,10 @@ export class AppWidgetsClient {
       if (supported && this.view.listed) return; // A failed re-read keeps what is drawn.
     }
     if (!this.active || listing !== this.listing) return;
-    // An edit sent while this list was in flight answered with a newer layout.
-    if (edits !== this.edits && this.view.listed) {
+    // An edit sent while this list was in flight, or still unanswered, has a newer layout than the
+    // list may hold: keep the drawn tiles, and read again once every edit has settled.
+    if ((edits !== this.edits || this.pending > 0) && this.view.listed) {
+      if (this.pending > 0) this.deferred = true;
       this.publish({ ...this.view, widgets: readWidgets(reply) });
       return;
     }
@@ -315,6 +324,7 @@ export class AppWidgetsClient {
     if (!this.active || !this.client || !this.view.supported) return Promise.resolve();
     const lifetime = this.lifetime;
     const seq = ++this.edits;
+    this.pending += 1;
     if (edit.op === "move") this.publish({ ...this.view, tiles: moved(this.view.tiles, edit.instance, edit.before) });
     if (edit.op === "remove")
       this.publish({ ...this.view, tiles: this.view.tiles.filter((t) => t.instance !== edit.instance) });
@@ -322,13 +332,25 @@ export class AppWidgetsClient {
       .call<{ layout?: unknown }>(WIDGET_OPS.edit, { place: this.place, edit, idempotency_key: widgetEditKey() })
       .then(
         (reply) => {
-          if (!this.live(lifetime) || seq !== this.edits || !reply?.layout) return;
-          this.publish({ ...this.view, tiles: readTiles(reply.layout, this.place) });
+          if (!this.live(lifetime)) return;
+          this.settled();
+          if (seq === this.edits && reply?.layout)
+            this.publish({ ...this.view, tiles: readTiles(reply.layout, this.place) });
         },
         () => {
-          if (this.live(lifetime)) void this.refresh();
+          if (!this.live(lifetime)) return;
+          this.deferred = true;
+          this.settled();
         },
       );
+  }
+
+  /** One edit answered; with none left, a list deferred meanwhile (or a refused edit) reads again. */
+  private settled(): void {
+    this.pending = Math.max(0, this.pending - 1);
+    if (this.pending > 0 || !this.deferred) return;
+    this.deferred = false;
+    void this.refresh();
   }
 
   /** The edit mode's meter: this page's tiles with their interval, ticks and held batches. */
@@ -395,6 +417,9 @@ export class AppWidgetsClient {
         if (this.live(lifetime)) this.stops.push(stop);
         else stop();
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // The next tile tries again.
+        if (this.live(lifetime)) this.healthWatch = undefined;
+      });
   }
 }

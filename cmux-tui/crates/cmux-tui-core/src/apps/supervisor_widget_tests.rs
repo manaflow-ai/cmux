@@ -155,9 +155,11 @@ fn layout_edits_are_the_persons_saved_and_broadcast() {
     assert_eq!(list["layout"]["newtab"].as_array().unwrap().len(), 1);
 
     // A new daemon on the same state directory reads the same layout.
-    let state = f.state.clone();
-    let again =
-        fixture_with(&[], Duration::from_secs(60), TempDir(state.parent().unwrap().to_path_buf()));
+    let again = fixture_with(
+        &[],
+        Duration::from_secs(60),
+        TempDir(f.state.parent().unwrap().to_path_buf()),
+    );
     let layout =
         call(&again, "apps.widgets.list", json!({}), Origin::Script).unwrap()["layout"].clone();
     assert_eq!(layout["revision"], 4);
@@ -195,7 +197,7 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
         "t1",
         "local/clock",
         "cmux.widget/1",
-        json!({ "place": "sidebar", "size": "small", "instance": "w1" }),
+        json!({ "place": "sidebar", "size": "small", "instance": "w1", "locale": "ja-JP", "timeZone": "Asia/Tokyo" }),
     );
     let context = {
         let inner = f.supervisor.inner.lock().unwrap();
@@ -205,7 +207,8 @@ fn a_placed_tile_mounts_with_the_context_built_here_and_ticks_while_shown() {
     assert_eq!(
         context,
         json!({ "surface": "widget", "place": "sidebar", "size": "small", "instance": "w1",
-                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 } })
+                "settings": { "zone": "UTC" }, "refresh": { "everySeconds": 60 },
+                "locale": "ja-JP", "timeZone": "Asia/Tokyo" })
     );
 
     // The host's tick reaches the render, which redraws.
@@ -262,7 +265,7 @@ fn a_widget_that_throws_goes_stale_and_is_mounted_again_with_a_backoff() {
         )
         .unwrap();
     let not_failed = |e: &Value| {
-        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}")
+        assert!(e["event"] != "apps-mount-failed", "a widget never fails its tile: {e}");
     };
     let first = f.wait("the first stale", |e| {
         not_failed(e);
