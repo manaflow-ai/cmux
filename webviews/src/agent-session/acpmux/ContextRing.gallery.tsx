@@ -21,7 +21,7 @@ type Props = {
   cacheLeftMs?: number;
   /// The last call's cache hit ratio and the last miss's cause (acpmux usage_update).
   cacheHit?: number;
-  cacheMiss?: AcpmuxCacheMiss["cause"];
+  missCause?: AcpmuxCacheMiss["cause"];
 };
 
 /// The gallery's pinned clock, so the cache countdown reads the same in every capture.
@@ -44,7 +44,7 @@ function GalleryContextRing(props: Props) {
         breakdown={props.breakdown}
         cacheExpiresAt={props.cacheLeftMs === undefined ? undefined : GALLERY_NOW + props.cacheLeftMs}
         cacheHit={props.cacheHit}
-        cacheMiss={props.cacheMiss === undefined ? undefined : { cause: props.cacheMiss, at: GALLERY_NOW - 60_000 }}
+        cacheMiss={props.missCause === undefined ? undefined : { cause: props.missCause, at: GALLERY_NOW - 60_000 }}
         now={galleryNow}
         // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
@@ -273,11 +273,11 @@ export default componentEntry<Props>({
             "Cache hit 5% · Last miss: model changed",
           ],
         ] as const
-      ).map(([id, cacheLeftMs, cacheHit, cacheMiss, countdown, stats]) => [
+      ).map(([id, cacheLeftMs, cacheHit, missCause, countdown, stats]) => [
         id,
         {
           note: `The cache line with acpmux's hit ratio and the last miss's likely cause: "${countdown}", then "${stats}".`,
-          props: { used: 316_900, size: 399_100, details: true, cacheLeftMs, cacheHit, cacheMiss },
+          props: { used: 316_900, size: 399_100, details: true, cacheLeftMs, cacheHit, missCause },
           play: (async (ctx) => {
             await hoverCard(ctx);
             const line = ctx.document.querySelector(".acpmux-context-card-cache")?.textContent ?? "";
