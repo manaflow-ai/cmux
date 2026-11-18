@@ -235,19 +235,11 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         return Ok(json!({"ok": true, "stopped": false}));
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
-    let command_line = cmux_process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "command="])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .unwrap_or_default();
-    let expected_at = format!("--at {at}");
-    if !command_line.contains("link project serve") || !command_line.contains(&expected_at) {
-        let _ = std::fs::remove_file(&pid_file);
-        return Ok(json!({"ok": true, "stopped": false, "stale": true}));
-    }
+    // `start` creates a new process group whose id is its pid. Signalling that group avoids
+    // terminating an unrelated process if the pid file outlives the server and the pid is reused.
+    let process_group = format!("-{pid}");
     let stopped = cmux_process::Command::new("kill")
-        .arg(pid.to_string())
+        .args(["-TERM", "--", &process_group])
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);

@@ -169,7 +169,10 @@ impl Link {
                 let (sender, receiver) = channel();
                 state.waiting.insert(number, (generation, sender));
                 let sent = {
-                    let attached = state.attached.as_mut().expect("attached above");
+                    let Some(attached) = state.attached.as_mut() else {
+                        state.waiting.remove(&number);
+                        continue;
+                    };
                     make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush())
                 };
                 if sent.is_err() {
