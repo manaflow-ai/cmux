@@ -377,7 +377,7 @@ extension AgentPaneView {
     /// window event, synchronously: a chat on this Mac links each file where it is, and another
     /// machine's chat has each put there from its path. Nothing for a drop of a recording preview.
     func pushDroppedPaths() {
-        let local = !model.remoteChat && model.onLocalPaths?() == true
+        let local = model.dropsGoAsLocalPaths
         guard let payload = model.droppedPaths.pushed(local: local),
               let script = AgentPaneDroppedPaths.pushScript(payload) else { return }
         evaluateScript(script)

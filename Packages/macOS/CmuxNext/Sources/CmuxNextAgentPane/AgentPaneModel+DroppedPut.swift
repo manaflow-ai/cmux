@@ -33,6 +33,14 @@ private final class AgentPaneDroppedPutAnswer {
 }
 
 extension AgentPaneModel {
+    /// Whether a native drop's files go to the page as this Mac's paths (``AgentPaneDroppedPaths/pushed(local:)``).
+    /// Before its handshake a page on a remote route still reads `remoteChat == false` (the handshake
+    /// sets it), so a drop then is never local: it streams from its path instead, and this Mac's
+    /// path never reaches another machine (review F1 on #45756).
+    var dropsGoAsLocalPaths: Bool {
+        hasHandshake && !remoteChat && onLocalPaths?() == true
+    }
+
     /// `chat.upload.begin {name, size, batchToken}` whose token is one this pane pushed with a native
     /// drop on a chat on another machine (``AgentPaneDroppedPaths/pushed(local:)``): the host sends
     /// that file to the chat's machine straight from its path, through the chat's own staged upload

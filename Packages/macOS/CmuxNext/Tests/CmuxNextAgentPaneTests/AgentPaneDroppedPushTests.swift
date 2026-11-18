@@ -35,6 +35,21 @@ struct AgentPaneDroppedPushTests {
         #expect(script.hasPrefix("window.dispatchEvent(new CustomEvent('cmux-files-dropped', {detail: {"))
     }
 
+    /// A drop goes as this Mac's paths only once the page has its handshake and its chat is on this
+    /// Mac: before the handshake a page on a remote route still reads `remoteChat == false`.
+    @Test func dropsGoAsLocalPathsOnlyAfterTheHandshakeOnThisMac() {
+        let model = AgentPaneModel(host: NoHost())
+        model.onLocalPaths = { true }
+        #expect(!model.dropsGoAsLocalPaths)
+        model.hasHandshake = true
+        #expect(model.dropsGoAsLocalPaths)
+        model.remoteChat = true
+        #expect(!model.dropsGoAsLocalPaths)
+        model.remoteChat = false
+        model.onLocalPaths = { false }
+        #expect(!model.dropsGoAsLocalPaths)
+    }
+
     @Test func noDropPushesNothing() {
         #expect(AgentPaneDroppedPaths().pushed(local: true) == nil)
     }
