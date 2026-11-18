@@ -104,6 +104,7 @@ public nonisolated enum CloudPersonCreate {
             let resends = CloudConnectHedge.Resends()
             let reply: Data
             do {
+                // concurrency-allow: the async binding inside an async closure: a task is always current here, and it is unbound when the call returns
                 reply = try await CloudConnectHedge.$resends.withValue(resends) { try await call("v1/ops", sent) }
             } catch let error where !(error is URLError) && !(error is CancellationError) && !resends.any {
                 throw Unavailable(reason: "not_signed_in")

@@ -1,5 +1,4 @@
 public import Foundation
-import os
 import CmuxNextCompat
 
 /// A new socket for a Cloud API request whose connection goes nowhere.
@@ -41,20 +40,6 @@ public struct CloudConnectHedge: Sendable {
 
     /// The ``Resends`` the requests sent in this task note on (``data(for:on:)``).
     @TaskLocal public static var resends: Resends?
-
-    /// Told when a keyed mutation's first attempt hit a connection failure and the mutation went again
-    /// (``Replay/retryOnce``): that first send may have reached the server, whatever the second answers.
-    /// Bound by a caller that must know it (``CloudPersonCreate``); unbound, nothing is told.
-    @TaskLocal public static var sentAgain: SentAgain?
-
-    /// One request's record of a send that may have reached the server before it went again.
-    public final class SentAgain: Sendable {
-        private let state = OSAllocatedUnfairLock(initialState: false)
-        public init() {}
-        func record() { state.withLock { $0 = true } }
-        /// Whether a send of the request went again after a connection failure.
-        public var happened: Bool { state.withLock { $0 } }
-    }
 
     /// How long the newest attempt of a hedged read has alone before the next starts.
     public var stagger: Duration
@@ -120,7 +105,6 @@ public struct CloudConnectHedge: Sendable {
             do {
                 return try await attempt(0)
             } catch let error where Self.isConnectionFailure(error) && !Task.isCancelled {
-                Self.sentAgain?.record()
                 return try await attempt(1)
             }
         case .never:
