@@ -542,7 +542,7 @@ export function FolderPopover({
             </Button>
           </div>
         )}
-        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}{" "}
+        {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
       </Popover>
     </span>
   );

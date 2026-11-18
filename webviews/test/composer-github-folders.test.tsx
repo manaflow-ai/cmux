@@ -146,7 +146,7 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
     expect(row).toBeDefined();
     expect(row!.querySelector("[data-github-unavailable]")).toBeNull();
     expect(detail(row)).toBeUndefined();
-    // It is the last row of the list, under the folders.
+    // It is one of the fixed actions, under the folders.
     const rows = [...doc().querySelectorAll("[role=option]")].map((item) => item.textContent);
     expect(rows.indexOf(row!.textContent)).toBeGreaterThan(rows.findIndex((text) => text?.includes("notes")));
     await press(row!);

@@ -1178,9 +1178,8 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
   display: flex;
   flex-direction: column;
-  /* Wide enough that a repository, its branch and a GitHub owner/name read whole (the owner, of the
-     240 to 360 px menu: "i cant see anything"); like a desktop project picker, never a skinny list.
-     Both widths follow Text Size as its names do (--ui-px, ui/popupSurface.css), and a narrow pane
+  /* Wide enough that a repository, its branch and a GitHub owner/name read whole (the 240 to 360 px
+     menu cut them off); like a desktop project picker, never a skinny list. Both widths follow Text Size as its names do (--ui-px, ui/popupSurface.css), and a narrow pane
      keeps its 16 px margins. */
   min-width: min(calc(380 * var(--ui-px, 1px)), calc(100vw - 32px));
   max-width: min(calc(560 * var(--ui-px, 1px)), calc(100vw - 32px));
