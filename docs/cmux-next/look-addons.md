@@ -32,6 +32,20 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
+| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble: its quiet lines take it at 78%, a skill's `/name` and inline code follow it; unset, the transcript's text |
+
+A filled pill, as Codex draws its prompt in dark (`light-dark()` picks a mix per appearance, and
+both ends come from the theme, so it reads over a light theme and a dark one):
+
+```css
+:root {
+  --cv-user-bubble-tint: light-dark(
+    color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)),
+    color-mix(in srgb, var(--agent-accent) 50%, var(--agent-page-bg))
+  );
+  --cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));
+}
+```
 
 ```css
 :root {
@@ -78,7 +92,7 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
 | --- | --- | --- |
 | The composer's look (Claude or Codex style) | kept in page storage, which a setup cannot set; the composer has no paint tokens | a setting in #43272 or #45843 |
 | One switch for a whole transcript preset | no `agentPane.display.transcriptLook` yet | in progress |
-| The prompt bubble's width | the height estimate assumes 70%, so a stylesheet width would shift rows | needs a setting the estimate reads |
+| The prompt bubble's width | the height estimate assumes 70%, so a stylesheet width would shift rows | a setting the estimate reads: `agentPane.display.transcriptTokens` `{"userMessage.maxWidth": 0.4 to 1}` (#46047, #46258) |
 | Which facts go on which row line | `sidebar.workspaceRow.lines` validates but is not drawn | #42244 |
 | Row decorations from an installed look without replacing your own `customize/` | only the `local/customize` app may decorate rows, and a look's `customize/` files replace yours | needs per-look decoration layers |
 | The chat's theme colors from `agent-pane/theme.css` | the host sets them inline | the theme file is the place for them |
