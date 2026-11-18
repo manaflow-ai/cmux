@@ -33,6 +33,7 @@ import type { HostMenuItem } from "../types";
 import { headerLayout, listMetrics, ROW, type Rect } from "./layout";
 import { ListRow, PinnedTile, type ItemEvents, type Modifiers } from "./ListItems";
 import { neighbor, placePinned, type ListItem, type ListModel } from "./model";
+import { watchPress } from "../../../ui/pressRelease";
 
 /** Three looks of the same list (the gallery's variants); `messages` is the one the page uses. */
 export type ListLook = "messages" | "accent" | "quiet";
@@ -104,6 +105,10 @@ export function ConversationList(props: ConversationListProps) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const pending = useRef<{ id: string; fromGrid: boolean; x: number; y: number; pointer: number } | null>(null);
   const suppressClick = useRef(false);
+  // The press's watch (pressRelease.ts), and what its end runs: the current render's release.
+  const stopPress = useRef<(() => void) | undefined>(undefined);
+  const release = useRef<() => void>(() => {});
+  useEffect(() => () => stopPress.current?.(), []);
   const [menuFor, setMenuFor] = useState<string | undefined>();
   const [hostItems, setHostItems] = useState<ReadonlyMap<string, HostMenuItem[]>>(new Map());
 
@@ -211,9 +216,10 @@ export function ConversationList(props: ConversationListProps) {
       const index = start.fromGrid || drag?.index != null || opens ? target(at.x, at.y, start.fromGrid, count) : null;
       setDrag({ id: start.id, fromGrid: start.fromGrid, x: at.x, y: at.y, index });
     };
-    const up = (event: PointerEvent) => {
-      const start = pending.current;
-      if (!start || event.pointerId !== start.pointer) return;
+    // The press's end, from watchPress: its pointerup, and also its pointercancel, the window's
+    // blur or a move with no button down (released where the page never heard it).
+    const up = () => {
+      if (!pending.current) return;
       pending.current = null;
       if (!drag) return;
       suppressClick.current = true;
@@ -224,16 +230,15 @@ export function ConversationList(props: ConversationListProps) {
     const cancel = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || !pending.current) return;
       pending.current = null;
+      stopPress.current?.();
+      stopPress.current = undefined;
       setDrag(null);
     };
+    release.current = up;
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
     window.addEventListener("keydown", cancel);
     return () => {
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
       window.removeEventListener("keydown", cancel);
     };
   });
@@ -264,6 +269,14 @@ export function ConversationList(props: ConversationListProps) {
         y: event.clientY - box.top + element.scrollTop,
         pointer: event.pointerId,
       };
+      stopPress.current?.();
+      stopPress.current = watchPress(element.ownerDocument, {
+        pointerId: event.pointerId,
+        end: () => {
+          stopPress.current = undefined;
+          release.current();
+        },
+      });
     },
     onHover: fetchMenu,
   };

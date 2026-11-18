@@ -12,7 +12,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
-import { isMousePress } from "../../ui/pressRelease";
+import { isMousePress, watchPress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon } from "./ComposerPickers";
@@ -394,6 +394,9 @@ function Columns({
   const [natural, setNatural] = useState<{ key: string; width: number; effort?: number; height?: number }>();
   // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
   const dragging = useRef(false);
+  // Stops following the drag's press: a menu gone mid-drag leaves no listener behind.
+  const stopResize = useRef<() => void>(undefined);
+  useEffect(() => () => stopResize.current?.(), []);
   const widthOf = useCallback(
     (popup: HTMLElement | null | undefined) => {
       if (!popup || dragging.current) return;
@@ -862,9 +865,7 @@ function Columns({
     const end = () => {
       if (frame) view?.cancelAnimationFrame(frame);
       apply();
-      grip.removeEventListener("pointermove", move);
-      grip.removeEventListener("pointerup", end);
-      grip.removeEventListener("pointercancel", end);
+      stopResize.current = undefined;
       delete grip.dataset.dragging;
       dragging.current = false;
       if (pin()) placed.disconnect();
@@ -877,9 +878,9 @@ function Columns({
         else heightOf(popup);
       }
     };
-    grip.addEventListener("pointermove", move);
-    grip.addEventListener("pointerup", end);
-    grip.addEventListener("pointercancel", end);
+    // The drag ends where the press does, also where the page never hears its pointerup (released
+    // over another window, or after the window lost focus mid-drag).
+    stopResize.current = watchPress(doc, { pointerId: event.pointerId, move, end: () => end() });
   };
   /// Lands `model` at once, with a level and Fast set exactly (never copied from a searched row); the
   /// menu stays open.

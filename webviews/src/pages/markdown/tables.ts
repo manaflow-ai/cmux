@@ -35,6 +35,7 @@ import {
   SIDEWAYS_INK,
   SIDEWAYS_SCROLLER_ATTRIBUTE,
 } from "../../scrollers";
+import { watchPress } from "../../ui/pressRelease";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -489,17 +490,18 @@ export class ResizableTableView extends TableView {
       this.layout(widths);
       this.show(column);
     };
-    const up = (next: MouseEvent) => {
-      move(next);
+    // The mouseup, or a move with the button up or the window's blur when the release happened
+    // where the page never heard it (watchPress): the column keeps the width it was dragged to.
+    const up = (next: MouseEvent | undefined) => {
+      if (next) {
+        move(next);
+        this.pointer = { x: next.clientX, y: next.clientY };
+      }
       this.dragging = false;
-      this.pointer = { x: next.clientX, y: next.clientY };
       this.dom.classList.remove("md-col-resizing");
-      removeEventListener("mousemove", move, true);
-      removeEventListener("mouseup", up, true);
       this.save(widths);
     };
-    addEventListener("mousemove", move, true);
-    addEventListener("mouseup", up, true);
+    watchPress(this.dom.ownerDocument, { events: "mouse", move, end: (_how, next) => up(next) });
   };
 
   /** Double-click: the column fits its content (the other columns keep their widths). */

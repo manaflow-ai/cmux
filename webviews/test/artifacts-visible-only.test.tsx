@@ -404,8 +404,10 @@ for (const caret of [false, true])
 // A press keeps its line mounted until it is released. The release used to be heard only as a
 // pointerup or pointercancel reaching the document, so a press released where the document does not
 // hear it (outside the window, or after the window lost focus mid-press) kept its line mounted for
-// good. The window losing focus, or the pressed element losing pointer capture, ends the press too.
-for (const release of ["window blur", "lostpointercapture", "none"] as const)
+// good. The window losing focus, or the pressed element losing pointer capture, ends the press too,
+// and so does a move with no button down: a mouse has no implicit capture, so a button let go over
+// another window sends the page neither a pointerup nor a lostpointercapture, only the next move.
+for (const release of ["window blur", "lostpointercapture", "move with no button down", "none"] as const)
   test(`a press with no pointerup ${release === "none" ? "keeps its line mounted while it is held" : `is released by a ${release}: its line unmounts once scrolled away`}`, async () => {
     const { pane } = await mount(10_000);
     await pinsRows(pane, 9_600);
@@ -425,6 +427,11 @@ for (const release of ["window blur", "lostpointercapture", "none"] as const)
       if (release === "window blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
       else if (release === "lostpointercapture")
         row.dispatchEvent(new dom.window.MouseEvent("lostpointercapture", { bubbles: true }));
+      else if (release === "move with no button down")
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }));
+      // A move with the button still down (a drag) is not a release.
+      else
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, buttons: 1 }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     if (release === "none") {
@@ -477,34 +484,41 @@ test("a window blur ends the press but not the caret's pin: a later Shift-click 
   expect(copySelection()).toEqual({ text: expected, taken: true });
 });
 
-test("the window blur and lost-capture listeners go when the diff unmounts", async () => {
+test("a press's release listeners go when it ends, and when the diff unmounts mid-press", async () => {
   const live = new Map<string, number>();
-  const count = (target: EventTarget, kinds: string[]) => {
-    const add = target.addEventListener;
-    const remove = target.removeEventListener;
-    target.addEventListener = function (type: string, ...rest: unknown[]) {
-      if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) + 1);
-      return (add as (...args: unknown[]) => void).call(this, type, ...rest);
-    };
-    target.removeEventListener = function (type: string, ...rest: unknown[]) {
-      if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) - 1);
-      return (remove as (...args: unknown[]) => void).call(this, type, ...rest);
-    };
-    return () => {
-      target.addEventListener = add;
-      target.removeEventListener = remove;
-    };
-  };
-  const restore = [count(dom.window, ["blur"]), count(dom.window.document, ["lostpointercapture"])];
+  const kinds = ["blur", "lostpointercapture", "pointerup", "pointercancel", "pointermove"];
+  const add = dom.window.addEventListener;
+  const remove = dom.window.removeEventListener;
+  dom.window.addEventListener = function (this: Window, type: string, ...rest: unknown[]) {
+    if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) + 1);
+    return (add as (...args: unknown[]) => void).call(this, type, ...rest);
+  } as typeof add;
+  dom.window.removeEventListener = function (this: Window, type: string, ...rest: unknown[]) {
+    if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) - 1);
+    return (remove as (...args: unknown[]) => void).call(this, type, ...rest);
+  } as typeof remove;
+  const counts = () => kinds.map((kind) => live.get(kind) ?? 0);
+  const press = async () =>
+    act(async () => {
+      lineAt(3)!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   try {
     await mount(1_000);
-    expect(live.get("blur")).toBe(1);
-    expect(live.get("lostpointercapture")).toBe(1);
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
+    await press();
+    expect(counts()).toEqual([1, 1, 1, 1, 1]);
+    await act(async () => {
+      dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
+    await press();
     act(() => root?.unmount());
     root = undefined;
-    expect(live.get("blur")).toBe(0);
-    expect(live.get("lostpointercapture")).toBe(0);
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
   } finally {
-    for (const undo of restore) undo();
+    dom.window.addEventListener = add;
+    dom.window.removeEventListener = remove;
   }
 });

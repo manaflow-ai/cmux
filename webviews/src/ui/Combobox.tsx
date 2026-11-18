@@ -23,6 +23,7 @@ import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction, popupActionByValue, popupSearchId } from "./popupDescriptors";
+import { watchPress } from "./pressRelease";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -238,21 +239,25 @@ export function Combobox({
   useEffect(() => {
     // Native scrollbar presses may blur the input with no relatedTarget. Treat that gesture as
     // inside the list, just like an option press; a real outside press or Tab still closes it.
-    const press = (event: PointerEvent) => {
-      pressingList.current = !!listRef.current?.contains(event.target as Node);
-    };
+    // The list press ends as watchPress sees it end: its pointerup or pointercancel, and also the
+    // window's blur or a move with no button down (released where the page never heard it).
+    let stopPress: (() => void) | undefined;
     const end = () => {
+      stopPress?.();
+      stopPress = undefined;
       pressingList.current = false;
     };
+    const press = (event: PointerEvent) => {
+      end();
+      pressingList.current = !!listRef.current?.contains(event.target as Node);
+      if (pressingList.current) stopPress = watchPress(document, { end });
+    };
     document.addEventListener("pointerdown", press, true);
-    document.addEventListener("pointerup", end, true);
-    document.addEventListener("pointercancel", end, true);
     document.addEventListener("keydown", end, true);
     return () => {
       document.removeEventListener("pointerdown", press, true);
-      document.removeEventListener("pointerup", end, true);
-      document.removeEventListener("pointercancel", end, true);
       document.removeEventListener("keydown", end, true);
+      stopPress?.();
     };
   }, []);
   const keep = inline && keepHeight;

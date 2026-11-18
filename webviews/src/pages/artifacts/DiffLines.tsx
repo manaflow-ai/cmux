@@ -24,6 +24,7 @@ import {
 } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range as VirtualRange } from "@tanstack/react-virtual";
 import type { DiffHunk, DiffLine } from "./lineDiff";
+import { watchPress } from "../../ui/pressRelease";
 
 /** A line's height before the first one is measured (caption text, 14 px lines). */
 const LINE_ESTIMATE = 14;
@@ -155,37 +156,32 @@ export function DiffLines({ model, noNewline }: { model: DiffModel; noNewline: s
     const next = ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index).sort((a, b) => a - b);
     setPinned((previous) => (sameLines(previous, next) ? previous : next));
   }, []);
+  // A press may end outside the lines (a drag out of them), or where the document never hears its
+  // pointerup: released outside the window, or after the window lost focus mid-press. watchPress
+  // ends it on each of those too.
+  const stopPress = useRef<() => void>(undefined);
   const onPointerDown = (event: PointerEvent) => {
-    pressed.current = lineOf(body.current, event.target as Node);
+    stopPress.current?.();
+    stopPress.current = undefined;
+    const root = body.current;
+    pressed.current = lineOf(root, event.target as Node);
+    if (root && pressed.current >= 0)
+      stopPress.current = watchPress(root.ownerDocument, {
+        end: () => {
+          stopPress.current = undefined;
+          pressed.current = -1;
+          repin();
+        },
+      });
     repin();
   };
   useEffect(() => {
     const document = body.current?.ownerDocument;
-    const window = document?.defaultView;
-    if (!document || !window) return;
-    // A press may end outside the lines (a drag out of them), or where the document never hears its
-    // pointerup: released outside the window, or after the window lost focus mid-press. The window's
-    // blur, or the press losing its pointer capture, ends it too.
-    const onRelease = () => {
-      if (pressed.current < 0) return;
-      pressed.current = -1;
-      repin();
-    };
-    // Only the window's own blur: an element's reaches the window in the capture phase alone.
-    const onBlur = (event: Event) => {
-      if (event.target === window) onRelease();
-    };
+    if (!document) return;
     document.addEventListener("selectionchange", repin);
-    document.addEventListener("pointerup", onRelease, true);
-    document.addEventListener("pointercancel", onRelease, true);
-    document.addEventListener("lostpointercapture", onRelease, true);
-    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("selectionchange", repin);
-      document.removeEventListener("pointerup", onRelease, true);
-      document.removeEventListener("pointercancel", onRelease, true);
-      document.removeEventListener("lostpointercapture", onRelease, true);
-      window.removeEventListener("blur", onBlur);
+      stopPress.current?.();
     };
   }, [repin]);
 

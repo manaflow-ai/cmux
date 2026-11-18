@@ -40,6 +40,7 @@ import {
   type Point,
 } from "./anchors";
 import type { NoticeEntry } from "./NoticeStack";
+import { watchPress } from "./pressRelease";
 import { leaveLayerOnScreen } from "./tabReach";
 
 export type DeckAlign = "center" | "end";
@@ -255,6 +256,12 @@ export function NoticeDeck({
   }, [holding, onHold]);
   // Unmounted: it holds nothing.
   useEffect(() => () => onHold?.(false), [onHold]);
+  // Stops following the cards' presses: a deck gone mid-drag leaves no listener behind.
+  const presses = useRef(new Set<() => void>());
+  useEffect(() => {
+    const live = presses.current;
+    return () => live.forEach((stop) => stop());
+  }, []);
 
   // Natural heights, read once per change of the cards or of the deck's width.
   useLayoutEffect(() => {
@@ -368,13 +375,12 @@ export function NoticeDeck({
         drag.hold(true, now);
       }
     };
-    const end = (last: PointerEvent, cancelled: boolean) => {
-      element.removeEventListener("pointermove", move);
-      element.removeEventListener("pointerup", up);
-      element.removeEventListener("pointercancel", cancel);
-      const result = cancelled
-        ? ({ kind: "click" } as const)
-        : moving.release({ x: last.clientX, y: last.clientY }, last.timeStamp, drag.box());
+    const end = (last: PointerEvent | undefined, cancelled: boolean) => {
+      presses.current.delete(stop);
+      const result =
+        cancelled || !last
+          ? ({ kind: "click" } as const)
+          : moving.release({ x: last.clientX, y: last.clientY }, last.timeStamp, drag.box());
       const wasDragging = element.dataset.dragging !== undefined;
       delete element.dataset.dragging;
       setHeld(undefined);
@@ -405,11 +411,14 @@ export function NoticeDeck({
       }
       drag.release(id, result);
     };
-    const up = (last: PointerEvent) => end(last, false);
-    const cancel = (last: PointerEvent) => end(last, true);
-    element.addEventListener("pointermove", move);
-    element.addEventListener("pointerup", up);
-    element.addEventListener("pointercancel", cancel);
+    // Only its pointerup drops or flings the card; any other end (cancelled, the window's blur, or a
+    // release the page never heard) puts it back, as a click does.
+    const stop = watchPress(element.ownerDocument, {
+      pointerId: event.pointerId,
+      move,
+      end: (how, last) => end(last, how !== "up"),
+    });
+    presses.current.add(stop);
   };
 
   const staying = shown.filter((card) => card.phase !== "leaving");
