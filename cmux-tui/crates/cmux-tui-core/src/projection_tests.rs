@@ -162,3 +162,39 @@ fn a_dial_mounts_its_manifest_and_reads_ask_the_mac() {
     assert_eq!(std::fs::read_to_string(state.join("upper/src/new.rs")).unwrap(), "new");
     let _ = std::fs::remove_dir_all(&state);
 }
+
+#[test]
+fn bytes_sent_as_lines_come_back_whole_and_every_line_is_marked() {
+    let bytes: Vec<u8> = (0..3_000_000u32).map(|n| (n % 251) as u8).collect();
+    let mut sent = Vec::new();
+    {
+        let mut writer = LineWriter::new(&mut sent);
+        writer.write_all(&bytes).unwrap();
+        writer.write_all(b"\n tail").unwrap();
+        writer.flush().unwrap();
+    }
+    assert!(
+        sent.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).all(|line| {
+            line.first() == Some(&LINE_MARK) && line.len() <= LINE_BYTES / 3 * 4 + 8
+        })
+    );
+    let mut back = Vec::new();
+    LineReader::new(std::io::Cursor::new(sent)).read_to_end(&mut back).unwrap();
+    assert_eq!(back.len(), bytes.len() + 6);
+    assert_eq!(back.get(..bytes.len()), Some(bytes.as_slice()));
+    assert_eq!(back.get(bytes.len()..), Some(&b"\n tail"[..]));
+}
+
+#[test]
+fn a_line_without_the_mark_is_refused() {
+    let mut back = Vec::new();
+    let error =
+        LineReader::new(std::io::Cursor::new(b"{\"id\":1}\n".to_vec())).read_to_end(&mut back);
+    assert_eq!(error.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn only_a_dial_that_says_lines_gets_lines() {
+    assert!(wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
+    assert!(!wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x"}"#));
+}
