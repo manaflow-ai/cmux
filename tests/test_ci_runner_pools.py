@@ -867,6 +867,54 @@ class RawLabelVars(unittest.TestCase):
         self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
         self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
 
+    def stall(self, switch, *stalled):
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health(
+            {label: ("stalled" if label in stalled else "started") for label in self.SIZES}))
+
+    def test_a_person_setting_the_var_while_its_home_is_dead_keeps_their_value(self) -> None:
+        # cmux#45915 F1: only the values the writer recorded are its own; a hand-set value is never written over,
+        # not while the home is dead and not once it recovers, and a dead one included.
+        dead4 = "blacksmith-4vcpu-ubuntu-2404"
+        switch = self.outage()
+        self.stall(switch, self.DEAD32, dead4)
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        self.assertEqual(switch.variables["LINUX_BUILD_RUNNER"], self.LIVE16)
+        switch.variables["LINUX_BUILD_RUNNER"] = "blacksmith-8vcpu-ubuntu-2404"
+        switch.variables["LINUX_RUNNER_DARWIN_CROSS"] = dead4
+        later = self.NOW + dt.timedelta(minutes=10)
+        written, value, out = self.run_pass(switch, runner_pools.render(value), later)
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        homes = value.get(runner_pools.RAW_HOME_KEY, {})
+        self.assertNotIn("LINUX_BUILD_RUNNER", homes)
+        self.assertEqual(homes["LINUX_RUNNER_DARWIN_CROSS"], {"hand": dead4})
+        self.assertIn(f"LINUX_RUNNER_DARWIN_CROSS={dead4} was set by hand", out)
+        # Still dead: the person's dead label stays.
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=10))
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        # Every size recovers: nothing is restored over either person's value, and the hand mark goes.
+        self.stall(switch)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=20))
+        self.assertEqual(set(written) - {"RUNNER_POOLS", "LINUX_RUNNER"}, set())
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+        self.assertEqual((switch.variables["LINUX_BUILD_RUNNER"], switch.variables["LINUX_RUNNER_DARWIN_CROSS"]),
+                         ("blacksmith-8vcpu-ubuntu-2404", dead4))
+
+    def test_a_substitute_that_dies_too_is_replaced_and_the_home_still_comes_back(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        self.stall(switch, self.DEAD32, self.LIVE16)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY]["LINUX_BUILD_RUNNER"],
+                         {"home": self.DEAD32, "to": "blacksmith-8vcpu-ubuntu-2404", "was": self.LIVE16})
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=20))
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY]["LINUX_BUILD_RUNNER"],
+                         {"home": self.DEAD32, "to": "blacksmith-8vcpu-ubuntu-2404"})
+        self.stall(switch)
+        written, _, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=30))
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.DEAD32)
+
     def test_a_variable_the_overflow_switch_changed_is_left_to_it(self) -> None:
         switch = self.outage()
         switch.variables[runner_pools.OVERFLOW_RECORD] = json.dumps(
@@ -920,7 +968,9 @@ class RawLabelVars(unittest.TestCase):
     def test_malformed_homes_are_dropped(self) -> None:
         pools = runner_pools.load_pools()
         for bad in ([], {"LINUX_BUILD_RUNNER": "x"}, {"NOT_A_RAW_VAR": {"home": self.DEAD32, "to": self.LIVE16}},
-                    {"LINUX_BUILD_RUNNER": {"home": "blacksmith-6vcpu-macos-26", "to": self.LIVE16}}):
+                    {"LINUX_BUILD_RUNNER": {"home": "blacksmith-6vcpu-macos-26", "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"hand": self.DEAD32, "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"home": self.DEAD32, "to": self.LIVE16, "was": "ubuntu-24.04"}}):
             value, dropped = runner_pools.parse_value(json.dumps({runner_pools.RAW_HOME_KEY: bad}), pools)
             self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
             self.assertTrue(dropped)
