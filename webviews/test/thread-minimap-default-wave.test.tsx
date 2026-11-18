@@ -9,11 +9,6 @@ import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { transcriptColumn } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
-import { LIT_OPACITY, threadMinimapLit } from "../src/agent-session/acpmux/threadMinimap/lit.experiment";
-import { experimentArm } from "../src/experiments/experiment";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -52,6 +47,11 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { transcriptColumn } = await import("../src/agent-session/acpmux/model");
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+const { threadMinimapLayout } = await import("../src/agent-session/acpmux/threadMinimap/layout.experiment");
+const { LIT_OPACITY, threadMinimapLit } = await import("../src/agent-session/acpmux/threadMinimap/lit.experiment");
+const { experimentArm } = await import("../src/experiments/experiment");
 
 // This test checks the command's target, not its animation clock. Keep the step synchronous even
 // when another jsdom test has installed a different matchMedia implementation in the shared Bun
