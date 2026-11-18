@@ -75,7 +75,7 @@ fn arm_heads() -> Vec<String> {
         if line == "    }" {
             break;
         }
-        // An arm head is at 8 spaces; deeper lines are arm bodies.
+        // An arm head is at 8 spaces; deeper lines are arm bodies. (base red probe)
         let Some(code) = line.strip_prefix("        ") else { continue };
         if code.starts_with(' ') || ["}", ")", "]", "//"].iter().any(|p| code.starts_with(p)) {
             continue;
