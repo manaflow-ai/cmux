@@ -17,6 +17,9 @@ export interface PopoverButtonProps {
   icon?: boolean;
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "end";
+  disabled?: boolean;
+  /** Classes for the trigger. */
+  className?: string;
   /** Controlled open state; leave both out to let the button own it. */
   open?: boolean;
   onOpenChange?(open: boolean): void;
@@ -31,6 +34,8 @@ export function PopoverButton({
   icon = false,
   side = "bottom",
   align = "start",
+  disabled,
+  className,
   open: controlled,
   onOpenChange,
   children,
@@ -50,6 +55,8 @@ export function PopoverButton({
         variant={variant}
         size={size}
         icon={icon}
+        disabled={disabled}
+        className={className}
         aria-label={icon ? label : undefined}
         data-popup-open={open ? "" : undefined}
         {...press}

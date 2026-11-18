@@ -1,5 +1,5 @@
-// A session list's look as the theme-file keys the native sidebar reads (cmux#45143,
-// Resources/theme-files/minimal-sessions.json): the same names, so a look written for the app's
+// A session list's look as the theme-file keys the native sidebar reads (cmux#45143's
+// minimal-sessions theme file): the same names, so a look written for the app's
 // sidebar describes a web page built from the kit too. Only the keys a kit row draws are here.
 
 export type SessionState = "idle" | "working" | "waiting" | "permission" | "done" | "error";

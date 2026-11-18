@@ -2,7 +2,7 @@
 // styled by a SessionLook. `MinimalSessions` is the minimal sidebar look (cmux#45143) on it: one
 // line per session, its status first (a spinner while it works, its own mark when it is blocked,
 // done or failed, nothing when idle), then its name. Status words never show in the row; they go
-// to assistive tech through `statusLabel` (design/sidebar.md: no routine status words in rows).
+// to assistive tech through `statusLabel` (the sidebar spec: no routine status words in rows).
 import type { ReactNode } from "react";
 import { List } from "../List";
 import { Row } from "../Row";
@@ -71,8 +71,15 @@ export function SessionList({ sessions, look, statusLabel, title, label, selecte
             key={session.id}
             title={session.name}
             subtitle={secondLine.length > 0 ? secondLine.join(" · ") : undefined}
-            // A leading status keeps its column on idle rows too, so every name starts on one line.
-            leading={leadingStatus ? mark : showIcon ? <Icon name={session.icon!} size={16} row /> : undefined}
+            // A leading status, or an icon column, keeps its place on rows that draw none, so every name
+            // starts on one line.
+            leading={
+              leadingStatus ? (
+                mark
+              ) : showIcon ? (
+                <Icon name={session.icon!} size={16} row />
+              ) : look["sidebar.workspaceRow.icon"] ? null : undefined
+            }
             trailing={trailing}
             density={look["sidebar.density"]}
             selected={session.id === selectedId}

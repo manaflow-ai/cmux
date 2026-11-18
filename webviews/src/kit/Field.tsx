@@ -25,11 +25,11 @@ export function Field({ label, hint, error, className, ...input }: FieldProps) {
       <Input
         {...input}
         id={id}
-        aria-describedby={note !== undefined ? noteId : undefined}
-        aria-invalid={error !== undefined ? true : undefined}
+        aria-describedby={note != null ? noteId : undefined}
+        aria-invalid={error != null ? true : undefined}
       />
-      {note !== undefined && (
-        <span className="kit-field-note" id={noteId} data-error={error !== undefined ? "" : undefined}>
+      {note != null && (
+        <span className="kit-field-note" id={noteId} data-error={error != null ? "" : undefined}>
           {note}
         </span>
       )}

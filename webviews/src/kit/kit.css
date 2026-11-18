@@ -80,8 +80,13 @@ button.kit-row:hover {
 button.kit-row:active {
   background: var(--ds-color-pressed);
 }
-.kit-row[data-selected] {
+.kit-row[data-selected],
+button.kit-row[data-selected]:hover {
   background: var(--ds-color-selection);
+}
+/* A static row's visible text when its label is read instead (Row.tsx). */
+.kit-row-body {
+  display: contents;
 }
 button.kit-row:focus {
   outline: none;
@@ -219,10 +224,5 @@ button.kit-row:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .kit-field-note[data-error] {
-  color: var(--ds-color-danger);
-}
-
-/* MENU (GlassMenu's rows; the popup and its glass are ui/Menu's) */
-.kit-menu-item-danger {
   color: var(--ds-color-danger);
 }

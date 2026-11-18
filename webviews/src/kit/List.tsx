@@ -1,6 +1,6 @@
 // A list of `Row`s with an optional section title and an empty state. An empty list with no
-// `empty` content renders nothing, so it reserves no gap (design/sidebar.md: empty sections take no space).
-import { useId, type ReactNode } from "react";
+// `empty` content renders nothing, so it reserves no gap (the sidebar spec: empty sections take no space).
+import { Children, useId, type ReactNode } from "react";
 import { cx } from "../ui/cx";
 
 export interface ListProps {
@@ -16,9 +16,7 @@ export interface ListProps {
 
 export function List({ title, label, empty, className, children }: ListProps) {
   const titleId = useId();
-  const hasRows = Array.isArray(children)
-    ? children.some((child) => child != null && child !== false)
-    : children != null;
+  const hasRows = Children.toArray(children).length > 0;
   if (!hasRows && empty === undefined) return null;
   return (
     <section className={cx("kit-list", className)}>

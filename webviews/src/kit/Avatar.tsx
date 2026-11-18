@@ -1,4 +1,4 @@
-// A person's or agent's picture, or their initials on a neutral tile (no hue: design/sidebar.md
+// A person's or agent's picture, or their initials on a neutral tile (no hue: the sidebar spec
 // "no colour the user didn't choose"). People are circles, agents rounded squares, as on Home.
 import { graphemePrefix, initials } from "../ui/initials";
 import { cx } from "../ui/cx";

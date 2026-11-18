@@ -4,6 +4,7 @@
 // directly only for submenus, check items or radio groups.
 import type { ReactNode } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../ui/Menu";
+import type { ButtonSize, ButtonVariant } from "../ui/Button";
 import { Icon } from "../agent-session/acpmux/icons/Icon";
 import { cx } from "../ui/cx";
 
@@ -29,14 +30,28 @@ export interface GlassMenuProps {
   items: readonly GlassMenuItem[];
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   align?: "start" | "center" | "end";
+  /** The trigger's look, as a `Button`'s (default ghost, md). */
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  disabled?: boolean;
   /** Classes for the trigger (it is a `ui-button`). */
   className?: string;
 }
 
-export function GlassMenu({ label, trigger, items, side = "bottom", align = "start", className }: GlassMenuProps) {
+export function GlassMenu({
+  label,
+  trigger,
+  items,
+  side = "bottom",
+  align = "start",
+  variant = "ghost",
+  size = "md",
+  disabled,
+  className,
+}: GlassMenuProps) {
   return (
     <Menu>
-      <MenuButton label={label} className={cx("ui-btn", className)}>
+      <MenuButton label={label} className={cx("ui-btn", className)} variant={variant} size={size} disabled={disabled}>
         {trigger}
       </MenuButton>
       <MenuPopup label={label} side={side} align={align}>
@@ -49,10 +64,14 @@ export function GlassMenu({ label, trigger, items, side = "bottom", align = "sta
               data-value={item.id}
               disabled={item.disabled}
               shortcut={item.shortcut}
-              className={cx("kit-menu-item", item.danger && "kit-menu-item-danger")}
+              className={item.danger ? "ui-menu-item-destructive" : undefined}
               onSelect={() => item.onSelect()}
             >
-              {item.icon !== undefined && <Icon name={item.icon} size={14} />}
+              {item.icon !== undefined && (
+                <span className="ui-menu-icon" aria-hidden="true">
+                  <Icon name={item.icon} size={14} />
+                </span>
+              )}
               {item.label}
             </MenuItem>
           ),
