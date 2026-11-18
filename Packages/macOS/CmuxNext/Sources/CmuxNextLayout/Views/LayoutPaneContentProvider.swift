@@ -215,7 +215,10 @@ final class LayoutViewContext {
             if entry.until == .landing { provider?.retainContentView(entry.host.content, for: pane, retired: false) }
             return entry.host
         }
+        // A probe's time of the make of a pane's content while `debug.motion` records (with views made ahead or with none).
+        MotionTrace.begin("layout.content")
         let content = provider?.makeContentView(for: pane) ?? NSView()
+        MotionTrace.end("layout.content")
         // The provider handed the content made ahead: its host, parked in the window, takes the pane (no window walk now).
         if let spare = spareHost, spare.content === content {
             spareHost = nil

@@ -8,7 +8,7 @@ import Testing
 /// with a move in flight, and one note for each change that the motion decides on. A pane's move runs on the render
 /// server and steps no spring of the layout, so the layout's own samples (`layout.travel`) say nothing of it.
 ///
-/// It reads the time of each loop over an act's panes too, as one span each.
+/// It reads the time of each loop over an act's panes too, as one span each, and the time of the make of a pane's content.
 ///
 /// The trace is one static of the process. Each test starts it (when its screen rests, or before its first act) and
 /// stops it at its end, and has no suspension point, so no other test on the main actor runs in between.
@@ -99,5 +99,18 @@ extension PaneCommitMotionTests {
         Commit.rest(harness)
         _ = harness.root.advanceFrame(Self.dt)
         #expect(spans("layout.place").count == places.count && spans("layout.show").count == 1, "a frame with no act gave a span")
+    }
+
+    /// The make of a pane's content is one span of the record (`layout.content`), and the layout's turn of a model
+    /// change is one time of the record's work (`layout.sync`): a split makes one content, a close makes none.
+    @Test(arguments: [split, close])
+    func aProbeTimesTheMakeOfAPanesContent(_ act: Act) throws {
+        defer { MotionTrace.stop() }
+        let begun = try Self.begin(act) { _ in MotionTrace.start() }
+        defer { begun.harness.window.closeAfterTest() }
+        let makes = MotionTrace.spans.filter { $0.name == "layout.content" }.count
+        #expect(makes == (act.name == Self.close.name ? 0 : 1), "the record has \(makes) makes of a pane's content")
+        let turns = MotionTrace.work["layout.sync"]?.count ?? 0
+        #expect(turns >= 1, "the record has no time of the layout's turn of the act's model change")
     }
 }
