@@ -128,6 +128,9 @@ public struct AgentChatDriveInput {
                                                  context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
                 webView.mouseExited(with: exit)
             }
+            // Done only once WebKit has handled it: a release reported while its move is still queued would
+            // stop the retries with `:hover` still on, if that move then came late. Bounded as a tick's wait.
+            await Self.afterPendingMouseEvents(webView, bound: Self.wheelWait)
             return .wentIn
         case .chromium(let view, let page):
             let zoom = max(view.pageZoom, 0.01)

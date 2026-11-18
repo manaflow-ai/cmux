@@ -379,7 +379,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     chat_drive: ChatDriveMessages {
         usage: "usage: cmux app chat drive --tab <tab> [--hover <test-id> | --hover-sent-image <n> | --hover-tool-screenshot <n>]\n         [--wheel <ticks> [--delta <px>] [--tick-ms <ms>]] [--hold-ms <ms>] [--type <text> [--over-draft]]\n         [--allow-busy] [--seconds <1-30>]\n  Rests a pointer on one element of the chat in <tab> and holds it there, wheels the transcript under it\n  (--delta px per tick, default 100, negative scrolls up) and types into the composer, then reports each\n  frame: composer renders and DOM mutations, focus, :focus-within and page-inactive flips, hover and\n  hover card state, frame times. The system pointer never moves and the window is never focused or\n  shown. Refuses a chat with a turn running unless --allow-busy, and typing into a draft unless\n  --over-draft; typed text stays in the draft. At most --seconds (default 10). --json prints the report.",
         seconds: "--seconds must be a whole number from 1 to 30",
-        nth: "--hover-sent-image and --hover-tool-screenshot take a position from 1",
+        nth: "--hover-sent-image and --hover-tool-screenshot take a position from 1 to 10000",
         one_target: "name one element to hover: --hover, --hover-sent-image or --hover-tool-screenshot",
         wheel: "--wheel must be a whole number of ticks from 1 to 200; --delta and --tick-ms go with it",
         delta: "--delta must be a whole number of pixels from -2000 to 2000, not 0",
@@ -557,7 +557,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     chat_drive: ChatDriveMessages {
         usage: "使い方: cmux app chat drive --tab <タブ> [--hover <テスト ID> | --hover-sent-image <n> | --hover-tool-screenshot <n>]\n         [--wheel <回数> [--delta <px>] [--tick-ms <ミリ秒>]] [--hold-ms <ミリ秒>] [--type <テキスト> [--over-draft]]\n         [--allow-busy] [--seconds <1-30>]\n  <タブ> のチャットの要素にポインタを置いたまま保ち、その下のトランスクリプトをホイールで動かし\n  (1 回あたり --delta px、既定 100、負の値で上へ)、コンポーザーに入力して、フレームごとに報告します:\n  コンポーザーの描画と DOM 変更、フォーカス・:focus-within・ページ非アクティブの切り替わり、ホバーと\n  ホバーカードの状態、フレーム時間。システムのポインタは動かず、ウインドウにフォーカスも表示もしません。\n  ターンが実行中のチャットは --allow-busy なしでは断り、下書きがあれば --over-draft なしでは入力しません。\n  入力したテキストは下書きに残ります。最長 --seconds (既定 10)。--json でレポートを表示します。",
         seconds: "--seconds は 1 から 30 までの整数にしてください",
-        nth: "--hover-sent-image と --hover-tool-screenshot は 1 から始まる位置を指定します",
+        nth: "--hover-sent-image と --hover-tool-screenshot には 1 から 10000 までの位置を指定します",
         one_target: "ホバーする要素を 1 つ指定してください: --hover、--hover-sent-image、--hover-tool-screenshot のいずれか",
         wheel: "--wheel は 1 から 200 までの整数の回数にしてください。--delta と --tick-ms はそれと一緒に使います",
         delta: "--delta は -2000 から 2000 までの 0 以外の整数のピクセル数にしてください",

@@ -247,6 +247,19 @@ fn app_chat_drive_type_text_matches_the_shared_table() {
     .unwrap();
     assert_eq!(table["max_graphemes"], json!(super::MAX_TEXT));
     assert_eq!(table["max_utf16"], json!(super::MAX_TEXT_UTF16));
+    assert_eq!(table["max_image_index"], json!(super::MAX_IMAGE_INDEX));
+    for flag in ["--hover-sent-image", "--hover-tool-screenshot"] {
+        let at = super::MAX_IMAGE_INDEX.to_string();
+        let over = (super::MAX_IMAGE_INDEX + 1).to_string();
+        assert!(
+            parse(&args(&["app", "chat", "drive", "--tab", "t", flag, &at])).is_ok(),
+            "{flag} {at}"
+        );
+        assert!(
+            parse(&args(&["app", "chat", "drive", "--tab", "t", flag, &over])).is_err(),
+            "{flag} {over}"
+        );
+    }
     let text = |case: &serde_json::Value| {
         case["text"].as_str().unwrap().repeat(case["repeat"].as_u64().unwrap_or(1) as usize)
     };

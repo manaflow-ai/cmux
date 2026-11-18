@@ -138,12 +138,16 @@ public struct AgentChatDriveControl: Sendable {
                 guard let id = item.stringValue, isTestID(id) else { throw ControlError.invalidParams(Text.target) }
                 return .testID(id)
             case "sent_image", "tool_screenshot":
-                guard let n = item.intValue, n >= 1, n <= 10_000 else { throw ControlError.invalidParams(Text.target) }
+                guard let n = item.intValue, (1...maxImageIndex).contains(n) else { throw ControlError.invalidParams(Text.target) }
                 return key == "sent_image" ? .sentImage(n) : .toolScreenshot(n)
             default:
                 throw ControlError.invalidParams(Text.target)
             }
         }
+
+        /// The highest `sent_image` or `tool_screenshot` position (from 1). The CLI checks the same bound
+        /// (cmux-tui/spec/fixtures/chat-drive-type-text.json `max_image_index`, read by both sides' tests).
+        public static let maxImageIndex = 10_000
 
         /// `[A-Za-z0-9_-]{1,80}`: a test id is a name, never a selector.
         public static func isTestID(_ id: String) -> Bool {

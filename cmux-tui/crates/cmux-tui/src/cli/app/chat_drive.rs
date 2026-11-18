@@ -36,6 +36,8 @@ pub(super) const TICK_MS: (u64, u64) = (8, 200);
 pub(super) const MAX_HOLD_MS: u64 = 10_000;
 pub(super) const MAX_TEXT: usize = 500;
 pub(super) const MAX_TEXT_UTF16: usize = 2000;
+/// The highest --hover-sent-image or --hover-tool-screenshot position, as the app bounds it.
+pub(super) const MAX_IMAGE_INDEX: u64 = 10_000;
 /// The app answers within the run plus 15 s; the CLI waits a little longer.
 const MARGIN: Duration = Duration::from_secs(20);
 
@@ -102,8 +104,8 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     params.insert("tab".into(), json!(tab));
 
     let test_id = options.value("hover").filter(|id| !id.is_empty());
-    let sent = whole(options.value("hover-sent-image"), (1, 1000), messages.nth)?;
-    let tool = whole(options.value("hover-tool-screenshot"), (1, 1000), messages.nth)?;
+    let sent = whole(options.value("hover-sent-image"), (1, MAX_IMAGE_INDEX), messages.nth)?;
+    let tool = whole(options.value("hover-tool-screenshot"), (1, MAX_IMAGE_INDEX), messages.nth)?;
     let target = match (test_id, sent, tool) {
         (None, None, None) => None,
         (Some(id), None, None) => Some(json!({ "test_id": id })),

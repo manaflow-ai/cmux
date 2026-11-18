@@ -98,6 +98,23 @@ struct AgentChatDriveInputTests {
         #expect(!page.window.isVisible, "the window was ordered in")
     }
 
+    /// A release that says it went in has been handled by WebKit already: the box is no longer hovered
+    /// the moment `release()` returns, with no settle and no waiting, so the drive never stops retrying
+    /// while a late event could still leave `:hover` on.
+    @Test func aReleaseThatWentInHasDroppedTheHoverWhenItReturns() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        let input = AgentChatDriveInput(webView: page.webView)
+        let center = try await page.boxCenter()
+        #expect(await input.move(to: center))
+        await input.settle()
+        try await page.until("the box is hovered") { try await page.read("document.getElementById('box').matches(':hover')") as? Bool == true }
+
+        #expect(await input.release() == .wentIn)
+        #expect(try await page.read("document.getElementById('box').matches(':hover')") as? Bool == false,
+                "release() returned before WebKit handled its move")
+    }
+
     /// A wheel tick under the held point is one trusted `wheel` with the tick's sign, and the box
     /// under it scrolls. WebKit holds a native wheel for a window that cannot present, so the window
     /// is on a screen: ordered in behind every other window (never front, never key).

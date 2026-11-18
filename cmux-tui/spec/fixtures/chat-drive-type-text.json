@@ -1,7 +1,8 @@
 {
-  "_about": "Text `cmux app chat drive --type` may type, checked the same way by the CLI (cmux-tui cli/app/chat_drive.rs) and the app (CmuxNextAgentPane AgentChatDriveControl.Params). Each case is `text` repeated `repeat` times (default 1).",
+  "_about": "Text `cmux app chat drive --type` may type, checked the same way by the CLI (cmux-tui cli/app/chat_drive.rs) and the app (CmuxNextAgentPane AgentChatDriveControl.Params). Each case is `text` repeated `repeat` times (default 1). `max_image_index` bounds --hover-sent-image and --hover-tool-screenshot on both sides.",
   "max_graphemes": 500,
   "max_utf16": 2000,
+  "max_image_index": 10000,
   "typable": [
     {
       "text": "hello"

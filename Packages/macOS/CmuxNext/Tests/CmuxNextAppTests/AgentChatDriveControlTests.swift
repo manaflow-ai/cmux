@@ -88,9 +88,10 @@ import Testing
         }
         let maxGraphemes: Int
         let maxUTF16: Int
+        let maxImageIndex: Int
         let typable: [Case]
         let refused: [Case]
-        enum CodingKeys: String, CodingKey { case maxGraphemes = "max_graphemes", maxUTF16 = "max_utf16", typable, refused }
+        enum CodingKeys: String, CodingKey { case maxGraphemes = "max_graphemes", maxUTF16 = "max_utf16", maxImageIndex = "max_image_index", typable, refused }
 
         static func load() throws -> TypeTable {
             var root = URL(fileURLWithPath: #filePath)
@@ -107,6 +108,11 @@ import Testing
     @Test func typedTextIsPlainKeysOnly() throws {
         let table = try TypeTable.load()
         #expect(table.maxGraphemes == 500 && table.maxUTF16 == 2000)
+        #expect(table.maxImageIndex == Params.maxImageIndex, "the CLI and the app bound image positions alike")
+        for key in ["sent_image", "tool_screenshot"] {
+            #expect(throws: Never.self) { try Params(["tab": "t", "target": [key: .number(Double(Params.maxImageIndex))]]) }
+            #expect(throws: ControlError.self) { try Params(["tab": "t", "target": [key: .number(Double(Params.maxImageIndex + 1))]]) }
+        }
         for good in table.typable.map(\.full) {
             #expect(Params.isTypable(good), "\(good)")
             #expect(try Params(["tab": "t", "type": ["text": .string(good)]]).type?.text == good)
