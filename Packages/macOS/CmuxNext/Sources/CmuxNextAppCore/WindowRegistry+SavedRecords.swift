@@ -6,7 +6,7 @@ public import CoreGraphics
 // projection (`WindowStateStore`), one `WindowRecord` per window, together
 // with that window's own `WindowState` fields (the App's `WindowRegistry+Records`).
 
-extension WindowRegistry {
+@MainActor extension WindowRegistry {
     /// Rebuilds membership from saved records, front window first. A
     /// workspace listed by two records (older builds let every window show
     /// any workspace) stays with the frontmost; records left with nothing
