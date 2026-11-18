@@ -193,14 +193,14 @@ run_arm() {  # run_arm ARM ROUND
   app="$(app_of "$1")"
   echo "IDLE-AB round $i $arm load $(uptime | sed 's/.*load averages*: //')"
   if $terminal; then
-    python3 "$harness/bench_memory.py" --app "$app" --workspaces 1 --mix terminal --settle 20 --measure "$measure" \
+    python3 "$harness/bench_memory.py" --app "$app" --workspaces 1 --mix terminal --settle 20 --stable 1 --measure "$measure" \
       --top 8 "${attribute[@]}" --out "$out/runs/$arm-$i-terminal.json" > "$out/runs/$arm-$i-terminal.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-terminal.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   fi
   if [ -n "$agent_counts" ]; then
     python3 "$harness/bench_memory.py" --app "$app" --workspaces "$agent_counts" --mix terminal+chat \
-      --fake-agent "$harness/fake_agent.py" --settle 20 --measure "$measure" --top 8 "${attribute[@]}" \
+      --fake-agent "$harness/fake_agent.py" --settle 20 --stable 1 --measure "$measure" --top 8 "${attribute[@]}" \
       --out "$out/runs/$arm-$i-agents.json" > "$out/runs/$arm-$i-agents.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-agents.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
@@ -214,7 +214,7 @@ run_arm() {  # run_arm ARM ROUND
     [ "$motion" = scroll ] && extra+=(--diff-scroll)
     # N chats is N+1 workspaces, as above; the diff tab opens in the workspace that is shown last.
     python3 "$harness/bench_memory.py" --app "$app" --workspaces "$((n + 1))" --mix terminal+chat \
-      --fake-agent "$harness/fake_agent.py" --settle 20 --measure "$measure" --top 8 "${attribute[@]}" "${extra[@]}" \
+      --fake-agent "$harness/fake_agent.py" --settle 20 --stable 1 --measure "$measure" --top 8 "${attribute[@]}" "${extra[@]}" \
       --out "$out/runs/$arm-$i-cell$k.json" > "$out/runs/$arm-$i-cell$k.log" 2>&1
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-cell$k.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1

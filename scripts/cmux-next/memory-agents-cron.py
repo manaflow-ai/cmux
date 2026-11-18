@@ -184,7 +184,7 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     vmmap says which of its regions grew."""
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
-           "--measure", args.measure, "--top", "8", "--js-heap", "--out", raw]
+           "--measure", args.measure, "--stable", args.stable, "--top", "8", "--js-heap", "--out", raw]
     if not args.no_app_vm or args.app_vm_stacks:
         cmd.append("--app-vm")
     if args.app_vm_stacks:
@@ -200,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agents", default="10", help="agent chat counts, e.g. 10 or 10,20")
     parser.add_argument("--settle", default="20")
     parser.add_argument("--measure", default="30")
+    # Each sample waits for a footprint that moves less than this percent over 5 s (bench_memory --stable, at most
+    # 180 s): the empty launch read 868-1066 MB across rounds of one build while a helper still loaded.
+    parser.add_argument("--stable", default="1")
     parser.add_argument("--no-app-vm", action="store_true",
                         help="skip bench_memory --app-vm (by default every run stores the empty app process's vmmap "
                              "summary, footprint and heap in report.json app_vm)")

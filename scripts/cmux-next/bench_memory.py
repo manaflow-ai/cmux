@@ -283,6 +283,29 @@ def owned(app_pid: int, bundle: str):
     return found
 
 
+def total_footprint(app_pid: int, bundle: str) -> float:
+    """MB of phys_footprint over every process of the app now (what `sample` sums)."""
+    return sum(got[1] for got in (usage(pid) for pid in owned(app_pid, bundle)) if got is not None) / MB
+
+
+def is_still(reads: list, pct: float) -> bool:
+    """--stable (pure): the last two footprint reads differ by less than `pct` percent of the last."""
+    return len(reads) >= 2 and abs(reads[-1] - reads[-2]) < reads[-1] * pct / 100
+
+
+def wait_still(read, pct: float, every: float, limit: float, sleep=time.sleep) -> dict:
+    """--stable: reads the app's total footprint every `every` s until two reads in a row are within `pct`
+    percent, at most `limit` s. A launch sample taken while a helper still loaded (the built-in extension's
+    renderer peaks at 1.1 GB and settles near 80 MB) put the empty total at 868-1066 MB across rounds of one
+    build (perf-idle-ab, cmux22, 2026-11-18), and every ratio over it moved with it."""
+    reads, waited = [read()], 0.0
+    while not is_still(reads, pct) and waited < limit:
+        sleep(every)  # test script: wait for the footprint to stop moving
+        waited += every
+        reads.append(read())
+    return {"waited_s": waited, "still": is_still(reads, pct), "reads_mb": [round(r, 1) for r in reads]}
+
+
 # A direct launch (CMUX_BENCH_LAUNCH=direct) makes the app a child of this script, so macOS holds the
 # script's own responsible process responsible for the app and for its WebKit processes too. Those
 # then count as the app's when they did not run before the launch (`launch` records the ones that did).
@@ -1341,6 +1364,11 @@ def main():
     parser.add_argument("--settle", type=float, default=30)
     parser.add_argument("--measure", type=float, default=0,
                         help="seconds of idle CPU and wakeup measurement after each settle (0: memory only)")
+    parser.add_argument("--stable", type=float, default=0,
+                        help="after each settle, wait until the total footprint moves less than this percent "
+                             "between two reads (0: no wait)")
+    parser.add_argument("--stable-every", type=float, default=5, help="--stable: seconds between reads")
+    parser.add_argument("--stable-limit", type=float, default=180, help="--stable: the longest wait in seconds")
     parser.add_argument("--churn-minutes", type=float, default=0)
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
@@ -1451,6 +1479,11 @@ def main():
 
     def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
+        still = None
+        if args.stable > 0:
+            still = wait_still(lambda: total_footprint(app_pid, bundle), args.stable, args.stable_every, args.stable_limit)
+            print(f"   {label}: footprint still={still['still']} after {still['waited_s']:.0f} s "
+                  f"{still['reads_mb'][-4:]}", flush=True)
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
@@ -1504,6 +1537,8 @@ def main():
                 result["app_vm"]["pages"] = {"error": str(e)[:300]}
             print(f"APP-VM {label} pages: {json.dumps(result['app_vm']['pages'])[:3000]}", flush=True)
             print_app_vm(label, result["app_vm"])
+        if still is not None:
+            result["stable"] = still
         result["pane_failures"] = len(PANE_FAILURES)
         report["samples"].append(result)
         report["pane_failures"] = PANE_FAILURES[:20]

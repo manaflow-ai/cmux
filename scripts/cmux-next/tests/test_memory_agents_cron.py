@@ -125,13 +125,18 @@ class AppVmTests(unittest.TestCase):
 
     def args(self, *extra):
         import argparse
-        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", stable="1", no_app_vm=False,
+                                app_vm_stacks=None)
         for k, v in extra:
             setattr(ns, k, v)
         return ns
 
     def test_every_run_asks_for_the_app_process_split(self):
         self.assertIn("--app-vm", cron.bench_cmd(self.args(), "/r.json"))
+
+    def test_every_run_waits_for_a_still_footprint(self):
+        cmd = cron.bench_cmd(self.args(), "/r.json")
+        self.assertEqual(cmd[cmd.index("--stable") + 1], "1")
 
     def test_no_app_vm_leaves_it_out(self):
         self.assertNotIn("--app-vm", cron.bench_cmd(self.args(("no_app_vm", True)), "/r.json"))
