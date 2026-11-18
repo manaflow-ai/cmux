@@ -183,7 +183,8 @@ test("a streamed reply renders only the marks it moves; a scroll step and a hove
     );
     console.log("hover", JSON.stringify({ reach, renders: rendersOf() }));
     expect(rendersOf()).toBeGreaterThan(0);
-    expect(rendersOf()).toBeLessThanOrEqual(reach);
+    // (and the prompt pointed at, which draws on its own, lit, while its band draws another).
+    expect(rendersOf()).toBeLessThanOrEqual(reach + 1);
   } finally {
     acpmuxPerf.enabled = false;
     await map.unmount();
@@ -297,5 +298,102 @@ test("on a dense map the arrows still walk every prompt, drawn or not", async ()
   expect((document.activeElement as HTMLElement | null)?.dataset.tick).toBe(String(5_000 - 1));
   // Still as many marks as the bands, with the focused one.
   expect(map.marks()).toBeLessThanOrEqual(2 * (Math.ceil(776 / 3) + 1) + 1);
+  await map.unmount();
+});
+
+/// Each prompt's own place on a 776 px rail (unrounded), by its row.
+function promptPlaces(rows: readonly AcpmuxRow[], layout: ConversationLayout) {
+  const places: Array<{ row: number; turn: number; y: number }> = [];
+  for (let at = 0; at < rows.length; at += 1)
+    if (rows[at]!.kind === "user")
+      places.push({ row: at, turn: places.length, y: geometry.mapY(layout.tops[at]!, layout.totalHeight, 776) });
+  return places;
+}
+const nearest = (places: ReturnType<typeof promptPlaces>, y: number) =>
+  places.reduce((best, place) => (Math.abs(place.y - y) < Math.abs(best.y - y) ? place : best));
+
+test("a point on the rail finds the prompt nearest it, drawn or not", () => {
+  const { rows, layout } = chat(10_000);
+  const turns = minimapTurns(rows).turns;
+  const places = promptPlaces(rows, layout);
+  const index = geometry.mapRows(rows);
+  for (let y = 0; y <= 776; y += 0.37) {
+    const found = geometry.promptAt(index, turns, layout, 776, y)!;
+    const want = nearest(places, y);
+    expect(found.distance).toBeCloseTo(Math.abs(want.y - y), 6);
+    expect(turns[found.turn]!.index).toBe(found.row);
+  }
+});
+
+test("hovering or clicking a merged mark points at the prompt nearest the pointer, not the band's first", async () => {
+  const { rows, layout } = chat(10_000);
+  const places = promptPlaces(rows, layout);
+  const jumps: number[] = [];
+  const map = await mount(rows, layout);
+  await map.update({ jump: (turn) => (jumps.push(turn), undefined) });
+  const drawn = new Set(
+    [...map.nav().querySelectorAll<HTMLElement>('[data-kind="user"]')].map((node) => Number(node.dataset.tick)),
+  );
+  // Prompts mid-chat that their band does not draw, and a point right on each.
+  const hidden = places.filter((place) => !drawn.has(place.turn) && place.turn % 97 === 0).slice(0, 8);
+  expect(hidden.length).toBeGreaterThan(4);
+  for (const place of hidden) {
+    const want = nearest(places, place.y);
+    await act(
+      async () =>
+        void map.nav().dispatchEvent(new dom.window.MouseEvent("pointermove", { clientY: place.y, bubbles: true })),
+    );
+    const lit = map.nav().querySelector<HTMLElement>('.acpmux-scrollmap__mark[data-tone="active"]');
+    expect(lit?.dataset.tick).toBe(String(want.turn));
+    await act(async () => {
+      map.nav().dispatchEvent(new dom.window.MouseEvent("pointerdown", { clientY: place.y, button: 0, bubbles: true }));
+      map.nav().dispatchEvent(new dom.window.MouseEvent("pointerup", { clientY: place.y, button: 0, bubbles: true }));
+    });
+    expect(jumps.at(-1)).toBe(want.turn);
+  }
+  await map.unmount();
+});
+
+test("each drawn prompt names its place among all of them, and the focused one is drawn", async () => {
+  const { rows, layout } = chat(10_000);
+  const map = await mount(rows, layout);
+  const list = map.nav().querySelector("ol")!;
+  const items = () => [...list.querySelectorAll<HTMLElement>("li:not([aria-hidden])")];
+  const check = () => {
+    let last = 0;
+    for (const item of items()) {
+      expect(item.getAttribute("aria-setsize")).toBe("5000");
+      const tick = item.querySelector<HTMLElement>("[data-tick]")!;
+      const place = Number(item.getAttribute("aria-posinset"));
+      expect(place).toBe(Number(tick.dataset.tick) + 1);
+      expect(tick.getAttribute("aria-label")).toContain(`${place}`);
+      // Top to bottom is first to last, as a reader hears them.
+      expect(place).toBeGreaterThan(last);
+      last = place;
+    }
+  };
+  check();
+  expect(items().length).toBeLessThan(300);
+  // The replies' marks are drawn only: no item of the list.
+  for (const reply of list.querySelectorAll('[data-kind="agent"]'))
+    expect(reply.closest("li")?.getAttribute("aria-hidden")).toBe("true");
+  const first = items()[0]!.querySelector<HTMLElement>("button")!;
+  await act(async () => first.focus());
+  await act(
+    async () =>
+      void document.activeElement!.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+  );
+  const focused = document.activeElement as HTMLElement;
+  expect(focused.dataset.tick).toBe("1");
+  expect(focused.closest("li")?.getAttribute("aria-posinset")).toBe("2");
+  // It stays drawn while focused, through a layout change that moves every band.
+  const sizes = Array.from(layout.heights);
+  sizes[3] = sizes[3]! + 5_000;
+  await map.update({ layout: layoutOf(sizes) });
+  expect(map.nav().contains(document.activeElement)).toBe(true);
+  expect((document.activeElement as HTMLElement).dataset.tick).toBe("1");
+  check();
   await map.unmount();
 });
