@@ -113,7 +113,7 @@ struct DaemonRestoreProgressTests {
     }
 
     /// LAUNCH 800 (2026-11-10): `DaemonService.start` runs on the main actor before the first window. It read the
-    /// launch snapshot file and decoded its JSON there: 51 ms at the person's 826 workspaces (3.3 MB) against a few
+    /// launch snapshot file and decoded its JSON there: 51 ms at 826 workspaces (3.3 MB) against a few
     /// ms at 60, all before the window (aws-m4pro-7, `sample` of a Release launch). So a start that is handed no
     /// snapshot must not go to the disk for one: with a snapshot file in the state directory, the store shows
     /// nothing; the snapshot shows only when one read off the main actor is handed in (`launch`, as `main` does;
