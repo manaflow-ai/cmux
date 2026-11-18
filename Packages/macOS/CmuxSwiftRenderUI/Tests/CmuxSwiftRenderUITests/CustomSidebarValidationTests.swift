@@ -101,7 +101,11 @@ struct CustomSidebarValidationTests {
         // manifest.json is the built-in template catalog's index, not a sidebar.
         let sidebars = report.entries.filter { $0.name != "manifest" }
 
-        #expect(sidebars.map(\.name).sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
+        #expect(sidebars.map(\.name).sorted() == [
+            "activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline",
+            "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info",
+            "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces",
+        ])
         #expect(sidebars.filter(\.isValid).count == 19)
         #expect(sidebars.filter { !$0.isValid }.map(\.name) == [])
     }
@@ -149,6 +153,14 @@ struct CustomSidebarValidationTests {
             .appendingPathComponent("cmux-sidebar-validation-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// Every Text/Label string drawn under `node`, in draw order.
+    private static func texts(in node: RenderNode) -> [String] {
+        var out: [String] = []
+        if let text = node.text { out.append(text) }
+        out += node.children.flatMap(texts(in:))
+        return out
     }
 
     private func examplesDirectory() -> URL {
@@ -351,4 +363,101 @@ struct CustomSidebarValidationTests {
             ]),
         ]),
     ]
+}
+
+@Suite("Custom sidebar sample data context")
+struct CustomSidebarSampleContextTests {
+    /// The workspaces the validator samples, as field dictionaries.
+    private func sampleWorkspace(titled title: String) throws -> [String: SwiftValue] {
+        let workspaces = try #require(SwiftValue.extract(
+            "workspaces", from: CustomSidebarValidator.defaultDataContext
+        ))
+        let items = try #require(SwiftValue.arrayElements(workspaces))
+        for item in items {
+            if let fields = SwiftValue.objectFields(item), fields["title"] == .string(title) {
+                return fields
+            }
+        }
+        Issue.record("The sample context has no workspace titled \(title)")
+        struct MissingSampleWorkspace: Error {}
+        throw MissingSampleWorkspace()
+    }
+
+    @Test("the sample data context carries the render builder's shapes and optionality")
+    func sampleContextMatchesRenderBuilderShapes() throws {
+        // The populated sample: every optional field is present with the type
+        // CustomSidebarDataContextBuilder emits, never a placeholder string.
+        let populated = try sampleWorkspace(titled: "Sample Workspace")
+        let pr = try #require(SwiftValue.objectFields(populated["pr"]),
+                              "pr must be an object like the builder's pullRequestValues, not a placeholder string (#7944)")
+        #expect(pr["number"] == .int(5812))
+        #expect(pr["label"] == .string("PR 5812"))
+        let progress = try #require(SwiftValue.objectFields(populated["progress"]),
+                                    "progress must be an object with a numeric value, not a placeholder string (#7944)")
+        #expect(progress["value"] == .double(0.42))
+        let remote = try #require(SwiftValue.objectFields(populated["remote"]),
+                                   "remote must be an object, not a placeholder string (#7944)")
+        #expect(remote["target"] == .string("aws-m4pro-1"))
+        #expect(remote["connected"] == .bool(true))
+        #expect(populated["latestAt"] == .int(1_779_999_400))
+
+        // The quiet sample: optionals the builder omits when absent are absent
+        // here too, so the omitted-optional path is reachable in validation.
+        let quiet = try sampleWorkspace(titled: "Quiet Workspace")
+        for absent in ["branch", "dirty", "description", "color", "pr", "prs", "progress",
+                       "latestMessage", "latestPrompt", "latestAt", "remote"] {
+            #expect(quiet[absent] == nil, "\(absent) should be omitted like the builder omits it (#7944)")
+        }
+    }
+
+    @Test("a sidebar reading pr and progress draws its data rows against the sample context")
+    func dataRowsDrawAgainstTheSampleContext() throws {
+        let node = try #require(SwiftViewInterpreter().evaluate(
+            """
+            VStack {
+              ForEach(workspaces) { w in
+                if w.pr != nil {
+                  Text(w.pr.label)
+                }
+                if w.progress != nil {
+                  Text(w.progress.label)
+                }
+                if w.pr == nil {
+                  Text("no pr")
+                }
+              }
+            }
+            """,
+            state: CustomSidebarValidator.defaultDataContext
+        ))
+        let drawn = Self.texts(in: node)
+        #expect(drawn.contains("PR 5812"))
+        #expect(drawn.contains("Running tests"))
+        #expect(drawn.contains("no pr"))
+    }
+
+    /// Every string drawn under `node`, in draw order.
+    private static func texts(in node: RenderNode) -> [String] {
+        var out: [String] = []
+        if let text = node.text { out.append(text) }
+        out += node.children.flatMap(texts(in:))
+        return out
+    }
+}
+
+/// Test-only projections over ``SwiftValue`` payloads.
+private extension SwiftValue {
+    static func extract(_ key: String, from context: [String: SwiftValue]) -> SwiftValue? {
+        context[key]
+    }
+
+    static func arrayElements(_ value: SwiftValue) -> [SwiftValue]? {
+        if case .array(let items) = value { return items }
+        return nil
+    }
+
+    static func objectFields(_ value: SwiftValue?) -> [String: SwiftValue]? {
+        if case .object(let fields)? = value { return fields }
+        return nil
+    }
 }
