@@ -213,8 +213,14 @@ export class AcpmuxPerf {
       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
       const sample: TypingSample = { frame: 0, paint: 0, listener: performance.now() - start };
-      // The key's edit: its `input` event, then the microtasks the field and React run it in.
+      // The key's edit: its `input` event, then the microtasks the field and React run it in. It is done by the
+      // first point after the key's task: the next task (a message posted from the edit) or the next frame,
+      // whichever runs first. A frame due before that message runs the page's whole rendering update in between,
+      // which the message alone counted as the key's work: every key whose frame came first had that frame's style,
+      // layout and paint in its `to_work` (goal typing-latency). `to_frame` and `to_paint` keep the frame.
+      let edited = false;
       const input = () => {
+        edited = true;
         const done = new MessageChannel();
         done.port1.onmessage = () => {
           sample.work ??= performance.now() - start;
@@ -226,6 +232,7 @@ export class AcpmuxPerf {
       requestAnimationFrame(() => {
         const frame = performance.now();
         page.removeEventListener("input", input, { capture: true });
+        if (edited) sample.work ??= frame - start;
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
           sample.frame = frame - start;
