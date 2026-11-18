@@ -96,14 +96,12 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
-#           Optional arguments (each one `--arg`):
-#             new-chat     then a New chat the Mac opens with no session yet
-#                          (palette.newAgentChat) starts from the phone's
-#                          first send (DEBUG demo `live`): the Mac lists the
-#                          tab bound, no shot shows "hasn't started in this
-#                          tab" (Vision, screen_text.swift); shots
-#                          screens/new-chat-*.png, video new-chat-phone.mp4
-#             discovery=0  leave out the discovery leg (CMUX_PAIR_E2E_DISCOVERY=0)
+#           Then the new-chat leg (cmux_next_pair_e2e.py new_chat_leg): a New
+#           chat the Mac opens with no session yet (palette.newAgentChat)
+#           starts from the phone's first send (DEBUG demo `live`); the Mac
+#           must list the tab bound and no phone shot may show "hasn't
+#           started in this tab" (Vision, screen_text.swift); shots
+#           screens/new-chat-*.png, video new-chat-phone.mp4.
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -242,16 +240,6 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
   if [[ $ui_profile -eq 1 && ${#ui_suites[@]} -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
-fi
-pair_args=()
-if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
-  for sel in "${@:2}"; do
-    case "$sel" in
-      new-chat) pair_args+=(--new-chat) ;;
-      discovery=0) export CMUX_PAIR_E2E_DISCOVERY=0 ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes new-chat and discovery=0, got '$sel'" >&2; exit 2 ;;
-    esac
-  done
 fi
 run_kit=1
 
@@ -1550,8 +1538,7 @@ if [[ "$mode" == pair-e2e ]]; then
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
-    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary" \
-    ${pair_args[@]+"${pair_args[@]}"}
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
   pair_status=$?
   set -e
 fi

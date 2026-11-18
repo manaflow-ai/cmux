@@ -191,8 +191,6 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
-    ap.add_argument("--new-chat", action="store_true",
-                    help="after the upload leg: a Mac New chat with no session starts from the phone's first send")
     a = ap.parse_args()
     # The theme leg runs on a tree that carries its Ghostty config (a demo branch adds it; the step
     # takes no argument for it): the Mac runs that config, and once paired the phone opens that
@@ -303,7 +301,10 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded = [], None, None, None, not probe
-    new_chat_ok = not a.new_chat
+    # The new-chat leg: a Mac New chat with no session starts from the phone's first send.
+    # CMUX_PAIR_E2E_NEW_CHAT=0 leaves it out.
+    new_chat = os.environ.get("CMUX_PAIR_E2E_NEW_CHAT") != "0"
+    new_chat_ok = not new_chat
     # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
@@ -444,7 +445,7 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
-            if paired and a.new_chat:
+            if paired and new_chat:
                 new_chat_ok, line = new_chat_leg(simctl, a.udid, a.bundle_id, phone_env, rpc, tag, screens, a.out)
                 note(f"- new chat from the phone: {line}")
             if discovery and paired:  # last: it quits and restarts the Mac
