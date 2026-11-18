@@ -66,6 +66,9 @@ pub(crate) struct RegistryAgentHookState {
     pub agent_session_id: String,
     pub applied_sequence: u64,
     pub ended: bool,
+    /// The latest hook stamp of the session; empty for rows stored before
+    /// the column existed.
+    pub order: crate::agent_hooks::HookOrderStamp,
 }
 
 impl RegistryAgentProjection {
@@ -471,7 +474,7 @@ impl WorkspaceRegistry {
 
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
         let mut statement = self.connection.prepare(
-            "SELECT terminal_id, agent_session_id, applied_sequence, ended
+            "SELECT terminal_id, agent_session_id, applied_sequence, ended, hook_order
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
@@ -482,16 +485,22 @@ impl WorkspaceRegistry {
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, bool>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             })?
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended) = row?;
+                let (terminal_id, agent_session_id, applied_sequence, ended, hook_order) = row?;
+                // An unreadable stamp only loses the order until the next event.
+                let order = hook_order
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default();
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,
                     applied_sequence: u64::try_from(applied_sequence)
                         .context("agent hook sequence is negative")?,
                     ended,
+                    order,
                 })
             })
             .collect()

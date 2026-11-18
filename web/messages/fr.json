@@ -80,6 +80,11 @@
       "message": "Cette machine démarre, se met en pause ou ne tourne pas, elle ne peut donc pas faire cela pour le moment.",
       "action": "Patientez un instant et réessayez. Vérifiez l'état de la machine avec cmux vm ls et reprenez-la d'abord si elle est en pause."
     },
+    "hostRecovery": {
+      "title": "L'hôte de la machine est en cours de récupération",
+      "message": "Le disque de cette machine se trouve sur un hôte Cloud en cours de récupération, elle ne peut donc pas encore démarrer. Ses fichiers sont conservés.",
+      "action": "Réessayez dans quelques minutes. Ne supprimez pas et ne recréez pas la machine : son disque est conservé et revient avec elle. Si elle ne démarre toujours pas après une heure, contactez le support avec l'ID de trace."
+    },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",
       "message": "Votre politique réseau est enregistrée mais n'a pas été appliquée : cmux Cloud a atteint sa capacité de règles réseau.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Si vous avez déjà un compte, connectez-vous avec la méthode utilisée précédemment. Si vous venez de créer un compte, vérifiez votre adresse e-mail avant de vous connecter.",
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
-    "backToSignIn": "Retour à la connexion"
+    "backToSignIn": "Retour à la connexion",
+    "chatgptLinkTitle": "Connectez-vous une fois pour associer ChatGPT",
+    "chatgptLinkBody": "Cette adresse e-mail a déjà un compte cmux. Connectez-vous avec la méthode utilisée auparavant et ChatGPT sera associé à ce compte.",
+    "chatgptEmailUnverifiedBody": "L’adresse e-mail de votre compte ChatGPT n’est pas vérifiée. Vérifiez-la auprès d’OpenAI ou connectez-vous autrement."
   },
   "cloudPublicationAccess": {
     "title": "Vous n’avez pas accès",
@@ -509,7 +517,18 @@
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
         "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul.",
-        "addSeats": "Ajouter des sièges"
+        "addSeats": "Ajouter des sièges",
+        "enterprise": {
+          "current": "Forfait actuel",
+          "body": "{team} bénéficie d'un forfait personnalisé convenu avec l'équipe cmux. Contactez l'équipe cmux pour le modifier.",
+          "price": "Prix",
+          "perMonth": "{amount}/mois",
+          "machines": "Machines cloud",
+          "pool": "vCPU / mémoire partagés",
+          "largest": "Plus grande machine",
+          "size": "{vcpus} vCPU / {gb} Go",
+          "noLimit": "Aucune limite"
+        }
       },
       "teamList": {
         "heading": "Périmètres de facturation",
@@ -965,7 +984,12 @@
         "deleteConfirmBody": "Cette action est irréversible et supprime toutes les données associées à votre compte.",
         "deleteAcknowledge": "Je comprends que mon compte et ses données seront définitivement supprimés.",
         "deleteConfirm": "Supprimer le compte",
-        "deleteError": "Impossible de supprimer le compte. Réessayez."
+        "deleteError": "Impossible de supprimer le compte. Réessayez.",
+        "deleteErrorPending": "Votre compte est déjà en cours de suppression. Réessayez dans un instant.",
+        "deleteErrorRetryable": "La suppression du compte n'a pas pu aboutir. Vérifiez votre connexion et réessayez.",
+        "deleteAppStoreTitle": "Votre abonnement App Store continuera de se renouveler",
+        "deleteAppStoreBody": "Supprimer votre compte cmux n'annule pas votre abonnement App Store. Apple continue de vous facturer jusqu'à ce que vous l'annuliez dans l'App Store.",
+        "deleteAppStoreManage": "Gérer l'abonnement dans l'App Store"
       }
     },
     "teams": {
@@ -1243,7 +1267,10 @@
           "failed": "échec",
           "paused": "en pause",
           "destroyed": "supprimée"
-        }
+        },
+        "wake": "Réveiller",
+        "waking": "Réveil en cours…",
+        "wakeError": "Impossible de réveiller cette machine. Réessayez."
       },
       "network": {
         "open": "Réseau",

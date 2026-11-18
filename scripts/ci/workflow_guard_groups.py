@@ -55,6 +55,9 @@ PATH_OWNERS = {
     "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
     "scripts/ci/glaeda-signing-hooks.txt": frozenset(("ci",)),
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_ios_ui_nightly.py loads the script by path and reads both workflows.
+    ".github/workflows/ios-ui-tests-nightly.yml": frozenset(("ci",)),
+    "scripts/ci/ios_ui_nightly.py": frozenset(("ci",)),
     # tests/test_ci_gate_absent_signal.py imports the gate verdict.
     "scripts/ci/gate_verdict.py": frozenset(("ci",)),
 
@@ -84,7 +87,6 @@ PATH_OWNERS = {
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
-    ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
@@ -462,9 +464,6 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         owners.add("quality-determinism")
     if _determinism_scan(path):
         owners.add("quality-determinism")
-
-    if path == ".github/workflows/ios-testflight.yml":
-        owners.update(("preflight", "ci"))
 
     if not owners:
         return None

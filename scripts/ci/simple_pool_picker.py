@@ -86,6 +86,15 @@ def owned_class(label: str) -> str:
     return match.group("class") if match else ""
 
 
+def role_label_of(label: str, role: str) -> str:
+    """An owned label's `role` label (root, side, gui) on the same machines, or "" for any other label."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return ""
+    namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+    return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+
+
 def owned_family(label: str) -> str:
     """Return a namespace-qualified family key for any owned label."""
     match = OWNED_FAMILY.fullmatch(label or "")
@@ -155,6 +164,11 @@ class Pool:
     stalled: bool = False
     # Minutes its oldest queued job has waited by now (the snapshot's figure plus its age).
     waited: float = 0.0
+    # An owned pool with a GUI runner: its gui role label is configured in CI_OWNED_POOL_SLOTS or an
+    # online runner of the pool carries it (state_from()). A full or unit suite (State.gui_required)
+    # never waits on one without: run 44150654568's tests-build-and-lag took the light root label and
+    # XCTest timed out enabling automation mode on cmux21. True when unknown (a State built by hand).
+    gui: bool = True
 
     @property
     def available(self) -> int:
@@ -164,8 +178,12 @@ class Pool:
 
     @property
     def unreserved_available(self) -> int:
-        """Slots a new run can use without delaying queued release/nightly jobs."""
-        return max(0, self.available - self.reserved)
+        """Slots a new run can use without delaying queued release/nightly jobs: none while any is queued here.
+
+        A reservation holds the whole label, not one slot: subtracting the reserved count left a label with ten
+        slots and one queued app FFI release build open to pull request runs, which then queued ahead of the
+        build as before (2026-11-10, run 42833220418 waited 66 minutes on blacksmith-6vcpu-macos-26)."""
+        return 0 if self.reserved > 0 else self.available
 
 
 @dataclasses.dataclass(frozen=True)
@@ -183,6 +201,21 @@ class State:
     # fork, which owned_pool_rescue never rescues) and not on the bot's re-run, which has already
     # waited behind the fleet once. Off unless the caller says so (main(), wait_on_owned()).
     wait_on_owned: bool = False
+    # vars.CI_BLACKSMITH_MACOS (blacksmith_allowed()): off, an owned pick names no Blacksmith label.
+    blacksmith_on: bool = True
+
+
+# The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), the same
+# repository variable feat-cmux-next's placement reads (next_macos_cascade.BLACKSMITH_SWITCH). Only `on`
+# lets a same-repository run that an owned pool can take be placed on, or retried on, a Blacksmith macOS
+# label. On 2026-11-17, with it off, run 43990120167's compile admission waited on the owned light pool
+# and the shards it did not own took the Blacksmith retry_runner, blacksmith-12vcpu-macos-26: five hours queued.
+BLACKSMITH_SWITCH = "CI_BLACKSMITH_MACOS"
+
+
+def blacksmith_allowed(env: Mapping[str, str]) -> bool:
+    """Whether the switch lets a run take Blacksmith macOS: `on`, or a caller that passes no switch at all."""
+    return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -210,6 +243,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
             gui_required=bool(state.get("gui_required", False)),
             wait_on_owned=bool(state.get("wait_on_owned", False)),
+            blacksmith_on=bool(state.get("blacksmith_on", True)),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -225,7 +259,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
         for pool in sorted(state.owned, key=lambda pool: owned_order(pool.label)):
             # AWS is deliberately compile-only until its console login is
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
-            if state.gui_required and _owned_namespace(pool.label) == "aws":
+            if state.gui_required and (_owned_namespace(pool.label) == "aws" or not pool.gui):
                 continue
             # A pool with no online runner is no queue to wait in.
             if pool.capacity > 0:
@@ -234,6 +268,12 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
                               pool.xcode_app, True, retry_label=retry)
+    if eligible and not state.blacksmith_on:
+        # Blacksmith macOS is off: a run an owned pool can take waits there, the bot's re-run too, however
+        # free a Blacksmith label looks (a dead one reads as free).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
+        return Choice(pool.label, f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`); "
+                      "waits on the owned label", pool.xcode_app, True, retry_label=_retry_label(state, pool))
     if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
         # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
         # pool where the run is expected to start soonest (owned order on a tie).
@@ -298,7 +338,11 @@ def _retry_label(state: State, owned: Pool) -> str:
     It stays a Blacksmith label even when every one is full: ci-macos.yml also sends an owned
     run's jobs the minis cannot run (the SDK 15 helper build, for one) to pr_retry_runner, so an
     owned label here would fail them. A free, moving label comes first (_pick_blacksmith).
+    With Blacksmith macOS off (State.blacksmith_on) it is the owned label itself: write_outputs()
+    then names that label, so a job the pool does not own waits there instead of on Blacksmith.
     """
+    if not state.blacksmith_on:
+        return owned.label
     wanted = _xcode_version(owned.xcode_app)
     if wanted:
         matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
@@ -329,8 +373,14 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
-    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first.
+    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first. This
+    # comes before the reservation filter so that, with every moving label held, a run queues on a held moving
+    # label rather than on a dead one.
     eligible = [pool for pool in eligible if not pool.stalled] or eligible
+    # A label holding queued release, nightly or app FFI release work is never the overflow either: the
+    # least-loaded choice below used to ignore the reservation. Only when every moving label is held does a run
+    # queue on one, as it would on any full label.
+    eligible = [pool for pool in eligible if pool.reserved == 0] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
@@ -468,6 +518,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
     owned: list[Pool] = []
     if runners is not None:
         xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+        # Every configured label, role labels too (write_outputs() reads them the same way).
+        try:
+            raw_slots = json.loads(env.get("CI_OWNED_POOL_SLOTS") or "{}")
+        except (TypeError, ValueError):
+            raw_slots = {}
+        configured = {str(label) for label in raw_slots} if isinstance(raw_slots, dict) else set()
         labels = {label for label in _slots(env.get("CI_OWNED_POOL_SLOTS"))
                   if owned_matches_xcode(label, xcode_app)}
         # Only the configured class pools: a runner can carry an owned-looking
@@ -483,8 +539,11 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             family = owned_family(label)
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
+            gui_label = role_label_of(label, "gui")
+            gui = bool(gui_label) and (gui_label in configured or any(
+                item.get("name") == gui_label for runner in online for item in runner.get("labels", ())))
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", "")), gui=gui))
     age = snapshot_age(snapshot)
     # Each label on its own evidence (blacksmith_dead() or a fresh RUNNER_POOLS `_dead` mark), never
     # dead_macos_26()'s "both dead says nothing": with both dead a cleared queue read as free slots, so
@@ -503,7 +562,8 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                        for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
-                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
+                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
+                 blacksmith_on=blacksmith_allowed(env))
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
@@ -672,13 +732,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
         pass
     def role_label(role: str) -> str:
         """Return the configured role label for the selected owned pool."""
-        if not choice.owned:
-            return ""
-        match = OWNED_FAMILY.fullmatch(choice.label)
-        if not match:
-            return ""
-        namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
-        return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+        return role_label_of(choice.label, role) if choice.owned else ""
 
     root = role_label("root")
     side = role_label("side")

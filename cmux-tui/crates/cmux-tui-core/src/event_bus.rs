@@ -374,6 +374,11 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Whether `self` and `other` read the same mailbox.
+    pub(crate) fn same_mailbox(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.mailbox, &other.mailbox)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
     }

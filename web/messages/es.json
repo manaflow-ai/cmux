@@ -80,6 +80,11 @@
       "message": "Esta máquina se está iniciando, pausando o no está en ejecución, así que no puede hacer esto ahora.",
       "action": "Espera un momento y vuelve a intentarlo. Comprueba el estado de la máquina con cmux vm ls y reanúdala primero si está en pausa."
     },
+    "hostRecovery": {
+      "title": "Se está recuperando el host de la máquina",
+      "message": "El disco de esta máquina está en un host de Cloud que se está recuperando, así que todavía no puede iniciarse. Sus archivos se conservan.",
+      "action": "Vuelve a intentarlo en unos minutos. No elimines ni vuelvas a crear la máquina: su disco se conserva y vuelve con ella. Si después de una hora sigue sin iniciarse, contacta con soporte con el ID de traza."
+    },
     "networkRuleCapacity": {
       "title": "Reglas de red al límite",
       "message": "Tu política de red se guardó, pero no se aplicó: cmux Cloud alcanzó su capacidad de reglas de red.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Si ya tienes una cuenta, inicia sesión con el método que usaste antes. Si acabas de crear una cuenta, verifica tu correo antes de iniciar sesión.",
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
-    "backToSignIn": "Volver a iniciar sesión"
+    "backToSignIn": "Volver a iniciar sesión",
+    "chatgptLinkTitle": "Inicia sesión una vez para conectar ChatGPT",
+    "chatgptLinkBody": "Este correo ya tiene una cuenta de cmux. Inicia sesión con el método que usaste antes y ChatGPT se conectará a esa cuenta.",
+    "chatgptEmailUnverifiedBody": "El correo de tu cuenta de ChatGPT no está verificado. Verifícalo con OpenAI o inicia sesión de otra forma."
   },
   "cloudPublicationAccess": {
     "title": "No tienes acceso",
@@ -509,7 +517,18 @@
         "grantedBody": "El equipo de cmux concedió acceso a Team a {team}. No hay ninguna suscripción que gestionar.",
         "seatsUsed": "{members} de {seats} en uso",
         "overSeat": "{team} tiene {members} miembros y {seats} asientos pagados. Los asientos siguen el número de miembros, así que la suscripción se actualiza sola.",
-        "addSeats": "Añadir puestos"
+        "addSeats": "Añadir puestos",
+        "enterprise": {
+          "current": "Plan actual",
+          "body": "{team} tiene un plan personalizado acordado con el equipo de cmux. Contacta al equipo de cmux para cambiarlo.",
+          "price": "Precio",
+          "perMonth": "{amount}/mes",
+          "machines": "Máquinas en la nube",
+          "pool": "vCPU / memoria compartidas",
+          "largest": "Máquina más grande",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Sin límite"
+        }
       },
       "teamList": {
         "heading": "Ámbitos de facturación",
@@ -965,7 +984,12 @@
         "deleteConfirmBody": "Esta acción es irreversible y elimina todos los datos asociados a tu cuenta.",
         "deleteAcknowledge": "Entiendo que mi cuenta y sus datos se eliminarán de forma permanente.",
         "deleteConfirm": "Eliminar cuenta",
-        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo."
+        "deleteError": "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+        "deleteErrorPending": "Tu cuenta ya se está eliminando. Inténtalo de nuevo en un momento.",
+        "deleteErrorRetryable": "No se pudo completar la eliminación de la cuenta. Comprueba tu conexión e inténtalo de nuevo.",
+        "deleteAppStoreTitle": "Tu suscripción de App Store se seguirá renovando",
+        "deleteAppStoreBody": "Eliminar tu cuenta de cmux no cancela tu suscripción de App Store. Apple te seguirá cobrando hasta que la canceles en App Store.",
+        "deleteAppStoreManage": "Gestionar suscripción en App Store"
       }
     },
     "teams": {
@@ -1243,7 +1267,10 @@
           "failed": "con errores",
           "paused": "en pausa",
           "destroyed": "eliminada"
-        }
+        },
+        "wake": "Reanudar",
+        "waking": "Reanudando…",
+        "wakeError": "No se pudo reanudar esta máquina. Inténtalo de nuevo."
       },
       "network": {
         "open": "Red",

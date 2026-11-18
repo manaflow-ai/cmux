@@ -1,0 +1,19 @@
+name: Inference gateway E2E (development)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run gateway-e2e.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's jobs win. That file
+# takes no inputs; neither does this one.
+on:
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "Inference gateway E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
