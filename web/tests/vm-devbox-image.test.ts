@@ -1743,9 +1743,12 @@ test "$daemon_pid" = fixture
     }
   });
 
-  test("claude transcript retention is pinned everywhere", () => {
-    expect(dockerfile).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
-    expect(readScript("build-devbox-freestyle.ts")).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
+  // crossSessionInbound: Leo, 2026-11-18, "can you make this accept", "they shouldnt hold em".
+  test("claude transcript retention and messages from other sessions are pinned everywhere", () => {
+    const managed = '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true, "crossSessionInbound": "accept" }';
+    expect(dockerfile).toContain(managed);
+    expect(readScript("build-devbox-freestyle.ts")).toContain(managed);
+    expect(readScript("verify-devbox-image.ts")).toContain("s.get('crossSessionInbound') == 'accept'");
   });
 
   test("never installs docker (deliberate image-scope choice)", () => {
