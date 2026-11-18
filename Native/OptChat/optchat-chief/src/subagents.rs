@@ -1190,6 +1190,7 @@ impl Spawner {
             policy: Some(spec.policy.clone()),
             harness: Some(s.harness.clone()),
             made: Some(made.clone()),
+            goal,
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
