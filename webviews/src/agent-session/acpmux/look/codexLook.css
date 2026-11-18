@@ -129,3 +129,34 @@
   color: var(--agent-muted);
   font-weight: var(--weight-regular, 400);
 }
+
+/* The row under the composer: the Codex app's "Local ⌄" on the left and the branch on the right,
+   as quiet text under the box. cmux's folder and computer strip (ComposerContext.tsx) moves from
+   over the box to under it and drops its tray; the branch control already ends the strip, and the
+   leading group's flex pushes it to the right edge. */
+.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) {
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
+  order: 2;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under {
+  order: 3;
+}
+:where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
+:root .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip {
+  margin: 6px calc(var(--acpmux-codex-prompt-side, 18px) - 8px) 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip .acpmux-composer-context {
+  padding: 0;
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-location-branch {
+  margin-inline-start: auto;
+}

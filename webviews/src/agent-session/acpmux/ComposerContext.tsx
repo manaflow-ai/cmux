@@ -1258,7 +1258,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker">
+    <span ref={control} className="acpmux-location-picker acpmux-location-branch">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
