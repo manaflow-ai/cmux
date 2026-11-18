@@ -98,6 +98,7 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+mod share_status;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -186,7 +187,7 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
         eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
+            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|share-status|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
         );
         return 2;
     };
@@ -262,6 +263,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" => connect::run(),
         "permissions" => permissions::run(),
+        "share-status" => share_status::run(&opts),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]

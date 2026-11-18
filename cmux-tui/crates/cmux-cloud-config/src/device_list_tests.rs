@@ -60,6 +60,35 @@ fn names_fold_punctuation_case_and_typographic_quotes() {
 }
 
 #[test]
+fn macos_name_conflict_suffix_is_the_same_device() {
+    assert_eq!(
+        key("x", "lawrence's MacBook Pro (2)", None),
+        key("y", "Lawrence’s MacBook Pro", None)
+    );
+    assert_eq!(key("x", "Mini (12) ", None), key("y", "Mini", None));
+    // Only a bare number in parentheses after a space: other names keep their words.
+    assert_ne!(key("x", "Mini (lab)", None), key("y", "Mini", None));
+    assert_ne!(key("x", "Mini(2)", None), key("y", "Mini", None));
+    assert_ne!(key("x", " (2)", None), key("y", "", None));
+    let devices = [
+        Device {
+            last_seen_at: Some(10.0),
+            mac_screen_shared: true,
+            ..device("old", "Lawrence's MacBook Pro")
+        },
+        Device {
+            online: true,
+            mac_screen_shared: true,
+            ..device("new", "lawrence's MacBook Pro (2)")
+        },
+    ];
+    assert_eq!(
+        listing(&this("me"), &devices).others,
+        [Machine { id: "new".into(), ids: vec!["new".into(), "old".into()] }]
+    );
+}
+
+#[test]
 fn platforms_never_merge_and_phones_reinstalled_collapse() {
     let devices = [
         Device { platform: Some("ios".into()), ..device("p1", "Leo’s iPhone") },

@@ -23,6 +23,9 @@ public final class MacScreenPaneModel {
     public internal(set) var currentDisplay = 0
     /// A picture arrived in this connection.
     public internal(set) var hasFrame = false
+    /// Connected for `MacScreenPaneModel.noPictureDelay` with no picture: the card says none came
+    /// (never a black screen with live stats over it).
+    public internal(set) var noPictureDue = false
     /// This tab has shown the Mac at least once (its connecting card then says Reconnecting).
     public internal(set) var everConnected = false
     /// The screen has the keyboard (control mode).
@@ -80,6 +83,8 @@ public final class MacScreenPane {
     private let inputSink: MacScreenInputSink?
     private var visible = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
+    /// One-shot: a connected session with no picture after `noPictureDelay` gets the no-picture card.
+    private let noPictureTimer = DemandTimer(owner: "mac-screen.no-picture")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
@@ -146,7 +151,10 @@ public final class MacScreenPane {
         view.onInputGateChange = { [weak self] in self?.handlers.keyboardChanged() }
         let actions = view.chrome.actions
         actions.connect = { [weak self] in self?.reconnect() }
-        actions.requestScope = { [weak self] scope in self?.model.hub?.request(scope) }
+        actions.requestScope = { [weak self] scope in
+            self?.session?.forgetHostCantShare()
+            self?.model.hub?.request(scope)
+        }
         actions.cancelRequest = { [weak self] in self?.model.hub?.cancel() }
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
@@ -204,7 +212,23 @@ public final class MacScreenPane {
         session.framesCounted(counter)
         if !model.hasFrame {
             model.hasFrame = true
+            noPictureTimer.cancel()
+            if model.noPictureDue { model.noPictureDue = false }
             view.needsLayout = true
+        }
+    }
+
+    /// Connected with no picture: arms the no-picture card's clock; anything else disarms it.
+    private func followPicture(_ session: MacScreenSession) {
+        guard case .connected = session.phase, !model.hasFrame else {
+            noPictureTimer.cancel()
+            if model.noPictureDue { model.noPictureDue = false }
+            return
+        }
+        guard !model.noPictureDue else { return }
+        noPictureTimer.schedule(after: MacScreenPaneModel.noPictureDelay) { @MainActor [weak self, weak session] in
+            guard let self, let session, case .connected = session.phase, !model.hasFrame else { return }
+            model.noPictureDue = true
         }
     }
 
@@ -221,6 +245,7 @@ public final class MacScreenPane {
                 } else {
                     model.hasFrame = false
                 }
+                followPicture(session)
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
                 if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
@@ -270,6 +295,7 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        noPictureTimer.cancel()
         decodeTask?.cancel()
         cursorTask?.cancel()
         visible = false
@@ -302,6 +328,7 @@ public final class MacScreenPane {
 
     private func reconnect() {
         guard let hub = model.hub else { return }
+        session?.forgetHostCantShare()
         hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
     }
 

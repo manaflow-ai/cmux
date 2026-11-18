@@ -49,6 +49,12 @@ public final class ScreenSharingViewer: Identifiable {
     /// The stream while approved (nil before the ticket and after the end).
     public private(set) var screen: ScreenSession?
     public private(set) var lastScope: SessionScope = .full
+    /// The Mac said it can't share its screen (a `status` it can't be viewed with): the
+    /// ended card shows its sentence, and no later end reason from the hub replaces it.
+    /// Cleared by the next request.
+    public private(set) var shareStatus: ScreenShareStatus?
+    /// The ended card is the Mac's can't-share card (``shareStatus`` can't be viewed with).
+    public var cannotShare: Bool { shareStatus.map { !$0.canView } ?? false }
 
     @ObservationIgnored let hub: DeviceHub
     @ObservationIgnored let preferences: ScreenSharingPreferences
@@ -121,6 +127,7 @@ public final class ScreenSharingViewer: Identifiable {
     /// Asks the Mac for a session (Connect, Try Again).
     public func request(_ scope: SessionScope) {
         droppedSessionID = nil
+        shareStatus = nil
         reattachTask?.cancel()
         reattachTask = nil
         cancelPending(endingSession: true)
@@ -257,7 +264,11 @@ public final class ScreenSharingViewer: Identifiable {
                 guard let self, let session, self.screen === session else { return }
                 switch session.phase {
                 case .failed, .ended:
-                    self.streamDropped(sessionID)
+                    if let status = session.shareStatus, !status.canView {
+                        self.hostCannotShare(status, sessionID: sessionID)
+                    } else {
+                        self.streamDropped(sessionID)
+                    }
                 case .connected:
                     // A stream that came up: its next drop starts the backoff over (first try at once).
                     self.reattachAttempts = 0
@@ -267,6 +278,30 @@ public final class ScreenSharingViewer: Identifiable {
                 }
             }
         }
+    }
+
+    /// The Mac can't share its screen (no Screen Recording grant, capture failed): no reattach,
+    /// which would only show black again. The session ends here and the card says the Mac's
+    /// sentence until the person asks again.
+    func hostCannotShare(_ status: ScreenShareStatus, sessionID id: String) {
+        guard self.sessionID == id else { return }
+        shareStatus = status
+        droppedSessionID = nil
+        reattachTask?.cancel()
+        reattachTask = nil
+        cancelPending(endingSession: false)
+        end(id, reason: ScreenSharingEndReason.failed.rawValue)
+        stopStream()
+        phase = .ended(reason: ScreenSharingEndReason.failed.rawValue)
+    }
+
+    /// Retry on the screen's no-picture card: the same approved session gets a fresh ticket
+    /// (no new approval on the Mac). False when there is no running stream to retry.
+    @discardableResult
+    public func retryStream() -> Bool {
+        guard case let .streaming(id, _) = phase else { return false }
+        streamDropped(id)
+        return true
     }
 
     func streamDropped(_ id: String) {
@@ -353,6 +388,8 @@ public final class ScreenSharingViewer: Identifiable {
 
     /// `session.revoked` or `session.ended`: stop now and say why.
     func ended(reason: String?) {
+        // The Mac's can't-share status may still be on its way from the screen: keep it, it wins.
+        if let status = screen?.shareStatus, !status.canView { shareStatus = status }
         reattachTask?.cancel()
         reattachTask = nil
         cancelPending(endingSession: false)

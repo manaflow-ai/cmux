@@ -160,6 +160,13 @@ final class MacScreenCardView: MacScreenThemedView {
         case .waitingForPicture:
             spinner()
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
+        case let .cantShare(sentence):
+            // The other Mac's own sentence, as it sent it (it names the Mac and the fix).
+            glyph("rectangle.slash", ink: \.attention)
+            title(String(format: L.t("macScreen.card.cantShareTitle", "%@ can’t share its screen"), name))
+            detail(sentence ?? String(format: L.t("macScreen.card.noPictureBody", "No picture has come from %@ yet."), name))
+            buttons([closeTab(id: "macScreen.card.cantShare.closeTab"),
+                     primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.cantShare.retry") { $0.connect() }])
         case .failed:
             // The session's message can quote the signaling URL (with the room id): never shown.
             glyph("exclamationmark.triangle", ink: \.attention)

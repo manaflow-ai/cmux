@@ -44,6 +44,15 @@ public final class MacScreenSession {
     public private(set) var streamPath = "-"
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
+    /// The other Mac's own sentence for why it can't share its screen (the share status it
+    /// refused or ended the session with: no Screen Recording grant, capture failed). The card
+    /// shows it as sent; whatever ends the session after it never replaces it. Cleared on connect.
+    public private(set) var hostCantShare: String?
+
+    /// A new request (Try Again, Connect): the last session's can't-share sentence is the past.
+    func forgetHostCantShare() {
+        if hostCantShare != nil { hostCantShare = nil }
+    }
     /// This approach never reconnects on its own: Try Again asks the hub again.
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
@@ -99,6 +108,7 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        hostCantShare = nil
         // The first decoder session in a process is the slow one: make it now, in parallel with
         // signaling and the host's capture start, not on the first keyframe.
         RemoteDecoderPrewarm.start()
@@ -243,6 +253,7 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
+                if let sentence = Self.shareStatusSentence(reason) { hostCantShare = sentence }
                 end(reason)
                 return
             }
@@ -310,7 +321,12 @@ public final class MacScreenSession {
                         timings.sampleRtt(Double(rtt))
                     }
                 case let .ended(why):
-                    if case .connectionLost = why {
+                    // The host refused or ended with its share status (`Control::Refused { reason }`):
+                    // its sentence goes on the card, never "connection lost" or a code.
+                    if let sentence = Self.shareStatusSentence(status.endReason) {
+                        hostCantShare = sentence
+                        end(sentence)
+                    } else if case .connectionLost = why {
                         fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
                     } else {
                         end(String(describing: why))
@@ -334,6 +350,15 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// The host's share-status sentence in a refusal or end reason (the `cmux-rd share-status`
+    /// contract: "<host> can't share its screen yet: …" or "<host> shares its screen view only: …"),
+    /// trimmed; nil for any other reason (a code, a link error).
+    nonisolated static func shareStatusSentence(_ reason: String?) -> String? {
+        guard let text = reason?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        let markers = [" can't share its screen yet: ", " can’t share its screen yet: ", " shares its screen view only: "]
+        return markers.contains { text.contains($0) } ? text : nil
     }
 
     /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).
