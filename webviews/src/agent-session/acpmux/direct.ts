@@ -5825,8 +5825,8 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
-    // ends: `cursor` moves to the page's newest seq each pass; it breaks on no more or an empty page, and
-    // throws on a page that says more but moved it nothing
+    // ends: `cursor` moves to the page's newest seq each pass; it breaks on no more, and throws on a page
+    // that says more but moved it nothing (an empty one included)
     for (let cursor = afterSeq; ;) {
       this.gapReads.set(key, { sessionId, seq: cursor });
       const result = await this.typed("_acpmux/events", {
@@ -5840,11 +5840,12 @@ export class AcpmuxDirectClient {
       this.sawPrompts(missed);
       // Only what this page changed is folded again (`rebuild`'s `changedFrom`): past the cursor.
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined, cursor + 1);
-      if (result?.hasMore !== true || missed.length === 0) break;
-      const next = Math.max(...missed.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again, and
-      // it filled nothing: it fails like a read that did not come back, so the hole stays in
-      // `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry reads it again.
+      if (result?.hasMore !== true) break;
+      const next = missed.length === 0 ? cursor : Math.max(...missed.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again, and it filled nothing: it fails like a read that did not come back, so the
+      // hole stays in `gapReads`, no `resynced` says the chat is whole, and the caller's bounded retry
+      // reads it again.
       if (next <= cursor) {
         this.wire.lifecycle("gap read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the gap read's callers, which keep the hole; never shown.
@@ -8342,10 +8343,11 @@ export class AcpmuxDirectClient {
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
       const page = records(result?.events);
       stored.push(...page.filter((event) => event.seq <= endSeq));
-      if (result?.hasMore !== true || page.length === 0) break;
-      const next = Math.max(...page.map((event) => event.seq));
-      // A page that says hasMore but holds nothing past the cursor would read the same page again. It
-      // fails, as a read that did not come back does, so `repairTurns` retries it on its bounded delays.
+      if (result?.hasMore !== true) break;
+      const next = page.length === 0 ? cursor : Math.max(...page.map((event) => event.seq));
+      // A page that says hasMore but holds nothing past the cursor (or nothing at all) would read the
+      // same page again. It fails, as a read that did not come back does, so `repairTurns` retries it on
+      // its bounded delays.
       if (next <= cursor) {
         this.wire.lifecycle("turn repair read stalled", { sessionId, afterSeq: cursor, newestSeq: next });
         // l10n-allow: a daemon's bug for the repair read, which retries; never shown.
