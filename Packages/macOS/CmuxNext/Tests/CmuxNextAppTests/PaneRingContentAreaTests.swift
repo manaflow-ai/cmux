@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 import Testing
@@ -9,16 +10,20 @@ import Testing
 /// the whole card, around the tabs. The ring marks the content area below the tabs in every chrome style; only the
 /// inactive dim covers the whole card.
 @MainActor @Suite struct PaneRingContentAreaTests {
-    /// Pane content with a tab strip `header` points high on top and `footer` points high below.
+    /// Pane content with a tab strip `header` points high on top, one `footer` points high below and a vertical tab
+    /// list `leading` points wide on its leading edge (its content area starts there, as `PaneContentView` lays it out).
     final class StripContent: NSView, PaneContentChrome {
         var header: CGFloat
         var footer: CGFloat
+        let area = PaneContentAreaView()
         var onPaneHeaderHeightChange: (() -> Void)?
 
-        init(header: CGFloat, footer: CGFloat = 0) {
+        init(header: CGFloat, footer: CGFloat = 0, leading: CGFloat = 0) {
             self.header = header
             self.footer = footer
             super.init(frame: .zero)
+            addSubview(area)
+            area.frame.origin.x = leading
         }
 
         @available(*, unavailable)
@@ -44,10 +49,10 @@ import Testing
         return host
     }
 
-    /// The padded card less `top` points of tabs above and `bottom` below.
-    static func contentArea(top: CGFloat, bottom: CGFloat = 0) -> CGRect {
+    /// The padded card less `top` points of tabs above, `bottom` below and `leading` on the leading edge.
+    static func contentArea(top: CGFloat, bottom: CGFloat = 0, leading: CGFloat = 0) -> CGRect {
         let card = cell.insetBy(dx: padding, dy: padding)
-        return CGRect(x: card.minX, y: card.minY + top, width: card.width, height: card.height - top - bottom)
+        return CGRect(x: card.minX + leading, y: card.minY + top, width: card.width - leading, height: card.height - top - bottom)
     }
 
     @Test(arguments: [false, true])
@@ -71,5 +76,36 @@ import Testing
         content.header = 0
         content.onPaneHeaderHeightChange?()
         #expect(host.chrome.ringFrame == Self.contentArea(top: 0))
+    }
+
+    @Test(arguments: [false, true])
+    func theRingTracesTheContentBesideAVerticalTabList(wholeCard: Bool) {
+        let host = Self.host(StripContent(header: 0, leading: 180), wholeCard: wholeCard)
+        #expect(host.chrome.ringFrame == Self.contentArea(top: 0, leading: 180),
+                "wholeCard \(wholeCard): the ring traced \(host.chrome.ringFrame), around the vertical tab list")
+        #expect(host.chrome.attentionFrame == host.chrome.ringFrame, "the unread ring is not where the focus ring is")
+    }
+
+    /// The content area's corners take the card's radius: where the area meets the card's corner (the bottom ones
+    /// under a top strip) the stroke, drawn inside the layer, follows the card's own curve exactly, and where it meets
+    /// the tabs it matches their pills, which a floating card rounds with the same radius (`Metrics.tabCornerRadius`).
+    @Test func aFloatingCardsRingCornersFollowTheCard() {
+        let host = Self.host(StripContent(header: 30), wholeCard: true)
+        #expect(host.chrome.ringCornerRadius == Self.radius)
+        #expect(host.chrome.attentionCornerRadius == Self.radius)
+    }
+
+    /// The inactive dim stays on the whole card, tabs included, rounded at all four of the card's corners.
+    @Test func aFloatingCardsDimCoversTheWholeCard() {
+        let host = Self.host(StripContent(header: 30), wholeCard: true)
+        #expect(host.chrome.dimFrame == Self.cell.insetBy(dx: Self.padding, dy: Self.padding))
+        #expect(host.chrome.dimCornerRadius == Self.radius)
+        #expect(host.chrome.dimCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+    }
+
+    /// A tiled pane's dim keeps its square corners where its tabs are: on top under a strip, leading beside a list.
+    @Test func aTiledPanesDimIsSquareWhereItsTabsAre() {
+        let host = Self.host(StripContent(header: 30, leading: 180), wholeCard: false)
+        #expect(host.chrome.dimCorners == [.layerMaxXMaxYCorner])
     }
 }
