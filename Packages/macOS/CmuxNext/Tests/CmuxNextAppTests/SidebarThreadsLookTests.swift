@@ -22,11 +22,18 @@ import Testing
         ])]
     }
 
-    /// The settings a profile sets for the look.
+    /// The settings a profile sets for the look: `sidebar.groupBy` folder, `sidebar.showTimestamps`,
+    /// `sidebar.relativeTimestamps` and `sidebar.workspaceRow.branch`.
+    static func applyLook(_ preferences: inout SidebarSectionsPreferences) {
+        preferences.groupBy = .folder
+        (preferences.showTimestamps, preferences.relativeTimestamps) = (true, true)
+        preferences.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.branch])))
+    }
+
     static func applyLook(_ model: SidebarModel) {
-        model.grouping.by = .folder
-        (model.showsTimestamps, model.relativeTimestamps) = (true, true)
-        model.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.branch])))
+        var preferences = SidebarSectionsPreferences.defaults
+        applyLook(&preferences)
+        model.applyListPreferences(preferences)
     }
 
     private static func layout(_ model: SidebarModel) -> SidebarLayout {

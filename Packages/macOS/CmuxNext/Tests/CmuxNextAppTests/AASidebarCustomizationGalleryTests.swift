@@ -64,10 +64,12 @@ import Testing
 
         let rows = variant.threads ? SidebarThreadsLookTests.sections(now: Date()) : Self.sections()
         let model = SidebarModel(sections: rows)
-        if variant.threads { SidebarThreadsLookTests.applyLook(model) }
         model.sectionCustomization = variant.settings
         model.setSections(rows)
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        // The sidebar applies its design's `sidebar.*` preferences to the model: the look goes there.
+        let design = DesignSettings()
+        if variant.threads { SidebarThreadsLookTests.applyLook(&design.sidebarSections) }
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = root.bounds
         root.addSubview(sidebar)
         window.orderFrontRegardless()
