@@ -1434,6 +1434,8 @@ jobs:
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
           NIGHTLY_POOL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL || '' }}
           NIGHTLY_RUNNER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER || '' }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-408
+          STACK_SLOT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && contains(github.event.pull_request.labels.*.name, 'stack-blocker') && 'glaeda-nightly-std-xcode-26.6' || '' }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-120
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
@@ -4869,7 +4871,10 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    timeout-minutes: 40
+    # Runs from runner pickup, so it also counts the runner hook's wait for capacity units. Finished runs took 20-39 min
+    # (2026-11-17, 12 h), and a units wait of 19 min cancelled cmux#44505's mid-compile at 40. 60, plus the PR
+    # autofix pack step's 10.
+    timeout-minutes: 70
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
@@ -5156,6 +5161,42 @@ jobs:
           path: ${{ runner.temp }}/base-exports
           if-no-files-found: error
           retention-days: 1
+
+      # The PR autofix's Mac exports on this build of the same merge commit (base_autofix_pushed_exports.py pr-lookup).
+      - name: Pack the exports for the PR autofix
+        id: pr-exports
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_PR_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
+        run: |
+          set -euo pipefail
+          # The base's scripts, as the PR autofix's Mac job runs them; HEAD^1 is the base, HEAD^2 the head.
+          base="$RUNNER_TEMP/pr-autofix-base"
+          rm -rf "$base" && mkdir -p "$base"
+          git archive HEAD^1 scripts/cmux-next | tar -x -C "$base"
+          pack="$base/scripts/cmux-next/base-autofix-exports-pack.sh"
+          if ! grep -q -- '--pr' "$pack"; then echo "the base's pack script makes no PR pack yet"; exit 0; fi
+          if git log -1 --format=%B HEAD^2 | grep -q '^Autofix-Run: '; then echo "an autofix head: the PR autofix wants no exports"; exit 0; fi
+          areas="$(git diff --no-renames --name-only HEAD^1 HEAD | "$base/scripts/cmux-next/autofix-areas.sh")"
+          if ! grep -qE '^(actions|settings)=true$' <<<"$areas"; then
+            echo "no action or settings inputs changed: the PR autofix wants no exports"
+            exit 0
+          fi
+          "$pack" "$RUNNER_TEMP/pr-exports" --pr | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the PR autofix
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.pr-exports.outcome == 'success' && steps.pr-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr-exports.outputs.name }}
+          path: ${{ runner.temp }}/pr-exports
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-277
       - name: Regenerate stale files
