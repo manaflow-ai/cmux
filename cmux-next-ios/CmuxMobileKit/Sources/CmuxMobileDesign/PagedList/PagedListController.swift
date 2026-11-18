@@ -201,10 +201,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             cell.contentConfiguration = UIHostingConfiguration { view }.margins(.all, 0)
             cell.backgroundConfiguration = .clear()
         }
-        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { view, indexPath, id in
+        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { view, indexPath, id -> UICollectionViewCell? in
             switch id {
-            case .row(let rowID): view.dequeueConfiguredReusableCell(using: rowCell, for: indexPath, item: rowID)
-            case .edge: view.dequeueConfiguredReusableCell(using: edgeCell, for: indexPath, item: 0)
+            case .row(let rowID): return view.dequeueConfiguredReusableCell(using: rowCell, for: indexPath, item: rowID)
+            case .edge: return view.dequeueConfiguredReusableCell(using: edgeCell, for: indexPath, item: 0)
             }
         }
         collectionView.didLayout = { [weak self] in self?.didLayout() }
