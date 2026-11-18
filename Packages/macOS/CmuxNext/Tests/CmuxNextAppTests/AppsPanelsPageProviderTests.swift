@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApps
 import CmuxNextPages
@@ -86,6 +87,66 @@ import Testing
         router.close()
         await client.tail?.value
         #expect(transport.unmounts == [mountID])
+    }
+
+    /// Each mount's scene batches carry its own revision, one more per batch from 1, resets and the first
+    /// subscriber's replay included, statuses not; a mount's visible slice (surface = mount id) echoes it.
+    @Test func sceneBatchesCountARevisionPerMountAndTheSliceEchoesIt() async throws {
+        let transport = FakePanelsTransport()
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let a = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        let b = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        #expect(provider.sceneRevision(mountID: a) == 0)
+
+        // Two batches before the page subscribes reach it as one reset: revision 1.
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n1")]))
+        transport.onEvent?(.scene(mountID: a, ops: [.remove(id: "n1")]))
+        let heard = Heard()
+        let subscription = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(a)]),
+                                                        context: Self.page) { heard.events.append($0) }
+        defer { subscription.cancel() }
+        let batches = { heard.events.filter { $0["ops"] != nil } }
+        #expect(batches().map { $0["revision"]?.intValue } == [1])
+        #expect(heard.events.filter { $0["status"] != nil }.allSatisfy { $0["revision"] == nil }, "a status carries no revision")
+
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n2")]))
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n3")], reset: true))
+        #expect(batches().map { $0["revision"]?.intValue } == [1, 2, 3])
+        #expect(provider.sceneRevision(mountID: a) == 3)
+        // Another mount counts its own.
+        let other = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(b)]),
+                                                 context: Self.page) { _ in }
+        defer { other.cancel() }
+        transport.onEvent?(.scene(mountID: b, ops: [.root(id: "m1")]))
+        #expect(provider.sceneRevision(mountID: b) == 1)
+        #expect(provider.sceneRevision(mountID: a) == 3)
+
+        // The mount's slice is measured against its scene's revision.
+        let slices = PageVisibleSlices()
+        let tracker = PageVisibleSliceTracker(surface: a, slices: slices, view: NSView(),
+                                              measure: { (CGRect(x: 0, y: 40, width: 300, height: 120.4), 600) },
+                                              revision: { provider.sceneRevision(mountID: a) ?? 0 })
+        var sliced: [JSONValue] = []
+        let sliceSubscription = try await slices.subscribe(PageVisibleSlices.stream, filter: .object(["surface": .string(a)]),
+                                                           context: Self.page) { sliced.append($0) }
+        defer { sliceSubscription.cancel() }
+        #expect(tracker.sendNow())
+        #expect(!tracker.sendNow(), "nothing changed")
+        #expect(sliced.last?["surface"]?.stringValue == a)
+        #expect(sliced.last?["revision"]?.intValue == 3)
+        #expect(sliced.last?["top"]?.intValue == 40)
+        #expect(sliced.last?["height"]?.intValue == 120)
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n4")]))
+        #expect(tracker.sendNow())
+        #expect(sliced.last?["revision"]?.intValue == 4)
+        #expect(sliced.count == 2)
+        // A surface hears only its own slices; a subscription names its surface.
+        #expect(slices.push(.init(surface: b, revision: 1, top: 0, height: 10)))
+        #expect(sliced.count == 2)
+        await #expect(throws: PageError.self) {
+            _ = try await slices.subscribe(PageVisibleSlices.stream, filter: .object([:]), context: Self.page) { _ in }
+        }
     }
 
     /// A started client over `transport`, its list landed.

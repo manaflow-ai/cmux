@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextPages
-import CmuxNextWakeups
 import CmuxVisibleRows
 import Foundation
 
@@ -77,7 +76,7 @@ final class SidebarChatHistoryViews {
 /// never takes the keys, passes scrolls to the list, and shows once it reported drawing a block.
 ///
 /// The page is as tall as the block, and the list scrolls it, so all of it is in the page's own viewport. The host
-/// streams the part on screen (`cmux.sidebarChats.slice`, ``SidebarChatHistoryProvider/Slice``) for the page to
+/// streams the part on screen (`cmux.page.visibleSlice`, ``PageVisibleSlices``, surface ``surface``) for the page to
 /// draw only those rows: on a scroll, a move or resize, a block push, a `ready`, at most once a display frame.
 final class SidebarChatHistoryHost: NSView {
     enum Part: String { case pinned, earlier }
@@ -97,11 +96,16 @@ final class SidebarChatHistoryHost: NSView {
     }
     /// The block's work for the visible-rows contract: one `configured` per slice sent. Making a slice reads no row.
     let listWork = ListWorkMeter()
-    /// The next display frame sends the latest slice, then idles until something moves again.
-    private lazy var sliceFrame = FrameClient(owner: "Sidebar.chatHistorySlice", view: self) { [weak self] _ in
-        self?.sendSlice()
-        return false
-    }
+    /// The block's surface on the page's visible-slice stream.
+    var surface: String { "sidebar-chats:\(part.rawValue)" }
+    /// Measures the block's part on screen against its block revision, in the page's CSS px.
+    private lazy var slice: PageVisibleSliceTracker = {
+        let tracker = PageVisibleSliceTracker(surface: surface, slices: provider.slices, view: self,
+                                              revision: { [weak self] in self?.provider.revision ?? 0 },
+                                              zoom: { [weak self] in self?.page?.pageZoom ?? 1 })
+        tracker.onSend = { [weak self] _ in self?.listWork.configured() }
+        return tracker
+    }()
 
     init(part: Part, makePage: @escaping MakePage = SidebarChatHistoryHost.makePage) {
         self.part = part
@@ -148,31 +152,22 @@ final class SidebarChatHistoryHost: NSView {
         needsSlice()
     }
 
-    /// The part of the block on screen now, in the page's CSS px: from the top of the list's visible rect in the
-    /// block, for its height; height 0 when none of the block shows.
-    var currentSlice: SidebarChatHistoryProvider.Slice {
-        let zoom = max(page?.pageZoom ?? 1, 0.01)
-        let shown = isHiddenOrHasHiddenAncestor ? .zero : visibleRect
-        let top = shown.isEmpty ? 0 : min(max(shown.minY, 0), bounds.height)
-        let height = shown.isEmpty ? 0 : shown.height
-        return .init(revision: provider.revision, top: Double(top) / zoom, height: Double(height) / zoom)
-    }
+    /// The part of the block on screen now: from the top of the list's visible rect in the block, for its height;
+    /// height 0 when none of the block shows.
+    var currentSlice: PageVisibleSlices.Slice { slice.current }
 
     /// Sends the slice on the next display frame (the latest wins).
-    func needsSlice() { sliceFrame.activate() }
+    func needsSlice() { slice.needsSlice() }
 
     /// Sends the slice now when it moved by a whole px or the block changed (the display frame's work).
-    func sendSlice() {
-        if provider.push(currentSlice) { listWork.configured() }
-    }
+    func sendSlice() { slice.sendNow() }
 
     /// The page in WebKit (it sits inside the list's scroll view, transparent over the sidebar's backdrop), with the
     /// first click, kept loaded across web updates (the block is always in sight).
     static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true, keepsLoadedWeb: true)
 
     static func makePage(_ provider: SidebarChatHistoryProvider) -> PageWebView? {
-        let page = PageWebView(descriptor: .sidebarChats, routes: [PageRoute(prefix: SidebarChatHistoryProvider.prefix, provider: provider)],
-                               options: engineOptions)
+        let page = PageWebView(descriptor: .sidebarChats, routes: provider.routes, options: engineOptions)
         page?.refusesKeyFocus = true
         page?.followsUIScale = false
         page?.passesScrollWheel = true
