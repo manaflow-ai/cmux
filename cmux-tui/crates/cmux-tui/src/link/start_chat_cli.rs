@@ -1196,7 +1196,7 @@ fn push(
     chat: &str,
 ) -> Result<Value, Value> {
     if let Some(projected) = project_first(socket, local, remote, chat) {
-        return Ok(projected);
+        return projected;
     }
     super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
@@ -1204,15 +1204,23 @@ fn push(
 }
 
 /// A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the chat
-/// opens on all of it at once, its files read from this Mac on first use. None for anything
-/// else, and for any failure to project, so the caller seeds or copies as before. Both pushes
-/// try it first: the App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's
-/// disk cannot hold would end there, refused, before a projection that needs no room was tried.
-fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
+/// opens on all of it at once, its files read from this Mac on first use. A machine whose older
+/// cmux-tui can't project it answers `machine_outdated`, which the App answers by updating the
+/// machine and copying again. None for anything else, and for any failure to project, so the
+/// caller seeds or copies as before. Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
         Ok(Ok(answer)) => {
-            Some(json!({"mode": "projected", "projected": answer.get("data").cloned()}))
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
         }
+        Ok(Err(super::sync_cli::project::NotProjected::Outdated(line))) => Some(Err(line)),
         Ok(Err(_)) => None,
         Err(error) => {
             eprintln!(
@@ -1234,7 +1242,7 @@ fn push_seed_only(
     chat: &str,
 ) -> Result<Value, Value> {
     if let Some(projected) = project_first(socket, local, remote, chat) {
-        return Ok(projected);
+        return projected;
     }
     super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))

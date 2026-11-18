@@ -50,6 +50,10 @@ pub(crate) enum NotProjected {
     Small,
     /// The machine does not serve `projection-v1`.
     Unserved,
+    /// The folder is past the copy's limits and the machine's cmux-tui is older than this one and
+    /// lacks `projection-v1`: its `machine_outdated` line, so the App updates the machine to its
+    /// own build and starts again, projected ([`start`]).
+    Outdated(Value),
 }
 
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
@@ -160,6 +164,19 @@ pub(crate) fn start(
         return Ok(Err(NotProjected::Off));
     }
     if !machine_serves(socket) {
+        // A folder past the copy's limits on a machine whose older cmux-tui can't project it:
+        // `machine_outdated`, so the App updates the machine to its own build and copies again,
+        // projected, instead of a first pass without the folder's history and big files. A
+        // machine that is not older (nothing to update to) copies as before.
+        if let Some(outdated) = super::super::machine_gate::outdated(
+            socket,
+            &[cmux_tui_core::projection::PROJECTION_CAPABILITY],
+        )
+        .filter(|outdated| outdated.older)
+            && list(local).is_ok_and(|listed| !listed.within_limits)
+        {
+            return Ok(Err(NotProjected::Outdated(outdated.line())));
+        }
         return Ok(Err(NotProjected::Unserved));
     }
     let exe = std::env::current_exe().context("cannot find this cmux binary")?;
