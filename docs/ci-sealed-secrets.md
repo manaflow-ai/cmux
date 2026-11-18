@@ -65,7 +65,8 @@ names in the run summary. The artifact `sealed-secrets` holds `bundle-cmux-vm-st
 `bundle-cmux-vm-production.json`, and is published only when both environments sealed.
 
 The target public keys are read at run time, not pinned: job `keys` reads them with the manaflow-cmux-pr-autofix
-App (environments read on cmux-platform) in a job that holds none of the Worker's secrets. When that App cannot read
+App (environments read on cmux-platform) in a job that holds none of the Worker's secrets (it runs in the App's own
+`cmux-pr-autofix` environment). When that App cannot read
 them, the run fails before sealing and names the four dispatch inputs to pass instead. `put` checks the live key either
 way. To run it and store the result, as an account with write access to cmux-platform's environment secrets:
 
