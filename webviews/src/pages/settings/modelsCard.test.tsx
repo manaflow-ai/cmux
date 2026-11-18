@@ -2,10 +2,12 @@
 // sends the whole order, Add a Connection sends a pasted key once and keeps it nowhere after, a member
 // reads the organization's policy without switches to change it, and a ChatGPT sign-in waits with Cancel.
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { mockModels, runMockModels } from "./mockModels";
 import type { ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockModels, runMockModels } = await importWithDom(() => import("./mockModels"));
 
 const restore = installDom();
 afterAll(() => restore());

@@ -2,9 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { newTabHost, type NewTabHost } from "../newTabModel";
-import { EMPTY_OMNIBAR } from "../omnibar";
-import {
+import type { NewTabHost } from "../newTabModel";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { newTabHost } = await importWithDom(() => import("../newTabModel"));
+const { EMPTY_OMNIBAR } = await importWithDom(() => import("../omnibar"));
+const {
   injectedNewTabContext,
   NEW_TAB_ADOPT_EVENT,
   NEW_TAB_PLACES_EVENT,
@@ -12,9 +16,8 @@ import {
   useNewTabAdoption,
   useNewTabPlaces,
   withHandshakeNewTab,
-} from "./adoption";
-import { lacksSharedPart } from "./sharedPart";
-import { settleReact } from "../../../../test/support/domTeardown";
+} = await importWithDom(() => import("./adoption"));
+const { lacksSharedPart } = await importWithDom(() => import("./sharedPart"));
 
 // Cmd-N's first page shows without the Commands palette's actions and lists them on the frame after
 // (NewTabPage.fillPaletteActions). On a cold WebKit page the host injects the context (empty list)

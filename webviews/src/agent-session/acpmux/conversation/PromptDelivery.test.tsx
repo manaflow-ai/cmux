@@ -7,14 +7,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
 import type { AcpmuxRow, AcpmuxSnapshot, PromptDelivery } from "../model";
 import type { ComposerAttachment } from "../attachments";
-import { failedRuns, failedSendText } from "../sendFailure";
-import { messageMenuTarget } from "./messageMenu";
-import { DeliveryFailure } from "./PromptDelivery";
-import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
+import type { FailedSends } from "./promptDeliveryModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { failedRuns, failedSendText } = await importWithDom(() => import("../sendFailure"));
+const { messageMenuTarget } = await importWithDom(() => import("./messageMenu"));
+const { DeliveryFailure } = await importWithDom(() => import("./PromptDelivery"));
+const { FailedSendsContext } = await importWithDom(() => import("./promptDeliveryModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

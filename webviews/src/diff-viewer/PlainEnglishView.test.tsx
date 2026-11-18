@@ -3,8 +3,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { parsePatchFiles } from "@pierre/diffs";
-import { PlainEnglishView, type PlainEnglishFile } from "./PlainEnglishView";
-import { SummaryStore, type SummaryFileDiff } from "./hunkSummaries";
+import type { PlainEnglishFile } from "./PlainEnglishView";
+import type { SummaryFileDiff } from "./hunkSummaries";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { PlainEnglishView } = await importWithDom(() => import("./PlainEnglishView"));
+const { SummaryStore } = await importWithDom(() => import("./hunkSummaries"));
 
 // Plain English asks only for the hunks in or near the window: a 40-file change costs the hunks
 // on screen. Each row keeps its height while its sentence loads, then shows the sentence.

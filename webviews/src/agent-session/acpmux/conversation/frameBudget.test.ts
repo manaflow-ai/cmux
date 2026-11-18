@@ -3,16 +3,11 @@
 // the animation... it just goes into minimal ish mode?").
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  createFrameBudget,
-  FrameBudgetState,
-  HEALTHY_FOR,
-  IDLE_FRAMES,
-  minimalMotion,
-  QUIET_FRAMES,
-  rowsMoved,
-} from "./frameBudget";
-import { motionMode } from "../../../ui/motion/motionMode";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { createFrameBudget, FrameBudgetState, HEALTHY_FOR, IDLE_FRAMES, minimalMotion, QUIET_FRAMES, rowsMoved } =
+  await importWithDom(() => import("./frameBudget"));
+const { motionMode } = await importWithDom(() => import("../../../ui/motion/motionMode"));
 
 const FRAME = 1000 / 60;
 

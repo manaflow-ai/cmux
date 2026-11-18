@@ -2,12 +2,15 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../shared/i18n";
-import { LASTING_MS } from "../../ui/lasting";
-import { DaemonGate, PAGE_LISTENER_REFUSED, type DaemonSource } from "./DaemonGate";
-import { pageError } from "../shared/pageClient";
-import { userMessage } from "../shared/userMessage";
+import type { DaemonSource } from "./DaemonGate";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../shared/i18n"));
+const { LASTING_MS } = await importWithDom(() => import("../../ui/lasting"));
+const { DaemonGate, PAGE_LISTENER_REFUSED } = await importWithDom(() => import("./DaemonGate"));
+const { pageError } = await importWithDom(() => import("../shared/pageClient"));
+const { userMessage } = await importWithDom(() => import("../shared/userMessage"));
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". While this build's Chief or the local
 // daemon starts or restarts the Channels tab shows nothing; a connect that lasts past the grace is

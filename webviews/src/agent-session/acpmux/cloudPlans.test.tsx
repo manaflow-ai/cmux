@@ -7,18 +7,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { CloudStartView } from "./CloudStartView";
-import { currentCloudPlan, readCloudPlanFresh, refreshCloudMachines, setCloudPlanForTest } from "./cloudMachines";
-import {
-  cloudPlanFromReply,
-  cloudPlanHoldsSend,
-  cloudPlansNamed,
-  cloudSizeLocked,
-  type CloudPlanView,
-} from "./cloudPlans";
-import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
-import { cloudStartEnded, cloudStartPlanHeld, type CloudStartProgress } from "./cloudStartProgress";
+import type { CloudPlanView } from "./cloudPlans";
+import type { CloudStartProgress } from "./cloudStartProgress";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { CloudStartView } = await importWithDom(() => import("./CloudStartView"));
+const { currentCloudPlan, readCloudPlanFresh, refreshCloudMachines, setCloudPlanForTest } = await importWithDom(
+  () => import("./cloudMachines"),
+);
+const { cloudPlanFromReply, cloudPlanHoldsSend, cloudPlansNamed, cloudSizeLocked } = await importWithDom(
+  () => import("./cloudPlans"),
+);
+const { createCloudPlanSubscribe } = await importWithDom(() => import("./cloudPlanSubscribe"));
+const { cloudStartEnded, cloudStartPlanHeld } = await importWithDom(() => import("./cloudStartProgress"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

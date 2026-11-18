@@ -7,10 +7,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { RevealedMarkdown } from "./RevealedMarkdown";
-import { revealFrames } from "./revealedMarkdownModel";
-import { StreamReveal, wordEdge } from "../streamReveal";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+type StreamReveal = import("../streamReveal").StreamReveal;
+const { RevealedMarkdown } = await importWithDom(() => import("./RevealedMarkdown"));
+const { revealFrames } = await importWithDom(() => import("./revealedMarkdownModel"));
+const { StreamReveal, wordEdge } = await importWithDom(() => import("../streamReveal"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

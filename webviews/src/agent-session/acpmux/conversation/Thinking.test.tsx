@@ -6,12 +6,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { Thinking } from "./Thinking";
-import { WorkingFor } from "./WorkingFor";
-import { StatusVerbContext } from "../statusVerbs";
-import { WaitingOnContext } from "./waitingOn";
-import { setChatDisplay } from "../chatDisplay";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { Thinking } = await importWithDom(() => import("./Thinking"));
+const { WorkingFor } = await importWithDom(() => import("./WorkingFor"));
+const { StatusVerbContext } = await importWithDom(() => import("../statusVerbs"));
+const { WaitingOnContext } = await importWithDom(() => import("./waitingOn"));
+const { setChatDisplay } = await importWithDom(() => import("../chatDisplay"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

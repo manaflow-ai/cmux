@@ -11,10 +11,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import type { EventRecord } from "../direct";
 import type { AcpmuxRow } from "../model";
-import { turnReplies, undrawnReplies } from "./repliesDrawn";
-import { turnView } from "./turns";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../direct"));
+const { turnReplies, undrawnReplies } = await importWithDom(() => import("./repliesDrawn"));
+const { turnView } = await importWithDom(() => import("./turns"));
 
 const SESSION = "01a18a35-b1e8-7951-ba2f-703bf916b9a6";
 const logged: EventRecord[] = readFileSync(new URL("./fixtures/sr2-turn-2414207.ndjson", import.meta.url), "utf8")

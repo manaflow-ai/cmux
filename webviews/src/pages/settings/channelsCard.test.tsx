@@ -1,8 +1,10 @@
 // Settings > Updates: its own category with the updates rows and the Channels card, which draws
 // every channel's track from the host's `cmux.settings.channels.state` and no text of its own.
 import { afterAll, expect, test } from "bun:test";
-import { mockChannels, mockGoBack } from "./mockChannels";
 import { installDom } from "./testDom";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockChannels, mockGoBack } = await importWithDom(() => import("./mockChannels"));
 
 const restore = installDom();
 afterAll(() => restore());

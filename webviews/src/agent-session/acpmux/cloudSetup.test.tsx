@@ -8,19 +8,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { CloudStartView } from "./CloudStartView";
-import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./cloudStartProgress";
-import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
-import {
-  cloudSetupActions,
-  readCloudSetupNeed,
-  retryWithSetUpPick,
-  waitForCloudSetUp,
-  type CloudSetupAction,
-} from "./cloudSetup";
-import { startAfterSignIn } from "./cloudSignIn";
-import { translate } from "./i18n";
-import setupGallery from "./CloudSetup.gallery";
+import type { CloudStartProgress } from "./cloudStartProgress";
+import type { CloudStartAnswer } from "./cloudRun";
+import type { CloudSetupAction } from "./cloudSetup";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { CloudStartView } = await importWithDom(() => import("./CloudStartView"));
+const { cloudStartEnded, cloudStartSignedIn } = await importWithDom(() => import("./cloudStartProgress"));
+const { cloudPickExtras, makeCloudSignInRetry, startCloudChat } = await importWithDom(() => import("./cloudRun"));
+const { cloudSetupActions, readCloudSetupNeed, retryWithSetUpPick, waitForCloudSetUp } = await importWithDom(
+  () => import("./cloudSetup"),
+);
+const { startAfterSignIn } = await importWithDom(() => import("./cloudSignIn"));
+const { translate } = await importWithDom(() => import("./i18n"));
+const { default: setupGallery } = await importWithDom(() => import("./CloudSetup.gallery"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

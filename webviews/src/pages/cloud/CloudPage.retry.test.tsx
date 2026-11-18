@@ -1,14 +1,7 @@
 import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../shared/i18n";
-import { BridgePageClient, pageError } from "../shared/pageClient";
-import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
-import { MockCloudProvider } from "./mockProvider";
-import { CloudOps } from "./ops";
-import { CLOUD_RESTART_MIN_MS, CloudStore } from "./store";
-import { userMessage } from "../shared/userMessage";
 import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -24,6 +17,13 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { createStrings } = await import("../shared/i18n");
+const { BridgePageClient, pageError } = await import("../shared/pageClient");
+const { CloudPage } = await import("./CloudPage");
+const { MockCloudProvider } = await import("./mockProvider");
+const { CloudOps } = await import("./ops");
+const { CLOUD_RESTART_MIN_MS, CloudStore } = await import("./store");
+const { userMessage } = await import("../shared/userMessage");
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
 const settle = async () => {

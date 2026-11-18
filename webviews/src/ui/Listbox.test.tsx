@@ -4,8 +4,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Listbox } from "./Listbox";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Listbox } = await importWithDom(() => import("./Listbox"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

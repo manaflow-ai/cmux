@@ -2,8 +2,10 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ChatUnavailableState } from "./ChatUnavailableState";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ChatUnavailableState } = await importWithDom(() => import("./ChatUnavailableState"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

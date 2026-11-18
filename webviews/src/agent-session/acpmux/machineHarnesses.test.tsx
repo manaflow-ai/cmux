@@ -7,16 +7,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  type MachineHarnessCheck,
-  type MachineHarnesses,
-  machineHarnessVerdict,
-  readMachineHarnesses,
-  useMachineHarnessCheck,
-  withMachineHarnesses,
-} from "./machineHarnesses";
-import { useMachineHarnesses } from "./catalog";
+import type { MachineHarnessCheck, MachineHarnesses } from "./machineHarnesses";
 import type { AcpmuxSnapshot } from "./model";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { machineHarnessVerdict, readMachineHarnesses, useMachineHarnessCheck, withMachineHarnesses } =
+  await importWithDom(() => import("./machineHarnesses"));
+const { useMachineHarnesses } = await importWithDom(() => import("./catalog"));
 
 /// A peer's `_acpmux/harnesses` as acpmux forwards it (requests.rs adds `peer`).
 const STUDIO_REPLY = {

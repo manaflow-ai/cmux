@@ -2,8 +2,10 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act, useCallback } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { TRANSIENT_SHOW_MS, useAfterDelay, useSettledItems } from "./afterDelay";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { TRANSIENT_SHOW_MS, useAfterDelay, useSettledItems } = await importWithDom(() => import("./afterDelay"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

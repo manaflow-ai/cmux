@@ -4,8 +4,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { noteReplyUnpainted, resetFlickerLogForTests, startFlickerLog, type FlickerEvent } from "../flickerLog";
-import { finalReplyId, replyUnpainted } from "./replyPainted";
+import type { FlickerEvent } from "../flickerLog";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { noteReplyUnpainted, resetFlickerLogForTests, startFlickerLog } = await importWithDom(
+  () => import("../flickerLog"),
+);
+const { finalReplyId, replyUnpainted } = await importWithDom(() => import("./replyPainted"));
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,

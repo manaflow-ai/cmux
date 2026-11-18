@@ -9,9 +9,7 @@
 import { act, type ReactNode } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LASTING_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { createStrings } from "./i18n";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -29,6 +27,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { LASTING_MS } = await import("../../ui/lasting");
+const { createStrings } = await import("./i18n");
 const { createRoot } = await import("react-dom/client");
 
 afterAll(async () => {

@@ -9,8 +9,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
-import { ownQueue, queuedMessageRowId, queuedMessageRows, useShownQueue } from "./queuedMessages";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ownQueue, queuedMessageRowId, queuedMessageRows, useShownQueue } = await importWithDom(
+  () => import("./queuedMessages"),
+);
 
 type Queue = AcpmuxSnapshot["queue"];
 

@@ -6,11 +6,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HarnessUpdatesSection } from "./HarnessUpdates";
-import { type HarnessHealth, SKIPPED, type UpdateOffer } from "./harnessHealthNoticeModel";
-import { outdatedHarnesses, useHarnessUpdateList } from "./harnessUpdateList";
-import { agentDisplayName } from "./agents";
+import type { HarnessHealth, UpdateOffer } from "./harnessHealthNoticeModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HarnessUpdatesSection } = await importWithDom(() => import("./HarnessUpdates"));
+const { SKIPPED } = await importWithDom(() => import("./harnessHealthNoticeModel"));
+const { outdatedHarnesses, useHarnessUpdateList } = await importWithDom(() => import("./harnessUpdateList"));
+const { agentDisplayName } = await importWithDom(() => import("./agents"));
 
 const outdated = (id: string, version: string, latest: string, elevated = false): HarnessHealth => ({
   id,

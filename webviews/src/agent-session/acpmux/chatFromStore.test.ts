@@ -9,9 +9,11 @@ import { afterAll, beforeAll, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
-import { HOLD_KINDS } from "./rows/holdKinds";
-import { resetChatRowsReceiver, listenForChatRows } from "./rows/receiver";
 import type { Lanes } from "./schedule";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HOLD_KINDS } = await importWithDom(() => import("./rows/holdKinds"));
+const { resetChatRowsReceiver, listenForChatRows } = await importWithDom(() => import("./rows/receiver"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

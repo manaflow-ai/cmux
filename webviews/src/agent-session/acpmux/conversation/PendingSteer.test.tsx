@@ -2,11 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PendingSteer } from "./PendingSteer";
-import { markSentNow, NewestSteerContext, SteerChatContext, takesSteersBack } from "./pendingSteerModel";
-import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { PendingSteer } = await importWithDom(() => import("./PendingSteer"));
+const { markSentNow, NewestSteerContext, SteerChatContext, takesSteersBack } = await importWithDom(
+  () => import("./pendingSteerModel"),
+);
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

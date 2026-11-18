@@ -5,7 +5,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { DRAFT_SETTLE_HOLD_MS, useDraftWaitOver } from "./draftSettleHold";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { DRAFT_SETTLE_HOLD_MS, useDraftWaitOver } = await importWithDom(() => import("./draftSettleHold"));
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;

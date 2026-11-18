@@ -5,7 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { DialogButton, dialogKeyAria, dialogKeyGlyph, keyedIconProps } from "./DialogButton";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { DialogButton, dialogKeyAria, dialogKeyGlyph, keyedIconProps } = await importWithDom(
+  () => import("./DialogButton"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

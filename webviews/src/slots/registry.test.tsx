@@ -6,7 +6,10 @@ import { Profiler, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import slotsSchema from "../../../schemas/theme/slots.json";
-import {
+import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const {
   configureThemeSlots,
   defineSlot,
   registerSlotVariant,
@@ -14,15 +17,12 @@ import {
   selectedSlotVariant,
   slotFailure,
   slotVariantIds,
-} from "./registry";
-import { Slot } from "./Slot";
-import {
-  registerThinkingIndicatorVariants,
-  thinkingIndicatorSlot,
-  THINKING_INDICATOR_VARIANTS,
-} from "./thinkingIndicator";
-import { applyAgentTheme } from "../agent-session/shared/theme";
-import { settleReact } from "../../test/support/domTeardown";
+} = await importWithDom(() => import("./registry"));
+const { Slot } = await importWithDom(() => import("./Slot"));
+const { registerThinkingIndicatorVariants, thinkingIndicatorSlot, THINKING_INDICATOR_VARIANTS } = await importWithDom(
+  () => import("./thinkingIndicator"),
+);
+const { applyAgentTheme } = await importWithDom(() => import("../agent-session/shared/theme"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -4,7 +4,9 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { mockDevicesState } from "./mockProvider";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockDevicesState } = await importWithDom(() => import("./mockProvider"));
 
 const restore = installDom();
 afterAll(() => restore());

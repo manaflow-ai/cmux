@@ -4,7 +4,9 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { DrivenList, DrivenRow, InlineCard } from "./DrivenList";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { DrivenList, DrivenRow, InlineCard } = await importWithDom(() => import("./DrivenList"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

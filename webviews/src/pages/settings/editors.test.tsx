@@ -1,10 +1,13 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { mockManagedKey } from "./mockProvider";
-import { categories, homes } from "./categories";
-import { DENSITY_ROWS } from "./density";
-import { rowsByKey, type SchemaRow } from "./schema";
+import type { SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockManagedKey } = await importWithDom(() => import("./mockProvider"));
+const { categories, homes } = await importWithDom(() => import("./categories"));
+const { DENSITY_ROWS } = await importWithDom(() => import("./density"));
+const { rowsByKey } = await importWithDom(() => import("./schema"));
 
 const restore = installDom();
 afterAll(() => restore());

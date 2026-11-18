@@ -9,11 +9,13 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
-import { categories } from "./categories";
 import type { ComputerUsePhase } from "./ops";
-import { schema } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { categories } = await importWithDom(() => import("./categories"));
+const { schema } = await importWithDom(() => import("./schema"));
 
 const restore = installDom();
 afterAll(() => restore());

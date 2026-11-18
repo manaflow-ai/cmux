@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { followScrollEdges } from "./scrollEdges";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { followScrollEdges } = await importWithDom(() => import("./scrollEdges"));
 
 type ObserverRecord = {
   callback: (records: MutationRecord[]) => void;

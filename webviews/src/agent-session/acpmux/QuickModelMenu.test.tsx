@@ -4,11 +4,13 @@ import { afterEach, expect, test } from "bun:test";
 import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { OnNewTab } from "./newTabComposer";
 import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
-import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { OnNewTab } = await importWithDom(() => import("./newTabComposer"));
+const { effortLevel, openEffort } = await importWithDom(() => import("../../../test/support/effortDropdown"));
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {

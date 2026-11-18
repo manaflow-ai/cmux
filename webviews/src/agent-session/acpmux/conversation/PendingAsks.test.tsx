@@ -7,13 +7,15 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { nextStepAsk } from "./nextStepAsk";
-import { PendingAsks } from "./PendingAsks";
-import { askKey, dismissAsk, dismissedAsks, shownAsks } from "./waitingAskStore";
-import { NextStepRow } from "../rows/NextStepRow";
-import { TurnActionsContext } from "./turnActions";
-import { NEXT_STEP, turnView, turnViewFrom, waitingAsks } from "./turns";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { nextStepAsk } = await importWithDom(() => import("./nextStepAsk"));
+const { PendingAsks } = await importWithDom(() => import("./PendingAsks"));
+const { askKey, dismissAsk, dismissedAsks, shownAsks } = await importWithDom(() => import("./waitingAskStore"));
+const { NextStepRow } = await importWithDom(() => import("../rows/NextStepRow"));
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
+const { NEXT_STEP, turnView, turnViewFrom, waitingAsks } = await importWithDom(() => import("./turns"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -11,9 +11,13 @@ import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
-import { ANSWER_HOLD_MS, RETRY_HOLD_MS, useAnswerHold, useAnswerHoldSet } from "./answerHold";
-import { AcpmuxRestartGate, RESTART_DEADLINE_MS } from "./hostRetry";
-import { liveAutoResume, turnPhase } from "./turnPhase";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ANSWER_HOLD_MS, RETRY_HOLD_MS, useAnswerHold, useAnswerHoldSet } = await importWithDom(
+  () => import("./answerHold"),
+);
+const { AcpmuxRestartGate, RESTART_DEADLINE_MS } = await importWithDom(() => import("./hostRetry"));
+const { liveAutoResume, turnPhase } = await importWithDom(() => import("./turnPhase"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

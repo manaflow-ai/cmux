@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -60,14 +61,14 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { FeedPage, rejectText } = await import("./FeedPage");
-const { UiProvider } = await import("../../ui/UiProvider");
-const { LASTING_MS, setLastingGrace } = await import("../../ui/lasting");
-const { createStrings } = await import("../shared/i18n");
+const { FeedPage, rejectText } = await importWithDom(() => import("./FeedPage"));
+const { UiProvider } = await importWithDom(() => import("../../ui/UiProvider"));
+const { LASTING_MS, setLastingGrace } = await importWithDom(() => import("../../ui/lasting"));
+const { createStrings } = await importWithDom(() => import("../shared/i18n"));
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
-const { MockFeedProvider, manyNotices, sampleFeed } = await import("./mockProvider");
-const { FeedStore } = await import("./store");
-const { ACTION_RUN, FeedOps } = await import("./types");
+const { MockFeedProvider, manyNotices, sampleFeed } = await importWithDom(() => import("./mockProvider"));
+const { FeedStore } = await importWithDom(() => import("./store"));
+const { ACTION_RUN, FeedOps } = await importWithDom(() => import("./types"));
 
 const NOW = Date.now();
 

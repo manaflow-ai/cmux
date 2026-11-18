@@ -8,11 +8,15 @@
 import { afterAll, afterEach, beforeAll, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HostRecoveringLine } from "./HostError";
-import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
-import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HostRecoveringLine } = await importWithDom(() => import("./HostError"));
+const { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } = await importWithDom(
+  () => import("./hostRetry"),
+);
+const { stallTiming } = await importWithDom(() => import("./stallLog"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).

@@ -7,12 +7,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { CloudStartView } from "./CloudStartView";
-import { startupChecklist } from "./cloudStartViewModel";
-import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
-import { createGitHubPicker } from "./githubRepos";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { CloudStartView } = await importWithDom(() => import("./CloudStartView"));
+const { startupChecklist } = await importWithDom(() => import("./cloudStartViewModel"));
+const { default: cloudStartGallery } = await importWithDom(() => import("./CloudStartView.gallery"));
+const { createGitHubPicker } = await importWithDom(() => import("./githubRepos"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -3,7 +3,9 @@
 // (review F1 on #37895). `pageEditHold` names such an edit so the release keeps the page.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { pageEditHold, WEB_SWAP_KEPT_TEXT } from "./webSwap";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { pageEditHold, WEB_SWAP_KEPT_TEXT } = await importWithDom(() => import("./webSwap"));
 
 const page = (body: string) => new JSDOM(`<!doctype html><body>${body}</body>`).window.document;
 

@@ -3,16 +3,20 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
-import { UiProvider } from "../../ui/UiProvider";
 import type { PopupHost } from "../../ui/popupHost";
 import type { NativePopupModel, NativePopupEvent } from "../../ui/nativePopup";
 import type { ReactNode } from "react";
-import { SceneFailure, sceneFailureCopy } from "./SceneFailure";
-import { SceneRenderer, sliderSnap, type SceneAssetResolver, type SceneDispatch } from "./SceneRenderer";
-import { translate } from "../../agent-session/acpmux/i18n";
-import { appSceneIcon } from "./SceneSymbol";
-import { SceneStore, type SceneOp } from "./store";
+import type { SceneAssetResolver, SceneDispatch } from "./SceneRenderer";
+import type { SceneOp } from "./store";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { UiProvider } = await importWithDom(() => import("../../ui/UiProvider"));
+const { SceneFailure, sceneFailureCopy } = await importWithDom(() => import("./SceneFailure"));
+const { SceneRenderer, sliderSnap } = await importWithDom(() => import("./SceneRenderer"));
+const { translate } = await importWithDom(() => import("../../agent-session/acpmux/i18n"));
+const { appSceneIcon } = await importWithDom(() => import("./SceneSymbol"));
+const { SceneStore } = await importWithDom(() => import("./store"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

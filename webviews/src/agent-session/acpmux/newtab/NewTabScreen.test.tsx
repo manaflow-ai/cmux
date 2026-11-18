@@ -2,29 +2,34 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat, session } from "../../../gallery/fixtures/acpmux";
-import { showsFirstRunStarters } from "./FirstRunStarters";
-import { translateNewTab } from "./strings";
-import { ClosedList } from "./ClosedList";
-import { NewTabScreen } from "./NewTabScreen";
-import { newProjectPrompt, takeProjectPreview } from "./newProject";
-import { CloudStartView } from "../CloudStartView";
-import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
 import type { MarkdownFieldElement } from "../MarkdownField";
-import { proseMirrorGlobals } from "../promptFieldTesting";
-import { inlineToken, type ComposerAttachment } from "../attachments";
-import { translate } from "../i18n";
-import { CMUX_PASS_THROUGH } from "../cmuxCommands";
-import { seedLastPicks } from "../lastPick";
-import { EMPTY_OMNIBAR } from "../omnibar";
-import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
+import type { ComposerAttachment } from "../attachments";
 import type { CloudMachine } from "../cloudMachines";
-import { setNativeHost } from "../native";
-import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { Popover } from "../../../ui/Popover";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { noChat, session } = await importWithDom(() => import("../../../gallery/fixtures/acpmux"));
+const { showsFirstRunStarters } = await importWithDom(() => import("./FirstRunStarters"));
+const { translateNewTab } = await importWithDom(() => import("./strings"));
+const { ClosedList } = await importWithDom(() => import("./ClosedList"));
+const { NewTabScreen } = await importWithDom(() => import("./NewTabScreen"));
+const { newProjectPrompt, takeProjectPreview } = await importWithDom(() => import("./newProject"));
+const { CloudStartView } = await importWithDom(() => import("../CloudStartView"));
+const { registerHarnessesPage } = await importWithDom(() => import("../harnesses/harnessesPage"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../promptFieldTesting"));
+const { inlineToken } = await importWithDom(() => import("../attachments"));
+const { translate } = await importWithDom(() => import("../i18n"));
+const cmuxCommands = await importWithDom(() => import("../cmuxCommands"));
+const { seedLastPicks } = await importWithDom(() => import("../lastPick"));
+const { EMPTY_OMNIBAR } = await importWithDom(() => import("../omnibar"));
+const { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } = await importWithDom(
+  () => import("../cloudTypingPrewarm"),
+);
+const { setNativeHost } = await importWithDom(() => import("../native"));
+const { resetToastAvoidanceReports } = await importWithDom(() => import("../toastAvoidance"));
+const { Popover } = await importWithDom(() => import("../../../ui/Popover"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1221,7 +1226,7 @@ for (const mode of ["cloud", "sandboxed"] as const)
           onOpenSession={() => {}}
           onShowAll={() => {}}
           environments
-          onCmuxCommand={() => CMUX_PASS_THROUGH}
+          onCmuxCommand={() => cmuxCommands.CMUX_PASS_THROUGH}
           runMode={{ mode, onMode: () => {} }}
           onCloud={(...args) => (elsewhere.push(args), true)}
           onSandbox={(...args) => (elsewhere.push(args), true)}

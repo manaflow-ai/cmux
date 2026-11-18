@@ -8,7 +8,9 @@ import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import * as watcher from "./layoutWatch";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const watcher = await importWithDom(() => import("./layoutWatch"));
 
 const { layoutWatch } = watcher;
 

@@ -2,8 +2,10 @@
 // does the end-of-turn fold play.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
-import { LIVE_THINKING } from "./turns";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { endsTurn, hasLiveLine, turnEndLook } = await importWithDom(() => import("./turnEndFold"));
+const { LIVE_THINKING } = await importWithDom(() => import("./turns"));
 
 const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
 

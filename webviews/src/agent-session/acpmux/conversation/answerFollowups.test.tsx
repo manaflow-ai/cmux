@@ -9,12 +9,16 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { NextStepCard } from "./NextStepCard";
-import { nextStepAsk } from "./nextStepAsk";
-import { answerThrough } from "./turnActions";
-import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
-import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { NextStepCard } = await importWithDom(() => import("./NextStepCard"));
+const { nextStepAsk } = await importWithDom(() => import("./nextStepAsk"));
+const { answerThrough } = await importWithDom(() => import("./turnActions"));
+const { NEXT_STEP, turnViewFrom, waitingAsks } = await importWithDom(() => import("./turns"));
+const { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } = await importWithDom(
+  () => import("./waitingAskStore"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

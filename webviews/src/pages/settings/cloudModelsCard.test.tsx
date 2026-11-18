@@ -4,11 +4,13 @@
 // itself in place (Sign in with ChatGPT, Turn On, Set Up opening Models' own steps); a focus opens the
 // page on its row; and Models' This Mac only rows link here.
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { cloudReadiness } from "./components/CloudModelsCard";
-import { mockModels } from "./mockModels";
 import type { ModelConnection, ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { cloudReadiness } = await importWithDom(() => import("./components/CloudModelsCard"));
+const { mockModels } = await importWithDom(() => import("./mockModels"));
 
 const restore = installDom();
 afterAll(() => restore());

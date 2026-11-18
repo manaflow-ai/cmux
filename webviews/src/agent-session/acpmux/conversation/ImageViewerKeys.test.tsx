@@ -5,7 +5,9 @@ import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ImageViewer } from "./ImageViewer";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ImageViewer } = await importWithDom(() => import("./ImageViewer"));
 
 // Base UI's focus code schedules frames that may run after a test: the frame functions stay installed
 // for the whole file, and go when it ends (the frames still pending then are cleared with them).

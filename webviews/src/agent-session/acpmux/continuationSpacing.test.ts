@@ -1,16 +1,12 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
-import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
-import { SUBAGENT_DONE } from "./subagents/subagentRows";
-import {
-  finalFooterId,
-  isOverlayFooter,
-  layoutConversation,
-  placeRows,
-  type AcpmuxRow,
-  type RowHeights,
-} from "./model";
-import {
+import type { AcpmuxRow, RowHeights } from "./model";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { BACKGROUND_TURN } = await importWithDom(() => import("./conversation/backgroundTurns"));
+const { SUBAGENT_DONE } = await importWithDom(() => import("./subagents/subagentRows"));
+const { finalFooterId, isOverlayFooter, layoutConversation, placeRows } = await importWithDom(() => import("./model"));
+const {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_COMPOSER_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
@@ -29,7 +25,7 @@ import {
   MARK_STATUS,
   MARK_STEP,
   transcriptGap,
-} from "./transcriptGrid";
+} = await importWithDom(() => import("./transcriptGrid"));
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,

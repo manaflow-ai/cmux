@@ -2,7 +2,9 @@
 // to find it changed and arm again (CMUX-571, idle wakeups: bench/chat-switch.bench.ts idle_wakeups).
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { noteChatTheme, watchChatSnapshot } from "./live";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { noteChatTheme, watchChatSnapshot } = await importWithDom(() => import("./live"));
 
 let clock = 0;
 const now = spyOn(performance, "now").mockImplementation(() => clock);

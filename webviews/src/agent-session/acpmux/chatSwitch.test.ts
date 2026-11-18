@@ -3,8 +3,10 @@
 // the host turned motion off.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { MOTION_MS } from "../../motion/scale.generated";
-import { chatSwitchParts, playChatSwitch } from "./chatSwitch";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { MOTION_MS } = await importWithDom(() => import("../../motion/scale.generated"));
+const { chatSwitchParts, playChatSwitch } = await importWithDom(() => import("./chatSwitch"));
 
 const CEILING_MS = MOTION_MS.large;
 

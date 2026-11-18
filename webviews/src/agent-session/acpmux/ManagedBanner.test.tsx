@@ -10,8 +10,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { ManagedBanner } from "./ManagedBanner";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { ManagedBanner } = await importWithDom(() => import("./ManagedBanner"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

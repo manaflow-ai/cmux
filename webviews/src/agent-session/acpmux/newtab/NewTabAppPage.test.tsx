@@ -3,11 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { PageClient, PageHandler } from "../../../pages/shared/pageClient";
-import { pageError } from "../../../pages/shared/pageClient";
 import type { SceneEvent } from "../../../apps/scene/panelsClient";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { newTabHost, pickedNewTabApp } from "../newTabModel";
-import { NewTabAppPage } from "./NewTabAppPage";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -22,6 +19,9 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { pageError } = await import("../../../pages/shared/pageClient");
+const { newTabHost, pickedNewTabApp } = await import("../newTabModel");
+const { NewTabAppPage } = await import("./NewTabAppPage");
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope: globals });
 });

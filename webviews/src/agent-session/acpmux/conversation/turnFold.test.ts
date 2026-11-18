@@ -1,7 +1,10 @@
 // l10n-allow-file: test fixture labels, not shipped UI.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { playTurnFold, settleTurnFold, startTurnFold, type PlacedRows } from "./turnFold";
+import type { PlacedRows } from "./turnFold";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { playTurnFold, settleTurnFold, startTurnFold } = await importWithDom(() => import("./turnFold"));
 
 test("replacing the live header leaves no fading copy of its clock beside the activity line", () => {
   const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });

@@ -2,9 +2,11 @@
 // keys (a password field and a kind choice; removal asks inline), members only read the status, and
 // signed out the card offers Sign In. The pasted key is sent once and the field is cleared.
 import { afterAll, expect, test } from "bun:test";
-import { mockAgentKeys } from "./mockAgentKeys";
 import type { TeamAgentKeysState } from "./ops";
 import { installDom } from "./testDom";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockAgentKeys } = await importWithDom(() => import("./mockAgentKeys"));
 
 const restore = installDom();
 afterAll(() => restore());

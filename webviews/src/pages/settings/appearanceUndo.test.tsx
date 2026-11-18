@@ -1,8 +1,11 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { AppearanceHistory, diff, HISTORY_LIMIT, type KeyState } from "./appearanceHistory";
-import { activePreset, APPEARANCE_PRESETS } from "./appearancePresets";
+import type { KeyState } from "./appearanceHistory";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { AppearanceHistory, diff, HISTORY_LIMIT } = await importWithDom(() => import("./appearanceHistory"));
+const { activePreset, APPEARANCE_PRESETS } = await importWithDom(() => import("./appearancePresets"));
 
 const restore = installDom();
 afterAll(() => restore());

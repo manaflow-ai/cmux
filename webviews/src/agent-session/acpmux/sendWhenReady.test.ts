@@ -4,15 +4,12 @@
 // answers (Leo, 2026-11-12: "try what? no, it should just automatically do stuff").
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { failedSendText, retryHelps, sendCause } from "./sendFailure";
-import {
-  SEND_RETRY_FIRST_MS,
-  heldStartStop,
-  sendWaitsForHost,
-  sendsHeldForHost,
-  untilHostAnswers,
-} from "./sendWhenReady";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { failedSendText, retryHelps, sendCause } = await importWithDom(() => import("./sendFailure"));
+const { SEND_RETRY_FIRST_MS, heldStartStop, sendWaitsForHost, sendsHeldForHost, untilHostAnswers } =
+  await importWithDom(() => import("./sendWhenReady"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

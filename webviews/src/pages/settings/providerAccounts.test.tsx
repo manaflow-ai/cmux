@@ -5,8 +5,10 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { agoText, planName } from "./harnesses";
 import type { HarnessesState, ProviderAccount } from "./ops";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { agoText, planName } = await importWithDom(() => import("./harnesses"));
 
 const restore = installDom();
 afterAll(() => restore());

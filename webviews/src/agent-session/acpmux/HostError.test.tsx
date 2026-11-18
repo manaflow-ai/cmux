@@ -5,13 +5,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
-import { waitedText } from "./hostErrorModel";
-import { hostLineText } from "./hostLine";
-import { hostErrorShows } from "./hostRetry";
-import { translate } from "./i18n";
-import { Notice, NoticeSlot } from "./NoticeSlot";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HostError, HostUnavailableLine, HostWaitingLine } = await importWithDom(() => import("./HostError"));
+const { waitedText } = await importWithDom(() => import("./hostErrorModel"));
+const { hostLineText } = await importWithDom(() => import("./hostLine"));
+const { hostErrorShows } = await importWithDom(() => import("./hostRetry"));
+const { translate } = await importWithDom(() => import("./i18n"));
+const { Notice, NoticeSlot } = await importWithDom(() => import("./NoticeSlot"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
