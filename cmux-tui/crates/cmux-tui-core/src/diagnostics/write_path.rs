@@ -9,6 +9,7 @@
 //! for the connection, so a writer that took it would deadlock.
 
 use std::cell::Cell;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
@@ -70,6 +71,12 @@ pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
     CommitWriter::JournalMaintenance,
 ];
 
+// A commit's counts are at `writer as usize` in an array of this length: the
+// last writer's index is the table's last row. A writer that goes in before
+// the last one, or a row that goes out, does not compile without the other.
+// A writer that goes in after the last one moves this line to its name.
+const _: () = assert!(CommitWriter::JournalMaintenance as usize + 1 == COMMIT_WRITERS.len());
+
 thread_local! {
     /// The writer that this thread's commits count under.
     static COMMIT_WRITER: Cell<CommitWriter> = const { Cell::new(CommitWriter::Other) };
@@ -110,7 +117,7 @@ impl CommitWriter {
         if previous != Self::JournalWriter {
             COMMIT_WRITER.with(|writer| writer.set(self));
         }
-        CommitWriterScope { previous }
+        CommitWriterScope { previous, _not_send: PhantomData }
     }
 }
 
@@ -118,6 +125,9 @@ impl CommitWriter {
 #[must_use = "the scope names commits only while it lives"]
 pub(crate) struct CommitWriterScope {
     previous: CommitWriter,
+    /// The drop writes `previous` to the thread that drops the scope, so
+    /// the scope stays on the thread that made it: it is not `Send`.
+    _not_send: PhantomData<*const ()>,
 }
 
 impl Drop for CommitWriterScope {

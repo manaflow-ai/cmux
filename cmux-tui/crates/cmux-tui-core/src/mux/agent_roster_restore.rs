@@ -186,13 +186,6 @@ impl RosterTarget for &Mutex<AgentRosterHost> {
     }
 }
 
-/// Restore the roster from its persisted snapshot and fold the journal tail
-/// committed after the cursor, for at most `STARTUP_BUDGET`; what the
-/// budget leaves is returned as `replay`. A snapshot that does not parse, or
-/// unreadable reducer state, discards the snapshot and re-folds from the
-/// journal head. A reducer-version mismatch does not: the start never folds
-/// the journal from its first record for a bump (26 min on a 59 GB
-/// registry, 2026-11-08). It serves the old snapshot through
 /// Save the live roster's snapshot row at `version` on the connection alone.
 /// Each save is a commit of `agent_roster_save` (`server-stats`
 /// `write_path.commits_by_writer`).
@@ -211,6 +204,13 @@ pub(super) fn save_roster_row(
     )
 }
 
+/// Restore the roster from its persisted snapshot and fold the journal tail
+/// committed after the cursor, for at most `STARTUP_BUDGET`; what the
+/// budget leaves is returned as `replay`. A snapshot that does not parse, or
+/// unreadable reducer state, discards the snapshot and re-folds from the
+/// journal head. A reducer-version mismatch does not: the start never folds
+/// the journal from its first record for a bump (26 min on a 59 GB
+/// registry, 2026-11-08). It serves the old snapshot through
 /// [`AgentRoster::migrate`] from its own cursor, or an empty roster from the
 /// head when the old format no longer restores, marked stale, and the
 /// roster's owner rebuilds it from the whole journal in the background. A

@@ -754,7 +754,7 @@ impl WorkspaceRegistry {
         )?;
         // Keep quarantined failures bounded. Live retry rows remain untouched;
         // only the oldest dead letters beyond the retention cap are evicted.
-        self.connection.get().execute(
+        self.connection.get_as(crate::diagnostics::CommitWriter::AgentHookRetry).execute(
             "DELETE FROM resource_agent_hook_pending
              WHERE attempt >= ?1
                AND rowid NOT IN (
