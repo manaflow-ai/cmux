@@ -2893,6 +2893,12 @@ export const appleSubscriptions = pgTable("apple_subscriptions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revocationReason: integer("revocation_reason"),
   stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  /**
+   * When the cron last got an answer from the App Store Server API for this
+   * subscription (renewal re-check or lapse check). Not a state write, so it
+   * never moves `updated_at`.
+   */
+  appleCheckedAt: timestamp("apple_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -2947,11 +2953,38 @@ export const appleNotifications = pgTable("apple_notifications", {
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
   error: text("error"),
+  /** Failed applications so far; each one pushes `next_attempt_at` out exponentially. */
+  attemptCount: integer("attempt_count").notNull().default(0),
+  /** The retry job skips the row until then (null: due now). */
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  /** Set after the last allowed attempt failed; the retry job stops and alerts. */
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
 }, (table) => [
   index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
   index("apple_notifications_pending_idx")
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
+]);
+
+/**
+ * Where the App Store Server Notifications backfill (Get Notification
+ * History) resumes, per bundle and environment. A window runs from
+ * `window_start_at` to `window_end_at`; `pagination_token` is set while it is
+ * only partly read. Once it is read to the end, `next_start_at` moves to its
+ * end and the token clears.
+ */
+export const appleNotificationHistoryCursors = pgTable("apple_notification_history_cursors", {
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  nextStartAt: timestamp("next_start_at", { withTimezone: true }).notNull(),
+  windowStartAt: timestamp("window_start_at", { withTimezone: true }),
+  windowEndAt: timestamp("window_end_at", { withTimezone: true }),
+  paginationToken: text("pagination_token"),
+  /** Consecutive runs stopped by a retryable verification failure on the current page. */
+  retryableRuns: integer("retryable_runs").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.bundleId, table.environment] }),
 ]);
 
 /**

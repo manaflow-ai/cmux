@@ -21,6 +21,7 @@ import {
   isPaidPlanId,
   manualVmPlanOverride,
 } from "../billing/pro";
+import { isNextPlanId } from "../billing/nextPlans";
 import {
   grantRecordFromServerMetadata,
   isMissingGrantsTableError,
@@ -358,7 +359,7 @@ export async function listAllPendingEmailGrants(
   };
 }
 
-/** One page of the Stack user directory, keeping only accounts with a paid manual override. */
+/** One page of the Stack user directory, keeping only accounts with a paid or cmux NEXT manual override. */
 export async function scanManualUserGrants(
   cursor: string | null,
   options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
@@ -374,7 +375,7 @@ export async function scanManualUserGrants(
   for (const user of users) {
     if (user.isAnonymous) continue;
     const plan = manualVmPlanOverride(user.clientReadOnlyMetadata);
-    if (!isPaidPlanId(plan)) continue;
+    if (!isListedManualGrant(plan)) continue;
     rows.push({
       userId: user.id,
       email: user.primaryEmail ?? null,
@@ -386,7 +387,7 @@ export async function scanManualUserGrants(
   return { rows, scanned: users.length, nextCursor: users.nextCursor ?? null };
 }
 
-/** One page of the Stack team directory, keeping only teams with a paid manual override. */
+/** One page of the Stack team directory, keeping only teams with a paid or cmux NEXT manual override. */
 export async function scanManualTeamGrants(
   cursor: string | null,
   options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
@@ -399,7 +400,7 @@ export async function scanManualTeamGrants(
   const rows: ManualTeamGrant[] = [];
   for (const team of teams) {
     const plan = manualVmPlanOverride(team.clientReadOnlyMetadata);
-    if (!isPaidPlanId(plan)) continue;
+    if (!isListedManualGrant(plan)) continue;
     rows.push({
       teamId: team.id,
       displayName: team.displayName,
@@ -426,6 +427,11 @@ export async function scanTeamDeals(
   });
   const rows = teams.map(teamEntitlementsView).filter((view) => view.override !== null);
   return { rows, scanned: teams.length, nextCursor: teams.nextCursor ?? null };
+}
+
+/** A manual override worth listing: a paid classic plan or a cmux NEXT plan. */
+function isListedManualGrant(plan: string | null): boolean {
+  return isPaidPlanId(plan) || isNextPlanId(plan);
 }
 
 /** Opaque Stack cursors are short tokens; refuse anything that looks like injection or garbage. */

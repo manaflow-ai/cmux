@@ -46,6 +46,17 @@ export function appleSubscriptionGrantsAccess(
 ): boolean {
   if (!APPLE_PLAN_IDS.has(row.planId)) return false;
   if (!appleEnvironmentGrantsEntitlement({ ...row, accountEmail }, env)) return false;
+  return appleStatusGrantsAt(row, now);
+}
+
+/**
+ * The status and time part of the grant rule alone, without the plan and
+ * Sandbox policy: whether Apple's state keeps access at `now`.
+ */
+export function appleStatusGrantsAt(
+  row: Pick<AppleEntitlementRow, "status" | "expiresAt" | "gracePeriodExpiresAt">,
+  now: Date,
+): boolean {
   switch (row.status) {
     case "active":
       return isAfter(row.expiresAt, now);
