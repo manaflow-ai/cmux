@@ -334,6 +334,15 @@ class PinnedAssetPublishTests(unittest.TestCase):
                 self.assertLess(install, first, where)
                 self.assertGreaterEqual(int(job["timeout-minutes"]), before + 60, where)
 
+    def test_the_best_effort_approval_notice_does_not_wait(self) -> None:
+        # Its failed read only skips a notice, and the steps after it wait for
+        # the same budget anyway: one refused try, not up to the job's hour.
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-cua-helper-dev-sign.yml").read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["sdk"]["steps"] if s.get("name") == "Name runs still waiting for a publish approval")
+        self.assertIn("|| exit 0", step["run"])
+        self.assertEqual(step["env"].get("GH_BUDGET_WAIT_ATTEMPTS"), "1")
+
 
 if __name__ == "__main__":
     unittest.main()
