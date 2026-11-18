@@ -55,6 +55,9 @@
  * copies no login (a Cloud machine's agents reach models through the Cloud service's model route), so the
  * preflight and installer programs are the journey's own, read from cloud-journey-login-installer.txt and run
  * through the exec and fs/write routes. Without a token the step is skipped and the reply fails "Not logged in".
+ * With --model stub and Claude the login is instead what a Cloud chat runs on since cmux#40159: the person's model
+ * connection, given to the agent at its start (`session/new` `_meta.acpmux.credentials`, as the app's
+ * `agent-session-start` relays it), never written onto the machine.
  *
  * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
  * the machine's loopback
@@ -2342,7 +2345,7 @@ export type ProbeExtra = {
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
-  login_path?: "receipt" | "copy";
+  login_path?: "receipt" | "copy" | "launch";
   failure_facts?: FailureFacts;
 };
 export type FailureFacts = {
@@ -2718,6 +2721,109 @@ print('stub-ready')`;
 /** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
 export function loginBearer(provider: "claude" | "codex", value: string): string {
   return provider === "codex" ? (JSON.parse(value).tokens.access_token as string) : value;
+}
+
+/** The public placeholder a Cloud machine's model route sends (acpmux cloud_model_plane.rs PLACEHOLDER). */
+export const MODEL_PLANE_PLACEHOLDER = "cmux-vm-edge-placeholder";
+
+/**
+ * What each stub-logged model request carried, by credential SHA-256: the journey's login, the machine's model-route
+ * placeholder, none, or something else. So a red names the credential that outranked the login.
+ */
+export function credentialSeen(rows: { cred_sha256?: string }[], want: string): string {
+  const placeholder = createHash("sha256").update(MODEL_PLANE_PLACEHOLDER).digest("hex");
+  const counts = new Map<string, number>();
+  for (const x of rows) {
+    const what = x.cred_sha256 === want ? "the login" : x.cred_sha256 === placeholder ? "the model-route placeholder" : !x.cred_sha256 ? "no credential" : "another credential";
+    counts.set(what, (counts.get(what) ?? 0) + 1);
+  }
+  const odd = rows.filter((x) => x.cred_sha256 !== want).map((x: any) =>
+    `${x.path} model=${x.model ?? "-"} stream=${Boolean(x.stream)} tools=${(x.tools ?? []).length}${x.side ? " side" : ""} step=${x.step ?? "-"}`);
+  return [...counts].map(([what, n]) => `${n} with ${what}`).join(", ") + (odd.length ? `; not the login: ${odd.slice(0, 4).join("; ")}` : "");
+}
+
+/**
+ * The stub step's credential rule. With a login written onto the machine (`launch` false) every model request carries
+ * it. With the agent's launch credential (cmux#40159) the credential is the chat agent's alone: every request that
+ * offers tools (the chat's turns) must carry it, and a side request with no tools (a chat title: acpmux's
+ * `_acpmux/complete` runs its own `claude -p`, which holds no session credential) carries it or the machine's
+ * model-route placeholder, never anything else.
+ */
+export function judgeStubCredentials(rows: { cred_sha256?: string; tools?: string[]; side?: boolean }[], want: string, launch: boolean): { error?: string; detail: string } {
+  const all = `${rows.length} model requests`;
+  if (!launch) {
+    return rows.every((x) => x.cred_sha256 === want)
+      ? { detail: `${all}, each with the forwarded login (SHA-256 match)` }
+      : { error: "a model request did not carry the login the journey passed", detail: "" };
+  }
+  const placeholder = createHash("sha256").update(MODEL_PLANE_PLACEHOLDER).digest("hex");
+  const chat = rows.filter((x) => (x.tools ?? []).length > 0 && !x.side);
+  const side = rows.filter((x) => !((x.tools ?? []).length > 0 && !x.side));
+  if (!chat.length) return { error: "no chat turn offered tools", detail: "" };
+  if (!chat.every((x) => x.cred_sha256 === want)) return { error: "a chat turn did not carry the login the journey passed", detail: "" };
+  if (!side.every((x) => x.cred_sha256 === want || x.cred_sha256 === placeholder)) return { error: "a side request carried neither the login nor the machine's model route", detail: "" };
+  const routed = side.filter((x) => x.cred_sha256 === placeholder).length;
+  return { detail: `${all}: ${chat.length} chat turns, each with the launch credential (SHA-256 match)${side.length ? `; ${side.length} side requests, ${routed} of them on the machine's model route` : ""}` };
+}
+
+/**
+ * Which Claude processes on the machine could send a credential: each one's command (cut short) and which provider
+ * names its env sets (names only, never a value).
+ */
+export const CREDENTIAL_PROCESSES_PROGRAM =
+  `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
+  `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-100); ` +
+  `printf '%s\\n' "$c" | grep -qE '(^|/)claude( |$)|claude-(agent|code)' || continue; ` +
+  `echo "pid \${d#/proc/}: $c :: $(tr '\\0' '\\n' < "$d/environ" 2>/dev/null | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN)=' | tr -d = | tr '\\n' ' ')"; ` +
+  `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
+
+/**
+ * The app's Cloud start, with the person's model connection as the agent's launch credential (cmux#40159: the machine
+ * holds no login; acpmux agent_credentials.rs): `session/new` on the machine's acpmux socket with
+ * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
+ * owner's app. acpmux takes a credential only from its own unix socket with no caller token, which a program run
+ * through the machine's exec is. The value goes on stdin (the heredoc), never on a command line.
+ */
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string): string {
+  const slash = agent.indexOf("/");
+  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
+  if (slash >= 0) meta.model = agent.slice(slash + 1);
+  const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
+  return `python3 -I - <<'CMUX_JOURNEY_START'
+import json, os, socket, sys
+params = json.loads(${JSON.stringify(params)})
+params['cwd'] = os.environ.get('HOME') or '/home/cmux'
+home = params['cwd']
+paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
+def call(f, s, i, method, p):
+    s.sendall((json.dumps({'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}) + '\\n').encode())
+    while True:
+        line = f.readline()
+        if not line:
+            raise RuntimeError(method + ': the daemon closed the connection')
+        m = json.loads(line)
+        if m.get('id') == i:
+            if m.get('error'):
+                raise RuntimeError(method + ': ' + json.dumps(m['error'])[:400])
+            return m.get('result')
+errors = []
+for path in paths:
+    if not os.path.exists(path):
+        continue
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(110)
+        s.connect(path)
+        f = s.makefile('r')
+        call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+        r = call(f, s, 2, 'session/new', params)
+        print('@@session ' + str((r or {}).get('sessionId')))
+        sys.exit(0)
+    except Exception as e:
+        errors.append(path + ': ' + str(e))
+print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
+sys.exit(1)
+CMUX_JOURNEY_START`;
 }
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
@@ -3462,7 +3568,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  const tag = `jr-${Date.now().toString(36)}`;
+  // --model stub with Claude: the login goes with the agent's start as its launch credential (cmux#40159), never onto
+  // the machine. Codex keeps the machine login and the stub's own provider (CODEX_STUB_CONFIG), which a launch
+  // credential would replace with api.openai.com.
+  const launchCredential = modelStub && provider === "claude" && Boolean(login) && !gatewayAny && startVia === "acp";
+  const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
@@ -3878,11 +3988,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("listed", async () => {
         const v = await api.read("cloud.machine.list", {});
         const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
-        return { value: null, detail: `${rows.length} machines` };
+        const row = rows.find((r) => r.id === created.id);
+        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        // The size the platform recorded: the one the VM read back at create, not the one asked for.
+        const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
+        return { value: null, detail: `${rows.length} machines${size}` };
       });
       await J.step("first exec", async () => {
-        const r = await exec("echo journey-ok; uname -m");
+        // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
+        // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).
+        const r = await exec("echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)");
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
@@ -4114,6 +4229,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!own.stdout.includes("own-login")) throw new Error(`the receipt says installed, but the image's launcher does not see an own ${provider} login`);
         return { value: null, detail: "the person's own login, copied on spare.ready (receipt installed); the launcher picks it" };
       });
+    } else if (launchCredential) {
+      // cmux#40159: a Cloud chat runs on the person's model connection, given to that chat's agent when it starts; the
+      // machine holds no login. The login goes with the agent's start below (launchCredentialStartProgram). A login
+      // written onto the machine is outranked there by the machine's model route (acpmux cloud_model_plane.rs fills
+      // ANTHROPIC_API_KEY with its placeholder for every spawn), so the stub step could not prove which one Claude used.
+      probeExtra.login_path = "launch";
+      await J.step(loginStep, async () => {
+        if (!validLogin(provider, login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
+        const held = own.stdout.includes("own-login") ? "the machine also holds a Claude login of its own" : "the machine holds none";
+        return { value: null, detail: `the person's model connection, given to the agent at its start (cmux#40159); ${held}` };
+      });
     } else {
       probeExtra.login_path = "copy";
       // The journey's own login install on a Worker machines client: preflight (which also makes and checks the staging
@@ -4279,6 +4406,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else {
       J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
+        if (launchCredential) {
+          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
+          const id = /@@session (\S+)/.exec(r.stdout)?.[1];
+          if (r.code !== 0 || !id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          J.firstText.mark("session_ready");
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential)` };
+        }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
@@ -4361,9 +4495,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith(route));
           const want = createHash("sha256").update(loginBearer(provider, login)).digest("hex");
           if (!turns.some((x: any) => x.stream && !x.side)) throw new Error(`${agent} sent the stub no streamed ${route} turn`);
-          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent})`);
+          const judged = judgeStubCredentials(turns, want, launchCredential);
+          if (judged.error) {
+            const procs = (await exec(CREDENTIAL_PROCESSES_PROGRAM).catch(() => null))?.stdout.replace(/\n/g, "; ").slice(0, 900) ?? "unread";
+            throw new Error(`${judged.error} (the forwarded credential did not reach ${agent}): ${credentialSeen(turns, want)} (processes: ${procs})`);
+          }
           if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
-          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
+          return { value: null, detail: `${judged.detail}; the shell call ran and its output came back` };
         });
       }
       if (gwExec || gatewayLocal) {

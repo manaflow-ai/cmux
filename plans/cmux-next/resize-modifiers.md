@@ -64,10 +64,12 @@ secondary click only when pressed before the press, and the handle has no menu.
 
 ## Daemon and undo
 
-Unchanged wire: a drag still sends only its ended values, one command per changed split or column, all
-under one `LayoutTransactionID`. Option on a split sends its ratios and the column width; Command on a
-column edge sends every column's width. Single-op atomicity for multi-value drags waits for
-`LayoutOp` batches (column-sizing.md, agreed op shapes).
+A drag still sends only its ended values, all under one `LayoutTransactionID`. Option on a split sends
+its ratios and the column width; Command on a column edge sends every column's width. A release of more
+than one value goes as one `set-layout-sizes` command (`layout-sizes-batch-v1`): one daemon commit, every
+value or none, one undo step. A daemon without the capability, and a release of more than 64 values, gets
+one command per changed split or column, as before; there a value the daemon refuses leaves the values
+before it applied. A keyboard trade's two widths go the same way.
 
 ## Tests
 

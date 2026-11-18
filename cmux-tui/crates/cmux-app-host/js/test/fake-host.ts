@@ -156,6 +156,11 @@ export class FakeHost {
     this.global.__cmuxAppDispatch(mountId, nodeId, event, JSON.stringify(payload))
   }
 
+  /** A widget mount's host-owned tick (`cmux.widget/1`): sets its `now()` clock. */
+  tick(mountId: string, nowMs: number) {
+    this.global.__cmuxAppTick(mountId, nowMs)
+  }
+
   /** Runs a command export; `ctx` is the invocation context (`{gesture}`). */
   runCommand(exportName: string, args: unknown = {}, cbId = 1, ctx?: Record<string, unknown>) {
     this.global.__cmuxAppRunCommand(exportName, JSON.stringify(args), cbId, ctx ? JSON.stringify(ctx) : undefined)
