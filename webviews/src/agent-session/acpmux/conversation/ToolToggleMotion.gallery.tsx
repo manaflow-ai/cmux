@@ -15,6 +15,7 @@ import type { AcpmuxRow } from "../model";
 import type { FoldLook } from "./fold";
 import { CARD_DRAFT, playScriptedTurn, scriptedHistory, TOGGLE_CALL_ID, type ScriptedView } from "./scriptedTurn";
 import { turnView } from "./turns";
+import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const expanded = new Set<string>();
 
@@ -84,10 +85,9 @@ const playTurn: Play = async (ctx) => {
 };
 
 const NOTE: Record<FoldLook, string> = {
-  settle:
-    "Shipped: one fold on the settle (180 ms); the line holds its pixel, the rows under ride its foot, and a close mid-open turns back over the travel left.",
+  settle: `Shipped: one fold on the settle (${MOTION_SETTLE_MS} ms); the line holds its pixel, the rows under ride its foot, and a close mid-open turns back over the travel left.`,
   stack: "Before: a close mid-open plays a whole fold again from where it was drawn.",
-  quick: "The fold on the quick step (80 ms).",
+  quick: `The fold on the quick step (${MOTION_MS.quick} ms).`,
   jump: "The details open and close at once.",
 };
 
