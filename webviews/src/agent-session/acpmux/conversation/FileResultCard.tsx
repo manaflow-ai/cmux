@@ -18,6 +18,8 @@ import { usePreview } from "./blockPartsModel";
 import { useMoreBelow } from "./moreBelow";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
+import { highlightsCode } from "./highlightLimits";
+import { useLineWindow } from "./lineWindow";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -81,9 +83,16 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const lines = read.end - read.start + 1;
   const preview = usePreview(lines, reveal);
   const body = useMoreBelow<HTMLDivElement>(read.code);
+  // Past the highlight limits its lines draw plain: cut to the box, only those in its view are
+  // mounted, the gutter's numbers with them (lineWindow.ts).
+  const lineWindow = useLineWindow(body, lines, preview.cut && !highlightsCode(read.code));
   const numbers = useMemo(
-    () => Array.from({ length: lines }, (_, index) => read.start + index).join("\n"),
-    [lines, read.start],
+    () =>
+      Array.from(
+        { length: Math.max(0, Math.min(lines, lineWindow.to) - lineWindow.from) },
+        (_, index) => read.start + lineWindow.from + index,
+      ).join("\n"),
+    [lines, read.start, lineWindow.from, lineWindow.to],
   );
   return (
     <div id={id} className="cv-edit-diff cv-filepeek">
@@ -101,10 +110,19 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
       </div>
       <div ref={body} className="cv-filepeek__body" data-preview={preview.attribute}>
         <div className="cv-filepeek__code">
-          <pre className="cv-filepeek__gutter" aria-hidden data-find-skip>
+          <pre
+            className="cv-filepeek__gutter"
+            aria-hidden
+            data-find-skip
+            style={
+              lineWindow.before || lineWindow.after
+                ? { paddingTop: lineWindow.before, paddingBottom: lineWindow.after }
+                : undefined
+            }
+          >
             {numbers}
           </pre>
-          <CodeLines code={read.code} path={read.path} />
+          <CodeLines code={read.code} path={read.path} lineWindow={lineWindow} />
         </div>
       </div>
     </div>
