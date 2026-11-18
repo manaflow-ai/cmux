@@ -23,6 +23,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 type Rect = { x: number; y: number; width: number; height: number };
 type Sample = { at: number; rect?: Rect; busy: boolean; poster: boolean };
@@ -90,7 +91,7 @@ await requireBrowserLane("composer-attachment-one-box.test.ts", async () => {
     await vite?.close();
   });
 
-  const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+  const PROMPT = COMPOSER_EDITOR;
 
   /// A chat on this Mac whose host knows where a pasted recording is (`chat.attach.dropped`) and
   /// reads it in VIDEO_INFO_MS (a 1920x1080 recording, 42 s long).

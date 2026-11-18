@@ -5,6 +5,9 @@
 // - pushed sources re-read on their events (coalesced: one read in flight, at most one queued);
 //   unpushed sources poll every staleAfterSeconds (or a reader's everySeconds), never faster
 //   than pollFloorSeconds;
+// - a pushed source with safetyPollSeconds is pushed from outside this machine (github.changed):
+//   until its stream says {"live": true} it polls like an unpushed source, and while live it
+//   re-reads only every safetyPollSeconds (what the push cannot see);
 // - stale-while-revalidate: a re-read and a failed re-read keep the old value (status stale);
 // - errors back off from the floor, doubling, to 15 minutes; refused reads are not retried.
 // The entry table is the seam for a daemon-wide cache: the app-facing API does not change if the
@@ -32,6 +35,8 @@ interface SignalDef {
   push: string[]
   pollFloorSeconds: number
   staleAfterSeconds: number
+  /** Pushed from outside this machine: the slow re-read while the push is live (see next()). */
+  safetyPollSeconds?: number
 }
 
 const SIGNALS = (table as unknown as { signals: Record<string, SignalDef> }).signals
@@ -59,6 +64,10 @@ interface Entry {
   queued: boolean
   failures: number
   lastUse: number
+  /** A push stream said {"live": true} (only sources with safetyPollSeconds look at it). */
+  pushLive: boolean
+  /** A liveness answer came since this mount (the first one follows the mount's own read). */
+  liveHeard: boolean
 }
 
 /** Reads and counters a test or a host can look at (cmux.watch is not instrumented otherwise). */
@@ -146,7 +155,9 @@ function entryFor(name: string, def: SignalDef, params: Record<string, unknown>)
     again: false,
     queued: false,
     failures: 0,
-    lastUse: Date.now()
+    lastUse: Date.now(),
+    pushLive: false,
+    liveHeard: false
   }
   entries.set(key, e)
   return e
@@ -167,6 +178,21 @@ function pollMs(e: Entry): number {
   for (const every of e.readers.values()) if (typeof every === "number" && every > 0) s = Math.min(s, every)
   return Math.max(e.def.pollFloorSeconds, s) * 1000
 }
+
+/**
+ * When the entry reads again by itself, or null for never (pushed, and its push is local or live
+ * with no safety poll). A source pushed from outside polls like an unpushed one until its push is
+ * live, then every safetyPollSeconds.
+ */
+function idleMs(e: Entry): number | null {
+  if (!e.def.push.length) return pollMs(e)
+  if (e.def.safetyPollSeconds === undefined) return null
+  if (!e.pushLive) return pollMs(e)
+  return Math.max(e.def.pollFloorSeconds, e.def.safetyPollSeconds) * 1000
+}
+
+/** Readers' everySeconds move this entry's timer (they never speed up a live push). */
+const readerPaced = (e: Entry) => !e.def.push.length || (e.def.safetyPollSeconds !== undefined && !e.pushLive)
 
 /** Arms the entry's one timer `ms` from now; a negative `ms` only clears it. */
 function schedule(e: Entry, ms: number) {
@@ -189,8 +215,8 @@ function next(e: Entry, error: CmuxError | null) {
     const floor = e.def.pollFloorSeconds * 1000
     return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)))
   }
-  if (e.def.push.length) return schedule(e, -1)
-  schedule(e, pollMs(e))
+  const ms = idleMs(e)
+  schedule(e, ms === null ? -1 : ms)
 }
 
 function upstream(e: Entry): Promise<unknown> {
@@ -249,6 +275,32 @@ function fail(e: Entry, error: CmuxError) {
   if (e.failures === 1) log("warn", `watch ${e.name}: ${error.code}: ${error.message}`)
 }
 
+/**
+ * One event of a push stream. `{"live": bool}` says whether the push channel is up: going live
+ * reads once (it missed what changed while down) and stops the poll; going down starts it. Any
+ * other body is a change.
+ */
+function onPush(e: Entry, payload: unknown) {
+  const live = payload && typeof payload === "object" ? (payload as { live?: unknown }).live : undefined
+  if (typeof live !== "boolean") {
+    e.pushLive = true
+    e.liveHeard = true
+    return pushed(e)
+  }
+  const first = !e.liveHeard
+  e.liveHeard = true
+  if (live === e.pushLive) return
+  e.pushLive = live
+  // Live again after a gap: read what changed meanwhile. The first answer after a mount follows
+  // the mount's own read, so it only moves the timer.
+  if (live && !first) return pushed(e)
+  // Back to the poll, or off it, counted from now (a read in flight schedules it when it settles).
+  if (active(e) && !e.inFlight && e.failures === 0) {
+    const ms = idleMs(e)
+    schedule(e, ms === null ? -1 : ms)
+  }
+}
+
 /** A pushed event: one read for every event of this turn (and one queued behind a read in flight). */
 function pushed(e: Entry) {
   if (e.queued) return
@@ -264,7 +316,7 @@ function activate(e: Entry) {
     for (const stream of e.def.push) {
       try {
         const subId = state.native!.subscribe(stream, "{}")
-        state.subscriptions.set(subId, () => pushed(e))
+        state.subscriptions.set(subId, (payload) => onPush(e, payload))
         e.subs.push(() => {
           if (state.subscriptions.delete(subId)) state.native?.unsubscribe(subId)
         })
@@ -282,6 +334,9 @@ function activate(e: Entry) {
 
 function deactivate(e: Entry) {
   for (const off of e.subs.splice(0)) off()
+  // The next mount hears the push channel's state again on subscribe.
+  e.pushLive = false
+  e.liveHeard = false
   if (e.timer !== null) clearTimer(e.timer)
   e.timer = null
   e.lastUse = Date.now()
@@ -307,14 +362,14 @@ function join(e: Entry, id: number, everySeconds: number | undefined): () => voi
   const first = !active(e)
   e.readers.set(id, everySeconds)
   if (first) activate(e)
-  else if (everySeconds && !e.def.push.length && !e.inFlight && e.timer !== null && e.failures === 0) schedule(e, pollMs(e))
+  else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0) schedule(e, pollMs(e))
   let released = false
   return () => {
     if (released) return
     released = true
     e.readers.delete(id)
     if (!active(e)) deactivate(e)
-    else if (!e.def.push.length && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
+    else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0) schedule(e, pollMs(e))
   }
 }
 

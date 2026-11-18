@@ -49,11 +49,14 @@ pub enum RowKind {
     Image,
     /// A subagent; it names a child book.
     Sub,
+    /// A card: state a person can act on, patched by later records. Its `card` field names the
+    /// view's row kind; a client keeps and does not draw a card whose name it does not know.
+    Card,
 }
 
 impl RowKind {
     /// Every kind, in the order of the design's list.
-    pub const ALL: [RowKind; 10] = [
+    pub const ALL: [RowKind; 11] = [
         RowKind::User,
         RowKind::Text,
         RowKind::Thinking,
@@ -64,6 +67,7 @@ impl RowKind {
         RowKind::Plan,
         RowKind::Image,
         RowKind::Sub,
+        RowKind::Card,
     ];
 
     /// The kind's name on the wire.
@@ -79,6 +83,7 @@ impl RowKind {
             RowKind::Plan => "plan",
             RowKind::Image => "image",
             RowKind::Sub => "sub",
+            RowKind::Card => "card",
         }
     }
 

@@ -63,6 +63,8 @@ function createIntent() {
       return scrolling && this.isHeld();
     },
     isScrollbarDragging: () => pressed && scrollbar,
+    /// A pointer is held down on the scroller (a drag, on the rows or the scrollbar).
+    isPressed: () => pressed,
     // An explicit request may start during the hold, but its continuations expire on later input.
     request: () => {
       const started = generation;

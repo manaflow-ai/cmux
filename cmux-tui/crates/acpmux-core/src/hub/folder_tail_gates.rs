@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::wire::Sub;
+use acpmux_book::gate_rounds::{self, all_p95, best_p95};
 use acpmux_book::index::Summary;
 use serde_json::value::RawValue;
 use std::fs::OpenOptions;
@@ -38,16 +39,6 @@ fn sub() -> Sub {
     let mut sub = Sub::new("folders", "list");
     sub.view = Some(crate::wire::ListView::Folders);
     sub
-}
-
-fn p95(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    let index = ((values.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-    values.get(index).copied().unwrap_or(1)
-}
-
-fn pooled_p95(rounds: &[Vec<u128>]) -> u128 {
-    p95(&mut rounds.iter().flatten().copied().collect::<Vec<_>>())
 }
 
 fn fixture(folders: usize, chats: usize) -> (Hub, ListSubscription) {
@@ -102,9 +93,10 @@ fn folders_tail_release_gates() {
         small_rounds.push(small);
         god_rounds.push(god);
     }
-    let small = small_rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap();
-    let god = god_rounds.iter().map(|r| p95(&mut r.clone())).min().unwrap();
-    let all = pooled_p95(&god_rounds);
+    gate_rounds::report("v2.pr05f.tail_replay", &[("small", &small_rounds), ("god", &god_rounds)]);
+    let small = best_p95(&small_rounds);
+    let god = best_p95(&god_rounds);
+    let all = all_p95(&god_rounds);
     gate("v2.pr05f.tail_replay", small, god, all);
     assert!(god <= small.saturating_mul(12) / 10, "tail ratio {god}/{small}");
     assert!(all <= small.saturating_mul(2), "tail pooled ratio {all}/{small}");

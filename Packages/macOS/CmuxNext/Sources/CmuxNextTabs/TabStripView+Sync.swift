@@ -171,7 +171,7 @@ extension TabStripView {
                 _ = makeCell(item, animated: false)
                 placed[item.id] = place
                 // It shows where that cell shows now; `relayout` moves it on from there.
-                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
+                cells[item.id]?.frame = TabStripMove.shownFrame(shown.layer)
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))

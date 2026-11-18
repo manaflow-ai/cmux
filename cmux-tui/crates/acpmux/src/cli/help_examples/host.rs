@@ -141,10 +141,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "machine consent grant",
-        &[(
-            "Ask to turn control consent on; a shell is refused, the cmux app changes it",
-            "acpmux machine consent grant --control",
-        )],
+        &[
+            (
+                "Ask to turn control consent on; a shell is refused, the cmux app changes it",
+                "acpmux machine consent grant --control",
+            ),
+            (
+                "Turn control consent on as this Mac's admin, with no app or screen",
+                "sudo acpmux machine consent grant --control",
+            ),
+        ],
     ),
     (
         "machine consent revoke",

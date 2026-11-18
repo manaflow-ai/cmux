@@ -383,6 +383,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    // `cmux device setup|start` for this Mac's own app only: it reaches the person's other Macs
+    // over ssh, never for a device on the owner link.
+    "device-setup",
     "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
@@ -397,6 +400,9 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-logs",
     "apps-mount",
     "apps-open-link",
+    // A web pane's call goes through the local page host's bridge (its app's grant, its page key):
+    // a remote owner link hosts no page, so the carrier does not take it.
+    "apps-page-call",
     // The provider's change notice is the verified local app's, as its register and its result:
     // a Remote connection ends at `apps.local` (server/apps.rs), so the carrier does not take it.
     "apps-provider-changed",
@@ -435,6 +441,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "feed-local-handoff-begin",
     "feed-local-handoff-done",
     "feed-local-list",
+    "float-pane",
     "forget-session",
     "get-blob",
     "get-frontend-browser-history",
@@ -506,6 +513,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "set-terminal-keep",
     "set-workspace-metadata",
     "shutdown-daemon",
+    "terminal-command-context",
     "terminal-last-command",
     "terminal-resources",
     "terminal-resume-command",

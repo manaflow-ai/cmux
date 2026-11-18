@@ -2,7 +2,7 @@ public import CmuxNextCloud
 import CmuxNextCompat
 import Foundation
 
-/// Signing in enrolls this Mac on the hub (Leo: "Signing in enrolls the machine."). acpmux decides
+/// Signing in enrolls this Mac on the hub (the rule of the sign-in, in the code since 2026-11-14). acpmux decides
 /// and does all of it (`server/sign_in_follow.rs`: when to enroll, its retry, recording the account
 /// signing out before anything waits, and the leave of only a join signing in made). This only
 /// tells the app's acpmux who is signed in now (`userId`, or none) and who was before (`previous`).
@@ -112,7 +112,13 @@ extension CloudSignInEnroll {
     /// and the daemon serves ``CloudSignInEnroll/capability``. The hub is the platform origin the app
     /// selected (`CloudConfiguration.relayAPIBaseURL`). `windows`: the app's connection to acpmux's
     /// chat index, whose return (a restarted daemon answering) sends the last change again.
-    public static func overAcpmux(auth: CloudAuth, buildTag: String?, windows: AcpmuxChatWindows?,
+    ///
+    /// The token is a cmux access token for the active team (`cmux auth token`'s, minted from this
+    /// Mac's install `identity`), never the sign-in session's: the hub's machine routes take only a
+    /// token with a team claim, and answered the session's with 401 `machine.unauthorized` on every
+    /// sign-in (cloud-carrier-ssh-failover, 2026-11-15).
+    public static func overAcpmux(auth: CloudAuth, identity: MacInstallIdentity, buildTag: String?,
+                                  windows: AcpmuxChatWindows?,
                                   environment: @escaping @MainActor () -> AcpmuxEnvironment?) -> CloudSignInEnroll {
         let hub = auth.configuration.relayAPIBaseURL().absoluteString
         let enroll = CloudSignInEnroll(person: { [weak auth] in
@@ -120,7 +126,7 @@ extension CloudSignInEnroll {
             // The platform id: a machine record names its person by it, never by the Stack id.
             return signedInPerson(restoring: auth.isRestoring, completingSignIn: auth.coordinator.isLoading,
                                   signedIn: auth.isSignedIn, userID: auth.platformUserID)
-        }, accessToken: { [weak auth] in try? await auth?.tokens().access }, hub: hub, buildTag: buildTag,
+        }, accessToken: { [weak auth] in await auth?.machineRoutesToken(identity: identity) }, hub: hub, buildTag: buildTag,
         recordLeave: { userId, signedOutAt in
             // `acpmux machine leave-intent`: the CLI writes it in the app's acpmux home, daemon or not.
             guard let environment = environment() else { return false }

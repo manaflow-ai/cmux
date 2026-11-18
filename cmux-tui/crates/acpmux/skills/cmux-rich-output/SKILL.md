@@ -1,6 +1,6 @@
 ---
 name: cmux-rich-output
-description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, and LaTeX. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, or when a picture would explain better than prose."
+description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, LaTeX, and Google Slides or Figma files shown live. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, a Google Slides deck or a Figma file, or when a picture would explain better than prose."
 ---
 
 # Rich output in a cmux chat
@@ -17,6 +17,14 @@ never because it exists. The person's own instructions win.
    - ```` ```vega-lite ```` (a JSON spec): bar, line, area, point, pie (`arc`) and other charts.
      Put the rows in `data.values`; the chat fetches nothing, so a `data.url` draws nothing.
      The chat applies its own light or dark theme: leave colors and backgrounds out.
+   - ```` ```chart ````: the same charts from small JSON, no Vega-Lite needed:
+     `{"type": "bar", "data": [{"k": "a", "v": 3}], "x": "k", "y": "v"}`. type is bar, line, area,
+     pie or scatter; y may be a list (a series each); `labels` plus `series: [{name, values}]` works too.
+   - Perf and benchmark numbers (before and after, p50 and p95, memory over time): give the numbers
+     as text or a table first, then the same numbers as a ```` ```chart ```` beside them, never instead
+     of them, so the reply still reads where charts do not draw. A bench before and after:
+     `{"type": "bar", "title": "Cold start (ms)", "data": [{"run": "p50", "before": 910, "after": 590}, {"run": "p95", "before": 1240, "after": 760}], "x": "run", "y": ["before", "after"]}`.
+     Memory or time over a run is a `line` with the time or step as x.
    - Math: `$e^{i\pi} + 1 = 0$` inline, `$$ ... $$` on its own lines (KaTeX).
    - ```` ```html ```` or ```` ```svg ````: a static picture in the chat; scripts wait for the
      person's Run.
@@ -76,6 +84,24 @@ arrow keys, Present (F, Esc exits), Export PDF and Export .pptx.
   `pdflatex` is on PATH (a Cloud VM, a Mac with MacTeX), compile it and open the PDF with
   `open {kind: "file", path}`. Otherwise say so; never install a TeX distribution (hundreds of
   MB) unless the person asks.
+
+## Google Slides and Figma
+
+cmux has no Slides or Figma editor of its own: edit through the person's own connection, and show
+the live page beside the chat, where their cmux browser is signed in.
+
+- Google Slides, editing: only through a Slides MCP server the person added with their own Google
+  account: Google's own (`https://slidesmcp.googleapis.com/mcp/v1`: `read_presentation`,
+  `read_slide_page`, `read_slide_page_thumbnail`, `update_presentation` with batchUpdate requests)
+  or a Workspace MCP server that can also create a deck. When neither is connected, say so and offer
+  an HTML deck or a .pptx instead; never ask for a Google password or token.
+- Google Slides, preview: `open {kind: "page", url: "https://docs.google.com/presentation/d/ID/edit"}`.
+  Edits made through the API show there live; read them back with `read_presentation` before saying
+  they are done.
+- Figma: `open {kind: "page", url}` with the file URL's `www.figma.com` changed to `embed.figma.com`
+  and `?embed-host=cmux` added (it is required), for example
+  `https://embed.figma.com/design/FILE_KEY/Name?embed-host=cmux`; `proto`, `slides` and `deck` URLs
+  work the same way. A private file asks the person to sign in once in the cmux browser.
 
 ## Rules
 

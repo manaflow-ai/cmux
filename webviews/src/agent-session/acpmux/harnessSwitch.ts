@@ -1,4 +1,5 @@
-import { errorMessage, isHostRefusal, startCancelled, switchFailedText } from "./transportErrors";
+import { errorMessage, isHostRefusal, startCancelled, startErrorMessage, switchFailedText } from "./transportErrors";
+import { logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -8,6 +9,14 @@ import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";
+import {
+  HARNESS_MISSING,
+  NOT_INSTALLED_REASON,
+  ROUTE_REASONS,
+  ROUTE_UNAVAILABLE,
+  SIGN_IN_REASON,
+  SIGN_IN_REQUIRED,
+} from "./startRefusal";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 // A harness or model switch as an intent. The pick changes the
@@ -69,6 +78,9 @@ export type SwitchPort = {
   leave(): void;
   /// Shows and attaches `sessionId`; undefined when a newer selection won.
   open(sessionId: string): Promise<string | undefined>;
+  /// Whether `sessionId` is the chat on screen and attached (direct.ts `shownAndAttached`): an open
+  /// that answered undefined although a newer open of the same chat attached it is opened.
+  attached?(sessionId: string): Promise<boolean>;
   /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`. `ticket`: the
   /// gesture ticket its send took while the switch held it (`transport.gesture`), sent with it.
   send(text: string, attachments: ComposerAttachment[], promptId: string, ticket?: string): Promise<unknown>;
@@ -125,6 +137,10 @@ export type SwitchView = {
     error?: string;
     /// The refusal's code (`agent_session.team_vm_blocked`, ...): the failed card's way out.
     code?: string;
+    /// A sign-in refusal (`agent_session.sign_in_required`) for a sign-in that expired, not one never made.
+    signInExpired?: true;
+    /// What actually failed, in one line (startFailure.ts `startFailureCause`): the card's Details.
+    cause?: string;
     queued: readonly QueuedSwitchPrompt[];
     config: SwitchConfig;
     cwd?: string;
@@ -163,6 +179,8 @@ type Intent = {
   reused?: boolean;
   error?: string;
   code?: string;
+  signInExpired?: true;
+  cause?: string;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
   /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
@@ -204,8 +222,6 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => (resolve = done));
   return { resolve, promise };
 }
-
-const errorText = errorMessage;
 
 /// Whether a live pick (`SwitchView` `model` or `config`) has nothing left to draw on `snapshot`,
 /// whose session reports `reported` for it (HarnessSwitch.reconcile). A snapshot with no session
@@ -702,6 +718,13 @@ export class HarnessSwitch {
       return;
     }
     if (this.intent !== intent) return;
+    // A newer open of this same chat won (its store sub fell and opened it again, issue 44964): with
+    // the chat on screen and attached, the start is opened, not "cmux did not start a session".
+    if (!opened && this.port === port && port.shown()?.sessionId === sessionId) {
+      const attached = await port.attached?.(sessionId).catch(() => false);
+      if (this.intent !== intent) return;
+      if (attached && port.shown()?.sessionId === sessionId) opened = sessionId;
+    }
     if (!opened) {
       intent.running = undefined;
       if (this.port === port) this.fail(intent, new Error(t("switch.noSession")));
@@ -816,6 +839,8 @@ export class HarnessSwitch {
       intent.phase = "trust";
       intent.error = undefined;
       intent.code = undefined;
+      intent.signInExpired = undefined;
+      intent.cause = undefined;
       // The Trust click's gesture goes to the answer; the prompt keeps its own send's gesture.
       const first = intent.queued[0];
       if (first && !first.ticket) this.handlers.holdPrompt?.(first.id);
@@ -829,9 +854,25 @@ export class HarnessSwitch {
     const typed = error as { errorKind?: unknown; recovery?: unknown } | undefined;
     const recovery =
       typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
-    intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
-    const code = (error as { code?: unknown } | undefined)?.code;
-    intent.code = typeof code === "string" ? code : undefined;
+    intent.error = [startErrorMessage(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
+    intent.code = startFailureCode(error);
+    // What actually failed stays under Details and goes to the app's log with the chat it was
+    // starting, so a start that fails for every agent at once can be told apart (#44964).
+    intent.cause = startFailureCause(error);
+    logStartFailure(intent.harness, intent.sessionId, intent.cause);
+    // An agent that is not signed in: cmux-tui codes it for another machine; acpmux on this Mac
+    // names it in `data.reason` only. Either is the one sign-in code the card reads (hq#11225).
+    const signIn = error as { reason?: unknown; errorKind?: unknown } | undefined;
+    if (intent.code === SIGN_IN_REQUIRED || signIn?.reason === SIGN_IN_REASON) {
+      intent.code = SIGN_IN_REQUIRED;
+      intent.signInExpired = signIn?.errorKind === "auth.expired" ? true : undefined;
+    } else intent.signInExpired = undefined;
+    // A missing agent or an unserved model route: cmux-tui codes them for another machine; acpmux
+    // on this Mac says them in `data.reason` only. Either reads as the one code (hq#11225).
+    if (!intent.code && typeof signIn?.reason === "string") {
+      if (signIn.reason === NOT_INSTALLED_REASON) intent.code = HARNESS_MISSING;
+      else if (ROUTE_REASONS.has(signIn.reason)) intent.code = ROUTE_UNAVAILABLE;
+    }
     if (intent.queued.length) {
       this.handBack(intent.queued);
       // The prompts are back in the composer (`handedBack`); acpmux's refusal reason rides along.
@@ -839,6 +880,11 @@ export class HarnessSwitch {
       const reason = Object.assign(new Error(intent.error), {
         handedBack: true,
         ...(typeof refusal?.reason === "string" ? { reason: refusal.reason } : {}),
+        // What actually failed, for a caller's own card (New Tab's): startFailureCause reads it back.
+        ...(intent.cause ? { startCause: intent.cause } : {}),
+        // Its code, apart from `code` (a handed-back prompt's own failure reads `code`): the caller's
+        // card reads it back through startFailureCode, so New Tab words the start as this card does.
+        ...(intent.code ? { startCode: intent.code } : {}),
       });
       for (const prompt of intent.queued) prompt.reject(reason);
       intent.queued = [];
@@ -869,6 +915,8 @@ export class HarnessSwitch {
           sessionId: intent.sessionId,
           error: intent.error,
           code: intent.code,
+          ...(intent.signInExpired && { signInExpired: true as const }),
+          ...(intent.cause && { cause: intent.cause }),
           queued: intent.queued.map(({ id, text, at }) => ({ id, text, at })),
           config: intent.config,
           cwd: intent.cwd,
@@ -994,6 +1042,8 @@ export function applySwitch(
     phase: intent.phase === "failed" ? "failed" : intent.shown ? "starting" : "deferred",
     ...(intent.error && { error: intent.error }),
     ...(intent.code && { code: intent.code }),
+    ...(intent.signInExpired && { signInExpired: true as const }),
+    ...(intent.cause && { cause: intent.cause }),
   };
   // A held prompt reads as sent: no start status on it (the Thinking line under it covers the
   // start, conversation/turns.ts), and its footer keeps the room the sent prompt's has.

@@ -10,12 +10,16 @@ const Entry = Schema.Struct({
     value !== "." && value !== ".." && !/[^\x21-\x7e]/u.test(value))),
   services: Schema.Array(Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9-]{0,39}$/u), Schema.filter((value) => value.trim() === value)))
     .pipe(Schema.minItems(1), Schema.maxItems(32)),
+  // Optional and advisory: a malformed value is dropped (below) rather than disabling every image.
+  inputs_sha256: Schema.optional(Schema.Unknown),
 }).annotations({ parseOptions: { onExcessProperty: "error" } });
 const Entries = Schema.Array(Entry).pipe(Schema.maxItems(32),
   Schema.filter((items) => new Set(items.map((item) => item.id)).size === items.length));
 export interface ApprovedImage {
   readonly id: string; readonly revision: string; readonly displayName: string;
   readonly snapshotId: string; readonly services: ReadonlySet<string>;
+  /** The image's inputs key (images/cmux-vm/auto-roll.ts), 64 lowercase hex, when the entry records one. */
+  readonly inputs_sha256?: string;
 }
 export class VmImages extends Context.Tag("cmux-vm/VmImages")<VmImages, { readonly images: ReadonlyArray<ApprovedImage> }>() {}
 
@@ -25,7 +29,10 @@ export const parseVmImages = (raw: string | undefined): { readonly ok: boolean; 
     const json: unknown = JSON.parse(raw);
     const decoded = Schema.decodeUnknownOption(Entries)(json);
     if (Option.isNone(decoded)) return { ok: false, images: [] };
-    return { ok: true, images: decoded.value.map((entry) => Object.freeze({ ...entry, services: new Set(entry.services) })) };
+    return { ok: true, images: decoded.value.map(({ inputs_sha256, ...entry }) => Object.freeze({
+      ...entry, services: new Set(entry.services),
+      ...(typeof inputs_sha256 === "string" && /^[0-9a-f]{64}$/u.test(inputs_sha256) ? { inputs_sha256 } : {}),
+    })) };
   } catch { return { ok: false, images: [] }; }
 };
 

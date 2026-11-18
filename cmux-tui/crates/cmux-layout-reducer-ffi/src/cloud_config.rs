@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use cmux_cloud_config::{agent_key, auth, config, identity};
+use cmux_cloud_config::{agent_key, auth, config, identity, install_key_slots};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -55,6 +55,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
+        }
+        // The install token's owner: use the held token, renew it beside, wait on the mint, or name the stall.
+        b"cloud_auth_install_token_lease" => {
+            let facts: cmux_cloud_config::signin::LeaseFacts = read(request)?;
+            json!(cmux_cloud_config::signin::lease(&facts))
         }
         // How a launch signs in, and which files its account pick reads.
         b"cloud_auth_launch_sign_in" => {
@@ -201,6 +206,19 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             answer["replacement"] = json!(slots::replacement(&request.deletes));
             answer
         }
+        // The hub's records as physical devices (`device_list`): `{thisDevice, others}` from this
+        // device and every record, so a Mac's other builds and stale records list once, or not at all.
+        b"cloud_identity_device_list" => {
+            use cmux_cloud_config::device_list;
+            #[derive(Deserialize)]
+            struct Request {
+                this: device_list::This,
+                #[serde(default)]
+                devices: Vec<device_list::Device>,
+            }
+            let request: Request = read(request)?;
+            json!(device_list::listing(&request.this, &request.devices))
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {
@@ -208,6 +226,24 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "account": identity::install_key_account(&request.user) })
+        }
+        // The items of one install key (`install_key_slots`): `{slots, current, next}` from the
+        // accounts the Keychain listed, and `replacement`, where a rotation puts the fresh key
+        // from the statuses of the deletes it made (null: none stayed, make no key now).
+        b"cloud_identity_install_key_slots" => {
+            #[derive(Deserialize)]
+            struct Request {
+                account: String,
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<install_key_slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(install_key_slots::slots(&request.account, &request.accounts));
+            answer["replacement"] =
+                json!(install_key_slots::replacement(&request.account, &request.deletes));
+            answer
         }
         b"cloud_identity_share_origin" => {
             #[derive(Default, Deserialize)]

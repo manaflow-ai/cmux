@@ -14,7 +14,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
         let registry = ActionRegistry.standard()
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         return (settings, registry, home)
     }

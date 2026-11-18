@@ -61,6 +61,8 @@ const CLOUD_API_CALLS = [
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
   "cloud.owner.github_app",
+  "cloud.owner.github_connect",
+  "cloud.owner.github_repos",
   "cloud.owner.handoff_begin_turn",
   "cloud.owner.handoff_open",
   "cloud.owner.handoff_wait",
@@ -186,7 +188,7 @@ const SIGNALS_SCHEMA = join(here, "../schema/v2/signals.schema.json")
 interface SignalDef {
   docs: string; scopes: string[]; params: Record<string, unknown>; value: Record<string, unknown>
   read: { op: string } | { reader: string; ops: Array<{ op: string; scope: string; docs: string }> }
-  push: string[]; pollFloorSeconds: number; staleAfterSeconds: number
+  push: string[]; pollFloorSeconds: number; staleAfterSeconds: number; safetyPollSeconds?: number
 }
 
 /** A value or params schema as TS: schemaType plus `{"$ref": "cmux:types/<Name>"}` for catalog types. */
@@ -229,7 +231,14 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
       if (!def.scopes.includes(scope)) throw new Error(`signals.json: ${name} reads ${op} with ${scope}, which its scopes do not list`)
     }
     if (def.staleAfterSeconds < def.pollFloorSeconds) throw new Error(`signals.json: ${name} goes stale before it may be polled again`)
-    const how = def.push.length ? `pushed by ${def.push.map((p) => `\`${p}\``).join(", ")}` : `polled every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s): nothing pushes it yet`
+    if (def.safetyPollSeconds !== undefined && !def.push.length) throw new Error(`signals.json: ${name} has safetyPollSeconds but nothing pushes it`)
+    if (def.safetyPollSeconds !== undefined && def.safetyPollSeconds < def.staleAfterSeconds) throw new Error(`signals.json: ${name} re-reads faster while pushed than while polled`)
+    const pushedBy = def.push.map((p) => `\`${p}\``).join(", ")
+    const how = !def.push.length
+      ? `polled every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s): nothing pushes it yet`
+      : def.safetyPollSeconds === undefined
+        ? `pushed by ${pushedBy}`
+        : `pushed by ${pushedBy} from outside this machine: while that push is live it re-reads every ${def.safetyPollSeconds} s, and until it is, it polls every ${def.staleAfterSeconds} s (never faster than ${def.pollFloorSeconds} s)`
     lines.push(`  /** \`${name}\`: ${def.docs.replace(/\*\//g, "* /")} Scope: any of ${def.scopes.map((s) => `\`${s}\``).join(", ")}; ${how}. */`)
     lines.push(`  ${JSON.stringify(name)}: { params: ${signalType(def.params, types)}; value: ${signalType(def.value, types)} }`)
   }
@@ -243,17 +252,22 @@ export function loadSignals(scopes: Record<string, { scope: string; class: strin
  * scope is the stream's scope.
  */
 export function loadEvents(scopes: Record<string, { scope: string; class: string }>): Record<string, { docs: string; reads: string; scope: string }> {
-  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string }> }
+  const file = JSON.parse(readFileSync(EVENTS, "utf8")) as { version: number; events: Record<string, { docs: string; reads: string; readsParams?: Record<string, unknown>; scope?: string }> }
   if (file.version !== 1) throw new Error(`schema/v2/events.json: version ${file.version}, expected 1`)
   const out: Record<string, { docs: string; reads: string; scope: string }> = {}
   for (const name of Object.keys(file.events).sort()) {
-    const { docs, reads } = file.events[name]!
+    const { docs, reads, readsParams, scope } = file.events[name]!
     const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
-    if (known.class !== "read") throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
-    out[name] = { docs, reads, scope: known.scope }
+    // A host op that reads (integration.request as a GET) is a read once readsParams say so.
+    const reading = known.class === "read" || (known.class === "runtime" && readsParams !== undefined && String(readsParams.method ?? "GET").toUpperCase() === "GET")
+    if (!reading) throw new Error(`events.json: ${name} reads ${reads}, which is not a read (${known.class})`)
+    // A scope with a <placeholder> needs the stream's own narrowed scope, which must fit it.
+    if (known.scope.includes("<") !== (scope !== undefined)) throw new Error(`events.json: ${name} must name its scope exactly when ${reads}'s scope (${known.scope}) has a placeholder`)
+    if (scope !== undefined && !new RegExp(`^${known.scope.replace(/<[a-z]+>/g, "[^:]+")}(:read)?$`).test(scope)) throw new Error(`events.json: ${name} says ${scope}, which ${reads}'s scope ${known.scope} does not fit`)
+    out[name] = { docs, reads, scope: scope ?? known.scope }
   }
   return out
 }
@@ -292,7 +306,12 @@ export function generate(): Record<string, string> {
     "memory.search": { scope: "memory:read", class: "read" },
     // The older name of chat.list for a customize section's thread list: the daemon answers it
     // from the same chat index as chat.list (apps/routing.rs), shaped {chats: [...]}.
-    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" },
+    // A browser tab's page in the Mac app (PageAppOps in CmuxNextApps): reader-mode text and links,
+    // and link hints drawn and followed by the built-in hints' own scripts. Hints and follow need a gesture.
+    "page.read": { scope: "page:read", class: "read" },
+    "page.hints": { scope: "page:write", class: "mutation" },
+    "page.follow": { scope: "page:write", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)
@@ -356,6 +375,17 @@ type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
 
+/** One block of a page's main text (\`page.read\`): a heading has \`level\` (1-6), an image \`src\` and its alt text. */
+interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
+/** \`page.read\`'s answer: the page's address and title, its main text as reader-mode blocks, and its links. */
+interface CmuxPageRead {
+  tab: string; url: string; title: string
+  article: { title: string; byline: string | null; site: string | null; blocks: CmuxPageBlock[] }
+  links: Array<{ text: string; href: string }>
+}
+/** A link-hint label \`page.hints\` drew: type it to \`page.follow\` it. \`href\` is null for a button, field or other non-link. */
+interface CmuxPageHint { label: string; text: string; href: string | null }
+
 interface CmuxGlobal {
 ${render(root, "  ")}
   call<T = unknown>(name: string, params?: unknown, options?: CmuxCallOptions): Promise<T>
@@ -379,6 +409,15 @@ ${render(root, "  ")}
   readonly theme: CmuxTheme
   /** A short notice from the app's own toast presenter; one slot per app (a new toast replaces the last). A string is the title. */
   toast(options: { title: string; message?: string; tone?: "success" | "warning" | "danger" } | string): Promise<null>
+  /** A browser tab's page, drawn by the cmux app (WebKit or CEF). \`tab\` is a \`tab_…\` id; without it, the focused browser tab of the front window. */
+  page: {
+    /** \`page.read\` (read, scope \`page:read\`): the page's main text as reader-mode blocks, and its links. Text is capped (400 blocks, 500 links). */
+    read: CmuxOp<{ tab?: string }, CmuxPageRead>
+    /** \`page.hints\` (mutation, scope \`page:write\`, needs a gesture): \`show\` draws link-hint labels over the clickable elements in view (the built-in \`f\` labels) and lists them; \`clear\` removes them. A scroll removes them too. */
+    hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
+    /** \`page.follow\` (mutation, scope \`page:write\`, needs a gesture): clicks the element of a shown hint, or with \`new_split\` opens its link in a new browser split (the built-in \`F\`), then clears the hints. \`followed\` is false when the label is not shown (any more), or \`new_split\` names a hint with no link. */
+    follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void
@@ -405,7 +444,7 @@ interface CmuxWatch<T> {
   /** Stops reading for this reader; automatic when the render or effect that called watch is disposed. */
   dispose(): void
 }
-interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored for pushed sources. */ everySeconds?: number }
+interface CmuxWatchOptions { /** Poll this often while this reader is mounted; clamped up to the source's pollFloorSeconds. Ignored while a push is live. */ everySeconds?: number }
 interface CmuxWatchFn {
   /** \`params\` may be a function: it is tracked, and the reader moves to the new (name, params) when its answer changes (a setting). */
   <N extends CmuxSignalName>(name: N, params?: CmuxSignalMap[N]["params"] | (() => CmuxSignalMap[N]["params"]), options?: CmuxWatchOptions): CmuxWatch<CmuxSignalMap[N]["value"]>

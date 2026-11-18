@@ -12,7 +12,8 @@ import Testing
 /// the sidebar's rows round exactly as the tabs do.
 @MainActor struct TabSplitButtonLookTests {
     @Test func theSplitControlIsATabsHeightAndCorner() {
-        #expect(NewTabButtonView.splitCornerRadius == Metrics.tabCornerRadius)
+        // Lucas 2026-11-15: the tab's ratio on the +'s own short side, one shape at every density.
+        #expect(NewTabButtonView.splitCornerRadius == Metrics.buttonCornerRadius(proportionalTo: min(TitlebarBandButton.side, Metrics.tabHeight)))
         #expect(NewTabButtonView.frameHeight(split: true, side: 22, tabHeight: 30) == 30, "the split + is a tab's height")
         #expect(NewTabButtonView.frameHeight(split: false, side: 22, tabHeight: 30) == 22, "other looks keep the square")
     }
@@ -23,10 +24,10 @@ import Testing
     }
 
     @Test func noFillAtRestAndTheHoveredSegmentFillsUnderThePointer() {
-        #expect(NewTabButtonView.splitFill(hovering: false, pressed: false, siblingHovered: false) == nil, "no fill at rest")
-        #expect(NewTabButtonView.splitFill(hovering: true, pressed: false, siblingHovered: false) == Palette.hoverFill, "the hovered half")
-        #expect(NewTabButtonView.splitFill(hovering: true, pressed: true, siblingHovered: false) == Palette.pressedFill, "a press")
-        let soft = NewTabButtonView.splitFill(hovering: false, pressed: false, siblingHovered: true)
+        #expect(PlusButtonLook.fill(.init(hovering: false, pressed: false, siblingHovered: false), hoverStyle: .plate, segment: .leading) == nil, "no fill at rest")
+        #expect(PlusButtonLook.fill(.init(hovering: true, pressed: false, siblingHovered: false), hoverStyle: .plate, segment: .leading) == Palette.hoverFill, "the hovered half")
+        #expect(PlusButtonLook.fill(.init(hovering: true, pressed: true, siblingHovered: false), hoverStyle: .plate, segment: .leading) == Palette.pressedFill, "a press")
+        let soft = PlusButtonLook.fill(.init(hovering: false, pressed: false, siblingHovered: true), hoverStyle: .plate, segment: .leading)
         #expect(soft != nil, "the other half shows a fill under the pointer")
         #expect((soft?.alphaComponent ?? 1) < Palette.hoverFill.alphaComponent, "the other half, softer")
     }

@@ -60,8 +60,12 @@
   max-width: 760px;
   min-width: 0;
   margin: 0 auto var(--ds-space-2, 8px);
-  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);
-  border-radius: var(--ds-radius-control, 8px);
+  /* Concentric with its buttons (Lawrence 2026-11-15): Use and close sit one padding from the top, the
+     bottom and the trailing side; the strip rounds by the button corner plus it, the text starts that far in. */
+  --concentric-padding: var(--ds-space-1, 4px);
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
+    calc(var(--ds-radius-control, 8px) + var(--concentric-padding));
+  border-radius: calc(var(--ds-radius-control, 8px) + var(--concentric-padding));
   background: var(--acpmux-cloud-hint-fill);
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -95,7 +99,7 @@
   flex: none;
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control, 8px);
   background: var(--acpmux-cloud-hint-fill-strong);
   color: var(--agent-text);
   font: inherit;

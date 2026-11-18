@@ -192,8 +192,12 @@ fn a_peer_window_and_page_name_only_local_rows_at_every_step_of_a_walk() {
         assert_eq!(back[..], local[..local.len() - 1]);
     }
     // A key that names a row of C is refused, not answered around.
-    let remote_key =
-        ListKey { last_activity: 1_000, chat_id: remote[0].clone(), origin: "c-machine".into() };
+    let remote_key = ListKey {
+        last_activity: 1_000,
+        chat_id: remote[0].clone(),
+        origin: "c-machine".into(),
+        past: false,
+    };
     let mut page = Page::new_list("peer", "list", PageSide::After, remote_key);
     page.view = Some(ListView::Live);
     assert!(hub.peer_page(&page).is_err());

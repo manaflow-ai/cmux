@@ -61,6 +61,12 @@ const paths: Record<string, ReactNode> = {
       <path d="M3.9 12.5c.9-1.5 2.4-2.3 4.1-2.3s3.2.8 4.1 2.3" />
     </>
   ),
+  key: (
+    <>
+      <circle cx="5.2" cy="10.8" r="3" />
+      <path d="m7.3 8.7 6-6M11.2 4.8l1.6 1.6M9.6 6.4l1.2 1.2" />
+    </>
+  ),
   "square.stack": (
     <>
       <rect x="3.2" y="5" width="9.6" height="8.6" rx="1.6" />
@@ -211,6 +217,17 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   "arrow.up.to.line": <path d="M3.4 2.6h9.2M8 13.4V5.4M4.8 8.4 8 5.2l3.2 3.2" />,
+  // Settings > Models: a chip with its pins.
+  cpu: (
+    <>
+      <rect x="4" y="4" width="8" height="8" rx="1.4" />
+      <rect x="6.4" y="6.4" width="3.2" height="3.2" rx=".5" />
+      <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
+    </>
+  ),
+  // The overflow menu of a row (Settings > Models connections).
+  ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
+  plus: <path d="M8 3v10M3 8h10" />,
   "arrow.down.to.more": <path d="M8 2.6v7.6M4.8 7.2 8 10.4l3.2-3.2M4 13.4h.01M8 13.4h.01M12 13.4h.01" />,
 };
 

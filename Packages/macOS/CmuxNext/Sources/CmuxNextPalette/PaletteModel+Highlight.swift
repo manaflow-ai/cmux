@@ -53,6 +53,7 @@ extension PaletteModel {
         state.highlightedItemID = nil
         // A left page asks its sources nothing more.
         state.sourceTokens = []
+        state.providerTokens = []
         guard case .list(let page) = state.kind else { return }
         // A contributed page's queries hold its source (acpmux's window) open however the page is left.
         if !page.contributedAnswers.isEmpty {

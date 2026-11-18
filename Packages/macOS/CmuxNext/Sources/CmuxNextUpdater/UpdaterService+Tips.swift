@@ -16,6 +16,13 @@ extension UpdaterService {
         let date = date ?? now()
         guard tipsEnabled == true, !tipsMuted(at: date) else {
             if tip != nil { tip = nil }
+            starPrompt.withdraw()
+            return
+        }
+        // The one-time star ask takes the tip's place this launch (``StarPromptCenter``).
+        starPrompt.refresh(budgetOpen: tipBudget.isOpen(at: date))
+        guard !starPrompt.isOffered else {
+            if tip != nil { tip = nil }
             return
         }
         let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id,
@@ -26,8 +33,11 @@ extension UpdaterService {
 
     /// A return to cmux re-picks the tip (a new day's tip, or the end of a
     /// timed mute) and re-reads the update card's reminder (a Mac that slept
-    /// past it); the App calls this once at launch.
+    /// past it); the App calls this once at launch, which also counts the launch for the star ask.
     public func refreshTipOnActivation() {
+        // This launch counts toward the one-time GitHub star ask (``StarPromptCenter``).
+        starPrompt.recordLaunch()
+        if tipsEnabled != nil { refreshTip() }
         activationObservation?.cancel()
         activationObservation = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {

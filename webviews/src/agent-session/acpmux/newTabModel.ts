@@ -124,9 +124,6 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
   };
 }
 
-/// An app id, `publisher/name` (Swift NewTabAppSetting.isValidID): what `tabs.newTabApp` holds.
-export const NEW_TAB_APP_ID = /^[^\s/]+\/[^\s/]+$/;
-
 /// The app that draws this New Tab page (`tabs.newTabApp`): none on history, and none for the visit
 /// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
 /// again, also on a parked spare that keeps its screen because its context did not change.
@@ -175,9 +172,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
       : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
-    ...(typeof object.app === "string" && object.app.length <= 200 && NEW_TAB_APP_ID.test(object.app)
-      ? { app: object.app }
-      : {}),
+    // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
+    // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
+    ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }

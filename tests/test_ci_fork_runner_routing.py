@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import yaml
-import workflow_jobs
-from job_lists_routing import (
+# workflow_jobs and job_lists_routing are beside this file: `python3 -I` puts no script folder on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+from job_lists_routing import (  # noqa: E402
     NIGHTLY,
     merge_gating_jobs,
     unresolved_name_jobs,
@@ -21,7 +24,6 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -280,7 +282,7 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
 # names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
 # files' session label, so they are gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -678,11 +680,20 @@ FORK_WRAPPED_POOL_READ = re.compile(
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
 # to that branch so the detector does not mistake the guarded owner route for
-# an unguarded fork path.
+# an unguarded fork path. Since #43860 the fallback of some routes starts with
+# the switch's `pr-rescue` read: that clause is optional here, as an exact text.
 FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
     r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && 'blacksmith-[^']+') \|\| "
-    r"\(vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
+    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.run_attempt < 2 \|\| "
+    r"github\.event_name != 'pull_request' && \(github\.event_name != 'workflow_dispatch' \|\| "
+    r"!contains\(fromJSON\('\[\"github-actions\[bot\]\",\"cmux-bot\[bot\]\"\]'\), github\.triggering_actor\) \|\| "
+    r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
+    r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
+    r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
+    r"vars\.CI_BLACKSMITH_MACOS != 'on' && "
+    r"(?:vars\.CI_SIDE_LANE_RUNNER|\(vars\.CI_SIDE_LANE_LABELS != '' && fromJSON\(vars\.CI_SIDE_LANE_LABELS\) \|\| "
+    r"vars\.CI_SIDE_LANE_RUNNER\)) \|\| "
     r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
 )
 

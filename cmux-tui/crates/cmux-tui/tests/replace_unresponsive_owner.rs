@@ -30,8 +30,8 @@ struct Fixture {
     dir: PathBuf,
     socket: PathBuf,
     session: String,
-    /// An owner this test froze; killed on drop if the test fails before the
-    /// option replaced it.
+    /// An owner this test froze or intends to replace; killed on drop if the
+    /// test fails before the option replaced it.
     frozen: Option<i32>,
 }
 
@@ -111,6 +111,9 @@ impl Fixture {
                 break usize::try_from(stats["connections"]["limit"].as_u64().unwrap()).unwrap();
             }
             assert!(Instant::now() < deadline, "initial clients did not retire: {stats}");
+            // No retirement event is exposed on this control connection.
+            // Bound observation frequency as well as the overall wait (#31077).
+            std::thread::sleep(Duration::from_millis(10));
         };
         assert!((2..512).contains(&limit), "unexpected connection limit: {limit}");
         let mut held = vec![control];
@@ -245,10 +248,32 @@ fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later()
 
 #[test]
 fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
-    let fixture = Fixture::new("replace-full");
-    let first = fixture.server("ensure", &[]);
+    replace_full_owner(false);
+}
+
+#[test]
+fn replace_unresponsive_replaces_a_wedged_owner_at_its_connection_limit() {
+    replace_full_owner(true);
+}
+
+fn replace_full_owner(wedged: bool) {
+    let session = if wedged { "replace-full-wedged" } else { "replace-full" };
+    let mut fixture = Fixture::new(session);
+    let env: &[(&str, &str)] = if wedged { &[("CMUX_TUI_DEBUG_WEDGE_REGISTRY", "1")] } else { &[] };
+    let (started, first) = fixture.run_with_env("ensure", &[], env);
+    assert!(started, "owner did not start: {first}");
     let old = pid_of(&first);
-    let _held = fixture.fill_connections();
+    fixture.frozen = Some(old);
+    let mut held = fixture.fill_connections();
+
+    // Both owners answer on an admitted connection, but a new connection
+    // receives only the same busy refusal. Restart has no health probe slot.
+    let identity = Fixture::request(&mut held[0], "identify");
+    assert_eq!(pid_of(&identity), old, "{identity}");
+    if wedged {
+        let stats = Fixture::request(&mut held[0], "server-stats");
+        assert!(stats["registry_lock"]["holder"].is_object(), "{stats}");
+    }
 
     let replaced = fixture.server("ensure", &["--replace-unresponsive"]);
     assert_eq!(replaced["status"], "replaced", "{replaced}");
@@ -256,6 +281,7 @@ fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
     let new = pid_of(&replaced);
     assert_ne!(new, old, "{replaced}");
     assert!(!running(old), "the full owner {old} still runs");
+    fixture.frozen = None;
 
     let status = fixture.server("status", &[]);
     assert_eq!(pid_of(&status), new, "{status}");

@@ -146,7 +146,7 @@ extension AppActionContext {
             guard let model = targetPane(target.id, invocation) else { return notFound(RefusalStrings.noPaneID(target.id)) }
             return services.paneController(for: model) ?? refuse(RefusalStrings.notShownInAnyWindow(String(describing: target)))
         }
-        for window in services.windows.controllers {
+        for window in services.windows.controllersActingFirst { // two windows can show one tab: the person's
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where invocation.targetMachineID.map({ pane.daemon.machineID == $0 }) ?? true {
                 if pane.stripModel.tab(StripTabID(target.id)) != nil { return pane }
             }

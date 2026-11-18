@@ -108,9 +108,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/DaemonPageValue.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/HarnessIconBook.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift": {
   "JSON / property-list decode": 1
  },
@@ -191,9 +188,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugPaletteEntries.swift": {
   "synchronous file write or file-system change": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/OnboardingHandlers.swift": {
-  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/SettingsHandlers.swift": {
   "synchronous file write or file-system change": 2

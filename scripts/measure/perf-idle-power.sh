@@ -18,6 +18,8 @@
 #     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=idle-chats \
 #     --arg=config=bench --artifact artifacts/perf-idle-power.json \
 #     [--arg=chats=40] [--arg=settle=60] [--arg=measure=120] [--arg=budget=5]
+#   relaunch-reconnect (scenarios=relaunch-reconnect) takes [--arg=chats=N] [--arg=rounds=N]: rounds per
+#   mode (3 by default; 5 gives 15 relaunches across warm, update and cold).
 #   The log prints the per-process table between PERF-IDLE-CHATS-TABLE-BEGIN and -END;
 #   the JSON keeps it as results[0].markdown.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
@@ -25,6 +27,7 @@ set -euo pipefail
 measure=""
 settle=""
 chats=""
+rounds=""
 budget=""
 config=Release
 scenarios=""
@@ -36,6 +39,7 @@ for arg in "$@"; do
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
     settle=*) settle="${arg#settle=}"; [[ "$settle" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: settle=SECONDS" >&2; exit 2; } ;;
     chats=*) chats="${arg#chats=}"; [[ "$chats" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: chats=N" >&2; exit 2; } ;;
+    rounds=*) rounds="${arg#rounds=}"; [[ "$rounds" =~ ^[1-9][0-9]*$ ]] || { echo "perf-idle-power.sh: rounds=N" >&2; exit 2; } ;;
     budget=*) budget="${arg#budget=}"; [[ "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "perf-idle-power.sh: budget=PERCENT" >&2; exit 2; } ;;
     config=*) config="${arg#config=}" ;;
     scenarios=*) scenarios="${arg#scenarios=}" ;;
@@ -78,6 +82,7 @@ extra=()
 [ -n "$measure" ] && extra+=(--measure "$measure")
 [ -n "$settle" ] && extra+=(--settle "$settle")
 [ -n "$chats" ] && extra+=(--load-local "$chats")
+[ -n "$rounds" ] && extra+=(--relaunch-rounds "$rounds")
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}
