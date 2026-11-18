@@ -259,3 +259,26 @@ final class AppHealthStoppedOwner {
     }
 }
 #endif
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension AppHealthFeeds {
+    /// `debug.app_health_card {state, close?}` (DEBUG and bench builds), for captures of app health's card over the
+    /// main window: `state` failed (Agent chat needs a repair, with Repair Now), repairing, or quiet (all clear),
+    /// from a fixture snapshot; the model is not touched. `close` takes the card away.
+    public func debugMethod() -> ControlMethod {
+        .mainActor("debug.app_health_card") { [weak self] call in
+            guard let self else { return .value(.null) }
+            if call.params["close"]?.boolValue == true {
+                popover.close()
+                popover.fixture = nil
+                return .value(["shown": false])
+            }
+            let state = call.params["state"]?.stringValue ?? "failed"
+            popover.fixture = AppHealthCard.fixture(state: state)
+            popover.close()
+            popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
+            return .value(["shown": true, "state": .string(state)])
+        }
+    }
+}
+#endif

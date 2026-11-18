@@ -22,6 +22,9 @@ public final class AppHealthPopover {
         self.health = health
     }
 
+    /// A snapshot the card shows instead of the model's (DEBUG captures, ``AppHealthFeeds/debugMethod()``).
+    var fixture: JSONValue?
+
     /// Opens the card over `window` (the person's click on a trigger), with the keyboard: Return repairs, Escape closes.
     public func open(over window: NSWindow?) {
         let panel = self.panel ?? CmuxFloatingDialogPanel(identifier: "cmux.appHealth")
@@ -30,8 +33,8 @@ public final class AppHealthPopover {
         panel.takesKeyboardOnShow = true
         panel.hidesWhenInactive = true
         panel.onHide = { [weak self] in self?.stopFollowing() }
-        draw(health.snapshot)
-        guard token == nil else { return }
+        draw(fixture ?? health.snapshot)
+        guard token == nil, fixture == nil else { return }
         // The model calls back on the thread that changed it, under its delivery lock: always queued to main, so the
         // card keeps the snapshots' order and never calls back into the model under its lock.
         token = health.subscribe { [weak self] snapshot in
@@ -108,6 +111,28 @@ enum AppHealthCard {
         }
         return CmuxDialogSpec(title: title, lines: lines, buttons: buttons, identifier: "cmux.appHealth.card")
     }
+
+    #if DEBUG
+    /// A snapshot with Agent chat `state` (failed, repairing) after three reloads, or all clear (quiet): the card's
+    /// captures (`debug.app_health_card`).
+    static func fixture(state: String) -> JSONValue {
+        let quiet = state == "quiet"
+        let part: JSONValue = .object([
+            "id": .string("page:7"), "kind": .string("page"), "label": .string("Agent chat"), "state": .string(state),
+            "sinceMs": .number(0), "detail": .string("Agent chat stopped answering, and three reloads did not bring it back."),
+            "action": .string("reloadPage"), "attempt": .number(3), "maxAttempts": .number(3), "nextAtMs": .null,
+            "canRepair": .bool(state == "failed"),
+        ])
+        let receipt: JSONValue = .object([
+            "atMs": .number(0), "id": .string("page:7"), "action": .string("reloadPage"),
+            "outcome": .string("gaveUp"), "detail": .string("Reloaded Agent chat 3 times"),
+        ])
+        return .object([
+            "worst": .string(quiet ? "healthy" : state), "parts": .array(quiet ? [] : [part]),
+            "receipts": .array(quiet ? [] : [receipt]), "pending": .array([]), "pendingMore": .number(0),
+        ])
+    }
+    #endif
 
     private static func state(of part: JSONValue) -> AppHealth.State {
         AppHealth.State(rawValue: part["state"]?.stringValue ?? "") ?? .healthy
