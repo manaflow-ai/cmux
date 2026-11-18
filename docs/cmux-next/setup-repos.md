@@ -13,8 +13,13 @@ cmux setup install github.com/OWNER/REPO        # or HOST/OWNER/REPO[@REF]
 cmux fetches the repo at one commit and shows a card with everything it changes before it writes
 anything. `--yes` answers the card for you (needed with `--json` or without a terminal).
 
+- `cmux setup install ./DIR` installs a setup folder on this machine the same way, with the same
+  card, so you can try a look before you publish it. It's kept under its id, marked local. Use
+  `--as OWNER/NAME` to try it under an id of your own (for a look that names another owner, or
+  one you haven't named yet); only a folder takes `--as`.
 - `cmux setup installed` lists what is installed.
-- `cmux setup update [REPO]` moves one to the newest commit of the ref it came from.
+- `cmux setup update [REPO]` moves one to the newest commit of the ref it came from (a local one:
+  to what its folder holds now).
 - `cmux setup remove [REPO]` takes it off: its layer, its actions, and the extensions it installed.
 
 ## Make one
@@ -57,6 +62,11 @@ An error is something install refuses, or a part cmux leaves out when it loads t
 key the theme reader refuses, a theme file that isn't there). A warning is something that installs
 and loads but won't do quite what it says (a theme color the contrast guard changes, an
 `engines.cmux` no cmux reads).
+
+Settings change over time. A key cmux retired (`schemas/settings/retired-keys.json`) gets a
+`setting.deprecated` warning, and when a setting took its place, the fix names it
+(`set remote.ultra instead`). Install still refuses a key this cmux doesn't read, so the same key
+also has a `setting.unknown` error carrying the same fix.
 
 | Flag | Effect |
 | --- | --- |

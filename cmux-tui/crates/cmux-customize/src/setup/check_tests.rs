@@ -200,3 +200,25 @@ fn the_report_has_the_documented_shape() {
     assert_eq!(finding["path"], SETUP_FILE);
     assert_eq!(finding["key"], "appearance.density");
 }
+
+#[test]
+fn a_retired_key_is_a_deprecated_warning_whose_fix_is_the_row_that_replaced_it() {
+    let dir = tempfile::tempdir().unwrap();
+    repo(dir.path(), r#"{ "remote.ultraMode": true, "tabs.newTabKind": "terminal" }"#, &[]);
+    let report = check_dir(dir.path(), &CheckOptions { history: &RetiredKeys, ..options() });
+    let deprecated: Vec<_> =
+        report.findings.iter().filter(|f| f.code == codes::SETTING_DEPRECATED).collect();
+    assert_eq!(deprecated.len(), 2, "{:?}", report.findings);
+    let renamed = deprecated.iter().find(|f| f.key.as_deref() == Some("remote.ultraMode")).unwrap();
+    assert_eq!(renamed.severity, Severity::Warning);
+    assert_eq!(renamed.fix.as_deref(), Some("set remote.ultra instead"));
+    let gone = deprecated.iter().find(|f| f.key.as_deref() == Some("tabs.newTabKind")).unwrap();
+    assert_eq!(gone.fix.as_deref(), Some("take tabs.newTabKind out"));
+    // Install still refuses a key this cmux does not read; the error says what replaced it.
+    let unknown = report
+        .findings
+        .iter()
+        .find(|f| f.code == codes::SETTING_UNKNOWN && f.key.as_deref() == Some("remote.ultraMode"))
+        .unwrap();
+    assert_eq!(unknown.fix.as_deref(), Some("set remote.ultra instead"));
+}

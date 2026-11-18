@@ -124,6 +124,15 @@ impl Setup {
     pub fn actions(&self) -> &BTreeMap<String, Value> {
         &self.manifest.actions
     }
+
+    /// The same setup under another id (a local try of a look not
+    /// published yet: `cmux setup install ./DIR --as OWNER/NAME`). The
+    /// library entry it becomes is named for the new id.
+    pub fn renamed(mut self, id: &str) -> Setup {
+        self.manifest.id = id.to_owned();
+        self.profile.name = profile_name(id);
+        self
+    }
 }
 
 pub mod check;
@@ -131,8 +140,8 @@ mod export;
 mod reference;
 mod secrets;
 pub use check::{
-    CheckOptions, Deprecated, Finding, NoHistory, Report, SettingsHistory, Severity, check_dir,
-    codes,
+    CheckOptions, Deprecated, Finding, NoHistory, Report, RetiredKeys, SettingsHistory, Severity,
+    check_dir, codes,
 };
 pub use export::readme_text;
 pub use reference::Reference;
@@ -483,7 +492,16 @@ pub struct Receipt {
     #[serde(default)]
     pub extensions: Vec<ExtensionReceipt>,
     pub installed_ms: u64,
+    /// Installed from a folder on this machine (`cmux setup install ./DIR`),
+    /// not a repo: the folder, which `update` reads again. Its reference's
+    /// host is [`LOCAL_HOST`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<String>,
 }
+
+/// The host of a setup installed from a folder: no repo reference parses
+/// to it, so a local install never shares a receipt with a published one.
+pub const LOCAL_HOST: &str = "local";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionReceipt {

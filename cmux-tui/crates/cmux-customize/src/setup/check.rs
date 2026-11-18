@@ -203,6 +203,23 @@ pub trait SettingsHistory {
     fn deprecated(&self, key: &str) -> Option<Deprecated>;
 }
 
+/// The keys cmux retired (`schemas/settings/retired-keys.json`, which
+/// cmux-config embeds): a retired key is deprecated, and the row that took
+/// its place (`replaced_by`) is the fix.
+pub struct RetiredKeys;
+
+impl SettingsHistory for RetiredKeys {
+    fn deprecated(&self, key: &str) -> Option<Deprecated> {
+        let path: Vec<String> = key.split('.').map(str::to_owned).collect();
+        let reason = cmux_config::schema::retired_reason(&path)?;
+        let replacement = cmux_config::schema::replaced_keys()
+            .iter()
+            .find(|replaced| replaced.old == path)
+            .map(|replaced| replaced.row.join("."));
+        Some(Deprecated { replacement, note: format!("cmux retired it: {reason}") })
+    }
+}
+
 /// A history with no entries.
 pub struct NoHistory;
 
