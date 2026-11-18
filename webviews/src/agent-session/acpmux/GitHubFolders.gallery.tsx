@@ -115,12 +115,12 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     "unavailable-signed-out": {
-      note: "Signed out of the Cloud service: the same row, with Sign in to cmux first under it; a click opens sign-in.",
+      note: "Signed out of the Cloud service: the same one-line row; a click opens sign-in.",
       props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "signed_out" } }) },
       play: openFolder,
     },
     "unavailable-not-configured": {
-      note: "No GitHub App on this Cloud service: a quiet second line says so; the row still tries on a click.",
+      note: "No GitHub App on this Cloud service: the same one-line row; a click tries, and the refusal is its second line.",
       props: {
         ...base,
         github: picker({ status: { state: "unavailable", reposScope: null, reason: "not_configured" } }),

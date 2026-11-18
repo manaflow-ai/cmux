@@ -492,7 +492,7 @@ test("another repos.list failure makes the pinned GitHub row Retry, which reads 
   }
 });
 
-test("before the status answers, the Connect to GitHub row is there and says it is checking", async () => {
+test("before the status answers, the Connect to GitHub row is there, one line, and a click asks nothing", async () => {
   let answer: (value: unknown) => void = () => undefined;
   const calls: string[] = [];
   const store = createGitHubPicker((method) => {
@@ -503,8 +503,8 @@ test("before the status answers, the Connect to GitHub row is there and says it 
   try {
     await openFolderMenu();
     expect(calls).toEqual(["github.status"]);
-    expect(detail(option(CONNECT))).toBe("Checking GitHub…");
-    // Informational until the status answers: a click asks nothing.
+    expect(option(CONNECT)!.querySelector(".acpmux-menu-description")).toBeNull();
+    // Until the status answers a click asks nothing.
     await press(option(CONNECT)!);
     expect(calls).toEqual(["github.status"]);
     expect(option(CONNECT)).toBeDefined();
@@ -599,7 +599,7 @@ test("signed out: back before the sign-in ends keeps waiting; signed in, the sam
   }
 });
 
-test("unavailable while signed out asks to sign in; not set up says so before any click", async () => {
+test("unavailable: the row is one line at rest; a click connects, and a refusal is its second line", async () => {
   const gh = host({
     "github.status": { state: "unavailable", repos_scope: null, reason: "signed_out" },
     "github.connect": { opened: true },
@@ -611,7 +611,7 @@ test("unavailable while signed out asks to sign in; not set up says so before an
     expect(signIn.querySelector("[data-github-unavailable]")?.getAttribute("data-github-unavailable")).toBe(
       "signed_out",
     );
-    expect(detail(signIn)).toBe("Sign in to cmux first");
+    expect(signIn.querySelector(".acpmux-menu-description")).toBeNull();
     await press(signIn);
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
   } finally {
@@ -625,9 +625,7 @@ test("unavailable while signed out asks to sign in; not set up says so before an
   try {
     await openFolderMenu();
     const row = option(CONNECT)!;
-    expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(
-      "GitHub isn’t set up for this Cloud service yet.",
-    );
+    expect(row.querySelector(".acpmux-menu-description")).toBeNull();
     // Still a click: the host may have been set up since.
     await press(row);
     expect(unset.calls.at(-1)).toEqual(["github.connect", {}]);

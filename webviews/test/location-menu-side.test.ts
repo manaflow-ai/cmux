@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import {
   FOLDER_MENU_LIST_CAP,
+  FOLDER_MENU_MIN_HEIGHT,
   locationMenuHeights,
   locationMenuSide,
 } from "../src/agent-session/acpmux/locationPopover";
@@ -51,6 +52,17 @@ test("the folder menu's taller list picks its side by its own height, the shared
   expect(locationMenuSide(control(500), 900, FOLDER_MENU_LIST_CAP)).toBe("top");
   expect(locationMenuHeights(1, FOLDER_MENU_LIST_CAP)).toEqual({ tallest: 500, shortest: 220 });
   expect(locationMenuHeights(1)).toEqual({ tallest: 320, shortest: 220 });
+});
+
+test("the folder menu leaves a side too short for its actions and three folders when the other has more room", () => {
+  // A composer in the lower half: about 264 px below its control and 586 above. The shared menu's
+  // shortest form (220) fits below, away from the chat; the folder menu's (320) does not, so it opens up.
+  expect(locationMenuSide(control(600, 600, 700), 900)).toBe("bottom");
+  expect(locationMenuSide(control(600, 600, 700), 900, FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT)).toBe("top");
+  // Neither side fits it: the side with more room.
+  expect(locationMenuSide(control(300, 300, 420), 560, FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT)).toBe("top");
+  expect(locationMenuHeights(1, FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT)).toEqual({ tallest: 500, shortest: 320 });
+  expect(locationMenuHeights(1.25, FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT).shortest).toBe(400);
 });
 
 test("no control gives no side", () => {

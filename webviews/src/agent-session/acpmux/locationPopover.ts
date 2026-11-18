@@ -31,7 +31,11 @@ export function sideAwayFromChat(
 /// (`resolveUiSide`) flips above only when that side fits or has more room. Either way the side is
 /// decided once on open and stays fixed while filtering or refreshing rows. `listCap`: the menu's own
 /// list cap when it is not the shared one (the folder menu's taller list, FOLDER_MENU_LIST_CAP).
-export function useLocationPopover({ listCap = LOCATION_FOLDERS_CAP }: { listCap?: number } = {}) {
+/// `shortest`: its own shortest useful height (the folder menu's, FOLDER_MENU_MIN_HEIGHT).
+export function useLocationPopover({
+  listCap = LOCATION_FOLDERS_CAP,
+  shortest = LOCATION_MENU_MIN_HEIGHT,
+}: { listCap?: number; shortest?: number } = {}) {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
@@ -45,10 +49,10 @@ export function useLocationPopover({ listCap = LOCATION_FOLDERS_CAP }: { listCap
   const [state, setState] = useState<{ open: boolean; side: UiPopupSide }>({ open: false, side: "bottom" });
   const setOpen = useCallback(
     (open: boolean) => {
-      const side = open ? locationMenuSide(control.current, window.innerHeight, listCap) : undefined;
+      const side = open ? locationMenuSide(control.current, window.innerHeight, listCap, shortest) : undefined;
       setState((last) => (last.open === open ? last : { open, side: side ?? last.side }));
     },
-    [listCap],
+    [listCap, shortest],
   );
   // The side is fixed on open and the popup fits the room there: it never flips or shifts onto its control.
   const flip: UiPopupFlip = false;
@@ -62,11 +66,12 @@ export function locationMenuSide(
   control: Element | null,
   viewportHeight = window.innerHeight,
   listCap = LOCATION_FOLDERS_CAP,
+  shortestAtDefault = LOCATION_MENU_MIN_HEIGHT,
 ): UiPopupSide | undefined {
   const rect = control?.getBoundingClientRect();
   if (!rect) return undefined;
   const away = sideAwayFromChat(control, viewportHeight);
-  const { tallest, shortest } = locationMenuHeights(interfaceScale(viewOf(control)), listCap);
+  const { tallest, shortest } = locationMenuHeights(interfaceScale(viewOf(control)), listCap, shortestAtDefault);
   const resolved = away
     ? resolveUiSide(rect, shortest, viewportHeight, { side: away === "top" ? "above" : "below" })
     : resolveUiSide(rect, tallest, viewportHeight, { side: "below" });
@@ -90,17 +95,25 @@ const LOCATION_MENU_CHROME = 60;
 /// All rows, so all of it follows Text Size.
 const LOCATION_MENU_MIN_HEIGHT = 220;
 
+/// The folder menu's (FolderPopover) shortest useful size at the default Text Size: the search field
+/// and padding, its six actions (Add folder…, the GitHub row, Add another folder…, New worktree,
+/// New project, No folder) and three folder rows. On a side with less room its list is squeezed
+/// away, so that side is taken only when the other has less still.
+export const FOLDER_MENU_MIN_HEIGHT = 320;
+
 /// The heights that pick a location menu's side at interface scale `scale`, CSS px: at its tallest
 /// (the list at its cap) and at its shortest useful size. The rows grow with Text Size, so a side
 /// with room for the menu at 12 pt can be short of it at 16 (Leo, 2026-11-12: "it doesn't follow").
-/// `listCap`: the menu's list cap (the shared one unless the menu has its own).
+/// `listCap`: the menu's list cap (the shared one unless the menu has its own); `shortest`: its
+/// shortest useful height at the default Text Size (the shared one unless the menu has its own).
 export function locationMenuHeights(
   scale: number,
   listCap = LOCATION_FOLDERS_CAP,
+  shortest = LOCATION_MENU_MIN_HEIGHT,
 ): { tallest: number; shortest: number } {
   return {
     tallest: listCap + LOCATION_MENU_CHROME * scale,
-    shortest: LOCATION_MENU_MIN_HEIGHT * scale,
+    shortest: shortest * scale,
   };
 }
 

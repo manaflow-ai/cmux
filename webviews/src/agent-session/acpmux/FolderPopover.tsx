@@ -9,7 +9,7 @@ import type { ExtraFolderRows } from "./extraFolders";
 import { GitHubMark, LockIcon } from "./GitHubIcons";
 import { githubFolder, githubFolderRepo, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { translate as t } from "./i18n";
-import { FOLDER_MENU_LIST_CAP, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -102,7 +102,7 @@ export function FolderPopover({
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  // Its side is chosen for its own taller list, not the shared location list's.
+  // Its side is chosen for its own taller list and its own actions, not the shared location list's.
   const {
     control,
     anchor,
@@ -112,6 +112,7 @@ export function FolderPopover({
     flip,
   } = useLocationPopover({
     listCap: FOLDER_MENU_LIST_CAP,
+    shortest: FOLDER_MENU_MIN_HEIGHT,
   });
   const setOpen = (next: boolean) => {
     if (next) {
@@ -245,7 +246,7 @@ export function FolderPopover({
   const submit = (value: string) => {
     // Connect to GitHub connects from the row in one click (the host opens the install page, or
     // sign-in), the menu still open; a click while it waits opens the page again. Until the status
-    // answers the row only says it is checking: a click then does nothing.
+    // answers a click does nothing: the connect reply would race the first status.
     if (value === GITHUB_ADD) {
       if (githubStatus !== undefined) github?.onConnect();
       return;
@@ -296,18 +297,9 @@ export function FolderPopover({
     const section = sectionOf(value);
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
-      // The host's refusal, else the wait for the browser, else why it can't connect yet.
-      const detail =
-        github?.state.connectError ??
-        (github?.state.waiting
-          ? t("composer.githubWaiting")
-          : githubStatus === undefined
-            ? t("composer.githubChecking")
-            : reason === "not_configured"
-              ? t("composer.githubNotConfiguredDetail")
-              : reason === "signed_out"
-                ? t("composer.githubSignInDetail")
-                : undefined);
+      // One line at rest, in every status. A second line only for what follows a click: the
+      // host's refusal, else the wait for the browser.
+      const detail = github?.state.connectError ?? (github?.state.waiting ? t("composer.githubWaiting") : undefined);
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
@@ -521,6 +513,8 @@ export function FolderPopover({
         label={label}
         className={
           "acpmux-menu acpmux-location-menu acpmux-folder-popover" +
+          // Short of room the list keeps up to three of its rows over the actions (composerLocation.css).
+          ` acpmux-folder-rows-${Math.min(3, suggestions.length - pinned.length)}` +
           (highlightAuto && query.trim() === "" ? " acpmux-folder-highlight-auto" : "")
         }
         side={side}
