@@ -43,27 +43,23 @@ public final class LaunchLayoutSettle {
         self.write = write
     }
 
-    /// The launch's watch while it runs.
-    private static var running: LaunchLayoutSettle?
-
     /// Starts the launch's watch when `measured` (a harness reads the marks), before the first window is made. The front
     /// window is the key window when `isShell` takes it, else the frontmost visible window it takes.
     public static func start(when measured: Bool, isShell: @escaping @MainActor (NSWindow) -> Bool, now: @escaping () -> Double,
                              write: @escaping (String, Double) -> Void) {
-        guard measured, running == nil else { return }
-        let watch = LaunchLayoutSettle(frontWindow: {
+        guard measured else { return }
+        LaunchLayoutSettle(frontWindow: {
             if let key = NSApp.keyWindow, isShell(key), key.isVisible { return key }
             return NSApp.orderedWindows.first { isShell($0) && $0.isVisible }
-        }, now: now, write: write)
-        running = watch
-        watch.start()
+        }, now: now, write: write).start()
     }
 
-    /// Before the first window is made.
+    /// Before the first window is made. The watch keeps itself until it ends: its frame client holds it, and the app's
+    /// frame scheduler holds an active client (FrameClient), which it lets go when ``frame()`` returns false.
     public func start() {
         guard client == nil else { return }
-        let client = FrameClient(owner: "launch.layout_settle", isAnimation: false, on: .app) { [weak self] _ in
-            self?.frame() ?? false
+        let client = FrameClient(owner: "launch.layout_settle", isAnimation: false, on: .app) { _ in
+            self.frame()
         }
         self.client = client
         client.activate()
@@ -99,7 +95,7 @@ public final class LaunchLayoutSettle {
         write("layout.cost_ms", costMs)
         geometry = nil
         window = nil
-        if Self.running === self { Self.running = nil }
+        client = nil // the cycle through the client's closure ends with the watch
         return false
     }
 

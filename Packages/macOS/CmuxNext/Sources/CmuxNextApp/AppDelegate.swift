@@ -167,8 +167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
-        // A launch harness's `layout.*` marks: before the first window is made.
-        LaunchLayoutSettle.start(when: LaunchMarkSink.shared.isActive, isShell: { $0 is ShellWindow }, now: { DebugTimings.millisecondsSinceProcessStart() }, write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
+        // A launch harness's `layout.*` marks (LaunchLayoutSettle): before the first window is made.
+        LaunchLayoutSettle.start(when: LaunchMarkSink.shared.isActive, isShell: { $0 is ShellWindow }, now: { DebugTimings.millisecondsSinceProcessStart() },
+                                 write: { LaunchMarkSink.shared.write(name: $0, ms: $1) })
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
