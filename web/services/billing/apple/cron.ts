@@ -26,15 +26,15 @@ export type AppleIapCronResult = AppleRetryResult & {
   readonly productionApi: Readonly<Record<string, AppleProductionApiAccess>>;
 };
 
+/** The backfill stops requesting pages this long after the cron starts (maxDuration is 300 s). */
+const BACKFILL_BUDGET_MS = 200_000;
+
 /**
  * Runs every step even when one fails, then reports `ok: false` for a
  * failed retry, a failed lapse re-derive, a failed history read, a key that
  * both App Store environments refuse, or a production deployment without the
  * App Store Server API key.
  */
-/** The backfill stops requesting pages this long after the cron starts (maxDuration is 300 s). */
-const BACKFILL_BUDGET_MS = 200_000;
-
 export async function runAppleIapCron(
   dependencies: AppleIapDependencies = defaultAppleIapDependencies(),
   options: { readonly startedAtMs?: number } = {},

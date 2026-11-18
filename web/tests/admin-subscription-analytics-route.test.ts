@@ -37,7 +37,7 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-const { createSubscriptionAnalyticsHandlers } = await import("../app/api/admin/subscriptions/analytics/handlers");
+const { createSubscriptionAnalyticsHandlers, cachedProductionApiProbe } = await import("../app/api/admin/subscriptions/analytics/handlers");
 
 const NOW = new Date("2026-10-02T00:00:00.000Z");
 const load = mock(async (query: AnalyticsQuery) => ({ marker: "report", filters: query }) as unknown as SubscriptionAnalyticsReport);
@@ -136,5 +136,22 @@ describe("GET /api/admin/subscriptions/analytics", () => {
       now: () => NOW,
     });
     expect((await failing.GET(request())).status).toBe(503);
+  });
+});
+
+describe("billingHealth probe cache", () => {
+  test("caches a settled answer, never caches unknown, and stops waiting after the timeout", async () => {
+    let clock = 0;
+    let answers: (() => Promise<"ok" | "unknown" | "locked_until_release">)[] = [async () => "unknown", async () => "locked_until_release"];
+    let calls = 0;
+    const read = cachedProductionApiProbe(() => answers[Math.min(calls++, answers.length - 1)]!(), () => clock, 50);
+    expect(await read()).toBe("unknown");
+    expect(await read()).toBe("locked_until_release");
+    expect(await read()).toBe("locked_until_release");
+    expect(calls).toBe(2);
+    clock += 6 * 60 * 1000;
+    answers = [async () => new Promise<never>(() => undefined)];
+    calls = 0;
+    expect(await read()).toBe("unknown");
   });
 });

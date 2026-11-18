@@ -29,20 +29,47 @@ export type SubscriptionAnalyticsRouteDependencies = {
   readonly productionApiAccess?: () => Promise<AppleProductionApiHealth>;
 };
 
-/** The probe answer is reused this long, so admin reloads do not hit Apple each time. */
+/** A settled probe answer is reused this long, so admin reloads do not hit Apple each time. */
 const PRODUCTION_PROBE_TTL_MS = 5 * 60 * 1000;
+/** The report never waits longer than this on Apple; a slower probe reads `unknown`. */
+export const PRODUCTION_PROBE_TIMEOUT_MS = 3_000;
 
-/** probeAppleProductionApi with a short in-process cache. */
+/**
+ * probeAppleProductionApi with a short in-process cache, one probe in flight
+ * at a time, and a timeout. `unknown` (Apple could not be asked) is not cached.
+ */
 export function cachedProductionApiProbe(
   probe: () => Promise<AppleProductionApiHealth> = () => probeAppleProductionApi(),
   nowMs: () => number = Date.now,
+  timeoutMs: number = PRODUCTION_PROBE_TIMEOUT_MS,
 ): () => Promise<AppleProductionApiHealth> {
   let cached: { readonly at: number; readonly value: AppleProductionApiHealth } | null = null;
+  let inFlight: Promise<AppleProductionApiHealth> | null = null;
+  const settle = async (): Promise<AppleProductionApiHealth> => {
+    try {
+      const value = await probe();
+      if (value !== "unknown") cached = { at: nowMs(), value };
+      return value;
+    } catch {
+      return "unknown";
+    } finally {
+      inFlight = null;
+    }
+  };
   return async () => {
     if (cached && nowMs() - cached.at < PRODUCTION_PROBE_TTL_MS) return cached.value;
-    const value = await probe();
-    cached = { at: nowMs(), value };
-    return value;
+    inFlight ??= settle();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A bounded wait on an external service, not synchronization: the probe
+    // keeps running and fills the cache for the next read.
+    const timeout = new Promise<AppleProductionApiHealth>((resolve) => {
+      timer = setTimeout(() => resolve("unknown"), timeoutMs);
+    });
+    try {
+      return await Promise.race([inFlight, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   };
 }
 

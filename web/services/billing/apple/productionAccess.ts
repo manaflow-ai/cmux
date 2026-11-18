@@ -7,14 +7,20 @@
 // - locked_until_release: Production answered 401 and the Sandbox accepted
 //   the same key for the same bundle. Callers fall back to the behavior they
 //   have without the Server API (never a grant): the backfill skips that
-//   Production history and keeps its cursor, the renewal re-check skips the
-//   row, the lapse sweep expires on Apple's last signed state, and client
-//   transactions use their own verified payload.
+//   Production history and keeps its cursor, and client transactions use
+//   their own verified payload.
 // - unauthorized: the Sandbox refused the key too. A credential error, loud.
 // - ok: Production answered.
 //
-// A tracker lives for one cron run (or one request), so each run asks again
-// and the state clears by itself after the first release.
+// A tracker lives for one cron run, or for one request on the client and
+// notification paths (so before the release each such Production call costs
+// one extra Sandbox call). Each run asks again, so the state clears by itself
+// after the first release.
+//
+// A Production subscription row can only exist once the app is released, so
+// the renewal re-check and the lapse sweep never take the locked fallback for
+// one: there a locked answer is logged as an error and treated as an outage
+// (recheck.ts).
 
 import { APP_STORE_BUNDLE_ID } from "./config";
 import { errorText } from "./effects";
@@ -34,6 +40,11 @@ export type AppleProductionAccessTracker = {
   isLocked(bundleId: string): boolean;
   /** Production answered for this bundle. */
   markOk(bundleId: string): void;
+  /**
+   * A Production subscription of this bundle exists, so the app is released
+   * and its Production 401 is a real credential failure, not the lock.
+   */
+  markReleasedButRefused(bundleId: string): void;
   /**
    * Explains an error from a Production call for `bundleId`: a 401 is
    * classified once per bundle (one Sandbox probe); null for any other error,
@@ -69,19 +80,29 @@ export function createAppleProductionAccessTracker(
   now: () => Date,
 ): AppleProductionAccessTracker {
   const known = new Map<string, AppleProductionApiAccess>();
+  // Bundles whose Sandbox probe failed this run: not probed again (an outage
+  // would otherwise cost one extra call per row), the error stays loud.
+  const probeFailed = new Set<string>();
   return {
     isLocked: (bundleId) => known.get(bundleId) === "locked_until_release",
     markOk(bundleId) {
       known.set(bundleId, "ok");
     },
+    markReleasedButRefused(bundleId) {
+      known.set(bundleId, "unauthorized");
+    },
     async classify(error, bundleId) {
       if (!isAppleServerApiUnauthorized(error)) return null;
       const cached = known.get(bundleId);
       if (cached === "locked_until_release" || cached === "unauthorized") return cached;
+      // Production already answered this run, so it is not waiting for a
+      // first release: this 401 is a real failure.
+      if (cached === "ok" || probeFailed.has(bundleId)) return null;
       let accepted: boolean;
       try {
         accepted = await sandboxAccepts(serverApi, bundleId, now());
       } catch (probeError) {
+        probeFailed.add(bundleId);
         console.warn("apple_iap.production_api_probe_failed", {
           metric: "apple_iap.production_api_probe_failed",
           bundleId,

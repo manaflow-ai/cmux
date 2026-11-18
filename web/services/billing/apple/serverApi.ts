@@ -83,8 +83,8 @@ function isPaginationRejection(error: unknown): boolean {
   );
 }
 
-/** Rethrows Apple's 401 as AppleServerApiUnauthorizedError; other errors unchanged. */
-function unauthorizedOr(error: unknown, environment: SignedAppleEnvironment, bundleId: string): unknown {
+/** Rethrows Apple's 401 as AppleServerApiUnauthorizedError; other errors unchanged. Exported for tests. */
+export function unauthorizedOr(error: unknown, environment: SignedAppleEnvironment, bundleId: string): unknown {
   return error instanceof APIException && error.httpStatusCode === 401
     ? new AppleServerApiUnauthorizedError(environment, bundleId)
     : error;

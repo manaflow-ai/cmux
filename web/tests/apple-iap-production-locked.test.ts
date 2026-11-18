@@ -2,13 +2,17 @@
 // Production host answers a bodyless 401 for a key the Sandbox accepts
 // (productionAccess.ts). That is a quiet, known state: the cron stays ok, the
 // backfill skips Production history and keeps its cursor, the renewal
-// re-check skips, and the lapse sweep falls back to its no-API behavior.
+// re-check and the lapse sweep, whose Production rows can only exist after a
+// release, treat it as an outage, never as a reason to expire or grant.
 // When the Sandbox refuses the key too, it stays a loud credential error.
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { runAppleIapCron } from "../services/billing/apple/cron";
 import { backfillAppleNotifications } from "../services/billing/apple/history";
+import { APIException } from "@apple/app-store-server-library";
+
+import * as serverApiModule from "../services/billing/apple/serverApi";
 import { AppleServerApiUnauthorizedError, type AppleServerApi } from "../services/billing/apple/serverApi";
 import { recordClientAppleTransaction, retryAppleNotifications } from "../services/billing/apple/service";
 import {
@@ -150,25 +154,33 @@ describe("cron while Production is locked until release", () => {
   });
 });
 
-describe("renewal re-check and lapse sweep while Production is locked", () => {
+describe("renewal re-check and lapse sweep: a Production row means the app is released", () => {
   const longAgo = new Date(NOW.getTime() - 60 * DAY);
 
-  test("the renewal re-check skips the row: no failure, no write", async () => {
+  test("the renewal re-check counts a locked-looking Production as a failure, writes nothing, and fails the cron", async () => {
     await seedSubscription(f, { expiresAt: new Date(NOW.getTime() + 2 * HOUR) });
     f.serverApi = lockedApi();
-    const result = await retryAppleNotifications({}, f.deps());
-    expect(result).toMatchObject({ renewalsChecked: 0, renewalCheckFailures: 0, renewalsExtended: 0 });
+    const result = await runAppleIapCron(f.deps());
+    expect(result).toMatchObject({ renewalsChecked: 1, renewalCheckFailures: 1, renewalsExtended: 0, ok: false });
+    expect(result.productionApi[BUNDLE]).toBe("unauthorized");
     expect(f.subscription()).toMatchObject({ status: "active", lastTransactionId: "period-1", appleCheckedAt: null });
-    expect(logged(warnings, "apple_iap.status_lookup_failed")).toBe(false);
+    expect(logged(errors, "apple_iap.production_api_locked_with_subscription")).toBe(true);
+    // The backfill that runs after it is loud too, not skipped as locked.
+    const production = result.history.sources.find((source) => source.bundleId === BUNDLE && source.environment === "Production");
+    expect(production).toMatchObject({ locked: false });
+    expect(production?.error).not.toBeNull();
   });
 
-  test("the sweep expires on Apple's last signed state, as without the Server API, not after a day's deferral", async () => {
+  test("the sweep defers it like an outage instead of expiring a possibly paying user at once", async () => {
     await seedSubscription(f, { expiresAt: new Date(NOW.getTime() - 2 * HOUR), updatedAt: longAgo });
     f.serverApi = lockedApi();
-    const result = await retryAppleNotifications({}, f.deps());
-    expect(result).toMatchObject({ lapsedUsers: 1, lapsedDeferred: 0, lapsesRecovered: 0 });
+    expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ lapsedUsers: 0, lapsedDeferred: 1 });
+    expect(f.subscription().status).toBe("active");
+    expect(f.applied).toEqual([]);
+    // Still capped: a day after the lapse it expires on Apple's last signed state.
+    f.clock = new Date(NOW.getTime() + 23 * HOUR);
+    expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ lapsedUsers: 1, lapsedDeferred: 0 });
     expect(f.subscription().status).toBe("expired");
-    expect(f.applied).toEqual(["user-a"]);
   });
 
   test("a key the Sandbox refuses too keeps the outage behavior: the lapse is deferred", async () => {
@@ -176,6 +188,73 @@ describe("renewal re-check and lapse sweep while Production is locked", () => {
     f.serverApi = lockedApi({ sandboxUnauthorized: true });
     expect(await retryAppleNotifications({}, f.deps())).toMatchObject({ lapsedUsers: 0, lapsedDeferred: 1 });
     expect(f.subscription().status).toBe("active");
+  });
+});
+
+describe("what is not the lock", () => {
+  test("a Production error other than 401 is an ordinary failure", async () => {
+    f.serverApi = {
+      subscriptionStatus: async () => null,
+      notificationHistory: async ({ environment }) => {
+        if (environment === "Production") throw new Error("App Store Server API HTTP 500");
+        return { signedPayloads: [], hasMore: false, paginationToken: null };
+      },
+    };
+    const result = await backfillAppleNotifications(f.deps());
+    const production = result.sources.filter((source) => source.environment === "Production");
+    expect(production.every((source) => source.error !== null && !source.locked)).toBe(true);
+    expect(result.failures).toBe(production.length);
+  });
+
+  test("a Sandbox probe that fails (an outage) leaves the 401 loud and is not retried for every call", async () => {
+    let sandboxCalls = 0;
+    f.serverApi = {
+      subscriptionStatus: async ({ bundleId }) => {
+        throw new AppleServerApiUnauthorizedError("Production", bundleId);
+      },
+      notificationHistory: async ({ bundleId, environment }) => {
+        if (environment === "Production") throw new AppleServerApiUnauthorizedError("Production", bundleId);
+        sandboxCalls += 1;
+        throw new Error("App Store Server API HTTP 503");
+      },
+    };
+    const { createAppleProductionAccessTracker } = await import("../services/billing/apple/productionAccess");
+    const tracker = createAppleProductionAccessTracker(f.serverApi, () => NOW);
+    const refused = new AppleServerApiUnauthorizedError("Production", BUNDLE);
+    expect(await tracker.classify(refused, BUNDLE)).toBeNull();
+    expect(await tracker.classify(refused, BUNDLE)).toBeNull();
+    expect(sandboxCalls).toBe(1);
+    expect(logged(warnings, "apple_iap.production_api_probe_failed")).toBe(true);
+  });
+
+  test("a 401 after Production already answered this run is a real failure, not the lock", async () => {
+    let sandboxCalls = 0;
+    const api: AppleServerApi = {
+      subscriptionStatus: async () => null,
+      notificationHistory: async () => {
+        sandboxCalls += 1;
+        return { signedPayloads: [], hasMore: false, paginationToken: null };
+      },
+    };
+    const { createAppleProductionAccessTracker } = await import("../services/billing/apple/productionAccess");
+    const tracker = createAppleProductionAccessTracker(api, () => NOW);
+    tracker.markOk(BUNDLE);
+    expect(await tracker.classify(new AppleServerApiUnauthorizedError("Production", BUNDLE), BUNDLE)).toBeNull();
+    expect(sandboxCalls).toBe(0);
+    expect(tracker.snapshot()).toEqual({ [BUNDLE]: "ok" });
+  });
+
+  test("the client maps only Apple's HTTP 401 to the unauthorized error", () => {
+    const map = (serverApiModule as unknown as {
+      unauthorizedOr?: (error: unknown, environment: "Production" | "Sandbox", bundleId: string) => unknown;
+    }).unauthorizedOr!;
+    const mapped = map(new APIException(401, null, null), "Production", BUNDLE);
+    expect(mapped).toBeInstanceOf(AppleServerApiUnauthorizedError);
+    expect(mapped).toMatchObject({ environment: "Production", bundleId: BUNDLE });
+    const other = new APIException(500, null, null);
+    expect(map(other, "Production", BUNDLE)).toBe(other);
+    const plain = new Error("socket hang up");
+    expect(map(plain, "Sandbox", BUNDLE)).toBe(plain);
   });
 });
 
