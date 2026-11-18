@@ -15,5 +15,8 @@ public enum VisibleRowsBaseline {
     public static let knownFailures: [String: Known] = [
         "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
             + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
+        "command palette results": Known("the model hands every result on each version, so the list reads them all to diff "
+            + "by id (no row configured or measured for it); a model that hands the change would not "
+            + "(macOS PaletteListView.setSections; fix: visible-only-macos-lists)", only: "items walked"),
     ]
 }

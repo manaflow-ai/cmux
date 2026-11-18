@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxVisibleRows
 
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
@@ -18,11 +19,15 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// A middle-click on a row: close it, as Cmd-W does (Tab Search: the row's tab).
     var onMiddleClick: ((String) -> Void)?
 
-    private let table = PaletteTableView()
+    /// Internal for the visible-rows tests.
+    let table = PaletteTableView()
     /// The row a middle press went down on (`onMiddleClick`).
     private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
+    /// Rows configured (`viewFor`), heights asked (`heightOfRow`) and results read (`setSections`): the
+    /// visible-rows contract (`PaletteListVisibleRowsTests`).
+    let listWork = ListWorkMeter()
     private var selectedID: String?
     private var hoveredID: String?
     /// No rubber band while every result fits.
@@ -85,6 +90,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
                 rows.append(.item(row))
             }
         }
+        listWork.walked(rows.count)
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
@@ -177,6 +183,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        listWork.laidOut()
         if case .header = rows[row] { return PaletteLayout.headerRowHeight }
         return PaletteLayout.rowHeight
     }
@@ -201,6 +208,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        listWork.configured()
         switch rows[row] {
         case .header(let title):
             let cell = tableView.makeView(withIdentifier: PaletteSectionHeaderCell.identifier, owner: nil) as? PaletteSectionHeaderCell
@@ -214,6 +222,11 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
             return cell
         }
     }
+}
+
+extension PaletteListView: VisibleRowsList {
+    /// The table's row views, shown and parked for reuse.
+    var rowViewsAlive: Int { table.subviews.count { $0 is NSTableRowView } }
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and

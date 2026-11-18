@@ -2345,6 +2345,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextSignposts",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2358,6 +2359,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPalette",
                 "CmuxNextTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
             ],
             swiftSettings: uiSwiftSettings
         ),
