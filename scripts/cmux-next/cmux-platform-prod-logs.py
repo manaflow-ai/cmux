@@ -506,10 +506,14 @@ def window_totals(events, needles):
     return head, rows[:MAX_ROWS]
 
 
-def query(token, service, frm, to, offset=None):
+def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
             "parameters": {"filters": [{"key": "$metadata.service", "operation": "eq", "type": "string", "value": service}]}}
+    if needle:
+        # The id itself, matched server-side: a service-only read of a busy hour fills PAGES pages with other
+        # ids' lines and never reaches this one's (hq#13055, hq#13057: 20000 scanned, 0 in window).
+        body["parameters"]["needle"] = {"value": needle, "isRegex": False, "matchCase": True}
     if offset:
         body["offset"] = offset
     req = urllib.request.Request(
@@ -566,7 +570,8 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset), "result", "events", "events") or []
+        got = base.dig(query(token, service, frm, to, offset, needle=None if kind == WINDOW else ident),
+                       "result", "events", "events") or []
         events += got
         pages += 1
         if len(got) < 1000:
