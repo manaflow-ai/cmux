@@ -109,7 +109,14 @@ STUB
 # the REST API knows. `run list` prints $TMP/gh-runs. When a case writes
 # $TMP/gh-run-statuses (the status of each run of the commit, one a line),
 # `run list` answers the caller's own --jq from that list instead, and fails
-# for a --jq it does not know, so a count is never right by accident.
+# for a --jq it does not know, so a count is never right by accident. A run's
+# jobs (`api repos/.../actions/runs/<id>/jobs?...`) come from $TMP/gh-run-jobs
+# (`name|status|conclusion`, one job a line; every run has the same jobs): the
+# stub counts the build rows in work or ended green for the one --jq it knows,
+# and fails for another one or when the file is missing (an unreadable list).
+# A build row is a job that compiles the tree's binaries; $build_row is its name
+# in a run (`<caller job> / <job of cmux-tui-build-package.yml>`).
+build_row='^build[^/]* / build '
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
@@ -124,12 +131,27 @@ if [[ "\$1 \$2" == "run list" ]]; then
       length) grep -c . "$TMP/gh-run-statuses" || true ;;
       '[.[] | select(.status != "completed")] | length') grep -c -v -x completed "$TMP/gh-run-statuses" || true ;;
       '[.[] | select(.status == "in_progress")] | length') grep -c -x in_progress "$TMP/gh-run-statuses" || true ;;
+      '.[] | select(.status != "completed") | .databaseId') awk '\$0 != "completed" { print 9000 + NR }' "$TMP/gh-run-statuses" ;;
       *) echo "gh stub: unknown --jq in run list: \$jq" >&2; exit 1 ;;
     esac
     exit 0
   fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
+fi
+if [[ "\$1" == api && "\$2" == repos/*/actions/runs/*/jobs\?* ]]; then
+  [[ -f "$TMP/gh-run-jobs" ]] || exit 1
+  jq="" prev=""
+  for arg in "\$@"; do
+    if [[ "\$prev" == --jq ]]; then jq="\$arg"; fi
+    prev="\$arg"
+  done
+  case "\$jq" in
+    '[.jobs[] | select(.name | test("$build_row")) | select(.status == "in_progress" or .conclusion == "success")] | length')
+      awk -F'|' '\$1 ~ "$build_row" && (\$2 == "in_progress" || \$3 == "success")' "$TMP/gh-run-jobs" | grep -c . || true ;;
+    *) echo "gh stub: unknown --jq in a run's jobs: \$jq" >&2; exit 1 ;;
+  esac
+  exit 0
 fi
 if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
@@ -747,20 +769,80 @@ grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wa
 # its push), and a nightly whose tip had no tree waited those 45 minutes and failed (nightly-next run
 # 44405798998). Queued, pending (held behind its group), waiting and requested are the states of a run
 # with no job in work. The tip has a run, so the backfill starts no second one.
+#
+# The run's status alone does not say that a tree is in work: a run whose preflight or select job
+# runs is in progress while each build row still waits for a runner, and a run goes back to queued
+# when none of its jobs runs (run 44383172213 said queued with 2 jobs ended green and 3 queued). So
+# a run builds the tree only when one of its build rows (`build / build <target>`,
+# `build-linux / build <target>`) is in progress or ended green. Each case below writes its first
+# failed assert to a file and the block fails once at its end, so one run shows every case.
 echo 1 > "$TMP/gh-runs"
-for waits in queued pending waiting requested; do
-  printf '%s\n' completed "$waits" > "$TMP/gh-run-statuses"
+: > "$TMP/tree-run-fails"
+# The rule knows a build row by its name, so the names come from the workflow files here: a rename of
+# a build job must fail this test and not a nightly. Every job of cmux-tui-build-package.yml that has
+# a compile line is a build row under each job of cmux-tui-artifacts.yml that calls it, and no other
+# job of it is one.
+workflow_jobs() { # <workflow file> -> `name|1` for a job with a compile line, `name|0` for another job
+  awk '
+    function flush() { if (id != "") print name "|" compiles }
+    /^jobs:[[:space:]]*$/ { injobs = 1; next }
+    !injobs { next }
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); id = $1; sub(/:$/, "", id); name = id; compiles = 0; next }
+    /^    name: / { name = $0; sub(/^    name: /, "", name); next }
+    /^    uses: \.\/\.github\/workflows\/cmux-tui-build-package\.yml[[:space:]]*$/ { compiles = 2; next }
+    /^[[:space:]]*#/ { next }
+    /cargo (zig)?build/ && compiles == 0 { compiles = 1 }
+    END { flush() }
+  ' "$1"
+}
+build_callers=$(workflow_jobs "$ROOT/.github/workflows/cmux-tui-artifacts.yml" | sed -n 's/|2$//p')
+build_jobs=$(workflow_jobs "$ROOT/.github/workflows/cmux-tui-build-package.yml")
+[[ -n "$build_callers" ]] || fail "no job of cmux-tui-artifacts.yml calls cmux-tui-build-package.yml: the build row rule has no job to read"
+grep -q '|1$' <<<"$build_jobs" || fail "no job of cmux-tui-build-package.yml has a compile line: the build row rule has no job to read" "$build_jobs"
+while IFS= read -r caller; do
+  while IFS='|' read -r job compiles; do
+    if [[ "$caller / $job" =~ $build_row ]]; then is_row=1; else is_row=0; fi
+    [[ "$is_row" == "$compiles" ]] \
+      || fail "the build row rule ($build_row) and the workflow files do not agree on the job '$caller / $job' (it compiles: $compiles, the rule takes it: $is_row)"
+  done <<<"$build_jobs"
+done <<<"$build_callers"
+tree_run_case() { # <name> <wait|request> <run status> <job>... -> the case's first failed assert, if any
+  local name="$1" want="$2" why=""
+  printf '%s\n' completed "$3" > "$TMP/gh-run-statuses"
+  printf '%s\n' "${@:4}" > "$TMP/gh-run-jobs"
   request --tree-ready "$pending"
-  [[ "$status" == 0 ]] && ! dispatched "$pending" \
-    || fail "a tip whose artifacts run is only $waits builds no tree yet and must wait:" "$out" "$(cat "$TMP/gh.log")"
-  grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why ($waits):" "$out"
-  ! backfilled || fail "a tip that has an artifacts run must get no second one ($waits):" "$(cat "$TMP/gh.log")"
+  if [[ "$want" == wait ]]; then
+    if [[ "$status" != 0 ]] || dispatched "$pending"; then why="this run builds no tree yet and the tip must wait"
+    elif ! grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out"; then why="the wait must say why"
+    elif backfilled; then why="a tip that has an artifacts run must get no second one"; fi
+  else
+    if [[ "$status" != 0 ]] || ! dispatched "$pending"; then why="this run builds the tree and the tip must be requested"
+    elif ! grep -q "its cmux-tui tree is building" <<<"$out"; then why="the request must say the tree is building"; fi
+  fi
+  [[ -z "$why" ]] || printf '%s: %s:\n%s\n%s\n' "$name" "$why" "$out" "$(cat "$TMP/gh.log")" >> "$TMP/tree-run-fails"
+}
+preflight_done='cmux-tui tree preflight|completed|success'
+publisher_done='wait for same-key tree publisher|completed|success'
+for waits in queued pending waiting requested; do
+  tree_run_case "a run that is only $waits" wait "$waits" 'cmux-tui tree preflight|queued|'
 done
-printf '%s\n' completed in_progress > "$TMP/gh-run-statuses"
-request --tree-ready "$pending"
-[[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
-grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
-rm -f "$TMP/gh-run-statuses"
+tree_run_case "a queued run whose select jobs wait" wait queued "$preflight_done" "$publisher_done" \
+  'build / select binary targets|queued|' 'build-linux / select binary targets|queued|' 'cmux_next_ daemon tests|queued|'
+tree_run_case "a run in progress whose preflight runs" wait in_progress 'cmux-tui tree preflight|in_progress|'
+tree_run_case "a run in progress whose select job runs and whose build rows wait" wait in_progress "$preflight_done" "$publisher_done" \
+  'build / select binary targets|in_progress|' 'build-linux|completed|skipped' \
+  'build / build aarch64-apple-darwin|queued|' 'build / build x86_64-unknown-linux-musl|queued|'
+tree_run_case "a run in progress whose select job ended and whose build rows wait" wait in_progress "$preflight_done" "$publisher_done" \
+  'build / select binary targets|completed|success' 'build-linux / select binary targets|completed|success' \
+  'build / build aarch64-apple-darwin|queued|' 'build-linux / build x86_64-unknown-linux-musl|queued|'
+tree_run_case "one build row in progress" request in_progress "$preflight_done" "$publisher_done" \
+  'build / select binary targets|completed|success' \
+  'build / build aarch64-apple-darwin|in_progress|' 'build / build x86_64-unknown-linux-musl|queued|'
+tree_run_case "a build row ended green, the others queued" request queued "$preflight_done" "$publisher_done" \
+  'build-linux / select binary targets|completed|success' \
+  'build-linux / build aarch64-unknown-linux-musl|completed|success' 'build-linux / build x86_64-unknown-linux-musl|queued|'
+[[ ! -s "$TMP/tree-run-fails" ]] || fail "a tip is requested before its tree only when a build row of its run is in work or ended green:" "$(cat "$TMP/tree-run-fails")"
+rm -f "$TMP/gh-run-statuses" "$TMP/gh-run-jobs" "$TMP/tree-run-fails"
 # A commit behind the tip is never requested this way.
 git_q -C "$src" commit --allow-empty -m "app on top"
 branch "$(git -C "$src" rev-parse HEAD)"
