@@ -197,6 +197,12 @@ fn panes_split_plans_a_left_split() {
     assert_eq!(body, json!({"preferred": "down", "fitting": "right"}));
     let (_, body) = call_json(c"window_panes_tab_bar", &json!({"pinnedDock": true}));
     assert_eq!(body, json!({"toggle": null, "newTab": "chiefPaneHasNoTabBar"}));
+    let (_, body) =
+        call_json(c"window_panes_strip", &json!({"visibility": "whenMultiple", "shownTabs": 1}));
+    assert_eq!(body, json!({"shown": false, "shownBySetting": false}));
+    let (_, body) =
+        call_json(c"window_panes_strip", &json!({"visibility": "never", "choice": true}));
+    assert_eq!(body, json!({"shown": true, "shownBySetting": false}));
 }
 
 #[test]

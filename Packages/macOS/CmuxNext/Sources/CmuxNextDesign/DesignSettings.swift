@@ -177,6 +177,8 @@ public final class DesignSettings {
     public var verticalTabsExpandOnHover = true
     /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
     public var hideLoneChatTab = false
+    /// `tabs.stripVisibility`: when a pane shows its tab strip (`auto` by default, today's behaviour).
+    public var tabStripVisibility: TabStripVisibility = .auto
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.

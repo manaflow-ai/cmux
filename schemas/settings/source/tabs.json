@@ -911,6 +911,77 @@
           ]
         },
         {
+          "key": "tabs.stripVisibility",
+          "note": "When a pane shows its tab strip; Rust decides each pane (cmux_window_rules tabs::panes::strip). Auto is today's: every pane shows it and tabs.hideLoneChatTab is honoured. A pane's own Show Tab Bar or Hide Tab Bar wins over every value; Never keeps tabs reachable by Ctrl-Tab, Ctrl-1...9, the palette and the sidebar, as a chat-first app does.",
+          "title": {
+            "key": "settings.tabs.stripVisibility",
+            "text": "Tab Bar Visibility"
+          },
+          "help": {
+            "key": "settings.tabs.stripVisibility.help",
+            "text": "Show Tab Bar in the command palette brings one pane's tab bar back."
+          },
+          "kind": "choice",
+          "swift_owner": "TabStripVisibilitySetting",
+          "swift_enum": {
+            "name": "TabStripVisibility",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.tabStripVisibilityAuto",
+                "text": "Automatic"
+              },
+              "note": "Every pane shows its tab bar; Hide the Tab of a Chat Alone in Its Pane applies (the default)."
+            },
+            {
+              "value": "always",
+              "title": {
+                "key": "settings.choice.tabStripVisibilityAlways",
+                "text": "Always"
+              },
+              "note": "Every pane shows its tab bar, a lone chat's tab too."
+            },
+            {
+              "value": "whenMultiple",
+              "title": {
+                "key": "settings.choice.tabStripVisibilityWhenMultiple",
+                "text": "With Two or More Tabs"
+              },
+              "note": "A pane with one tab, of any kind, shows no tab bar."
+            },
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.tabStripVisibilityNever",
+                "text": "Never"
+              },
+              "note": "No pane shows a tab bar, as in a chat-first app."
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "tab",
+            "tabs",
+            "bar",
+            "strip",
+            "hide",
+            "show",
+            "never",
+            "always",
+            "multiple",
+            "chat",
+            "top",
+            "row",
+            "minimal",
+            "codex",
+            "claude"
+          ]
+        },
+        {
           "key": "tabs.swapCmdTAndCmdN",
           "note": "Cmd-T opens a workspace and Cmd-N a tab.",
           "title": {

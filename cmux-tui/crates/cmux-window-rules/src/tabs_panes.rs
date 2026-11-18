@@ -236,6 +236,55 @@ pub fn tab_bar(facts: TabBarFacts) -> TabBar {
     TabBar { toggle, new_tab }
 }
 
+/// `tabs.stripVisibility` in cmux.json: when a pane shows its tab strip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StripVisibility {
+    /// Every pane shows its strip, and `tabs.hideLoneChatTab` may hide a lone chat's tab (the default).
+    #[default]
+    Auto,
+    /// Every pane shows its strip, a lone chat's tab too, whatever `tabs.hideLoneChatTab` says.
+    Always,
+    /// A pane shows its strip only while it holds two or more tabs: a lone tab of any kind draws no
+    /// row at all (`tabs.hideLoneChatTab` keeps the row and its tools, and only for a chat).
+    WhenMultiple,
+    /// No pane shows a strip, as in a chat-first app. Its tabs stay reachable by Ctrl-Tab,
+    /// Ctrl-1...9, the palette and the sidebar; Show Tab Bar brings one pane's strip back.
+    Never,
+}
+
+/// The facts of a pane's strip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StripFacts {
+    /// `tabs.stripVisibility`.
+    pub visibility: StripVisibility,
+    /// The person's own Hide Tab Bar (false) or Show Tab Bar (true) for this pane; None follows
+    /// the setting. Their choice wins over every setting value.
+    pub choice: Option<bool>,
+    /// The tabs the pane shows.
+    pub shown_tabs: usize,
+}
+
+/// What a pane's strip shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Strip {
+    /// The pane draws its strip (its tab row).
+    pub shown: bool,
+    /// The setting alone, without the person's choice: what a Show/Hide Tab Bar choice differs from.
+    pub shown_by_setting: bool,
+}
+
+pub fn strip(facts: StripFacts) -> Strip {
+    let shown_by_setting = match facts.visibility {
+        StripVisibility::Auto | StripVisibility::Always => true,
+        StripVisibility::WhenMultiple => facts.shown_tabs > 1,
+        StripVisibility::Never => false,
+    };
+    Strip { shown: facts.choice.unwrap_or(shown_by_setting), shown_by_setting }
+}
+
 /// The terminal actions that run one Ghostty binding action on the live surface.
 pub const TERMINAL_BINDINGS: [(&str, &str); 9] = [
     ("resetTerminal", "reset"),

@@ -263,6 +263,21 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["tab", "tabs", "bar", "strip", "hide", "lone", "single", "one", "chat", "top", "row", "minimal"]
             ),
             SettingDescriptor(
+                TabStripVisibilitySetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.stripVisibility", "Tab Bar Visibility"),
+                help: SettingsText.keyed("settings.tabs.stripVisibility.help", "Show Tab Bar in the command palette brings one pane's tab bar back."),
+                kind: .choice([
+                    SettingChoice(TabStripVisibility.auto.rawValue, SettingsText.keyed("settings.choice.tabStripVisibilityAuto", "Automatic")),
+                    SettingChoice(TabStripVisibility.always.rawValue, SettingsText.keyed("settings.choice.tabStripVisibilityAlways", "Always")),
+                    SettingChoice(TabStripVisibility.whenMultiple.rawValue, SettingsText.keyed("settings.choice.tabStripVisibilityWhenMultiple", "With Two or More Tabs")),
+                    SettingChoice(TabStripVisibility.never.rawValue, SettingsText.keyed("settings.choice.tabStripVisibilityNever", "Never")),
+                ]),
+                default: .string(TabStripVisibilitySetting.fallback.rawValue),
+                keywords: ["tab", "tabs", "bar", "strip", "hide", "show", "never", "always", "multiple", "chat", "top", "row", "minimal", "codex", "claude"]
+            ),
+            SettingDescriptor(
                 SwapCmdTAndCmdNSetting.configPath,
                 section: .general,
                 group: group,

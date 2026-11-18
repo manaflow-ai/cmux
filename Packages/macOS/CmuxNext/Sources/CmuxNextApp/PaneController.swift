@@ -266,11 +266,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
             || (LayoutTunables.dockedWorkspaces.value && ownWorkspace.map { state?.docks.hidesTabBar(of: $0.id, shownTabs: tabs.count + local.count) ?? false } ?? false)
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
-                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
+                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`); `tabs.stripVisibility` in `hidesTabBar`.
+                         hidesStrip: !strip(shownTabs: tabs.count + local.count).shown || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          zoomed: ownWorkspace?.screens.contains { $0.zoomedPane == pane.handle } ?? false,
-                         verticalTabs: .shown(in: ownWorkspace?.id, unless: hidesTabBar || ownWorkspace?.app != nil || homeChief || pinned, store: services.workspaceVerticalTabs),
+                         verticalTabs: .shown(in: ownWorkspace?.id, unless: services.paneTabBars.choice(for: paneKey) == false || ownWorkspace?.app != nil || homeChief || pinned, store: services.workspaceVerticalTabs),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
                          // LinkOpener for links), so its strip has no +.

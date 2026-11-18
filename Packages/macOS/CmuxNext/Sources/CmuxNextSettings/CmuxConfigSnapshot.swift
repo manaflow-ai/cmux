@@ -251,6 +251,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverDefault
     /// `tabs.hideLoneChatTab`; off when unset or invalid.
     public var hideLoneChatTab: Bool = LoneChatTabSetting.fallback
+    /// `tabs.stripVisibility`; auto when unset or invalid.
+    public var tabStripVisibility: TabStripVisibility = TabStripVisibilitySetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `tabs.commandDigits`; workspaces when unset or invalid.
@@ -468,6 +470,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
+        snapshot.take(TabStripVisibilitySetting.parse(root), \.tabStripVisibility)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }

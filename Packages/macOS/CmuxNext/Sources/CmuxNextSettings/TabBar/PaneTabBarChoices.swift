@@ -2,10 +2,11 @@ public import Foundation
 import Observation
 
 /// Whether a pane shows its horizontal tab bar (cx-soza). Every pane, agent
-/// chats and the chat dock included, shows it: the only way to hide one is
+/// chats and the chat dock included, shows it by default: one pane hides it by
 /// Hide Tab Bar in the command palette or the pane's menu (Lawrence
-/// 2026-10-15, cx-v4dmy, cx-5425v). The retired `tabs.tabBar.<kind>`
-/// settings are no longer read.
+/// 2026-10-15, cx-v4dmy, cx-5425v), and `tabs.stripVisibility` can hide it
+/// for every pane, where Show Tab Bar saves `true` for one pane. The retired
+/// `tabs.tabBar.<kind>` settings are no longer read.
 @MainActor @Observable
 public final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.
@@ -24,8 +25,8 @@ public final class PaneTabBarChoices {
         }
     }
 
-    /// Pane `paneKey`'s own choice: hidden (false), or none (shown). An older
-    /// saved `true` reads as shown too.
+    /// Pane `paneKey`'s own choice: hidden (false), shown (true, over a
+    /// `tabs.stripVisibility` that hides it), or none (the setting decides).
     public func choice(for paneKey: String) -> Bool? { shown[paneKey] }
 
     public func set(_ value: Bool?, for paneKey: String) {

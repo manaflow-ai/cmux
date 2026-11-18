@@ -1,6 +1,6 @@
 use super::panes::{
-    self, AutoFacts, Direction, SplitDo, SplitFacts, SplitFolders, TabBarFacts, TabBarRefusal,
-    ToolSplit,
+    self, AutoFacts, Direction, SplitDo, SplitFacts, SplitFolders, StripFacts, StripVisibility,
+    TabBarFacts, TabBarRefusal, ToolSplit,
 };
 use super::*;
 
@@ -499,6 +499,39 @@ fn tab_bar_refusals() {
     assert_eq!(home.toggle, Some(TabBarRefusal::ChiefPaneHasNoTabBar));
     let plain = panes::tab_bar(TabBarFacts::default());
     assert_eq!((plain.toggle, plain.new_tab), (None, None));
+}
+
+#[test]
+fn strip_visibility_decides_each_pane_and_the_person_choice_wins() {
+    let shown = |visibility, choice, shown_tabs| {
+        panes::strip(StripFacts { visibility, choice, shown_tabs }).shown
+    };
+    let every = [
+        StripVisibility::Auto,
+        StripVisibility::Always,
+        StripVisibility::WhenMultiple,
+        StripVisibility::Never,
+    ];
+    for tabs in [0, 1, 2, 5] {
+        assert!(shown(StripVisibility::Auto, None, tabs), "auto shows at {tabs} tabs");
+        assert!(shown(StripVisibility::Always, None, tabs), "always shows at {tabs} tabs");
+        assert!(!shown(StripVisibility::Never, None, tabs), "never hides at {tabs} tabs");
+        assert_eq!(shown(StripVisibility::WhenMultiple, None, tabs), tabs > 1);
+        // Hide Tab Bar and Show Tab Bar win over every value.
+        for visibility in every {
+            assert!(!shown(visibility, Some(false), tabs));
+            assert!(shown(visibility, Some(true), tabs));
+        }
+    }
+    let shown_again = panes::strip(StripFacts {
+        visibility: StripVisibility::Never,
+        choice: Some(true),
+        shown_tabs: 1,
+    });
+    assert!(shown_again.shown && !shown_again.shown_by_setting);
+    // Unset is today's behaviour: every pane shows its strip.
+    let unset = panes::strip(StripFacts::default());
+    assert!(unset.shown && unset.shown_by_setting);
 }
 
 #[test]

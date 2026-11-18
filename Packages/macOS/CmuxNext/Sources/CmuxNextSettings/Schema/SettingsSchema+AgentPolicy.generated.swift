@@ -56,6 +56,8 @@ extension SettingsSchema {
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
         "tabs.hideLoneChatTab",
+        // When panes show their tab bar (looks only; tabs stay reachable from the keyboard, palette and sidebar)
+        "tabs.stripVisibility",
         "tabs.swapCmdTAndCmdN", "tabs.commandDigits", "palette.scopes.tabs.prefix", "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix", "palette.scopes.settings.prefix", "palette.scopes.scopes.prefix",
         "tasks.layout", "layout.defaultColumnWidth", "layout.centerFocusedColumn", "layout.stripScrollbar",
