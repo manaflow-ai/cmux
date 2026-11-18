@@ -727,7 +727,7 @@ class Variables:
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
-         api: Any = None, switch: Any = None, now: dt.datetime | None = None) -> int:
+         api: Any = None, switch: Any = None, now: dt.datetime | None = None, fallback: Any = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="validate the live RUNNER_POOLS and exit")
@@ -768,7 +768,23 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
-            print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            fallback_token = (env.get("GH_FALLBACK_TOKEN") or "").strip()
+            if fallback is None and fallback_token and fallback_token != (env.get("GH_TOKEN") or "").strip() \
+                    and repo:
+                fallback = pr_runner_pool.GitHub(fallback_token, repo)
+            if fallback is None:
+                print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
+            else:
+                # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
+                # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
+                # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
+                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                try:
+                    snapshot = fallback.snapshot(now=now)
+                    print(f"::notice title=Runner pools::janitor snapshot read with the fallback token ({error})")
+                except Exception as second:  # noqa: BLE001 - as above
+                    print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
+                          "judging on the probe alone")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
