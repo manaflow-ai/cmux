@@ -775,16 +775,17 @@ fn headroom_needs_ram_and_load_read() {
     }
 }
 
-/// A host whose remote chain refused a start not long ago (`place_demoting`) goes after every
-/// host with no record, an unread one included, but is never taken out: it is still the pick
-/// when no other host has room, and with nothing else it is the pick as `place` would make it,
-/// so a record alone never makes "no host has room".
+/// A host whose remote chain refused a start not long ago (`place_demoting`) goes after the
+/// hosts that stand the same against their lane cap and room, and is never taken out: a host
+/// under its cap with the record still goes ahead of one at its cap and of an unread one, and
+/// with nothing else it is the pick `place` would make, so a record alone never makes "no host
+/// has room".
 #[test]
-fn a_demoted_host_goes_last_but_is_still_picked_when_nothing_else_qualifies() {
+fn a_refusal_record_ranks_after_the_lane_cap_and_room_and_before_the_tier() {
     let reg = registry();
     let line = || vec![("big".to_owned(), "its remote chain refused a start at T".to_owned())];
     let roomy = || c("big", health(60.0, 32, 2.0, 400.0, 0));
-    // Ahead of it: a host with less room, and an unread one.
+    // Both under the cap, both with room: the one without a record, though it has less room.
     let v = place_demoting(
         &[roomy(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
         &line(),
@@ -794,22 +795,28 @@ fn a_demoted_host_goes_last_but_is_still_picked_when_nothing_else_qualifies() {
     assert_eq!(v["pick"], "small", "{v:#}");
     assert_eq!(host(&v, "big")["demoted"], "its remote chain refused a start at T", "{v:#}");
     assert_eq!(host(&v, "big")["ok"], true, "demoted, not refused: {v:#}");
-    let v = place_demoting(&[roomy(), c("small", Value::Null)], &line(), Some(&reg), Work::Agent);
-    assert_eq!(v["pick"], "small", "{v:#}");
-    // The other host has no room: the demoted one is picked, not "overloaded", and says why.
+    // The other is at its lane cap, or has no reading, or has no room: the recorded one is
+    // picked, not "overloaded", and says why.
+    for small in [health(16.0, 8, 0.2, 200.0, 12), Value::Null, health(2.0, 8, 0.2, 200.0, 0)] {
+        let v = place_demoting(&[roomy(), c("small", small)], &line(), Some(&reg), Work::Agent);
+        assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(false)), "{v:#}");
+        assert!(v["why"].as_str().unwrap().contains("picked although its remote chain"), "{v:#}");
+    }
+    // Ahead of the tier: with both in the same cap state, the record outranks a better tier.
+    let mut tiered = reg.clone();
+    tiered["lane_place"] = json!({"placement_preference": ["big", "small"]});
     let v = place_demoting(
-        &[roomy(), c("small", health(2.0, 8, 0.2, 200.0, 0))],
+        &[roomy(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
         &line(),
-        Some(&reg),
+        Some(&tiered),
         Work::Agent,
     );
-    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(false)), "{v:#}");
-    assert!(v["why"].as_str().unwrap().contains("no other host qualifies"), "{v:#}");
+    assert_eq!(v["pick"], "small", "{v:#}");
     // Alone, the verdict is the one `place` gives.
     let alone = place_demoting(&[roomy()], &line(), Some(&reg), Work::Agent);
     assert_eq!(alone["pick"], place(&[roomy()], Some(&reg), Work::Agent)["pick"]);
     assert_eq!(alone["pick"], "big", "{alone:#}");
-    // Every host demoted and none with room: the one `place` would take, never no pick.
+    // Every host recorded and none with room: the one `place` would take, never no pick.
     let full =
         || [c("big", health(2.0, 32, 2.0, 400.0, 0)), c("small", health(1.0, 8, 0.2, 200.0, 0))];
     let both = vec![line()[0].clone(), ("small".to_owned(), "x".to_owned())];

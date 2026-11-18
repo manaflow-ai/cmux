@@ -3,9 +3,10 @@
 //! every later remote start there is refused the same way until that machine is fixed. Such a
 //! machine answers, so `peer_down` never sees it, yet an automatic pick that chose it started
 //! nothing (coordinator, 2026-11-18: automatic placement picked a host that refuses every remote
-//! start). While its record is fresh (`FRESH_MS`) the automatic pick puts it after every machine
-//! with no record (`placement::place_demoting`), listed with the reason and the time; it is
-//! still picked when none of those qualifies, so a record never makes "no machine has room". A
+//! start). While its record is fresh (`FRESH_MS`) the automatic pick ranks it after the machines with no
+//! record that stand as well against their lane cap and room (`placement::place_demoting`),
+//! listed with the reason and the time; it is never taken out, so a record never makes "no
+//! machine has room". A
 //! start there that works clears it; a start that names the machine still goes there, which is
 //! how it clears once the machine is fixed. A refusal of the start's own inputs
 //! (`START_REASON`) is never recorded: it says nothing about the machine.

@@ -351,8 +351,8 @@ mod tests {
         );
     }
 
-    /// A peer whose own remote chain refused a start goes after every other host while the
-    /// record is fresh, listed with the refusal and its time, and is still the pick when no other
+    /// A peer whose own remote chain refused a start goes after the hosts that stand as well
+    /// against their cap and room while the record is fresh, listed with the refusal and its time, and is still the pick when no other
     /// host has room; after 30 minutes, or once a start there works, it is weighed as before.
     #[test]
     fn a_peer_whose_chain_refused_a_start_is_demoted_while_the_refusal_is_fresh() {
@@ -380,7 +380,7 @@ mod tests {
         // lean with no room: roomy is still picked, and the pick says why.
         let v = weigh(at + 5 * 60_000, 1);
         assert_eq!((&v["pick"], &v["overloaded"]), (&json!("roomy"), &json!(false)), "{v:#}");
-        assert!(v["why"].as_str().unwrap().contains("no other host qualifies"), "{v:#}");
+        assert!(v["why"].as_str().unwrap().contains("picked although its remote chain"), "{v:#}");
         // Stale after 30 minutes: weighed as before, and the pick.
         assert_eq!(weigh(at + crate::start_refusals::FRESH_MS, 20)["pick"], "roomy");
         // A start that works there clears it at once.
