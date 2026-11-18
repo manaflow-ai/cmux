@@ -33,13 +33,14 @@ export function parseVisibleSlice(data: unknown, surface: string): VisibleSlice 
   return { revision, top, height };
 }
 
-/** One surface's slice, bound to the content revision drawn (for `useSyncExternalStore`). A slice applies
- * only to the revision it names: one for the drawn revision shows at once; one for a revision not drawn yet
- * (it raced the content) waits and shows only if exactly that revision is drawn next; any other is dropped.
- * Before any content is drawn (revision 0) nothing shows. A shown slice holds across later content until
- * the host's next one, as the host sends one after each layout. */
+/** One surface's slice, bound to the content revision drawn (for `useSyncExternalStore`). The drawn
+ * revision is the one the host gave the content last drawn, never counted here. A slice applies only to the
+ * revision it names: one for the drawn revision shows at once; one for a revision not drawn yet (it raced
+ * the content) waits and shows only if exactly that revision is drawn; any other is dropped, so a gap in
+ * the content's revisions never puts an old slice on newer content. Content without a revision
+ * (`setDrawn(null)`: an old host) takes no slice. A shown slice holds until the host's next one. */
 export class VisibleSliceInput {
-  private drawn = 0;
+  private drawn: number | null = null;
   private slice: VisibleSlice | null = null;
   private pending: VisibleSlice | null = null;
   private readonly listeners = new Set<() => void>();
@@ -53,10 +54,15 @@ export class VisibleSliceInput {
     };
   };
 
-  /** The content revision now drawn (it only grows). */
-  setDrawn(revision: number): void {
-    if (!(revision > this.drawn)) return;
+  /** The revision of the content now drawn, or null for content without one. */
+  setDrawn(revision: number | null): void {
     this.drawn = revision;
+    if (revision === null) {
+      // No slice applies to unrevisioned content: what was shown no longer does either.
+      this.pending = null;
+      this.publish(null);
+      return;
+    }
     const pending = this.pending;
     if (pending && pending.revision <= revision) {
       this.pending = null;
@@ -66,16 +72,16 @@ export class VisibleSliceInput {
 
   /** A parsed slice from the host. */
   show(next: VisibleSlice): void {
-    if (next.revision > this.drawn) {
+    if (this.drawn !== null && next.revision === this.drawn) this.publish(next);
+    else if (this.drawn === null || next.revision > this.drawn) {
       if (!this.pending || next.revision >= this.pending.revision) this.pending = next;
-      return;
     }
-    if (next.revision === this.drawn && this.drawn > 0) this.publish(next);
   }
 
-  private publish(next: VisibleSlice): void {
+  private publish(next: VisibleSlice | null): void {
     const last = this.slice;
-    if (last && last.revision === next.revision && last.top === next.top && last.height === next.height) return;
+    if (last === next) return;
+    if (last && next && last.revision === next.revision && last.top === next.top && last.height === next.height) return;
     this.slice = next;
     for (const listener of this.listeners) listener();
   }

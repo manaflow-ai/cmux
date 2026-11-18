@@ -8,10 +8,18 @@ export type MountContext = { session_id: string; cwd?: string; branch?: string; 
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
 export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
 /** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
- * `failed {reason}`, `disconnected {reason}`). */
+ * `failed {reason}`, `disconnected {reason}`). A batch's `revision` is the mount's scene revision: 1 for the
+ * first batch, one more for each batch the host sends the mount (a reset included), and kept across a
+ * re-subscribe (which replays from the current revision). A status carries none and moves none. */
 export type SceneEvent =
-  | { mount_id: string; ops: SceneOp[]; reset?: boolean }
+  | { mount_id: string; ops: SceneOp[]; reset?: boolean; revision?: number }
   | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+/** A batch's scene revision, strictly: a finite integer of at least 1, else null (an unrevisioned batch,
+ * from a host before revisions, which no slice applies to). */
+export function sceneRevision(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
   panel: AppPanel;
@@ -29,8 +37,6 @@ export type MountedPanel = {
 };
 type Entry = MountedPanel & {
   visibleSlice: VisibleSliceInput;
-  /** The scene revision drawn: the scene batches applied (a reset included), 1 for the first. */
-  revision: number;
   cancelled: boolean;
   failed: boolean;
   mountId?: string;
@@ -189,7 +195,6 @@ export class AppPanelsClient {
           },
           resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
           visibleSlice: new VisibleSliceInput(),
-          revision: 0,
         };
         entry = created;
         this.entries.set(id, entry);
@@ -247,7 +252,7 @@ export class AppPanelsClient {
           if ("status" in event) entry.store.setStatus(event.status, event.reason);
           else if (Array.isArray(event.ops)) {
             entry.store.apply(event.ops, event.reset === true);
-            entry.visibleSlice.setDrawn(++entry.revision);
+            entry.visibleSlice.setDrawn(sceneRevision(event.revision));
           }
         },
         { mount_id: mountId },
@@ -267,8 +272,8 @@ export class AppPanelsClient {
   }
 
   /** The host's visible slice of this mount (`VISIBLE_SLICE_OP`, the mount id as its surface), when it has
-   * the stream; without it the scene draws whole. A slice applies only to the scene revision it names: the
-   * host counts the scene batches it sent this mount (1 for the first), as `entry.revision` counts them. */
+   * the stream; without it the scene draws whole. A slice applies only to the scene revision it names, read
+   * from the batch that drew it (`SceneEvent`'s `revision`): an unrevisioned batch takes none. */
   private watchSlice(entry: Entry, mountId: string): void {
     void this.client
       ?.subscribe<unknown>(

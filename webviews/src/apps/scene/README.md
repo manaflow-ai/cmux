@@ -29,7 +29,9 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   scrolls outside the page, it draws whole up to `LAZY_STACK_WHOLE_CAP` (100) children,
   and past it windows against the host's visible slice (`cmux.page.visibleSlice` with
   the mount id as its surface, `ui/visibleSlice.ts`) once one arrives for the scene
-  revision drawn (the scene batches applied, 1 for the first). Spacers keep the scene's height, so `layout`
+  revision drawn: each scene batch carries the mount's `revision` (1 for the first, one
+  more per batch, kept across a re-subscribe), and the slice echoes the revision it was
+  measured against. A batch without one takes no slice. Spacers keep the scene's height, so `layout`
   reports the same height either way. Plain Groups and ForEaches in it window with it.
   Reorderable has the native renderer's current stack layout; list drag handling
   is not yet implemented in either renderer.

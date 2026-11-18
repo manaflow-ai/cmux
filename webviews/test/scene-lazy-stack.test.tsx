@@ -182,7 +182,7 @@ test("in a scroller the page owns, the focused child stays mounted when it scrol
 async function inPanel(store: SceneStoreType) {
   const layouts: number[] = [];
   const visibleSlice = new VisibleSliceInput();
-  // The scene drawn is revision 1 (its first batch), as the panels client counts it.
+  // The scene drawn is revision 1, as the panels client reads it from the scene batch.
   visibleSlice.setDrawn(1);
   const container = document.createElement("div");
   document.body.append(container);
