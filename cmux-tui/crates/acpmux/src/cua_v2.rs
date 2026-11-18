@@ -216,7 +216,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
             .await
             .ok()
             .and_then(Result::ok)
-            .ok_or_else(|| anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED))?;
+            .ok_or_else(|| anyhow!(crate::machine_record::CONSENT_REQUIRED))?;
             // Only the admitted driver's inventory can classify an operation.
             // Refresh when a screen-only grant needs that distinction: tool names
             // and model-supplied annotations are never an authority.
@@ -387,8 +387,8 @@ where
 
 /// A trusted inventory readOnlyHint requires screen consent; unknown and action
 /// tools require both independent grants, including their post-action captures.
-fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
-    let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
+pub(crate) fn require_tool_consent(read_only: bool, status: &Value) -> Result<()> {
+    let denied = || anyhow!(crate::machine_record::CONSENT_REQUIRED);
     let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
     let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
     let control = status["consent"]["control"].as_str().ok_or_else(denied)?;
@@ -429,8 +429,8 @@ where
         match current.request(method, name, arguments.clone()).await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
-                    return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                if e.to_string() == crate::machine_record::CONSENT_REQUIRED {
+                    return Err((-32020, crate::machine_record::CONSENT_REQUIRED.to_owned()));
                 }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {

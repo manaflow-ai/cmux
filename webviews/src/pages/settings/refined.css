@@ -58,8 +58,8 @@
   --on-accent: var(--polish-base);
   --accent-soft: var(--polish-selected);
   /* One centered reading column, as desktop settings windows lay it out (user, 2026-10-30). */
-  --column: 680px;
-  --sidebar-width: 220px;
+  --column: var(--page-size-680);
+  --sidebar-width: var(--page-size-220);
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
@@ -88,7 +88,7 @@
 /* Its thumb as wide as macOS's overlay scroller (7 px inside a 1 px inset; Lucas 2026-11-11: "still
    too skinny"); ScrollArea's own 6 px bar drew a 4 px thumb. */
 :root[data-settings-look="refined"] .settings .sidebar-scroll > .cmux-scrollbar[data-orientation="vertical"] {
-  width: 9px;
+  width: var(--page-size-9);
 }
 
 /* It comes in at once when the list scrolls and fades off slowly after it stops (Lucas 2026-11-11:
@@ -155,15 +155,20 @@
 }
 
 :root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
-:root[data-settings-look="refined"] .settings .section-icon { color: var(--polish-muted); }
+/* A held row changes its fill only (design/pressed-state.md). */
+:root[data-settings-look="refined"] .settings .section-link:not([aria-current]):active { background: var(--polish-pressed); }
+:root[data-settings-look="refined"] .settings .section-icon {
+  --settings-nav-icon: calc(16px * var(--cmux-row-icon-scale, var(--page-density, 1)));
+  color: var(--polish-muted);
+}
 :root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
-:root[data-settings-look="refined"] .settings .section-icon svg { width: var(--ds-icon-16); height: var(--ds-icon-16); }
+:root[data-settings-look="refined"] .settings .section-icon svg { width: var(--settings-nav-icon); height: var(--settings-nav-icon); }
 /* A category's SF Symbol from the host (SectionList CategoryIcon): its template PNG masks a box in
    the row's ink, centered in the same 16 px slot as the drawn icons. */
 :root[data-settings-look="refined"] .settings .section-symbol {
-  width: var(--ds-icon-16);
-  height: var(--ds-icon-16);
+  width: var(--settings-nav-icon);
+  height: var(--settings-nav-icon);
   background: currentColor;
   mask-position: center;
   mask-size: contain;
@@ -324,7 +329,7 @@
 }
 
 @media (max-width: 640px) {
-  :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
+  :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: var(--page-size-156); }
   :root[data-settings-look="refined"] .settings > .content { --content-pad-start: var(--ds-space-5); --content-pad-inline: var(--ds-space-3); --content-pad-end: var(--ds-space-6); padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings { --settings-row-inset: var(--ds-space-3); }
   :root[data-settings-look="refined"] .settings .row { padding: var(--ds-space-3); }
@@ -351,8 +356,8 @@
    Chromium's own slider does not allow: the track is a faint tint of the text with no outline, filled
    in the accent up to the knob (`--range-p`, format.ts rangeFill). */
 :root[data-settings-look="refined"] .settings input[type="range"] {
-  --range-thumb: 16px;
-  --range-track: 8px;
+  --range-thumb: var(--ds-space-4);
+  --range-track: var(--ds-space-2);
   --range-off: color-mix(in srgb, var(--polish-ink) 12%, transparent);
   --range-on: var(--accent);
   -webkit-appearance: none;

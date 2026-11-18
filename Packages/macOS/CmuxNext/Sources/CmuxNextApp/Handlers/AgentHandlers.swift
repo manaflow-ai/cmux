@@ -74,12 +74,22 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         context.services.pages.register(context.services.macScreenTabs)
-        registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
-        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
-        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
-        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
-                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
+        MacScreenActions(pages: context.services.macScreenPages, selectedTab: { context.scope().tab?.id.rawValue },
+                         providerKey: { id, machine in
+                             if let machine {
+                                 guard let daemon = context.services.machines.anyDaemon(machine: machine) else { return nil }
+                                 if context.services.pages.storeKey(of: id) != nil { return context.services.pages.storeKey(of: id, in: daemon.store) }
+                                 guard context.services.paneController(showingTab: id)?.daemon.machineID == machine else { return nil }
+                             }
+                             return context.services.pages.storeKey(of: id) ?? id
+                         }, open: { record, invocation, byPerson in
+                             let pane: PaneController?
+                             if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
+                                 pane = context.paneController(invocation)
+                             } else { pane = try context.pane(invocation) }
+                             guard let pane else { return }
+                             context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
+                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -171,9 +181,13 @@ enum AgentHandlers {
             }
         })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
-        // is push-to-talk. Outside an agent chat it stops a session still
-        // running in one.
-        registry.bind("palette.toggleDictation", invoke: { invocation in
+        // is push-to-talk. Outside an agent chat it stops a session still running in one. Offered
+        // only with a terminal or chat in front or a dictation to stop; elsewhere its key does nothing.
+        registry.bind("palette.toggleDictation", unavailable: { [weak registry] in
+            if case .terminal = context.scope().pane?.currentContent { return nil }
+            let runs = selectedChat(context) != nil || terminalDictation.isActive || registry?.action(for: "palette.toggleDictation")?.paletteState?() == true
+            return runs ? nil : MiscHandlerStrings.noAgentChat
+        }, invoke: { invocation in
             if let (pane, content) = context.visibleContent(invocation), case .terminal(let entry) = content {
                 guard let tabID = pane.stripModel.selectedID?.rawValue,
                       let tab = pane.pane.tabs.first(where: { $0.id == tabID }) else { return }
@@ -182,10 +196,7 @@ enum AgentHandlers {
                 return
             }
             if terminalDictation.stopIfActive() { return }
-            guard let view = selectedChat(context, invocation) else {
-                if AgentPaneView.stopDictation() { return }
-                return context.refuse(MiscHandlerStrings.noAgentChat)
-            }
+            guard let view = selectedChat(context, invocation) else { AgentPaneView.stopDictation(); return }
             view.toggleDictation(byPerson: invocation.isPersonsOwnRun)
         })
         // Its palette row says whether the dictation a run would end listens (read only, no refusal).
@@ -230,15 +241,15 @@ enum AgentHandlers {
         })
         // The focused chat's page takes the keyboard, then opens the model picker, file search,
         // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
-        let keyboardCommands: [(ActionID, () -> String, () -> String, (AgentPaneView) -> Void)] = [
-            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { MiscHandlerStrings.switchModelNeedsAgentChat }, { $0.showModelPicker() }),
-            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { MiscHandlerStrings.searchFilesNeedsAgentChat }, { $0.showFileSearch() }),
-            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { MiscHandlerStrings.sideQuestionNeedsAgentChat }, { $0.askSideQuestion() }),
+        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { $0.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { $0.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { $0.askSideQuestion() }),
         ]
-        for (id, needsFocus, needsChat, run) in keyboardCommands {
+        for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
-                guard let view = selectedChat(context, invocation) else { return context.refuse(needsChat()) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
                 run(view)
             })
         }
@@ -258,7 +269,7 @@ enum AgentHandlers {
                 guard invocation.allowsViewChange else {
                     return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
                 }
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.gitNeedsAgentChat) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
                 view.runGitAction(action)
             })
         }
@@ -353,14 +364,14 @@ enum AgentHandlers {
             var seed = await inherited?.peek() ?? AgentPaneSeed()
             seed.cwd = requested.cwd ?? seed.cwd
             seed.harness = requested.harness ?? seed.harness
-            seed.model = requested.model ?? seed.model
+            (seed.model, seed.draft) = (requested.model ?? seed.model, requested.draft ?? seed.draft)
             return seed
         }, placed: placed)
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
         let host = invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue
-        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue, draft: invocation["draft"]?.stringValue,
                       harness: invocation["harness"]?.stringValue,
                       model: invocation["model"]?.stringValue,
                       host: host == MachineRegistry.localID ? nil : host)

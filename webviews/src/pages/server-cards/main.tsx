@@ -2,6 +2,7 @@
 // installs the `cmuxPage` bridge; in the browser dev loop (`/server-cards/?mock#/pair-invite`) the
 // mock host stands in.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

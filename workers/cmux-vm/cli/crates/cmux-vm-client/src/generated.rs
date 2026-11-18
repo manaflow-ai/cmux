@@ -13988,6 +13988,9 @@ pub mod types {
         pub display_name: ::std::string::String,
         ///a string matching the pattern ^[a-z][a-z0-9-]*$
         pub id: VmImageId,
+        ///64 lowercase hex: a digest of every image input but cmux-tui. Two images with one value differ only in cmux-tui. Listed by GET /v1/vm-images when the operator recorded it; absent otherwise and from VM creation receipts.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub inputs_sha256: ::std::option::Option<::std::string::String>,
         ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
         pub revision: VmImageRevision,
     }

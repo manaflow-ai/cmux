@@ -1,7 +1,15 @@
-//! Session catalogs are usually identical across chats. Keep one immutable JSON tree until a
-//! chat changes its selection. The weak interner owns no catalog and has bounded bookkeeping;
-//! eviction only gives up sharing, never drops a session's data.
+//! Session catalogs are usually identical across chats. Keep one immutable copy until a chat
+//! changes it. The weak interner owns no catalog and has bounded bookkeeping; eviction only gives
+//! up sharing, never drops a session's data.
+//!
+//! Three catalogs share this way: the config options, the agent's slash commands
+//! (`SessionMeta::available_commands`) and its tool rows (`ToolInventory::rows`). The last two
+//! were a copy per chat: on Leo's Mac (2026-11-16) 418 chats' commands were 22.7 MB of JSON and
+//! only 85 distinct (4 MB), 535 chats' tool rows 3.5 MB and 112 distinct, each held as a
+//! `serde_json::Value` tree in a daemon of 952 MB. Shared, they cost what the distinct ones do,
+//! however many chats there are.
 
+use super::ToolRow;
 use crate::no_panic::LockExt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -10,14 +18,28 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
-const INTERN_SLOTS: usize = 256;
-static CATALOGS: LazyLock<Mutex<Interner>> = LazyLock::new(Mutex::default);
+/// Distinct catalogs a pool tracks: about ten times the distinct commands Leo's 544 chats hold.
+/// When full, it forgets every dead entry, then one live one (which only gives up sharing it).
+const INTERN_SLOTS: usize = 1024;
+static CATALOGS: LazyLock<Mutex<Interner<Value>>> = LazyLock::new(Mutex::default);
+static TOOL_ROWS: LazyLock<Mutex<Interner<Vec<ToolRow>>>> = LazyLock::new(Mutex::default);
 
-#[derive(Default)]
-struct Interner(HashMap<u64, Weak<Value>>);
+struct Interner<T>(HashMap<u64, Weak<T>>);
 
-impl Interner {
-    fn intern(&mut self, value: Value, hash: u64) -> Arc<Value> {
+impl<T> Default for Interner<T> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+fn hash_of<T: Hash>(value: &T) -> u64 {
+    let mut hash = DefaultHasher::new();
+    value.hash(&mut hash);
+    hash.finish()
+}
+
+impl<T: PartialEq> Interner<T> {
+    fn intern(&mut self, value: T, hash: u64) -> Arc<T> {
         if let Some(existing) = self.0.get(&hash).and_then(Weak::upgrade)
             && *existing == value
         {
@@ -43,6 +65,12 @@ impl Interner {
 pub struct SharedValue(Arc<Value>);
 
 impl SharedValue {
+    /// Whether both are the one copy.
+    #[cfg(test)]
+    pub(crate) fn shares(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     /// Detach an array only when an element actually needs an edit.
     pub(crate) fn update_matching(
         &mut self,
@@ -63,9 +91,66 @@ impl SharedValue {
 
 impl From<Value> for SharedValue {
     fn from(value: Value) -> Self {
-        let mut hash = DefaultHasher::new();
-        value.hash(&mut hash);
-        Self(CATALOGS.lock_or_recover().intern(value, hash.finish()))
+        let hash = hash_of(&value);
+        Self(CATALOGS.lock_or_recover().intern(value, hash))
+    }
+}
+
+/// A chat's tool rows: one copy for every chat whose agent reported the same rows, detached by
+/// the first edit (`DerefMut`), as [`SharedValue`] is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedRows(Arc<Vec<ToolRow>>);
+
+impl SharedRows {
+    /// Whether both are the one copy.
+    #[cfg(test)]
+    pub(crate) fn shares(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Default for SharedRows {
+    fn default() -> Self {
+        Vec::new().into()
+    }
+}
+
+impl From<Vec<ToolRow>> for SharedRows {
+    fn from(rows: Vec<ToolRow>) -> Self {
+        let hash = hash_of(&rows);
+        Self(TOOL_ROWS.lock_or_recover().intern(rows, hash))
+    }
+}
+
+impl FromIterator<ToolRow> for SharedRows {
+    fn from_iter<I: IntoIterator<Item = ToolRow>>(rows: I) -> Self {
+        rows.into_iter().collect::<Vec<_>>().into()
+    }
+}
+
+impl Deref for SharedRows {
+    type Target = Vec<ToolRow>;
+
+    fn deref(&self) -> &Vec<ToolRow> {
+        &self.0
+    }
+}
+
+impl DerefMut for SharedRows {
+    fn deref_mut(&mut self) -> &mut Vec<ToolRow> {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
+impl Serialize for SharedRows {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SharedRows {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<ToolRow>::deserialize(deserializer).map(Self::from)
     }
 }
 

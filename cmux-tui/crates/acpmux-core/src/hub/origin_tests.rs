@@ -2,6 +2,7 @@ use super::*;
 use acpmux_book::index::{ChangedRows, SortedSnapshot};
 use std::collections::BTreeSet;
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 
 fn remote(id: impl Into<String>, activity: u64) -> Summary {
@@ -139,6 +140,7 @@ fn the_257th_origin_is_refused_through_the_queue_and_direct_writer() {
         writer.process_batch();
         assert_eq!(hub.snapshot().origins().count(), 256);
         let refused = refused_origins();
+        assert_eq!(hub.origins_refused(), 0);
         if queued {
             hub.origin("overflow", OriginState::Down, 2).unwrap();
             writer.process_batch();
@@ -149,6 +151,7 @@ fn the_257th_origin_is_refused_through_the_queue_and_direct_writer() {
             ));
         }
         assert!(refused_origins() > refused);
+        assert_eq!(hub.origins_refused(), 1, "this hub counts its own refusal");
         assert_eq!(hub.snapshot().seq(), 256);
         assert!(hub.snapshot().origin("overflow").is_none());
     }
@@ -169,6 +172,7 @@ fn row_sources_are_bounded_without_charging_local_rows_an_origin_slot() {
     hub.submit_from(Source::V1, overflow).unwrap();
     writer.process_batch();
     assert!(refused_origins() > refused);
+    assert_eq!(hub.origins_refused(), 1);
     assert_eq!(hub.snapshot().len(), 257);
     assert!(hub.snapshot().get("local-row").is_some());
     assert!(hub.snapshot().get_row(&RowKey::new("overflow-origin", "overflow")).is_none());
@@ -943,12 +947,23 @@ async fn compaction_finishes_the_startup_hot_read_and_releases_waiters() {
 }
 
 #[tokio::test]
-async fn failed_hydration_does_not_release_the_remote_mark_drain() {
+async fn a_truncated_snapshot_releases_the_remote_mark_drain_only_with_a_rebuild() {
+    // A snapshot cut short under the hydrating reader is a structural boundary:
+    // since #42834 it asks for a rebuild instead of failing hydration, so the
+    // drain is released, and the next writer turn rebuilds; the rebuild epoch
+    // makes every source walk again, and the drain never keeps the cut rows.
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("index.snap");
     SortedSnapshot::write(&path, &SummaryIndex::new().apply(1, remote("live", 1))).unwrap();
     let (hub, mut writer) = Hub::open(directory.path(), 101, || 7).unwrap();
     fs::OpenOptions::new().write(true).open(path).unwrap().set_len(0).unwrap();
     writer.process_batch();
-    assert!(matches!(hub.wait_hydrated().await, Err(HubError::HydrationFailed)));
+    tokio::time::timeout(std::time::Duration::from_secs(1), hub.wait_hydrated())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hub.rebuild_count(), 0);
+    writer.process_batch();
+    assert_eq!(hub.rebuild_count(), 1);
+    assert!(hub.snapshot().get_row(&RowKey::new("peer", "live")).is_none());
 }

@@ -7,6 +7,7 @@ import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSidebar
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -71,7 +72,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl)]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
@@ -89,7 +90,6 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        guard services.settings?.snapshot.previewFeatures == true else { return }
         pendingRoute = Self.storeRoute(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
@@ -144,10 +144,9 @@ final class AppsService {
                 arguments: ["url": .string(url.absoluteString)], origin: origin, focusRequested: focus))
             guard opened else { throw .noPage }
             return nil
-        case .notDeployed:
-            throw .notDeployed
-        case .none:
-            throw .noPage
+        case .notDeployed: throw .notDeployed
+        case .none: guard let show = SidebarBridgeRules().nativePaneShowAction(appID), services.registry.perform(
+            ActionID(rawValue: show), invocation: ActionInvocation(arguments: [:], origin: origin, focusRequested: focus)) else { throw .noPage }
         }
         guard let command else { return nil }
         guard let found = app.commands.first(where: { AppCommandPalette.Entry(app: app, command: $0).matches(command) }) else {

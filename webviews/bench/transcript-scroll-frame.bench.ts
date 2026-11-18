@@ -12,41 +12,43 @@
 // establishes native 120 Hz presentation; this bench diagnoses the page's work and coverage.
 // Each line: interval, react, layout and other are p50/p95/max ms per frame.
 /// <reference types="bun" />
-import path from "node:path";
 import { webkit } from "./browsers";
-import { createServer } from "vite";
-import { warmViteServer } from "../test/support/warmDevServer";
+import {
+  benchPositionals,
+  buildLabel,
+  gotoBenchPage,
+  requireProductionReact,
+  serveBenchPage,
+} from "./support/benchPage";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { frameStats } from "../src/agent-session/acpmux/perf";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { startScrollCoverage, type ScrollCoverage } from "./scrollCoverage";
 
-const ROWS = Number(process.argv[2] ?? 3000);
-const ROUNDS = Number(process.argv[3] ?? 3);
-const HZ = Number(process.argv[4] ?? 120);
+const args = benchPositionals();
+const ROWS = Number(args[0] ?? 3000);
+const ROUNDS = Number(args[1] ?? 3);
+const HZ = Number(args[2] ?? 120);
 const COVERAGE = process.env.CMUX_SCROLL_COVERAGE === "1";
 if (!Number.isInteger(ROWS) || ROWS < 3 || !Number.isInteger(ROUNDS) || ROUNDS < 1 || !Number.isFinite(HZ) || HZ <= 0)
   throw new Error("usage: transcript-scroll-frame.bench.ts [rows>=3] [rounds>=1] [hz>0]");
-const webviews = path.resolve(import.meta.dir, "..");
 
-const vite = await createServer({
-  root: webviews,
-  configFile: path.join(webviews, "vite.config.ts"),
-  server: { port: 0, host: "127.0.0.1", strictPort: false },
-  logLevel: "error",
-});
-await vite.listen();
 const pagePath = "/test/browser/transcript-fling.html";
-await warmViteServer(vite, pagePath);
+// A build by default; `--dev` takes a dev server and labels every number `dev`
+// (bench/support/benchPage.ts).
+const served = await serveBenchPage(pagePath);
 const browser = await webkit.launch({ headless: true });
 try {
-  const { port } = vite.httpServer!.address() as { port: number };
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   await installPaintedFrames(page);
-  await page.goto(`http://127.0.0.1:${port}${pagePath}`);
+  await gotoBenchPage(page, served);
+  await requireProductionReact(page, { dev: served.dev });
   await page.waitForFunction(() => "__debug" in window);
   const seeded = await page.evaluate(`window.__debug.seedRows(${ROWS})`);
-  console.log(`transcript-scroll-frame fixture=${JSON.stringify(seeded)} nominal_hz=${HZ} coverage=${COVERAGE}`);
+  console.log(
+    `transcript-scroll-frame build=${buildLabel(served)} fixture=${JSON.stringify(seeded)} nominal_hz=${HZ}` +
+      ` coverage=${COVERAGE}`,
+  );
   await page.locator(".acpmux-scroll").hover();
 
   /// What debug.ts's flingStats and perf.ts's stats report, as far as this bench reads them.
@@ -124,7 +126,11 @@ try {
       // The page's URL for the module, which tsc cannot resolve from here: a variable, not a literal.
       const perfUrl = "/src/agent-session/acpmux/perf.ts";
       type PerfModule = typeof import("../src/agent-session/acpmux/perf");
-      const { acpmuxPerf, isBlank } = (await import(/* @vite-ignore */ perfUrl)) as PerfModule;
+      // The page hands over the pane's own measuring module (__acpmuxPerf); perfUrl is the dev
+      // server's route for it, which a build does not serve (the module is inside a chunk).
+      const { acpmuxPerf, isBlank } =
+        (window as unknown as { __acpmuxPerf?: PerfModule }).__acpmuxPerf ??
+        ((await import(/* @vite-ignore */ perfUrl)) as PerfModule);
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = scroller.scrollHeight;
       for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
@@ -218,5 +224,5 @@ try {
         });
 } finally {
   await browser.close();
-  await vite.close();
+  await served.close();
 }

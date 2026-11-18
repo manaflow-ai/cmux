@@ -19,12 +19,16 @@
 //! session runs again and registers, or the outbox's day runs out.
 //! Deliveries are kept in memory (the newest 256 answered ones too, so a resend is not delivered
 //! again). After a daemon restart, a delivered line the watch had not shown yet shows only its
-//! answer, as any other session's peer message does.
+//! answer, as any other session's peer message does. A prompt id is delivered at most once per
+//! session for good: the session's log records each delivery (`bridge_delivered`), and a resend of
+//! a recorded id the memory no longer holds (a restart, or past the kept 256) is answered as a
+//! duplicate without reaching the app. A peer's outbox resends an open delivery on every link
+//! (`open_delivery.rs`), so without this each restart put the same message in the app again.
 
 use super::{Hub, PromptOptions, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
@@ -65,6 +69,15 @@ static PENDING: LazyLock<Mutex<Deliveries>> = LazyLock::new(Default::default);
 
 fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The prompt ids each session's log records as delivered (`bridge_delivered`), by session id:
+/// read from the log once per session per daemon, then added to on each delivery.
+static DELIVERED: LazyLock<Mutex<HashMap<String, HashSet<String>>>> =
+    LazyLock::new(Default::default);
+
+fn delivered_ids() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
+    DELIVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 impl Deliveries {
@@ -238,6 +251,20 @@ impl Hub {
             if let Some(rx) = kept {
                 return Some(resent(session, &id, rx, opts).await);
             }
+            // One this daemon no longer holds (a restart, or evicted) but the log records: the
+            // app has it, so it is answered as a duplicate and never delivered again.
+            if self.delivered_before(session, &id).await {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(json!({"sessionId": session.id, "promptId": id, "duplicate": true}));
+                }
+                let mut reply = reply(&id, None, None);
+                if let Some(meta) =
+                    reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+                {
+                    meta.insert("duplicate".to_owned(), json!(true));
+                }
+                return Some(Ok(reply));
+            }
         }
         let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let acpmux_home = crate::config::home();
@@ -309,8 +336,14 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let wire =
-            with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref(), unverified);
+        let claude = matches!(target, Target::Claude { .. });
+        let wire = with_reply_hint(
+            &text,
+            reply_name(opts).as_deref(),
+            harness.as_deref(),
+            unverified,
+            claude,
+        );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -350,12 +383,50 @@ impl Hub {
             record.extend(more.clone());
         }
         self.append(session, "mux", "bridge_delivered", record);
+        if let Some(ids) = delivered_ids().get_mut(&session.id) {
+            ids.insert(prompt_id.clone());
+        }
         if let Some(f) = opts.on_accepted.take() {
             f(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
+    }
+
+    /// Whether `session`'s log records `prompt_id` as delivered. The first ask of a session reads
+    /// its log's `bridge_delivered` records (headers only, off the async threads); later ones
+    /// read the set that read made.
+    async fn delivered_before(self: &Arc<Self>, session: &Session, prompt_id: &str) -> bool {
+        if let Some(ids) = delivered_ids().get(&session.id) {
+            return ids.contains(prompt_id);
+        }
+        let hub = Arc::clone(self);
+        let id = session.id.clone();
+        let read = tokio::task::spawn_blocking(move || {
+            let mut ids = HashSet::new();
+            let scanned = hub.store.scan_heads(&id, &mut |head| {
+                if head.dir == "mux" && head.kind == "bridge_delivered" {
+                    let rec = head.record();
+                    let prompt = rec.as_ref().and_then(|r| r.msg.get("promptId")?.as_str());
+                    if let Some(prompt) = prompt {
+                        ids.insert(prompt.to_owned());
+                    }
+                }
+                true
+            });
+            scanned.ok().map(|()| ids)
+        })
+        .await
+        .ok()
+        .flatten();
+        // A log that could not be read is read again on the next ask, not taken as empty.
+        let Some(ids) = read else { return false };
+        // A delivery made while the log was read added nothing (no set yet): merge, never replace.
+        let mut all = delivered_ids();
+        let known = all.entry(session.id.clone()).or_default();
+        known.extend(ids);
+        known.contains(prompt_id)
     }
 }
 
@@ -367,28 +438,41 @@ impl Hub {
 /// The person's prompt goes as typed.
 /// A sender acpmux could not bind (`unverified`) reads as the program it claims to be, as on the
 /// ACP path (`prompt_attribution::unverified_line`).
+///
+/// Claude Code (`claude`) puts its own text around every message that reaches it this way:
+/// "Another Claude session sent a message:" before it, and after it a paragraph saying a peer is
+/// not the user and cannot grant permissions. Nothing turns those off, and its terminal shows
+/// them on every message. So a Claude Code session gets the sender and how to answer as one line
+/// and nothing after the text (Leo, 2026-11-14, ask-c810e83a38: "it sends so much s*** each
+/// time. can it not?"). The line keeps "not the person": a sender's name may be only what it
+/// claimed, and Claude Code's note calls a peer "very likely working on their behalf".
 fn with_reply_hint(
     text: &str,
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
+    claude: bool,
 ) -> String {
-    match agent.map(str::trim).filter(|a| !a.is_empty()) {
-        Some(agent) => {
-            let quoted = agent.replace('\'', "'\\''");
-            let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
-            let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
-            let line = if unverified {
-                super::prompt_attribution::unverified_line(Some(&who))
-            } else {
-                super::prompt_attribution::agent_line(&who)
-            };
-            format!(
-                "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
-            )
-        }
-        None => text.to_owned(),
+    let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        return text.to_owned();
+    };
+    let quoted = agent.replace('\'', "'\\''");
+    let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    let line = if unverified {
+        super::prompt_attribution::unverified_line(Some(&who))
+    } else {
+        super::prompt_attribution::agent_line(&who)
+    };
+    if claude {
+        let line = line.trim_end_matches(':');
+        return format!(
+            "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
+        );
     }
+    format!(
+        "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+    )
 }
 
 /// The sender's harness the daemon bound on the prompt's provenance (`fromHarness`).
@@ -476,6 +560,12 @@ fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
             "bridged": bridged.unwrap_or(json!(true)),
         }},
     })
+}
+
+/// Tests: forget what this process knows of `session_id`'s deliveries, as a restart does.
+#[cfg(test)]
+fn forget_delivered_ids(session_id: &str) {
+    delivered_ids().remove(session_id);
 }
 
 #[cfg(test)]

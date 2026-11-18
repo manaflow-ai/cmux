@@ -919,10 +919,14 @@ object{event:"pane-closed",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pan
 Payload:
 
 ```text
-object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
 ```
 
 The tab's subject id is its `surface`, matching `Tab.surface`; the protocol has no separate tab id.
+`transaction` is the `transaction` of the create request that made the tab,
+when it sent one: `new-conversation-tab` with
+`conversation-tab-transaction-v1`, and `new-tab` and
+`new-frontend-browser-tab` with `tab-create-place-v1`.
 
 ### tab-closed
 
@@ -972,6 +976,29 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 ```text
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
+
+### screen-device-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-device-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-device-identity-v1` |
+
+Payload:
+
+```text
+object{event:"screen-device-changed",screen_device_id:string|null}
+```
+
+This is the authenticated cmux Remote worker's independently generated screen
+UUID. It is delivered only to the local owner app (Unix or authenticated owner
+WebSocket); page relays, paired clients, and other remote clients do not hear
+it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.
+An opted-in subscription receives one current-value replay before live events.
+The replay and removal event use `null` when the worker is unavailable. Clients
+use the UUID as the screen-device identity and must not infer it from a machine
+id, joined id, or display name.
 
 ### selection-changed
 
@@ -1074,7 +1101,7 @@ object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pan
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `hidden_dividers` (`split-divider-visibility-v1`), `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width`, `hidden_dividers` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `hidden_dividers` (`split-divider-visibility-v1`), `columns`, `floating` (`floating-panes-v1`)). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width`, `hidden_dividers`, `columns` and `floating` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`, `float-pane`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1484,6 +1511,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### device-setup-step
+
+| Field | Value |
+| --- | --- |
+| event | `device-setup-step` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"device-setup-step",device:string,step:string,
+       state:"ok"|"changed"|"warn"|"fail"|"skip",detail:string,fix:string}
+```
+
+Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
+on the control queue of the connection that asked, before the request's reply. The fields are
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+`start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
+
+Example:
+
+```json
+{"event":"device-setup-step","device":"studio-mac","step":"app","state":"ok","detail":"NIGHTLY 2100 is current","fix":""}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |
@@ -1608,6 +1661,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
 | `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
+| `history_rows_skipped` field | additive, `attach-replay-history-window-v1` |
 
 Payload:
 
@@ -1642,7 +1696,8 @@ object{
     cursor_blink:boolean|null
   },
   pending?:Base64,
-  history_rows_omitted?:uint64
+  history_rows_omitted?:uint64,
+  history_rows_skipped?:uint64
 }
 ```
 
@@ -1680,7 +1735,11 @@ string, and a resize there drops byte attachments so they reattach.
 `replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
 `data` then holds the active area and at most that many of the newest history
 rows, and the field counts the older history rows it left out (0 when the
-whole history fit).
+whole history fit). `history_rows_skipped` is present only for a window away
+from the active area (`replay_history_start`,
+`attach-replay-history-window-v1`): `data` holds the window's rows, then the
+active area, and the field counts the history rows between them that it
+left out.
 
 Example:
 
@@ -1704,10 +1763,84 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
+Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
 Example:
 
 ```json
 {"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### agent-cli-frame
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-frame` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v1` |
+
+Payload:
+
+```text
+object{event:"agent-cli-frame",surface:Id,stream:string,frame:uint64,base:uint64|null,cols:uint16,rows:uint16,data:Base64,cursor_x:uint16,cursor_y:uint16,cursor_visible:boolean}
+```
+
+Meaning: On a hybrid attach of an agent CLI's terminal (see `attach-surface`,
+`agent-cli-hybrid-v1`), one change of its screen in place of the `output` that
+made it. `data` is a `cmux_agent_cli_render::hybrid::Delta` encoding (varints:
+`seq`, `at_ms`, zigzag `shift`, then per-row spans: set `len` cells of one
+style, or clear `len` cells back to blank). It turns the screen the viewer shows
+after frame `base` into the screen after `frame`; `base: null` means over a
+blank screen of `cols` by `rows` (a keyframe: reset the viewer's screen first).
+`shift` scrolls the shown screen before the spans apply, up when positive (the
+rows that leave the top go to the viewer's scrollback). The cursor goes to
+`cursor_x`, `cursor_y` and shows when `cursor_visible`. Colors are as the
+program wrote them (default, a 256-color index or RGB), so the viewer's theme
+resolves them as it does PTY bytes. `cmux_agent_cli_render::vt::frame_bytes`
+turns a frame into terminal bytes for a viewer that draws with its own
+terminal. A viewer keeps `stream` and the newest `frame` it applied to resume
+with `hybrid_stream` and `hybrid_frame` after a drop.
+
+Example:
+
+```json
+{"event":"agent-cli-frame","surface":1,"stream":"9b1c…","frame":12,"base":11,"cols":100,"rows":32,"data":"AQAAAQ...","cursor_x":4,"cursor_y":30,"cursor_visible":true}
+```
+
+### agent-cli-lean
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-lean` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v2` |
+
+Payload:
+
+```text
+object{event:"agent-cli-lean",surface:Id,f:Base64}
+```
+
+Meaning: An `agent-cli-frame` in the lean form, for a connection that declared
+`agent-cli-hybrid-v2` as well as `agent-cli-hybrid-v1`: the same frames, paced
+the same, with everything in `f` (`cmux_agent_cli_render::lean`). `f` starts
+with a flags varint (1 keyframe, 2 head, 4 numbered, 8 cursor, 16 cursor
+visible). A head (the connection's first frame, a keyframe, a new size) carries
+the stream id (length, UTF-8), `cols` and `rows`; a numbered frame carries
+`frame`, then `base` unless it is a keyframe; an unnumbered frame is the last
+one plus one, on top of it; a cursor frame carries `cursor_x`, `cursor_y`. Then
+zigzag `shift`, the span count and the spans: `row`, `col`, `len << 1 | set`;
+a set span names its style by index into a table the connection builds (an
+index one past its end brings `fg`, `bg`, `attrs` and adds them), then its
+cells: a printable ASCII byte, 0 for the empty half of a wide glyph, 1 for any
+other text (length, UTF-8), or 2 for a run (count, then one cell). The style
+table and the numbering start over on each connection. A viewer resumes with
+`hybrid_stream` and `hybrid_frame` as for `agent-cli-frame`.
+
+Example:
+
+```json
+{"event":"agent-cli-lean","surface":1,"f":"HAEJAwEAAQ..."}
 ```
 
 ### resized
@@ -1721,10 +1854,12 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64,history_rows_omitted?:uint64}
 ```
 
 Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, write `pending` when present (with the same capability and meaning as on `vt-state`), then continue applying later `output` chunks.
+
+A viewer that declared `attach-replay-history-window-v1` in `set-client-info` and attached with `replay_history_rows` gets a replay of the active area and at most that many of the newest history rows, not the whole history, and `history_rows_omitted` counts the older rows left out (as on `vt-state`). Other viewers get the whole history and no field.
 
 Example:
 

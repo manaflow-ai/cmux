@@ -266,7 +266,7 @@ class Wiring(unittest.TestCase):
         self.jobs = jobs_text()
 
     def test_two_jobs(self) -> None:
-        # feat-cmux-next counts every job a pull request can start (ci/steps.toml [budget]).
+        # Two jobs only: every job a pull request starts costs a runner.
         self.assertEqual(set(self.jobs), {"billing", "ios-billing"})
 
     def test_route_outputs_match_the_script(self) -> None:

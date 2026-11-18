@@ -165,12 +165,13 @@ nonisolated extension ColumnScrollState {
                                    relativeOffset: spring.target - new.columns[previousIndex].frame.minX)
         }
 
-        // A removed column cannot leave the camera past the new strip. The view carries the
-        // panes horizontally from where they showed; row cameras keep their vertical spring.
+        // A removed column, or a removed row of a row column, cannot leave the camera past the new strip. The
+        // removal is one commit: the frame that shows it shows the strip that stays up to its end, never that end
+        // with the window's ground beside it where the removed one was, on a camera that springs back.
         // Only a velocity out of the strip from where the camera now rests stops: one back into it
         // (a center or fling that was already coming back) goes on, so the close takes the camera at
         // the speed it shows. A strip that now fits has no inside to go back to: it stops at 0.
-        if new.axis == .horizontal, !removed.isEmpty {
+        if !removed.isEmpty {
             let clamped = new.clamp(spring.value)
             if clamped != spring.value,
                (clamped >= new.maxOffset && spring.velocity > 0) || (clamped <= 0 && spring.velocity < 0) {

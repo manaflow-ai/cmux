@@ -20,7 +20,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.enabled.help",
-            "text": "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+            "text": "Frees the memory of unused workspaces. Terminals and agents keep running."
           },
           "kind": "toggle",
           "default": true,
@@ -47,7 +47,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.idleMinutes.help",
-            "text": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+            "text": "Minutes a workspace goes unopened and unchanged before it hibernates."
           },
           "kind": "number",
           "range": {
@@ -75,7 +75,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.hiddenSpaceMinutes.help",
-            "text": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+            "text": "Idle minutes before the workspaces of a space no window shows hibernate."
           },
           "kind": "number",
           "range": {
@@ -106,7 +106,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.freeingEnabled.help",
-            "text": "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."
+            "text": "Ends idle shells of long-unused workspaces; they restart in the same folder."
           },
           "kind": "toggle",
           "default": false,
@@ -133,7 +133,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.freeingIdleMinutes.help",
-            "text": "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+            "text": "Minutes before a hibernated workspace's idle shells end (1440 is a day)."
           },
           "kind": "number",
           "range": {
@@ -162,7 +162,7 @@
           },
           "help": {
             "key": "settings.workspaceHibernation.freeingAgents.help",
-            "text": "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."
+            "text": "Also ends idle Claude Code and Codex sessions; opening the tab resumes them."
           },
           "kind": "toggle",
           "default": true,
@@ -217,64 +217,6 @@
             "dev server",
             "relaunch",
             "idle"
-          ]
-        },
-        {
-          "key": "agents.hiddenChats.discard",
-          "name": "hiddenChatDiscard",
-          "note": "Off by default (Leo, 2026-11-07: \"if it really isn't being used after a while, can't things be more aggressive?\"). On: a hidden agent chat's page is let go after hiddenChatDiscardAfterMinutes without browser.hibernation, least recently seen first; memory pressure shortens the wait (warning 5 minutes, critical 10 seconds). Chats whose turn runs or waits on the person, that hold a typed draft, or that are pinned stay. Browser tabs never follow it (HiddenChatPages in CmuxNextHibernation).",
-          "title": {
-            "key": "settings.workspaceHibernation.hiddenChatDiscard",
-            "text": "Release Hidden Agent Chats"
-          },
-          "help": {
-            "key": "settings.workspaceHibernation.hiddenChatDiscard.help",
-            "text": "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "agent",
-            "chat",
-            "chats",
-            "release",
-            "discard",
-            "hidden",
-            "memory",
-            "ram",
-            "idle",
-            "saver"
-          ]
-        },
-        {
-          "key": "agents.hiddenChats.discardAfterMinutes",
-          "name": "hiddenChatDiscardAfterMinutes",
-          "note": "Minutes a chat stays hidden before Release Hidden Agent Chats lets its page go. 15 by default. Memory pressure shortens it (warning at most 5 minutes, critical 10 seconds).",
-          "title": {
-            "key": "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes",
-            "text": "Release Hidden Chats After"
-          },
-          "help": {
-            "key": "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help",
-            "text": "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."
-          },
-          "kind": "number",
-          "range": {
-            "min": 1,
-            "max": 1440,
-            "step": 1,
-            "unit": "minutes"
-          },
-          "default": 15,
-          "keywords": [
-            "agent",
-            "chat",
-            "release",
-            "discard",
-            "hidden",
-            "minutes",
-            "timeout",
-            "memory"
           ]
         }
       ]

@@ -46,6 +46,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
@@ -59,6 +60,7 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             pass
 
 ROOT = Path(__file__).resolve().parents[2]
+RUNNER_ROOT = ROOT  # this runner's own checkout; ROOT moves to --root's
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 GUARD_JOBS = (
     "workflow-guard-submodule-forward-only",
@@ -364,6 +366,7 @@ def run_steps(
     base_env: dict[str, str],
     base_sha: str,
     keep_going: bool,
+    on_result: Callable[[StepResult], None] | None = None,
 ) -> list[StepResult]:
     """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...)."""
     results: list[StepResult] = []
@@ -390,7 +393,10 @@ def run_steps(
             env["PACKAGE_RESOLVED_POLICY_BASE_REF"] = base_sha
         for step in steps:
             if skipped_here(step):
-                results.append(StepResult(unit, step, None, 0.0, ""))
+                result = StepResult(unit, step, None, 0.0, "")
+                results.append(result)
+                if on_result is not None:
+                    on_result(result)
                 continue
             started = time.monotonic()
             step_env = dict(env)
@@ -403,15 +409,21 @@ def run_steps(
             if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
                 if not (ROOT / PORTABLE_SUBSTITUTES[step.name]).exists():
                     # An older checkout (--root) that predates the substitute.
-                    results.append(StepResult(unit, step, None, 0.0, ""))
+                    result = StepResult(unit, step, None, 0.0, "")
+                    results.append(result)
+                    if on_result is not None:
+                        on_result(result)
                     continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
             check_file = temp_path / "step-checks.tsv"
             check_file.unlink(missing_ok=True)
             step_env[CHECK_RESULTS_ENV] = str(check_file)
             returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
-            results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output,
-                                      read_check_results(check_file)))
+            result = StepResult(unit, step, returncode == 0, time.monotonic() - started, output,
+                                read_check_results(check_file))
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
             if returncode != 0 and not keep_going:
                 break
     return results
@@ -610,6 +622,61 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
     Path(path).write_text(json.dumps(body, indent=2) + "\n")
 
 
+FAILURE_LINES = 2000  # the tail of a red step's output kept for guards_new_reds.py
+
+
+def failures_path(results: Path) -> Path:
+    """Where --results' red steps' output goes: beside it, `<results>.failures.json`."""
+    return results.with_name(results.name + ".failures.json")
+
+
+class IncrementalResults:
+    """Persist each completed step so an outer timeout keeps the evidence it already has."""
+
+    def __init__(self, path: Path, root: Path) -> None:
+        self.path = path
+        self.root = root
+        self._lock = threading.Lock()
+        self._outcome: dict[str, bool] = {}
+        self._failures: dict[str, list[str]] = {}
+
+    def add(self, result: StepResult) -> None:
+        with self._lock:
+            if result.ok is not None:
+                self._outcome[result.step.name] = self._outcome.get(result.step.name, True) and bool(result.ok)
+                for check, ok in result.checks.items():
+                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
+                    self._outcome[key] = self._outcome.get(key, True) and ok
+            if result.ok is False:
+                # The checkout first (--root's may sit inside the runner's, as .guard-base does), then the runner's own.
+                text = result.output.replace(str(self.root), "<root>").replace(str(RUNNER_ROOT), "<root>")
+                self._failures.setdefault(result.step.name, []).extend(text.splitlines()[-FAILURE_LINES:])
+            self._write(False)
+
+    def complete(self) -> None:
+        with self._lock:
+            self._write(True)
+
+    def _write(self, complete: bool) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.path.with_name(f".{self.path.name}.tmp")
+        body = {"_cmux_complete": complete, **self._outcome}
+        temp.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n")
+        os.replace(temp, self.path)
+        failures = failures_path(self.path)
+        failure_temp = failures.with_name(f".{failures.name}.tmp")
+        failure_temp.write_text(json.dumps(self._failures, indent=1, sort_keys=True) + "\n")
+        os.replace(failure_temp, failures)
+
+
+def write_step_results(path: Path, results: list[StepResult], root: Path) -> None:
+    """Write --results and its failure sidecar from a completed result list."""
+    writer = IncrementalResults(path, root)
+    for result in results:
+        writer.add(result)
+    writer.complete()
+
+
 def main(argv: list[str]) -> int:
     global ROOT, WORKFLOW
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -631,8 +698,7 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--skip-group", action="append", default=[], metavar="GROUP",
-        help="leave out this group or job even when --feat-routes picks it (a feat-cmux-next push runs "
-             "release-notary in nightly-guards, judged at its tip)",
+        help="leave out this group or job even when --feat-routes picks it",
     )
     args = parser.parse_args(argv)
     if args.root:
@@ -720,10 +786,12 @@ def main(argv: list[str]) -> int:
     batches = [[task] for task in tasks if needs_clean_tree(task[1])]
     batches.append([task for task in tasks if not needs_clean_tree(task[1])])
     results: list[StepResult] = []
+    writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
         for batch in batches:
-            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in batch]
+            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going,
+                                    writer.add if writer is not None else None) for unit, steps in batch]
             for future in concurrent.futures.as_completed(futures):
                 for result in future.result():
                     results.append(result)
@@ -747,14 +815,7 @@ def main(argv: list[str]) -> int:
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
     if args.results:
-        outcome: dict[str, bool] = {}
-        for result in results:
-            if result.ok is not None:
-                outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
-                for check, ok in result.checks.items():
-                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
-                    outcome[key] = outcome.get(key, True) and ok
-        Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
+        write_step_results(Path(args.results), results, ROOT)
     safe_print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
     if args.json_path:
         write_results(args.json_path, head_sha, base_sha, units, results, seconds)

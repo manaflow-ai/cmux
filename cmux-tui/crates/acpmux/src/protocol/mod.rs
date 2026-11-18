@@ -188,6 +188,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.changed", Notification),
         // First-request transport upgrade, answered before framed v2 traffic.
         untyped(method::MUX_V2, Request),
+        // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
+        untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
@@ -215,6 +217,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -300,6 +303,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_KEEP, Request),
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
+        keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
         keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
         keyed::<params::SideParams>(method::MUX_SIDE, Request),
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
@@ -381,6 +385,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
+        untyped(method::MUX_COMPUTER_USE_ENDPOINT, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
         // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
@@ -468,6 +473,17 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ACCOUNTS, Request),
         untyped(method::MUX_ACCOUNT_SET, Request),
         untyped(method::MUX_ACCOUNT_USAGE, Request),
+        untyped(method::MUX_CONNECTIONS, Request),
+        untyped(method::MUX_CONNECTIONS_ORDER_SET, Request),
+        untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),
+        untyped(method::MUX_CONNECTIONS_REMOVE, Request),
+        untyped(method::MUX_CONNECTIONS_KEY_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_BEGIN, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
+        untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
@@ -499,6 +515,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_SET, Request),
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
+        untyped(method::MUX_MACHINE_ROUTES, Request),
+        untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
+        untyped(method::MUX_SHARE_HOST_STATUS, Request),
+        untyped(method::MUX_MACHINE_ENROLL, Request),
+        untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
+        untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),
@@ -515,6 +537,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
+        untyped(method::MUX_CONNECTIONS_CHANGED, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
@@ -588,5 +611,24 @@ fn canonical(value: &Value) -> Value {
         }
         Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
         other => other.clone(),
+    }
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
     }
 }

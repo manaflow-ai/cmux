@@ -25,6 +25,7 @@ import {
   MINIMUM_TEXT_CONTRAST,
   parseHex,
   readable,
+  wallpaperTintOpacity,
   withAlpha,
   type ThemeInput,
   type ThemeTokens,
@@ -91,6 +92,12 @@ export function webThemePayload(
     variables: {
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
+      // WebTheme's window tint: over a picture the theme's wallpaper tint (frame/background.ts paints it).
+      "--cmux-window-tint": css(
+        seeThrough
+          ? withAlpha(tokens.windowBackground, wallpaperTintOpacity(tokens))
+          : withAlpha(tokens.windowBackground, 1),
+      ),
       "--cmux-surface-solid": css(page),
       // Reading pages (the Markdown viewer): clear over a picture, else opaque (WebTheme's rule).
       "--cmux-reading-background": css(seeThrough ? withAlpha(page, 0) : page),

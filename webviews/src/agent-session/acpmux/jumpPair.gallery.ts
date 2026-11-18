@@ -16,6 +16,7 @@ import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpm
 import { SINCE_DIVIDER } from "./model";
 import { jumpPairLook, type JumpPairLook } from "./jumpPair.experiment";
 import { jumpUpButton } from "./jumpUp.experiment";
+import { JUMP_LATEST } from "./transcriptSelectors";
 
 const MARK = "gallery-jump-pair:41";
 
@@ -56,7 +57,7 @@ const snapshot = chat(
 const scroller = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
 
 const shown = (ctx: PlayContext, selector: string) => ctx.document.querySelector(`${selector}[data-shown]`) !== null;
-const LATEST = ".acpmux-jump-latest:not(.acpmux-jump-up)";
+const LATEST = JUMP_LATEST;
 const UP = ".acpmux-jump-up";
 
 /// Above the latest message, with prose under the button: Jump to latest shows, and Jump up waits.

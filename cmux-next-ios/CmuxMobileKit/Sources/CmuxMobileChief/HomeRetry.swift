@@ -41,8 +41,9 @@ final class MacConversationLoader {
     static var staleTitle: String { String(localized: "Not connected to your Mac") }
     /// The bar's line under it: what is shown and what happens to a send.
     static var staleReason: String {
-        String(localized: "Showing the last messages. What you send waits until it reconnects.")
+        String(localized: "What you send waits until it reconnects.")
     }
+
 
     func retry(macID: String?, reconnect: ((String) async -> Void)?, refresh: (@MainActor () async -> Void)? = nil) async {
         if let macID { await reconnect?(macID) }
@@ -53,8 +54,11 @@ final class MacConversationLoader {
     }
 
     /// Loads the route's session. The session shown keeps showing while it loads;
-    /// on a failure it stays, marked stale, with `tryAgain` on its bar.
+    /// on a failure it stays, marked stale, with `tryAgain` on its bar. A first open that fails
+    /// shows `fallback` the same way (what this phone kept, or an empty conversation), never a
+    /// full-screen error over the title and the composer (the user, 2026-11-13).
     func load(_ sessionForRoute: @MainActor () async throws -> ChiefSession,
+              fallback: ChiefSession? = nil,
               tryAgain: (@MainActor () -> Void)? = nil) async {
         generation += 1
         let mine = generation
@@ -64,9 +68,6 @@ final class MacConversationLoader {
             let loaded = try await sessionForRoute()
             guard mine == generation, !Task.isCancelled else { return }
             if let previous, previous !== loaded {
-                // What was written while the link was down goes to the new session.
-                for message in previous.outbox { loaded.send(message, asksForAlerts: false) }
-                previous.discardOutbox()
                 Self.clearStale(previous)
             }
             Self.clearStale(loaded)
@@ -74,8 +75,9 @@ final class MacConversationLoader {
             isStale = false
         } catch {
             guard mine == generation, !Task.isCancelled else { return }
-            if let previous {
-                Self.markStale(previous, tryAgain: tryAgain)
+            if let shown = previous ?? fallback {
+                Self.markStale(shown, tryAgain: tryAgain)
+                session = shown
                 isStale = true
             } else {
                 failed = true
@@ -87,6 +89,7 @@ final class MacConversationLoader {
     static func markStale(_ session: ChiefSession, tryAgain: (@MainActor () -> Void)?) {
         session.unavailableTitle = staleTitle
         session.reconnect = tryAgain
+        // One line whether or not kept messages are in yet (they can still be loading off the main thread).
         session.status = staleReason
     }
 

@@ -42,7 +42,7 @@ extension AppControl {
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
         ])
-        registerRunMethods(services)
+        registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
@@ -137,7 +137,6 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }

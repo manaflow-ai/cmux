@@ -284,6 +284,10 @@ pub enum SignalingError {
 /// whole timeout.
 pub const KEEPALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 pub const KEEPALIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+/// A socket that heard nothing for this long missed the pong to its last keepalive: one
+/// [`KEEPALIVE_INTERVAL`] plus room for a slow network's round trip. A live socket always hears
+/// within it; one that did not was half open through a suspension or a sleep, or its path died.
+pub const FRESH_WITHIN: std::time::Duration = std::time::Duration::from_secs(18);
 
 /// The application ping sent beside each WebSocket ping (PROTOCOL.md "Signaling WebSocket"). The
 /// service answers it with `pong` without waking the device's hub, and keeps its time: a Mac that
@@ -300,11 +304,30 @@ pub(crate) fn keepalive_signals() -> [Signal; 2] {
     [Signal::Ping, Signal::Text(APP_PING.to_owned())]
 }
 
+/// The keepalive tick after `now` (a tick, or the socket's opening): one
+/// interval later, or with Align Keepalives on the next 10 s beat
+/// ([`crate::keepalive`]). The setting is read at every tick, so
+/// a socket kept warm across dials follows the setting from its next tick.
+/// Aligned, the socket pings every 10 s beat (15 s unaligned): never less
+/// often, so [`KEEPALIVE_TIMEOUT`] still sees at least as many pongs.
+pub(crate) fn next_keepalive(now: tokio::time::Instant) -> tokio::time::Instant {
+    if crate::keepalive::aligned() {
+        crate::keepalive::next_beat(now, crate::keepalive::BEAT)
+    } else {
+        now + KEEPALIVE_INTERVAL
+    }
+}
+
 struct Shared {
     device_id: String,
     /// Counts inbound frames (any kind); `probe` waits for it to move.
     inbound: tokio::sync::watch::Sender<u64>,
     opened: std::time::Instant,
+    /// The last inbound frame, on both clocks: the monotonic one stops while the phone sleeps,
+    /// the wall clock does not ([`SignalingClient::quiet_for`]).
+    last_inbound: Mutex<(std::time::Instant, std::time::SystemTime)>,
+    /// The WebSocket ping awaiting its pong, and the last pong's round trip ([`SignalingClient::rtt`]).
+    ping: Mutex<(Option<std::time::Instant>, Option<std::time::Duration>)>,
     out: Arc<SendQueue>,
     sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SessionEvent>>>,
     events: broadcast::Sender<SignalingEvent>,
@@ -395,6 +418,8 @@ impl SignalingClient {
             device_id: device_id.to_owned(),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
+            last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
+            ping: Mutex::new((None, None)),
             out: Arc::clone(&out),
             sessions: Mutex::new(HashMap::new()),
             events: broadcast::channel(256).0,
@@ -407,22 +432,26 @@ impl SignalingClient {
         let reader_shared = Arc::clone(&shared);
         tokio::spawn(async move {
             let shared = reader_shared;
-            let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
-            keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            keepalive.tick().await;
+            let mut keepalive = next_keepalive(tokio::time::Instant::now());
             let mut last_inbound = tokio::time::Instant::now();
             let reason = loop {
                 let next = tokio::select! {
                     next = source.next() => next,
-                    _ = keepalive.tick() => {
+                    () = tokio::time::sleep_until(keepalive) => {
+                        keepalive = next_keepalive(tokio::time::Instant::now());
                         if last_inbound.elapsed() >= KEEPALIVE_TIMEOUT {
                             pinger.close();
                             break "signaling keepalive timed out".to_owned();
                         }
                         for signal in keepalive_signals() {
                             let is_app_ping = matches!(&signal, Signal::Text(text) if text == APP_PING);
-                            if pinger.push_signal(signal).is_ok() && is_app_ping {
-                                shared.pings_unanswered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let is_ping = signal == Signal::Ping;
+                            if pinger.push_signal(signal).is_ok() {
+                                if is_app_ping {
+                                    shared.pings_unanswered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                } else if is_ping {
+                                    shared.ping_sent();
+                                }
                             }
                         }
                         continue;
@@ -434,6 +463,8 @@ impl SignalingClient {
                     None => break "signaling socket closed".to_owned(),
                 };
                 last_inbound = tokio::time::Instant::now();
+                *shared.last_inbound.lock().unwrap_or_else(PoisonError::into_inner) =
+                    (std::time::Instant::now(), std::time::SystemTime::now());
                 shared.inbound.send_modify(|count| *count += 1);
                 match message {
                     Message::Text(text) => shared.dispatch_text(&text, &incoming_tx),
@@ -441,6 +472,7 @@ impl SignalingClient {
                     Message::Binary(bytes) => {
                         tracing::debug!(len = bytes.len(), "ignoring a binary signaling frame");
                     }
+                    Message::Pong(_) => shared.pong_received(),
                     Message::Close(frame) => {
                         break format!(
                             "signaling closed by server{}",
@@ -466,6 +498,11 @@ impl SignalingClient {
             }
             let _ = shared.events.send(SignalingEvent::Disconnected(reason));
         });
+        // One ping at open: its pong gives the socket a round trip ([`Self::rtt`]) before the
+        // first keepalive, which a network change in the next 15 s waits on.
+        if shared.out.push_signal(Signal::Ping).is_ok() {
+            shared.ping_sent();
+        }
         Ok(Self {
             shared,
             incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)),
@@ -487,6 +524,24 @@ impl SignalingClient {
         self.shared.opened
     }
 
+    /// How long since the socket last heard from the service: the longer of the monotonic and
+    /// the wall clock's count, so a phone that slept (monotonic time stopped) still counts it.
+    pub fn quiet_for(&self) -> std::time::Duration {
+        let (instant, wall) = *self.shared.last_inbound.lock().unwrap_or_else(PoisonError::into_inner);
+        instant.elapsed().max(wall.elapsed().unwrap_or_default())
+    }
+
+    /// The round trip of the last WebSocket ping this socket's pong answered (keepalives and
+    /// probes), if any came back yet.
+    pub fn rtt(&self) -> Option<std::time::Duration> {
+        self.shared.ping.lock().unwrap_or_else(PoisonError::into_inner).1
+    }
+
+    /// Open, and heard from within [`FRESH_WITHIN`]: worth a dial without waiting on a probe.
+    pub fn is_fresh(&self) -> bool {
+        self.closed_reason().is_none() && self.quiet_for() < FRESH_WITHIN
+    }
+
     /// Whether the socket still answers: sends a WebSocket ping and waits
     /// up to `timeout` for any inbound frame. A socket that already closed
     /// is `false` at once.
@@ -499,6 +554,7 @@ impl SignalingClient {
         if self.shared.out.push_signal(Signal::Ping).is_err() {
             return false;
         }
+        self.shared.ping_sent();
         matches!(tokio::time::timeout(timeout, inbound.changed()).await, Ok(Ok(())))
             && self.closed_reason().is_none()
     }
@@ -576,6 +632,19 @@ impl SignalingClient {
 }
 
 impl Shared {
+    /// A WebSocket ping went out; the first one since the last pong times the round trip.
+    fn ping_sent(&self) {
+        let mut ping = self.ping.lock().unwrap_or_else(PoisonError::into_inner);
+        ping.0.get_or_insert_with(std::time::Instant::now);
+    }
+
+    fn pong_received(&self) {
+        let mut ping = self.ping.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sent) = ping.0.take() {
+            ping.1 = Some(sent.elapsed());
+        }
+    }
+
     /// Whether `text` answers one of our application pings: `pong` (0.15.0 and later), or the
     /// session-less `bad_request` an older Worker sends back for it. Each answer settles one ping.
     fn answers_app_ping(&self, text: &str) -> bool {
@@ -673,6 +742,8 @@ mod tests {
             device_id: "d".into(),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
+            last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
+            ping: Mutex::new((None, None)),
             out: Arc::new(SendQueue::default()),
             sessions: Mutex::new(HashMap::new()),
             events,
@@ -697,7 +768,10 @@ mod tests {
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
         // An error that names a session is never taken for a ping's answer.
         shared.pings_unanswered.store(1, std::sync::atomic::Ordering::Relaxed);
-        shared.dispatch_text(r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#, &incoming);
+        shared.dispatch_text(
+            r#"{"type":"error","code":"bad_request","message":"x","sessionId":"s1"}"#,
+            &incoming,
+        );
         assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: Some(_), .. })));
         // A 0.15.0 Worker's pong settles a ping and is dropped.
         shared.dispatch_text("pong", &incoming);

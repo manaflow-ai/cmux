@@ -2,6 +2,7 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -30,6 +31,29 @@ public final class AcpmuxHub {
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: [WeakSource]] = [:]
+    /// Sessions this phone started (New Task, New Agent Chat), newest last: their chat's
+    /// loading state says "Starting <agent>…" until its first records, not "Loading chat…".
+    @ObservationIgnored private(set) var startedHere: [String] = []
+
+    func forgetStartedHere(_ sessionID: String) { startedHere.removeAll { $0 == sessionID } }
+
+    /// Sessions whose first message this phone is sending (New Task), until that send ends
+    /// (its turn finished, or it failed). Observed: the chat leaves its starting state with it.
+    private(set) var firstPromptsInFlight: [String] = []
+    func beginFirstPrompt(_ sessionID: String) {
+        // Bounded, the oldest going first (a send whose reply never comes).
+        firstPromptsInFlight.removeAll { $0 == sessionID }
+        firstPromptsInFlight.append(sessionID)
+        if firstPromptsInFlight.count > 32 { firstPromptsInFlight.removeFirst(firstPromptsInFlight.count - 32) }
+    }
+    func endFirstPrompt(_ sessionID: String) { firstPromptsInFlight.removeAll { $0 == sessionID } }
+
+    /// Notes a session this phone started (`session/new`); the newest 32 are kept.
+    func noteStartedHere(_ sessionID: String) {
+        startedHere.removeAll { $0 == sessionID }
+        startedHere.append(sessionID)
+        if startedHere.count > 32 { startedHere.removeFirst(startedHere.count - 32) }
+    }
     /// The read of the list's later pages on the current connection (`AcpmuxHub+SessionPages.swift`).
     @ObservationIgnored var restOfList: Task<Void, Never>?
     /// Chats a `session_changed` told since this connection's watch began: newer than any page row.
@@ -116,7 +140,12 @@ public final class AcpmuxHub {
     public init() {}
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
-    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
+    /// `gate`: a channel opened behind `auth` before its pairing finished. `initialize` and the first
+    /// page go out at once (the Mac holds them until pairing passes, so they ride beside its last
+    /// round trip), but nothing the Mac sends is applied, and no reply's timeout starts, until
+    /// `gate` says this phone's own check of the Mac passed; when it fails the channel just closes.
+    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20),
+                     until gate: (@Sendable () async -> Bool)? = nil) async {
         pumpTask?.cancel()
         restOfList?.cancel()
         restOfList = nil
@@ -131,11 +160,13 @@ public final class AcpmuxHub {
         fullAccess = false
         for source in liveSources { source.linkDown() }
         guard let channel else { return }
-        let connection = AcpmuxConnection(channel: channel)
+        let connection = AcpmuxConnection(channel: channel, held: gate != nil)
         self.connection = connection
         await connection.start()
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
+            // Notifications wait, bounded, in the connection until the pairing passed (`admit`).
+            if let gate, !(await gate()) { return }
             for await notification in notifications {
                 guard self?.connection === connection else { return }
                 self?.handle(notification)
@@ -150,17 +181,31 @@ public final class AcpmuxHub {
             for source in self.liveSources { source.linkDown() }
         }
         do {
-            let initialized = try await connection.request("initialize", .object([
+            // `initialize` and the first page go out together: acpmux answers a connection's
+            // requests in order and the page needs nothing from `initialize`, so the chat list is
+            // one round trip away, not two (ask-48f698fc26). The newest page only (CMUX-563): a
+            // Mac with hundreds of chats sent its whole list (megabytes) before the phone was
+            // ready. The rest is read after ready, below.
+            let initializeID = try await connection.submit("initialize", .object([
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
             ]), timeout: requestTimeout)
+            let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            if let gate, !(await gate()) {
+                // The pairing failed: nothing this Mac sent is applied, and nothing is said here
+                // (the pairing says why).
+                if self.connection === connection { self.connection = nil }
+                await connection.close()
+                return
+            }
+            await connection.admit()
+            let initialized = try await Self.reply(connection, initializeID, "initialize", timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
-            // The newest page only (CMUX-563): a Mac with hundreds of chats sent its whole list
-            // (megabytes) before the phone was ready. The rest is read after ready, below.
-            let first = try await Self.firstPage(connection, timeout: requestTimeout)
+            let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
+            let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
             let firstIDs = applyFirstPage(first.rows, whole: first.cursor == nil)
             let next = sessions
@@ -524,6 +569,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     fileprivate var replay = AcpmuxReplay<AgentSessionEvent>(limit: AcpmuxSessionSource.replayEventLimit)
     private var lastSeq = 0
     private var attached = false
+    /// The phone started this session moments ago (``AcpmuxHub/noteStartedHere(_:)``).
+    public var isStarting: Bool { hub?.startedHere.contains(sessionID) == true }
+    public var awaitsFirstPrompt: Bool { hub?.firstPromptsInFlight.contains(sessionID) == true }
+    /// The hub's link to the Mac is down (it is reconnecting): observed through `isReady`.
+    public var isOffline: Bool { hub?.isReady != true }
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
@@ -995,6 +1045,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     ///   a `resource_link` to the uploaded path (the agent reads it there).
     /// A failed upload throws, so nothing is sent without its attachments.
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
+        try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory, macName: summary.macName)
+    }
+
+    /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
+    /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
+    static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
+                             macName: String) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1014,8 +1071,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
-            guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
-            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
+            guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
         return await Task.detached(priority: .userInitiated) {
@@ -1472,17 +1529,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if let failure = error as? PhoneKeys.Failure { return "Not approved: \(failure.message)" }
         if let error = error as? AcpmuxConnection.RPCError {
-            switch error.reason {
-            case "permission.person_required":
-                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
-            case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
-            case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
-            case "remote.full_access_required": return AgentChatStore.fullAccessOffNotice
-            default:
-                if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
-                // An agent's raw JSON error (a model the account lacks) reads as a sentence.
-                return TurnFailureCopy.plain(error.message)
+            // The chat clears this notice by its exact text when full access turns on.
+            if error.reason == "remote.full_access_required" { return AgentChatStore.fullAccessOffNotice }
+            // An agent's own refusal ("model unavailable") says what is wrong in the chat;
+            // a dump (a type name, JSON) or an empty message falls through to the type's copy.
+            let raw = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if error.reason == nil, !raw.hasPrefix("no pending permission"), UserFacingError.displayable(raw) != nil {
+                return TurnFailureCopy.plain(raw)
             }
+            // RPCError's copy (reasons, "Already answered", an agent's JSON error) lives on the type.
+            if let text = error.errorDescription { return text }
         }
         return LinkController.reason(error)
     }
@@ -1809,6 +1865,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         failures = 0
         attached = true
+        // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
+        hub?.forgetStartedHere(sessionID)
         keptRestored = false
         let pending = held
         held = []

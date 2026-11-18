@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f6d8ceb33746c1f452dc9437614ba751df787693b597dc5c1862d2171b048eff",
+  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -96,6 +96,15 @@
     },
     "browser_import.read": {
       "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
     },
     "chief.continue": {
       "class": "mutation"
@@ -197,6 +206,12 @@
       "class": "mutation"
     },
     "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
       "class": "read"
     },
     "cloud.owner.handoff_begin_turn": {
@@ -386,6 +401,9 @@
       "class": "read"
     },
     "git.files.search": {
+      "class": "read"
+    },
+    "git.fingerprint": {
       "class": "read"
     },
     "git.push": {
@@ -980,6 +998,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

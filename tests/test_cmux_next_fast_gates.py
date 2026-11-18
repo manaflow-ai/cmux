@@ -619,6 +619,7 @@ def commit(repo: Path, files: dict[str, str], message: str) -> str:
 # was given), and fails when its gate name is in $FAKE_FAIL.
 FAKE = textwrap.dedent("""\
     import json, os, sys
+    import time
     from pathlib import Path
     name = {name!r}
     entry = {{"gate": name, "argv": sys.argv[1:], "cwd": os.getcwd()}}
@@ -627,6 +628,17 @@ FAKE = textwrap.dedent("""\
         entry["base_marker"] = (base / "scripts/cmux-next/marker.txt").read_text()
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps(entry) + "\\n")
+    barrier = os.environ.get("FAKE_BARRIER")
+    if barrier and name != "webviews checks":
+        marker = Path(barrier) / ("started-" + name.replace(" ", "-"))
+        marker.touch()
+        expected = int(os.environ.get("FAKE_BARRIER_COUNT", "1"))
+        deadline = time.monotonic() + float(os.environ.get("FAKE_BARRIER_TIMEOUT", "2"))
+        while len(list(Path(barrier).glob("started-*"))) < expected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if len(list(Path(barrier).glob("started-*"))) < expected:
+            raise SystemExit("parallel gate barrier was not reached")
+    time.sleep(float(os.environ.get("FAKE_SLEEP", "0")))
     sys.exit(1 if name in os.environ.get("FAKE_FAIL", "").split(",") else 0)
 """)
 
@@ -653,11 +665,21 @@ class ScriptBehavior(unittest.TestCase):
         self.seed = seed
         self.log = self.tmp / "gates.jsonl"
 
-    def script(self, repo: Path, *args: str, fail: str = "") -> subprocess.CompletedProcess:
+    def script(self, repo: Path, *args: str, fail: str = "", sleep: float = 0,
+               barrier: Path | None = None, budget: int | None = None,
+               summary: Path | None = None) -> subprocess.CompletedProcess:
         env = {**os.environ, "FAKE_LOG": str(self.log), "FAKE_FAIL": fail,
+               "FAKE_SLEEP": str(sleep),
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
-        return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
+        if barrier is not None:
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "4"})
+        extra = []
+        if budget is not None:
+            extra += ["--budget-seconds", str(budget)]
+        if summary is not None:
+            extra += ["--summary", str(summary)]
+        return subprocess.run([sys.executable, str(SCRIPT), *args, *extra, "--repo", str(repo)],
                               capture_output=True, text=True, env=env)
 
     def clone(self, shallow: bool = True) -> Path:
@@ -1101,6 +1123,8 @@ class ScriptBehavior(unittest.TestCase):
         for name in GATE_SCRIPTS:
             self.assertIn(name, text)
         self.assertIn(base, text)
+        self.assertIn("Runner CPUs:", text)
+        self.assertIn("child CPU", text)
 
     def test_one_red_gate_fails_the_run_and_the_rest_still_run(self):
         work, out = self.prepared()
@@ -1111,6 +1135,39 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
+
+    def test_independent_gates_run_in_parallel(self):
+        work, out = self.prepared()
+        barrier = self.tmp / "parallel-barrier"
+        barrier.mkdir()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
+                             sleep=0.2, barrier=barrier)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The first batch cannot finish until all four markers exist. A serial implementation therefore fails
+        # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
+        self.assertEqual(len(list(barrier.glob("started-*"))), 4)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
+
+    def test_no_gate_started_has_a_critical_path_fallback(self):
+        work, _ = self.prepared()
+        summary = self.tmp / "summary.md"
+        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "false",
+                             budget=0, summary=summary)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Critical-path gate: **no gate ran**", summary.read_text())
+
+    def test_gate_logs_are_named_per_gate_across_batches(self):
+        module = load(SCRIPT)
+        with tempfile.TemporaryDirectory(prefix="fast-gates-logs-") as tmp:
+            log_dir = Path(tmp)
+            first = module.run_gate_batch([("crash ratchet", [sys.executable, "-c", "pass"])],
+                                          Path(tmp), None, log_dir)
+            second = module.run_gate_batch([("webviews checks", [sys.executable, "-c", "pass"])],
+                                           Path(tmp), None, log_dir)
+            self.assertIn("crash-ratchet.log", {path.name for path in log_dir.iterdir()})
+            self.assertIn("webviews-checks.log", {path.name for path in log_dir.iterdir()})
+            self.assertTrue((log_dir / "crash-ratchet.log").read_text())
+            self.assertTrue((log_dir / "webviews-checks.log").read_text())
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
@@ -1344,6 +1401,8 @@ def shell_scripts(folder: Path) -> list[Path]:
 
 
 QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"|\'[^\']*\'')
+# A job whose runs-on can name a Mac: a macOS label or pool, or a nightly signing Mac.
+MAC_RUNS_ON = re.compile(r"'macos-\d|MACOS_RUNNER|RUNNER_POOLS\)\.macos|CI_NIGHTLY_|glaeda-nightly")
 
 
 def bare_timeout_calls(text: str) -> list[tuple[int, str]]:
@@ -1397,6 +1456,26 @@ class CiScriptsCallPortableTimeout(unittest.TestCase):
         self.assertEqual(len(bare_timeout_calls('out="$(FOO=1 gtimeout 9 cmd)"\n')), 1)
         self.assertEqual(bare_timeout_calls('# timeout 5 cmd\necho "no result in a timeout"\nbun test --timeout 5\n'
                                             'bash "$ci_timeout" 5 cmd\necho "$f: its own retry; timeout budget"\n'), [])
+
+    def test_no_mac_workflow_step_calls_timeout_bare(self):
+        # nightly-next-one's "Ask main's nightly-next tick at notarization" ran `timeout 60 gh workflow run ...`
+        # and exited 127 on a signing Mac with no GNU timeout (runs 43715748978, 43717516369); continue-on-error hid
+        # it, so the next nightly never set up during notarization. A `command -v timeout` on the line guards it.
+        offenders = []
+        for workflow_path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            jobs = (yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+            for job_id, job in jobs.items():
+                if not isinstance(job, dict) or not MAC_RUNS_ON.search(str(job.get("runs-on", ""))):
+                    continue
+                for step in job.get("steps") or []:
+                    run = step.get("run") if isinstance(step, dict) else None
+                    if not isinstance(run, str):
+                        continue
+                    for _, line in bare_timeout_calls(run):
+                        if "command -v timeout" not in line:
+                            offenders.append(f"{workflow_path.name} {job_id} [{step.get('name')}]: {line[:160]}")
+        self.assertEqual(offenders, [], "macOS runners have no `timeout`: run the command through "
+                         "`bash scripts/ci/timeout.sh [--kill-after=D] SECONDS CMD...` instead")
 
 
 class WebviewsChecksGate(unittest.TestCase):

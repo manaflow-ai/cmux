@@ -40,6 +40,7 @@ extension WindowRegistryStore {
         // Rust says whose selection it is: a close's or a delta's is no gesture of the person; a workspace they just moved in is theirs.
         if shown != pick { closeSelection.repair(shown: shown, pick: pick, gesture: gesture, pressed: pressed, members: members, preferred: preferred) { select(pick) } }
         // After the pick: a workspace no window lists any more (its close is committed) or that moved ends its relations.
-        closeSelection.settle(window, owner: { value.owner(of: $0) }, exists: { value.window($0) != nil }, claimed: claimed)
+        // A workspace the window lists as a guest is listed here too: it did not move.
+        closeSelection.settle(window, owner: { value.lists($0, in: window) ? window : value.owner(of: $0) }, exists: { value.window($0) != nil }, claimed: claimed)
     }
 }
