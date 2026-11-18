@@ -1,4 +1,5 @@
 import { FreestyleApiError, type Freestyle } from "freestyle";
+import { FREESTYLE_EDGE_IPV4, FREESTYLE_EDGE_IPV6 } from "../images/dns";
 import { canonicalCidr, type NetworkRulePlan } from "../networkPolicy";
 
 /**
@@ -27,7 +28,7 @@ const DEFAULT_GUEST_DNS_RESOLVERS = ["8.8.8.8", "8.8.4.4", "2606:4700:4700::1111
  * does not document it, so it is configuration, not a constant, and the grant
  * is 443/tcp only.
  */
-const DEFAULT_EDGE_ADDRESSES = ["2602:f470:1::28", "10.32.0.28"];
+const DEFAULT_EDGE_ADDRESSES = [FREESTYLE_EDGE_IPV6, FREESTYLE_EDGE_IPV4];
 
 function addressList(envValue: string | undefined, fallback: readonly string[]): string[] {
   const values = envValue?.split(",").map((value) => value.trim()).filter(Boolean);

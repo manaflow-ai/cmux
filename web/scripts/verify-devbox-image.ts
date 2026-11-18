@@ -69,6 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { devboxEdgeResolverCheckCommand } from "../services/vms/images/dns";
 import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
@@ -334,6 +335,13 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "cat /etc/cmux/image-stamp",
 ];
 
+// The edge's forwarding resolver is reachable on IPv6 too
+// (services/vms/images/dns.ts), and a booted clone still resolves.
+const RESOLVER_CHECKS: readonly string[] = [
+  devboxEdgeResolverCheckCommand(),
+  "getent ahosts api.anthropic.com >/dev/null && echo booted-machine-resolves",
+];
+
 // The machine is `cmux`, not the base's `freestyle-vm`
 // (services/vms/images/identity.ts): the shared check covers the static and
 // live hostname, $HOSTNAME, the loopback alias, sudo, the host-key comment
@@ -533,6 +541,7 @@ if (provider === "freestyle") {
       ...FREESTYLE_BASE_CHECKS,
       ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
+      ...RESOLVER_CHECKS,
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
