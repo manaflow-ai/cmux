@@ -91,7 +91,9 @@ import urllib.request
 PROTECTED = ("refs/heads/main", "refs/heads/feat-cmux-next")
 FEAT = "refs/heads/feat-cmux-next"
 NIGHTLY = "refs/heads/nightly-next"
-PROMOTE_TITLE = re.compile(r"Promote nightly-next to ([0-9a-f]{40})")
+# Main's promote job parses the same title (promote-nightly-next.mjs); its input is
+# [dry-run:][tick:]<sha>, the prefixes in either order. The nightly-next tick promotes as tick:<sha>.
+PROMOTE_TITLE = re.compile(r"Promote nightly-next to (?:(?:dry-run|tick):){0,2}([0-9a-f]{40})")
 # The key script whose definition two commits must share for their keys to compare.
 KEY_SCRIPT = "scripts/ci/cmux_tui_tree_key.py"
 PIN_PREFIX = "refs/heads/cmux-tui-pin-"
@@ -270,7 +272,7 @@ def heads(remote: str, *refs: str) -> dict[str, str]:
 
 def pending_promotions() -> list[str]:
     """The commits of nightly.yml promotion runs on main that have not completed: the next cuts."""
-    status, data = api("actions/workflows/nightly.yml/runs?event=workflow_dispatch&branch=main&per_page=30")
+    status, data = api("actions/workflows/nightly.yml/runs?event=workflow_dispatch&branch=main&per_page=100")
     if status != 200 or not isinstance(data, dict):
         raise ApiError(f"GET nightly.yml dispatch runs: HTTP {status}")
     found = []
@@ -346,8 +348,12 @@ def yield_verdict(sha: str) -> tuple[bool, str]:
     compared = {"the feat-cmux-next tip": tip, **cuts}
     fetch_commits(remote, sorted(set(compared.values())))
     for what, other in compared.items():
-        if subprocess.run(["git", "diff", "--quiet", sha, other, "--", KEY_SCRIPT], capture_output=True,
-                          timeout=30).returncode != 0:
+        try:
+            same_script = subprocess.run(["git", "diff", "--quiet", sha, other, "--", KEY_SCRIPT],
+                                         capture_output=True, timeout=30).returncode == 0
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ApiError(f"git diff of {KEY_SCRIPT}: {type(error).__name__}") from error
+        if not same_script:
             return False, f"{what} ({other[:12]}) has another {KEY_SCRIPT}; keys do not compare, keeping the run"
         if tree_key_of(other) == key:
             return False, f"tree {key[:12]} is the key of {what} ({other[:12]})"

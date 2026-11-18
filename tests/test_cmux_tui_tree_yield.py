@@ -189,6 +189,13 @@ class YieldTests(unittest.TestCase):
         stale, log = self.preflight("pending")
         self.assertEqual(stale, "false", log)
 
+    def test_tick_promotions_key_builds(self):
+        # The nightly-next tick promotes as "tick:<sha>" (and a dry run as "dry-run:"), in either order.
+        for prefix in ("tick:", "dry-run:tick:", "tick:dry-run:"):
+            self.promotions([prefix + self.fx.commits["pending"]])
+            stale, log = self.preflight("pending")
+            self.assertEqual(stale, "false", f"{prefix}: {log}")
+
     def test_finished_promotion_is_not_pending(self):
         self.promotions([self.fx.commits["pending"]], status="completed")
         stale, log = self.preflight("pending")
