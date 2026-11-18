@@ -9,6 +9,12 @@
 // for the row (its `layoutConversation`, imported into the page, reading the same disclosure store) is
 // within the 4 px spacing token of the height it draws.
 //
+// The card draws at the chat's text size and the Interface Size (its head at `--cv-font-size`, its rows
+// at the code's line height, conversation.css `.cv-edit-diff*`), so each group is checked at the default
+// look, at a larger chat text size (Settings > Agent Chat > Text Size, `agentPane.display.font.size`) and
+// at a larger Interface Size (the host's scale script: `--cmux-interface-scale` and the chat's text scale
+// `--cmux-chat-text-scale`, then `cmux-ui-scale-change`).
+//
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -190,37 +196,68 @@ await requireBrowserLane("edits-group-estimate-browser.test.ts", async () => {
       [shown, width, session] as const,
     );
 
+  /// The looks each group is checked at: the default, a larger chat text, a larger Interface Size.
+  const sizes: { name: string; apply: (page: Page) => Promise<void> }[] = [
+    { name: "default size", apply: async () => {} },
+    {
+      name: "chat text 18px",
+      apply: (page) =>
+        page.evaluate(async () => {
+          const { setChatDisplay } = (await import(
+            /* @vite-ignore */ `${location.origin}/src/agent-session/acpmux/chatDisplay.ts`
+          )) as typeof import("../src/agent-session/acpmux/chatDisplay");
+          setChatDisplay({ "agentPane.display.font.size": 18 });
+        }),
+    },
+    {
+      name: "interface size 1.25",
+      apply: (page) =>
+        page.evaluate(() => {
+          const root = document.documentElement.style;
+          root.setProperty("--cmux-interface-scale", "1.25");
+          root.setProperty("--cmux-chat-text-scale", "1.25");
+          window.dispatchEvent(new Event("cmux-ui-scale-change"));
+        }),
+    },
+  ];
+
   for (const [name] of engines) {
-    test(`${name}: an edits group the reader opens is estimated at the height it draws, shut and open`, async () => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 1100, height: 800 } });
-      await installPaintedFrames(page);
-      const { port } = vite!.httpServer!.address() as { port: number };
-      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
-      await page.waitForFunction(() => "__showSession" in window);
-      const misses: string[] = [];
-      for (const [index, { name: kind, row: shown }] of cases.entries()) {
-        const session = `edits-group-${index}`;
-        await page.evaluate(
-          ([id, list]) =>
-            (window as unknown as { __showSession(id: string, rows: unknown): void }).__showSession(id, list),
-          [session, [row(`${shown.id}-ask`, "user", "Go on."), shown]] as const,
-        );
-        const line = page.locator(`.acpmux-row[data-row-id="${shown.id}"] button[data-tool-group][aria-expanded]`);
-        const states: [string, () => Promise<void>][] = [
-          ["shut", async () => expect(await line.getAttribute("aria-expanded")).toBe("false")],
-          ["opened", () => line.click()],
-        ];
-        for (const [state, act] of states) {
-          await act();
-          const drawn = await settled(page, shown.id);
-          const estimated = await estimate(page, shown, drawn.width, session);
-          console.log(`edits-group ${name} ${kind} ${state}: estimated ${estimated} px, drawn ${drawn.height} px`);
-          if (Math.abs(estimated - drawn.height) > 4)
-            misses.push(`${kind} ${state}: estimated ${estimated}, drawn ${drawn.height}`);
+    for (const size of sizes) {
+      test(`${name}, ${size.name}: an edits group the reader opens is estimated at the height it draws, shut and open`, async () => {
+        const page = await browsers.get(name)!.newPage({ viewport: { width: 1100, height: 800 } });
+        await installPaintedFrames(page);
+        const { port } = vite!.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+        await page.waitForFunction(() => "__showSession" in window);
+        await size.apply(page);
+        await painted(page, 2);
+        const misses: string[] = [];
+        for (const [index, { name: kind, row: shown }] of cases.entries()) {
+          const session = `edits-group-${index}`;
+          await page.evaluate(
+            ([id, list]) =>
+              (window as unknown as { __showSession(id: string, rows: unknown): void }).__showSession(id, list),
+            [session, [row(`${shown.id}-ask`, "user", "Go on."), shown]] as const,
+          );
+          const line = page.locator(`.acpmux-row[data-row-id="${shown.id}"] button[data-tool-group][aria-expanded]`);
+          const states: [string, () => Promise<void>][] = [
+            ["shut", async () => expect(await line.getAttribute("aria-expanded")).toBe("false")],
+            ["opened", () => line.click()],
+          ];
+          for (const [state, act] of states) {
+            await act();
+            const drawn = await settled(page, shown.id);
+            const estimated = await estimate(page, shown, drawn.width, session);
+            console.log(
+              `edits-group ${name} ${size.name} ${kind} ${state}: estimated ${estimated} px, drawn ${drawn.height} px, error ${(estimated - drawn.height).toFixed(2)} px`,
+            );
+            if (Math.abs(estimated - drawn.height) > 4)
+              misses.push(`${kind} ${state}: estimated ${estimated}, drawn ${drawn.height}`);
+          }
         }
-      }
-      expect(misses).toEqual([]);
-      await page.close();
-    });
+        expect(misses).toEqual([]);
+        await page.close();
+      });
+    }
   }
 });
