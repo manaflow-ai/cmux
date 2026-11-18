@@ -7463,6 +7463,18 @@
     "class": "brand",
     "source": "cmux Live: %@"
   },
+  "cloudTeam.section.title": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "cloudTeam.filter.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
   "settings.category.chat": {
     "source": "Chat",
     "identityLocales": {
@@ -7478,6 +7490,20 @@
           "Chat"
         ]
       }
+    }
+  },
+  "settings.category.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button and settings.choice.newChatsInCloud)."
+    }
+  },
+  "settingsWindow.models.org.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
     }
   }
 }

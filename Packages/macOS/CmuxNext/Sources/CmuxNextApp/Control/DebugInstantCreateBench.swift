@@ -123,22 +123,19 @@ enum DebugInstantCreateBench {
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
             }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
-        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
+        let opensNewTab = visible != nil && (command == .newWorkspace || command == .newTab), shownAt = OSAllocatedUnfairLock<Double?>(initialState: nil) // Cmd-N, Cmd-T: `shown_ms`, the first frame showing the page's empty state (its pixels or its picture) with nothing kept over it; `ready_ms` also counts a page held away or under the ground
+        let ready = !opensNewTab ? nil : await frames.settled(until: { if shownAt.withLock({ $0 == nil }), Probe.newTabShown(controller) { shownAt.withLock { $0 = BenchSpans.ms(.now - start) } }; return Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
+        var shown = opensNewTab ? shownAt.withLock({ $0 }) : nil; if opensNewTab, shown == nil { shown = await frames.settled(until: { Probe.newTabShown(controller) }, start: start, window: 0, deadline: 5_000) }
         let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end(), stats = frames.stop()
-        var refresh = 1_000.0 / 60
-        if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
+        let refresh = { if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { return value }; return 1_000.0 / 60 }()
         return .object([
-            "command": .string(command.rawValue),
-            "key_ms": .number(keyMilliseconds),
-            "visible_ms": visible.map { .number($0) } ?? .null,
-            "confirmed_ms": confirmed.map { .number($0) } ?? .null,
+            "command": .string(command.rawValue), "key_ms": .number(keyMilliseconds),
+            "visible_ms": visible.map { .number($0) } ?? .null, "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
-            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
-            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
-            "spare_window": .string(services.cache.cef.spareWindowState),
-            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
-            "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
+            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "shown_ms": shown.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
+            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"), "spare_window": .string(services.cache.cef.spareWindowState),
+            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null, "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
@@ -185,6 +182,7 @@ enum DebugInstantCreateBench {
             if case .finished = browser.tab.state.phase { return true }
             return services.cache.cef.benchMarks.firstPaints[browser.tab.id.rawValue] != nil
         }
+        @MainActor static func newTabShown(_ c: WindowController) -> Bool { guard c.root.paintHold.kept == nil, let pane = c.content?.focusedPane, pane.view.paintHold.kept == nil, pane.view.window != nil, !pane.view.isHiddenOrHasHiddenAncestor, case .agent(let view) = pane.currentContent else { return false }; return view.debugPageOnScreen || pane.view.launchImageView != nil } // the focused pane shows its page's own pixels (``AgentPaneView/debugPageOnScreen``) or its picture; neither the window nor the pane keeps what showed before
         @MainActor func newTabReady(_ services: AppServices) -> Bool { tab.map { selected == $0 && (LocalPageTab.page(of: $0) == .nativeNewTab || services.agentTabs.existingView($0)?.isShownReady == true) } ?? false }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {

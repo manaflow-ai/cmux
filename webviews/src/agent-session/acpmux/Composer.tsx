@@ -36,6 +36,7 @@ import { canResumeFromComposer } from "./composer/resumeControl";
 import { sameTrigger, useComposerDraftStore, useDraftValue, useDraftWrites } from "./composer/draftStore";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
 import { useTurnHandover } from "./composer/turnHandover";
+import { glideComposerFromHeld } from "./composer/composerHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -299,6 +300,10 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
+  /// The queue as acpmux has it, every entry the moment it comes. `snapshot.queue` is the queue as
+  /// drawn (queuedMessages.ts `useShownQueue`), which keeps a short-lived entry out of sight; the
+  /// turn's handover reads this one, so Stop holds across a prompt that ran at once. Unset: `snapshot.queue`.
+  turnQueue?: AcpmuxSnapshot["queue"];
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -532,6 +537,7 @@ function ComposerFrame({
   snapshot,
   guestHarnesses,
   headerCwd,
+  turnQueue,
   chips: Chips,
   onSend,
   onBindSendGesture,
@@ -640,6 +646,9 @@ function ComposerFrame({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  // A chat New Tab just started: the box glides down from New Tab's place instead of jumping
+  // (composer/composerHandover.ts).
+  useLayoutEffect(() => glideComposerFromHeld(form.current), []);
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
@@ -2230,7 +2239,11 @@ function ComposerFrame({
     snapshot.rows.some((row) => row.queued !== undefined);
   // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
   // the slot never flickers between two turns (composer/turnHandover.ts).
-  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const handingOver = useTurnHandover(
+    snapshot.isWorking,
+    turnQueue ?? snapshot.queue,
+    snapshot.summary?.queuePaused === true,
+  );
   // The draft read as the three things the composer draws from it. Each is read on its own, so a
   // key that leaves all three alone (any letter typed into a draft that already has words) renders
   // nothing (composer/draftStore.ts).
@@ -2572,6 +2585,7 @@ function ComposerFrame({
       route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
+      cloudStartOut={cloudStarting}
     />
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />

@@ -1,4 +1,4 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
+import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -229,9 +229,13 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 
+/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
+/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
+const LIVE_STEP_VARS = transcriptLiveVars();
+
 /// How soon after the last width step's work finished a new width counts as the same live resize,
-/// and how long a width holds before the whole chat is measured at it
-/// (conversation/liveResizeStep.ts, which owns the rule and its reason).
+/// and how long a width holds before the whole chat is measured at it, come from
+/// conversation/liveResizeStep.ts, which owns the rule and its reason (LIVE_RESIZE_MS above).
 
 /// How long the rows hold still before a chat held whole saves its prompts' places (`keepPromptTops`): a
 /// stream changes them every frame, and the save reads every row.
@@ -249,7 +253,10 @@ const FLOW_END_CLASS = "acpmux-thread--flow-end";
 /// The thread's two lengths while its rows flow (conversation.css): in a view that follows, `end` is
 /// the box's height and `start` the most its top strut takes; in any other, `start` is the padding
 /// above the first mounted row.
-const FLOW_VARS = { start: "--acpmux-flow-start", end: "--acpmux-flow-end" } as const;
+const FLOW_VARS = {
+  start: "--acpmux-flow-start",
+  end: "--acpmux-flow-end",
+} as const;
 /// A mounted row's gap under it while the rows flow: its margin there (conversation.css). On the
 /// row's own element and written by `anchorFlow` alone, so a row gets it only in a drag.
 const FLOW_ROW_GAP = "--acpmux-flow-gap";
@@ -289,6 +296,9 @@ type DrawnHeight = {
   actions?: boolean;
   /// model.ts `statusEdge` when it was drawn: the room under the row depends on it.
   status?: string;
+  /// Whether the row was collapsing to nothing then (it holds `[data-row-collapsing]`): its gaps
+  /// shrink with it (model.ts `collapsingHeight`).
+  collapsing?: true;
 };
 
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
@@ -298,6 +308,7 @@ type ReportDrawn = (
   height: number | undefined,
   actions?: boolean,
   status?: string,
+  collapsing?: boolean,
 ) => void;
 
 /// Enqueues a row's pre-paint measurement after all sibling content layout effects have written.
@@ -312,6 +323,12 @@ type QueueDrawn = (node: HTMLElement, id: string, version: number, actions?: boo
 function drawnHeightOf(node: HTMLElement): number | undefined {
   const height = node.getBoundingClientRect().height;
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
+}
+
+/// Whether a drawn row is collapsing to nothing (a read "New since you looked" line shrinking on the
+/// motion step, SinceDivider.tsx): the layout shrinks its gaps with it (model.ts `collapsingHeight`).
+function collapsingRow(node: HTMLElement): boolean {
+  return node.querySelector("[data-row-collapsing]") !== null;
 }
 
 /// Whether any of `rows` is drawn inside the scroller's view (a row that grew there would draw over
@@ -363,7 +380,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.width === entry.width &&
     old.height === entry.height &&
     Boolean(old.actions) === Boolean(entry.actions) &&
-    old.status === entry.status
+    old.status === entry.status &&
+    Boolean(old.collapsing) === Boolean(entry.collapsing)
   );
 }
 
@@ -379,7 +397,10 @@ function changesDrawn(current: DrawnHeights, updates: Map<string, DrawnHeight>):
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
 /// of the pane's snapshot (liveToolOutput.ts).
-type RowContentProps = { Component: React.ComponentType<RowProps>; liveTools?: boolean } & RowProps;
+type RowContentProps = {
+  Component: React.ComponentType<RowProps>;
+  liveTools?: boolean;
+} & RowProps;
 
 /// A row's content, drawn again only when what it draws from changes: never for its frame's place
 /// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
@@ -427,7 +448,7 @@ const RowFrame = React.memo(function RowFrame({
   continuationFooter,
   lastTurn,
   index,
-  setSize,
+  setSizeRef,
   top,
   rowWidth,
   expanded,
@@ -484,7 +505,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The final row of a latest turn without a footer: preserve the normal turn gap at the composer.
   lastTurn: boolean;
   index: number;
-  setSize: number;
+  /// The list's length for `aria-setsize`, held in a ref so a row that arrives changes no prop here
+  /// (TranscriptView, `setSize`). The row writes the attribute on the mount that puts it in the list.
+  setSizeRef: React.MutableRefObject<string>;
   top: number;
   rowWidth: number;
   expanded: boolean;
@@ -602,6 +625,14 @@ const RowFrame = React.memo(function RowFrame({
     return () => observer.unobserve(node);
   }, [observer]);
   useLayoutEffect(() => {
+    // The mount that puts this row in the list writes its `aria-setsize`. A later length is written
+    // by the transcript's own sweep, which runs only when the length changed, so a streamed token
+    // reads no mounted row at all.
+    ref.current?.setAttribute("aria-setsize", setSizeRef.current);
+    // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
     const node = ref.current;
     if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
   }, [
@@ -636,7 +667,8 @@ const RowFrame = React.memo(function RowFrame({
       {...rowTabStop}
       aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
-      aria-setsize={setSize}
+      // `aria-setsize` is not here: the transcript writes it to the mounted nodes, so a row that arrives
+      // does not change a prop on every other one (TranscriptView, `setSize`).
       // `top`, not a transform: in the app (the page at its UI-scale zoom) a drag over a row placed
       // by `translateY` selected the line above the pointer (user 2026-10-21). A set `top` counts
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
@@ -798,7 +830,7 @@ type RowFramesView = {
   geometry: { topAt(index: number): number; gapAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
-  setSize: number;
+  setSizeRef: React.MutableRefObject<string>;
   rowWidth: number;
   expanded: Folds;
   observer: ResizeObserver | undefined;
@@ -830,7 +862,7 @@ type RowFramesView = {
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
 /// every other frame on the element `cache` kept, whatever the rows in view.
 function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: RowFramesView): React.ReactElement[] {
-  const { rows, geometry, setSize } = view;
+  const { rows, geometry } = view;
   const entering = view.enters ? sources.entering.current : undefined;
   const loadFade = view.loadFades ? sources.loadFade : undefined;
   const older = sources.older;
@@ -860,7 +892,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
-      inputs.setSize = setSize;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
       inputs.selected = view.selectedRows.has(absoluteIndex);
@@ -906,7 +937,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           continuationFooter={isContinuationFooter(row, next)}
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
-          setSize={setSize}
+          setSizeRef={view.setSizeRef}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -1052,6 +1083,7 @@ const SCROLL_LEAD_STEPS = 2;
 
 /// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
 /// of the reader and makes every later render pay for a scroll that already ended.
+// motion-allow: a scroll idle timeout, not a motion
 const SCROLL_LEAD_IDLE_MS = 120;
 
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
@@ -1538,7 +1570,12 @@ function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptRefere
   const cache = useRef<ReferenceScopeCache>(undefined as unknown as ReferenceScopeCache);
   cache.current ??= newReferenceScopeCache();
   const held = useRef<
-    | { source: readonly AcpmuxRow[]; value: TranscriptReferences; lastTurn?: string; lastScope?: ReferenceScope }
+    | {
+        source: readonly AcpmuxRow[];
+        value: TranscriptReferences;
+        lastTurn?: string;
+        lastScope?: ReferenceScope;
+      }
     | undefined
   >(undefined);
   const before = held.current;
@@ -1589,23 +1626,46 @@ function estimateFrom(
   rowCount: number,
 ): {
   kept: LastEstimate | undefined;
-  resizing: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number } | undefined;
+  resizing:
+    | {
+        rows: readonly AcpmuxRow[];
+        layout: ConversationLayout;
+        from: number;
+        to: number;
+      }
+    | undefined;
   partial: boolean;
 } {
   if (!last || last.sessionId !== sessionId) return { kept: undefined, resizing: undefined, partial: false };
-  if (last.width === rowWidth) return { kept: last.partial ? undefined : last, resizing: undefined, partial: false };
+  if (last.width === rowWidth)
+    return {
+      kept: last.partial ? undefined : last,
+      resizing: undefined,
+      partial: false,
+    };
   if (!live || !placed) return { kept: undefined, resizing: undefined, partial: false };
   const from = Math.max(0, placed.first - LIVE_RESIZE_ROWS);
   const to = placed.last + LIVE_RESIZE_ROWS;
   if ((to - from) * 2 >= rowCount) return { kept: undefined, resizing: undefined, partial: false };
-  return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: true };
+  return {
+    kept: undefined,
+    resizing: { rows: last.rows, layout: last.layout, from, to },
+    partial: true,
+  };
 }
 
 /// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
 /// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
 /// chat or rows it cannot find there, so every row is measured.
 function nearView(
-  placed: { rows: readonly AcpmuxRow[]; sessionId?: string; first: number; last: number } | undefined,
+  placed:
+    | {
+        rows: readonly AcpmuxRow[];
+        sessionId?: string;
+        first: number;
+        last: number;
+      }
+    | undefined,
   rows: readonly AcpmuxRow[],
   sessionId: string | undefined,
 ): { from: number; to: number } | undefined {
@@ -1821,7 +1881,11 @@ function TranscriptView({
       for (let below = index + 1; below < next.length; below += 1) {
         const line = next[below]!;
         if (line.kind === THINKING && line.quietKey === stale)
-          next[below] = { ...line, quietKey: `${row.id}:${version}`, version: line.version + live.ahead };
+          next[below] = {
+            ...line,
+            quietKey: `${row.id}:${version}`,
+            version: line.version + live.ahead,
+          };
       }
       return next;
     }
@@ -1992,7 +2056,10 @@ function TranscriptView({
         jumping: jumpTarget.current !== undefined,
         deadband: FOLLOW_BOTTOM_DEADBAND_PX,
       });
-      scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
+      scrollRef.current = {
+        top,
+        delta: top - scrollRef.current.top || scrollRef.current.delta,
+      };
       // Route recovery through the authoritative setter so the parent callback and synchronous
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
@@ -2028,7 +2095,10 @@ function TranscriptView({
     // event comes): an event that brings no new offset keeps the direction the scroll has. Its delta
     // of 0 left the next render no lead, and a fling painted blank frames (transcript-fling on the
     // CI runner, mounted rows a step behind the view).
-    scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
+    scrollRef.current = {
+      top,
+      delta: top - scrollRef.current.top || scrollRef.current.delta,
+    };
     scheduleScrollLeadReset();
     if (immediate) scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
@@ -2182,7 +2252,13 @@ function TranscriptView({
     /// While rows flow from their top: the row the reader looks at, where it showed in the view,
     /// and the thread's padding that keeps it there (`holdFlow`).
     /// `top` is the scroll offset `at` was read at: a scroll by the reader moves the row with it.
-    hold?: { row: HTMLElement; at: number; pad: number; first: number; top: number };
+    hold?: {
+      row: HTMLElement;
+      at: number;
+      pad: number;
+      first: number;
+      top: number;
+    };
     /// The flow lengths as last written on the thread (`writeFlow`).
     wrote?: FlowWritten;
   }>({
@@ -2224,7 +2300,12 @@ function TranscriptView({
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
   /// The bottom stack's reach at rest, for the prompt rail's box (`railBox`): its smallest at `height`.
-  const restingDock = useRef<{ height: number; sessionId?: string; dock?: HTMLElement | null; space: number }>({
+  const restingDock = useRef<{
+    height: number;
+    sessionId?: string;
+    dock?: HTMLElement | null;
+    space: number;
+  }>({
     height: -1,
     space: 0,
   });
@@ -2257,6 +2338,20 @@ function TranscriptView({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
+  /// The host's line in that stack (HostError.tsx: "Reconnecting…", or a refusal and its Retry), which
+  /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
+  /// rows move anyway (`noticeHold`).
+  const [dockNotice, setDockNotice] = useState(0);
+  /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
+  const dockNoticeRef = useRef(0);
+  /// The host line's height the room under the last row last took (`noticeHold` below). State, not a
+  /// ref read in render: the pass that changes it renders once more before the frame paints, with the
+  /// same hold (the base it writes is the one that hold was made against), so nothing moves. It changes
+  /// only when the line comes taller than the room lets it lie over, goes and the rows move, or Jump to
+  /// latest takes it.
+  const [noticeBase, setNoticeBase] = useState(0);
+  /// The same, for the handlers below (written where the state is).
+  const noticeBaseRef = useRef(0);
   /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
   /// own height as of the last pass, which tells a pass whose rows grew.
   const foldBase = useRef(0);
@@ -2320,6 +2415,8 @@ function TranscriptView({
       setDockHeight(0);
       setDockCard(0);
       setDockTray(0);
+      dockNoticeRef.current = 0;
+      setDockNotice(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -2341,6 +2438,14 @@ function TranscriptView({
       space > 0
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
+    // The host's line, while the stack reaches over the view.
+    const notice = (space: number) => {
+      if (space <= 0) return 0;
+      let height = 0;
+      for (const line of dock.querySelectorAll(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group"))
+        height += line.getBoundingClientRect().height;
+      return height;
+    };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
     // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
@@ -2407,18 +2512,23 @@ function TranscriptView({
       const nextHeight = height() + rest;
       const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
       const nextTray = tray(drawn);
+      const nextNotice = notice(drawn);
+      const noticeChanged = Math.abs(nextNotice - dockNoticeRef.current) >= 0.5;
+      dockNoticeRef.current = nextNotice;
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
-        Math.abs(nextCard - dockCardRef.current) >= 0.5
+        Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
+        noticeChanged
       )
         flushSync(() => {
           setDockSpace(next);
           setDockHeight(nextHeight);
           setDockCard(nextCard);
           setDockTray(nextTray);
+          setDockNotice(nextNotice);
         });
     };
     const observer = new ResizeObserver(take);
@@ -2459,6 +2569,8 @@ function TranscriptView({
     setDockHeight(fullHeight);
     setDockCard(card(space));
     setDockTray(tray(space));
+    dockNoticeRef.current = notice(space);
+    setDockNotice(dockNoticeRef.current);
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
@@ -2571,7 +2683,10 @@ function TranscriptView({
   /// mounted (a remount would draw them again with no entrance). A later switch keys afresh.
   /// Derived from the last render's (React's "storing information from previous renders"), not a ref
   /// read in render.
-  const [frameSession, setFrameSession] = useState({ session: sessionKey, key: sessionKey });
+  const [frameSession, setFrameSession] = useState({
+    session: sessionKey,
+    key: sessionKey,
+  });
   const frameKey = frameSession.session === sessionKey || frameSession.session === "" ? frameSession.key : sessionKey;
   if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
@@ -2763,7 +2878,7 @@ function TranscriptView({
   const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
   useEffect(() => () => olderRows.disconnect(), [olderRows]);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight, actions, status) => {
+    (id, version, drawnHeight, actions, status, collapsing) => {
       // A flowing drag's rows are at a width they were not placed at: nothing is read until it holds.
       if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
@@ -2775,6 +2890,7 @@ function TranscriptView({
           height: drawnHeight,
           ...(actions ? { actions } : {}),
           ...(status ? { status } : {}),
+          ...(collapsing ? { collapsing: true as const } : {}),
         });
     },
     [sessionId],
@@ -2789,6 +2905,7 @@ function TranscriptView({
           acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
           actions,
           status,
+          collapsingRow(node),
         );
       };
       pendingMeasures.current.set(node, measure);
@@ -2914,7 +3031,13 @@ function TranscriptView({
         for (const row of mounted) {
           const box = row.getBoundingClientRect();
           if (box.bottom <= view) continue;
-          live.hold = { row, at: box.top - view, pad: 0, first: placed.first, top: scroller.scrollTop };
+          live.hold = {
+            row,
+            at: box.top - view,
+            pad: 0,
+            first: placed.first,
+            top: scroller.scrollTop,
+          };
           break;
         }
       }
@@ -2975,6 +3098,7 @@ function TranscriptView({
           drawnHeightOf(target),
           keepsReplyRoom(row, nextDrawnRow(shown, index)),
           statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
+          collapsingRow(target),
         );
     },
     [reportDrawn],
@@ -3247,7 +3371,10 @@ function TranscriptView({
   const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
   /// The last committed row snapshot used to distinguish an async prompt registration from history
   /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
-  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({ current: rows, previous: rows }));
+  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({
+    current: rows,
+    previous: rows,
+  }));
   if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
@@ -3527,13 +3654,19 @@ function TranscriptView({
   /// follows again (`room` below).
   const takeRoom = useCallback(() => {
     const held =
-      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 || Math.abs(cardBase.current - dockCardRef.current) > 0.5;
+      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 ||
+      Math.abs(cardBase.current - dockCardRef.current) > 0.5 ||
+      Math.abs(noticeBaseRef.current - dockNoticeRef.current) > 0.5;
     foldBase.current = dockTrayRef.current;
     cardBase.current = dockCardRef.current;
+    noticeBaseRef.current = dockNoticeRef.current;
     trayToggled.current = false;
     if (!held && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
     heldRoom.current = dockRoomRef.current;
-    flushSync(roomTaken);
+    flushSync(() => {
+      setNoticeBase(dockNoticeRef.current);
+      roomTaken();
+    });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
@@ -3870,10 +4003,20 @@ function TranscriptView({
       resizing,
       nearView(lastPlaced.current, rows, sessionId),
     );
-    lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+    lastEstimate.current = {
+      rows,
+      layout,
+      width: rowWidth,
+      sessionId,
+      partial,
+    };
     // Prepared text is kept for the PREPARED_ROWS most recently measured rows (model.ts), whatever the
     // chat's length.
-    return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+    return {
+      layout,
+      partial,
+      ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
+    };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
@@ -3965,8 +4108,19 @@ function TranscriptView({
                 return undefined;
               return known.height;
             },
-            last && kept > 0 ? { layout: last.layout, kept, from: rowsKept, changed: changedAt } : undefined,
+            last && kept > 0
+              ? {
+                  layout: last.layout,
+                  kept,
+                  from: rowsKept,
+                  changed: changedAt,
+                }
+              : undefined,
             placedOrigin,
+            (index) => {
+              const known = drawn.get(rows[index]!.id);
+              return known?.collapsing === true && known.sessionId === sessionId && known.width === rowWidth;
+            },
           );
     // Gone until a page lands above the first row (a new first row): then estimated again, from the
     // rows that page brought.
@@ -4007,7 +4161,10 @@ function TranscriptView({
       last: last?.last ?? 0,
       held: last?.held ?? [],
     };
-    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+    return {
+      layout,
+      ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
+    };
   }, [
     estimated,
     drawn,
@@ -4040,7 +4197,10 @@ function TranscriptView({
       const prompts: { id: string; top: number }[] = [];
       for (let index = 0; index < rows.length; index += 1)
         if (rows[index]!.kind === "user")
-          prompts.push({ id: rows[index]!.id, top: placed.geometry.topAt(index) - origin });
+          prompts.push({
+            id: rows[index]!.id,
+            top: placed.geometry.topAt(index) - origin,
+          });
       keepPromptTops(sessionId, width, prompts);
     };
     let idle: number | undefined;
@@ -4151,6 +4311,27 @@ function TranscriptView({
     : overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
+  // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
+  // something went wrong with a retry button just above the composer ... and then it layout shifted"):
+  // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
+  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
+  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
+  // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
+  // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
+  // (they grew: a reply streaming on, a send) or Jump to latest gives it back (`takeRoom`).
+  // Another chat starts from none taken: the last chat's base is not this one's.
+  const noticeHeldAt = sessionSwitched ? 0 : noticeBase;
+  const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
+  // Scrolled up the room is held anyway (`heldRoom`), and the base waits for the view to follow again.
+  const noticeHold =
+    dockSpace <= 0 || !following
+      ? 0
+      : dockNotice >= noticeHeldAt
+        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        : noticeTaken
+          ? 0
+          : dockNotice - noticeHeldAt;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -4158,7 +4339,8 @@ function TranscriptView({
     dockSpace > 0
       ? (measured.layout.restBand ?? 0)
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold;
+  const rowsAtDock =
+    measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold - noticeHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -4182,7 +4364,7 @@ function TranscriptView({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold : heldRoom.current;
+  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4194,7 +4376,10 @@ function TranscriptView({
   const layout = useMemo(
     // A loaded page can exceed the reserve estimate. Keep the spacer's clipped physical extent
     // through the thumb gesture even then; all newly loaded rows are still placed and measured.
-    () => ({ ...measured.layout, totalHeight: draggedHeight ?? Math.max(rowsEnd, keptEnd) }),
+    () => ({
+      ...measured.layout,
+      totalHeight: draggedHeight ?? Math.max(rowsEnd, keptEnd),
+    }),
     [measured, rowsEnd, keptEnd, draggedHeight],
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
@@ -4410,7 +4595,9 @@ function TranscriptView({
     );
     if (target) {
       // focusRow already put the row in view; End's last row is in view at the end of its ride.
-      focusRoute(target, "system", "the transcript's pending focus", { preventScroll: true });
+      focusRoute(target, "system", "the transcript's pending focus", {
+        preventScroll: true,
+      });
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -4440,7 +4627,10 @@ function TranscriptView({
           const mounted = [...(ref.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])].find(
             (row) => row.dataset.rowId === lastId,
           );
-          if (mounted) focusRoute(mounted, "system", "the transcript's pending focus", { preventScroll: true });
+          if (mounted)
+            focusRoute(mounted, "system", "the transcript's pending focus", {
+              preventScroll: true,
+            });
           else pendingFocus.current = lastId;
         }
         jumpToLatestRef.current(false, "end-key");
@@ -4455,7 +4645,12 @@ function TranscriptView({
         const nextId = rows[clamped]?.id;
         if (!nextId) return;
         setTranscriptRange((current) =>
-          event.shiftKey ? { anchorId: current?.anchorId ?? rows[index]!.id, focusId: nextId } : undefined,
+          event.shiftKey
+            ? {
+                anchorId: current?.anchorId ?? rows[index]!.id,
+                focusId: nextId,
+              }
+            : undefined,
         );
         focusRow(clamped);
         return;
@@ -5139,7 +5334,10 @@ function TranscriptView({
     finishCarry(thread.current, carry, (px) => {
       const style = thread.current ? getComputedStyle(thread.current) : undefined;
       const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;
-      return { ms: floor > 0 ? arrivalStepMs(px, 1, floor) : 0, easing: ARRIVAL_EASE };
+      return {
+        ms: floor > 0 ? arrivalStepMs(px, 1, floor) : 0,
+        easing: ARRIVAL_EASE,
+      };
     });
     previousLayout.current = layout;
     previousRows.current = rows;
@@ -5147,7 +5345,8 @@ function TranscriptView({
     foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
-    heldRoom.current = room + lifted + cardHold;
+    // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
+    heldRoom.current = room + lifted + cardHold + Math.max(0, noticeHold);
     appliedLift.current = lift;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
@@ -5167,10 +5366,18 @@ function TranscriptView({
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
     } else if (!holding) clearTimeout(floorTimer.current);
-    floor.current = { height: holding ? floorHeight : 0, width, sessionId, rows: measured.layout.totalHeight };
+    floor.current = {
+      height: holding ? floorHeight : 0,
+      width,
+      sessionId,
+      rows: measured.layout.totalHeight,
+    };
     if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
-      scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
+      scrolledTo.current = {
+        top: node.scrollTop,
+        atLatest: followingRef.current,
+      };
       // While the reader's place is held, it is the place to reopen at, not where the view waits.
       seenAnchor.current =
         heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
@@ -5227,9 +5434,14 @@ function TranscriptView({
     [sessionId],
   );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (it stores what this pass gave the room); its one setState call is guarded by the compare with noticeBase.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
+    if (following || dockSpace <= 0) {
+      noticeBaseRef.current = dockNotice - noticeHold;
+      if (noticeBaseRef.current !== noticeBase) setNoticeBase(noticeBaseRef.current);
+    }
     rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
@@ -5503,7 +5715,11 @@ function TranscriptView({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: paintedId!, card: inGroup ? false : drawnCard, occurrence: findTargetOccurrence }
+        ? {
+            rowId: paintedId!,
+            card: inGroup ? false : drawnCard,
+            occurrence: findTargetOccurrence,
+          }
         : undefined,
     );
     if (!current || revealing.current !== targetKey || !findRequest.current?.()) return;
@@ -6088,7 +6304,10 @@ function TranscriptView({
   const pressUp = () => {
     const node = ref.current;
     if (!node) return;
-    const press = pressJumpUp(jumpBack.current, { top: layoutScrollTop(node), atLatest: followingRef.current });
+    const press = pressJumpUp(jumpBack.current, {
+      top: layoutScrollTop(node),
+      atLatest: followingRef.current,
+    });
     if (press.kind === "back") {
       jumpBack.current = undefined;
       setJumpBackHeld(false);
@@ -6143,7 +6362,10 @@ function TranscriptView({
     const cancelProgrammatic = (event?: Event) => {
       if (intent.isScrollbarDragging()) {
         if (!olderDragPending.current && previousLayout.current) {
-          setScrollbarRange({ session: heldSession.current, height: previousLayout.current.totalHeight });
+          setScrollbarRange({
+            session: heldSession.current,
+            height: previousLayout.current.totalHeight,
+          });
         }
         olderDragPending.current = true;
         followIntent(false);
@@ -6371,9 +6593,15 @@ function TranscriptView({
       if (event.defaultPrevented && node.contains(event.target as Node)) readerUpPending.current = false;
     };
     const ownerDocument = node.ownerDocument;
-    ownerDocument.addEventListener("pointerup", readerReleased, { capture: true });
-    ownerDocument.addEventListener("pointercancel", readerReleased, { capture: true });
-    ownerDocument.addEventListener("lostpointercapture", readerReleased, { capture: true });
+    ownerDocument.addEventListener("pointerup", readerReleased, {
+      capture: true,
+    });
+    ownerDocument.addEventListener("pointercancel", readerReleased, {
+      capture: true,
+    });
+    ownerDocument.addEventListener("lostpointercapture", readerReleased, {
+      capture: true,
+    });
     ownerDocument.defaultView?.addEventListener("blur", readerReleased);
     const canceledInputs = ["wheel", "keydown"] as const;
     for (const name of canceledInputs) ownerDocument.addEventListener(name, readerCanceled, { passive: true });
@@ -6568,16 +6796,24 @@ function TranscriptView({
       removeMomentumHold();
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
-      ownerDocument.removeEventListener("pointerup", readerReleased, { capture: true });
-      ownerDocument.removeEventListener("pointercancel", readerReleased, { capture: true });
-      ownerDocument.removeEventListener("lostpointercapture", readerReleased, { capture: true });
+      ownerDocument.removeEventListener("pointerup", readerReleased, {
+        capture: true,
+      });
+      ownerDocument.removeEventListener("pointercancel", readerReleased, {
+        capture: true,
+      });
+      ownerDocument.removeEventListener("lostpointercapture", readerReleased, {
+        capture: true,
+      });
       ownerDocument.defaultView?.removeEventListener("blur", readerReleased);
       for (const name of canceledInputs) ownerDocument.removeEventListener(name, readerCanceled);
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       node?.removeEventListener("pointerdown", notePressed, { capture: true });
       for (const name of landingInputs) view?.removeEventListener(name, landRide, { capture: true });
-      node?.removeEventListener("pointercancel", dropPressed, { capture: true });
+      node?.removeEventListener("pointercancel", dropPressed, {
+        capture: true,
+      });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
       gutterRelease.current = undefined;
@@ -6591,7 +6827,10 @@ function TranscriptView({
   // context, so a streamed token redraws no prompt or footer.
   const scannedRetry = useMemo(() => retryTargetIn(rows), [rows]);
   const retryTarget = useMemo(
-    () => ({ promptId: scannedRetry.promptId, footerId: scannedRetry.footerId }),
+    () => ({
+      promptId: scannedRetry.promptId,
+      footerId: scannedRetry.footerId,
+    }),
     [scannedRetry.promptId, scannedRetry.footerId],
   );
   const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
@@ -6769,7 +7008,13 @@ function TranscriptView({
   useEffect(() => () => idle.keepNow(), [idle]);
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
+  const upOff = placeOffView(upTop, {
+    shownTop,
+    height,
+    threadTop: THREAD_TOP,
+    topInset,
+    dockSpace,
+  });
   // One control at a time: while Jump to latest shows, Jump up waits (Leo, 2026-11-12: the two
   // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
   const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
@@ -6819,13 +7064,25 @@ function TranscriptView({
   };
   // Each mounted row's frame, its props worked out again only for rows whose rows or inputs changed
   // (`drawRowFrames`): a streamed token redoes the live row's alone.
+  /// `aria-setsize` on the mounted rows, written to the nodes instead of passed to each one. It is a
+  /// whole-list number (`rows.length`, or -1 while older history can still be paged in), so a row
+  /// that arrived changed it for every mounted row at once and React redrew them all: at 1,500 rows
+  /// while a reply streamed, `rowprop:setSize` was the first differing prop in 34 of the p95 frame's
+  /// 41 row renders (composer-typing.bench.ts, cmux#45237). A row that arrives must cost its own
+  /// draw, not the mounted window's. A screen reader reads the attribute. The row writes it on its
+  /// own mount, from this ref; a changed length is swept below.
+  const setSize = String(canLoadOlder ? -1 : rows.length);
+  // The ref is written by the sweep below, never in a render: a render that React throws away must
+  // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
+  // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
+  const setSizeRef = useRef(setSize);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
     rows,
     mountedRanges,
     geometry: layout.geometry,
     frameKey,
     registry,
-    setSize: canLoadOlder ? -1 : rows.length,
+    setSizeRef,
     rowWidth: scaledRowWidth,
     expanded,
     observer,
@@ -6852,6 +7109,18 @@ function TranscriptView({
     rowRepositories,
     scopeAt,
   });
+  /// Only a changed length sweeps the mounted rows. A streamed token leaves the length alone, so it
+  /// reads no mounted row: a pass over the thread's rows is what `test/transcript-fold-anchor.test.tsx`
+  /// counts, and a token during a fold must run none. `[data-row-id]` keeps the write off a fold's
+  /// ghost copies, which hang in the thread with the row class and have this attribute stripped on
+  /// purpose (conversation/turnFold.ts `ghostOf`): an inert copy must not read as a row of the list.
+  useLayoutEffect(() => {
+    setSizeRef.current = setSize;
+    const threadNode = thread.current;
+    if (!threadNode) return;
+    for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
+      if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
+  }, [setSize]);
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -6902,6 +7171,8 @@ function TranscriptView({
                 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
+              // The live line's box and the gap over it in a run, from their one source (transcriptGrid.ts).
+              ...LIVE_STEP_VARS,
             } as React.CSSProperties
           }
         >
