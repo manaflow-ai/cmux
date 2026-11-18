@@ -75,6 +75,36 @@
       "surface": "menu",
       "name": "agentPaneMessage",
       "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
+    },
+    {
+      "surface": "menu",
+      "name": "browserDevToolsDivider",
+      "reason": "keep: every row runs a palette-offered action: devtools.openDockedLeft, devtools.openDocked, devtools.openDockedRight, devtools.openInWindow, devtools.close"
+    },
+    {
+      "surface": "menu",
+      "name": "sidebarUpdateCard",
+      "reason": "keep: every row runs a palette-offered action: updates.snooze"
+    },
+    {
+      "surface": "menu",
+      "name": "remoteHoverToolbar",
+      "reason": "keep: every row runs a palette-offered action: remote.setQuality; the display menu's rows only show the current display and are not choices"
+    },
+    {
+      "surface": "menu",
+      "name": "browserBackForward",
+      "reason": "keep: every row runs a palette-offered action: browser.goToHistoryEntry"
+    },
+    {
+      "surface": "menu",
+      "name": "browserDownloads",
+      "reason": "keep: every row runs a palette-offered action: browser.download.open, browser.download.reveal, browser.download.togglePause, browser.download.retry, browser.download.cancel, browser.download.copyLink"
+    },
+    {
+      "surface": "menu",
+      "name": "browserExtensions",
+      "reason": "keep: every row runs a palette-offered action: browser.extension.command, browser.extension.details, browser.extension.disable, browser.extension.enable, browser.extension.homePage, browser.extension.move, browser.extension.options, browser.extension.pin, browser.extension.reload, browser.extension.remove, browser.extension.run, browser.extension.siteAccess, browser.extension.unpin, browser.extension.webPermissions, browser.extensions.loadUnpacked, browser.extensions.manage, browser.extensions.webStore"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
