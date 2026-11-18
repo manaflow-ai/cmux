@@ -93,7 +93,7 @@ import Testing
         #expect(!store.isShowingKeptTranscript)
     }
 
-    /// The newest `limit` acknowledged messages are kept: no unsent send (the outbox owns it),
+    /// The newest `limit` acknowledged messages are kept: no unsent send (only its store holds it),
     /// no Send Later row, no image bytes picked on the phone.
     @Test func keepsTheNewestAcknowledgedMessagesOnly() {
         let image = ConversationAttachment(id: "a", kind: .image, width: 4, height: 3, url: URL(string: "https://example.com/a.jpg"),
