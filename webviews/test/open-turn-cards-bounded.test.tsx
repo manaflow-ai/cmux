@@ -1,0 +1,320 @@
+// A coordinator's turn that never ends mounts as many elements at 20,000 records as at 2,000: the transcript draws the
+// rows in its window and what it measures or estimates for the rest, whatever the turn holds (chat-100k-flat
+// CASES=coordinator: page elements 1,835 at 2k records, 6,088 at 20k, the open turn's Agent cards all mounted).
+// Leo, 2026-11-14: "the dream is infinite chats of infinite length with flat or no growth in cpu/memory/even disk".
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+
+const VIEWPORT = 600;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+const offsets = new WeakMap<object, number>();
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
+  configurable: true,
+  get(this: object) {
+    return offsets.get(this) ?? 0;
+  },
+  set(this: object, value: number) {
+    offsets.set(this, value);
+  },
+});
+// jsdom has no layout: a row draws 28px a line it holds (a card, a tool line, a paragraph), as the pane's rows do.
+dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+  const lines = this.dataset.rowId ? Math.max(1, this.querySelectorAll("p, li, .cv-agentcall, .cv-step").length) : 0;
+  const height = lines * 28;
+  return { x: 0, y: 0, top: 0, left: 0, right: 760, bottom: height, width: 760, height, toJSON() {} } as DOMRect;
+};
+
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = async (done: () => boolean, ms: number) => {
+  const deadline = performance.now() + ms;
+  while (!done() && performance.now() < deadline) await tick();
+  return done();
+};
+
+/// The records of a coordinator's open turn (bench/coordinatorTurn.ts, cut down): per step a short reply and a
+/// shell call; every fifth step a long reply; every sixth an Agent call and its subagent, which ends fifteen steps
+/// later. The records are made once, in order, so every read of a seq is the same record.
+function coordinatorRecords(sessionId: string, count: number): EventRecord[] {
+  const out: EventRecord[] = [];
+  const push = (dir: string, kind: string, msg: Record<string, unknown>) => {
+    const seq = out.length + 1;
+    out.push({ sessionId, seq, at: 1_700_000_000_000 + seq * 10, dir, kind, msg } as EventRecord);
+  };
+  const said = (update: Record<string, unknown>, meta?: Record<string, unknown>) =>
+    push("in", String(update.sessionUpdate), {
+      method: "session/update",
+      params: { sessionId: "agent-1", update, ...(meta ? { _meta: { acpmux: meta } } : {}) },
+    });
+  const text = (value: string) => ({ type: "text", text: value });
+  push("mux", "user_message", { text: "Coordinate the lanes until every ask is landed" });
+  push("mux", "turn_started", {});
+  const live: { id: string; call: string; ends: number }[] = [];
+  for (let step = 1; out.length < count; step += 1) {
+    const reply =
+      step % 5 === 0
+        ? `## Status at step ${step}\n\nThe lanes are moving. Two need a review and one waits on CI.\n\n- one\n- two\n- three`
+        : `Step ${step}: checked the lanes. `;
+    said({ sessionUpdate: "agent_message_chunk", messageId: `m-${step}`, content: text(reply) });
+    said({
+      sessionUpdate: "tool_call",
+      toolCallId: `c-${step}`,
+      title: `glaeda-gh status pr ${step}`,
+      kind: "execute",
+      status: "in_progress",
+      rawInput: { command: `glaeda-gh status pr ${step}` },
+    });
+    said({
+      sessionUpdate: "tool_call_update",
+      toolCallId: `c-${step}`,
+      status: "completed",
+      content: [{ type: "content", content: text(`checks SUCCESS: ${step} passed`) }],
+    });
+    if (step % 6 === 0) {
+      const id = `sub-${step}`;
+      const call = `agent-${step}`;
+      said({
+        sessionUpdate: "tool_call",
+        toolCallId: call,
+        title: "Agent",
+        kind: "think",
+        status: "in_progress",
+        rawInput: {
+          description: `Review step ${step}`,
+          prompt: `Review the diff of step ${step}.`,
+          subagent_type: "general-purpose",
+        },
+      });
+      said(
+        { sessionUpdate: "subagent_spawned", subagentSessionId: id },
+        {
+          subagents: [
+            {
+              id,
+              parent: null,
+              name: `reviewer-${step}`,
+              task: `Review step ${step}`,
+              state: "running",
+              toolCallId: call,
+            },
+          ],
+        },
+      );
+      live.push({ id, call, ends: step + 15 });
+    }
+    for (const agent of live.splice(0)) {
+      if (step < agent.ends) {
+        live.push(agent);
+        continue;
+      }
+      said(
+        { sessionUpdate: "subagent_state_update", subagentSessionId: agent.id, state: "completed" },
+        { subagents: [{ id: agent.id, parent: null, state: "completed", lastMessage: "Reviewed: no findings." }] },
+      );
+      said({
+        sessionUpdate: "tool_call_update",
+        toolCallId: agent.call,
+        status: "completed",
+        content: [{ type: "content", content: text(`Reviewed: no findings.\nagentId: ${agent.id}`) }],
+      });
+    }
+  }
+  return out.slice(0, count);
+}
+
+/// A chat opened empty, then `count` records of the coordinator's open turn streamed into it live; its rows.
+async function streamedRows(count: number): Promise<AcpmuxRow[]> {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
+  let target = "";
+  let records: EventRecord[] = [];
+  let total = 0;
+  let socket: { deliver: (message: unknown) => void } | undefined;
+  class Chat extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      socket = this as unknown as typeof socket;
+      const self = this as unknown as { answer: (method: string, params: any) => Promise<unknown> };
+      const answer = self.answer.bind(this);
+      self.answer = async (method, params) => {
+        if (method === "_acpmux/attach") {
+          const result = (await answer(method, params)) as Record<string, unknown>;
+          target = params.sessionId;
+          return { ...result, events: [], hasMore: false, lastSeq: 0, pageThrough: 0, turnOpener: null };
+        }
+        if (method === "_acpmux/events" && params.sessionId === target && params.beforeSeq !== undefined) {
+          const limit = Number(params.limit ?? 400);
+          const kinds: string[] | undefined = params.kinds?.includes("transcript") ? undefined : params.kinds;
+          const events: EventRecord[] = [];
+          for (let seq = params.beforeSeq - 1; seq >= 1 && events.length < limit; seq -= 1) {
+            const event = records[seq - 1]!;
+            if (!kinds || kinds.includes(event.kind)) events.unshift(event);
+          }
+          return { events, hasMore: (events[0]?.seq ?? 1) > 1, lastSeq: total };
+        }
+        if (method === "_acpmux/events" && params.sessionId === target)
+          return { events: records.slice(Number(params.afterSeq ?? 0), total), hasMore: false, lastSeq: total };
+        return answer(method, params);
+      };
+    }
+  }
+  const frames: (() => void)[] = [];
+  AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+  const flush = () => {
+    for (const run of frames.splice(0)) run();
+  };
+  let rows: AcpmuxRow[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => (rows = (next as { rows: AcpmuxRow[] }).rows),
+    undefined,
+    () => new Chat() as unknown as WebSocket,
+  );
+  try {
+    client.setFollowing(true);
+    expect(await settle(() => target !== "", 10_000)).toBe(true);
+    records = coordinatorRecords(target, count);
+    for (let index = 0; index < 20; index += 1) await tick();
+    for (let index = 0; index < count; index += 1) {
+      total += 1;
+      socket!.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: records[index] });
+      if (index % 50 === 49) {
+        await tick();
+        flush();
+      }
+    }
+    for (let index = 0; index < 20; index += 1) await tick();
+    flush();
+    return rows;
+  } finally {
+    client.close?.();
+    AcpmuxDirectClient.scheduleFrame = undefined;
+  }
+}
+
+/// What the transcript mounts for the turn's rows, followed at its end as the open chat is.
+async function mounted(rows: AcpmuxRow[]) {
+  const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const shown = turnView(rows, new Set(), { working: true, now: 1_700_000_000_000 + rows.length * 10 });
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={new Set()} />),
+    );
+    // The follow pass and the deferred warm rows settle over a few frames.
+    for (let frame = 0; frame < 6; frame += 1) await act(async () => void (await tick()));
+    const doc = dom.window.document;
+    const cards = (row: AcpmuxRow) =>
+      (row.items ?? []).filter((item) => item.tool?.kind === "think" && item.tool.title === "Agent").length;
+    return {
+      rows: shown.length,
+      mountedRows: doc.querySelectorAll(".acpmux-row").length,
+      agentCards: doc.querySelectorAll(".cv-agentcall").length,
+      elements: host.getElementsByTagName("*").length,
+      biggestRow: Math.max(0, ...shown.map(cards)),
+    };
+  } finally {
+    await act(async () => root.unmount());
+  }
+}
+
+test("a coordinator's open turn mounts as many elements at 20k records as at 2k", async () => {
+  const at2k = await mounted(await streamedRows(2_000));
+  const at20k = await mounted(await streamedRows(20_000));
+  console.log(`open-turn-cards 2k=${JSON.stringify(at2k)} 20k=${JSON.stringify(at20k)}`);
+  expect(at2k.agentCards).toBeGreaterThan(0);
+  expect(at20k.agentCards).toBeLessThanOrEqual(at2k.agentCards * 1.2 + 4);
+  expect(at20k.mountedRows).toBeLessThanOrEqual(at2k.mountedRows * 1.2 + 4);
+  expect(at20k.elements).toBeLessThanOrEqual(at2k.elements * 1.2 + 40);
+}, 600_000);
+
+// The summary card's Subagents section listed every subagent the chat ever ran (chat-100k-flat CASES=coordinator: 280
+// card elements at 2k records, 2,386 at 20k). It shows the first few, attention first, and "Show N more" for the rest,
+// which draws them as they scroll into view; nothing is lost.
+test("the summary card lists a bounded number of subagents, the rest one click away", async () => {
+  const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
+  type Agents = Parameters<typeof SubagentStatusList>[0]["agents"];
+  const agents = (n: number): Agents =>
+    Array.from({ length: n }, (_, index) => ({
+      id: `sub-${index}`,
+      parent: null,
+      name: `reviewer-${index}`,
+      state: index % 4 === 0 ? "running" : "completed",
+      startedAt: 1_700_000_000_000 + index * 1_000,
+      ...(index % 4 === 0 ? {} : { endedAt: 1_700_000_000_000 + index * 1_000 + 500 }),
+    }));
+  const host = dom.window.document.getElementById("root")!;
+  const lines = () => host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line").length;
+  const drawn: Record<number, { lines: number; elements: number }> = {};
+  for (const n of [40, 400]) {
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(<SubagentStatusList agents={agents(n)} waiting={new Set()} onOpen={() => {}} />),
+      );
+      drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
+      const more = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-summary-more")].find((button) =>
+        /more/.test(button.textContent ?? ""),
+      );
+      expect(more?.textContent).toBe(`Show ${n - drawn[n]!.lines} more`);
+      // Opened, the rest draw (as many as the window shows at once, the others as it scrolls), and it closes again.
+      await act(async () => more!.click());
+      expect(lines()).toBeGreaterThan(drawn[n]!.lines);
+      expect(more!.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => more!.click());
+      expect(lines()).toBe(drawn[n]!.lines);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+  console.log(`summary-subagents 40=${JSON.stringify(drawn[40])} 400=${JSON.stringify(drawn[400])}`);
+  expect(drawn[40]!.lines).toBeLessThanOrEqual(8);
+  expect(drawn[400]!.elements).toBe(drawn[40]!.elements);
+});
