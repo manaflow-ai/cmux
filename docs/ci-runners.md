@@ -1086,8 +1086,12 @@ every Blacksmith Linux size stopped at once, and those two jobs, pinned to
 `blacksmith-2vcpu-ubuntu-2404`, had nowhere else to run. Set it to a label
 that starts while Blacksmith Linux does not, for example
 `blacksmith-6vcpu-macos-26`; delete it to put them back on
-`blacksmith-2vcpu-ubuntu-2404`. The overflow watch runs on that macOS
-label; the tick and feed watch are plain bash, Python and gh (the tick hashes
+`blacksmith-2vcpu-ubuntu-2404`. A GitHub-hosted label (`ubuntu-*`,
+`macos-*`, `windows-*`) fails `scripts/ci/check_repo_variables.py` (every 15
+minutes): on 2026-11-18 it held `ubuntu-24.04`, hosted Ubuntu queued for hours
+on the organization's hosted concurrency, and neither job started, so no NEXT
+nightly was promoted. The overflow watch runs on
+`blacksmith-6vcpu-macos-26`; the tick and feed watch are plain bash, Python and gh (the tick hashes
 with `shasum` where `sha256sum` is missing) but had not run on macOS when this
 was added, so read the first run after setting it. `promote-nightly-next`
 stays on its literal Blacksmith Linux label, and the overflow watch on its
