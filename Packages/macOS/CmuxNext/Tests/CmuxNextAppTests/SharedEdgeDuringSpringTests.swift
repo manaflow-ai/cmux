@@ -34,8 +34,8 @@ import Testing
 /// - column A grows on a spring (a preset width) and, while it grows, a drag of A's edge shrinks it past where it
 ///   shows down to its minimum: no width ever goes below zero, and A changes 1:1 from where it showed;
 /// - a Shift release of the split and a new pane under c (a split of c) in the same layout pass while A's growth
-///   carries c: the new pane stays in c's column, at c's place and speed across the axis (the release's fling does not
-///   take it over);
+///   carries c: a split is one commit of one layout, so A's growth and the release's fling end with it. Every pane and
+///   divider rests on its place in the new layout, the new pane in c's column, and the next frame shows that layout;
 /// - a click on the divider during a release spring changes nothing (the press's catch is put back);
 /// - the same rule along the other axis and on a dock (#35036 review follow-ups): a top-and-bottom split whose divider
 ///   is grabbed while an equalize moves it, and a right dock whose inner edge is grabbed while the dock grows (the
@@ -65,7 +65,8 @@ struct SharedEdgeDuringSpringTests {
         case regrabDuringReleaseSpring
         /// Column A grows on a spring; a drag of its edge shrinks it to its minimum while it grows.
         case shrinkDuringGrowth
-        /// A Shift release of the split and a split of c land in one layout pass while A's key spring carries c.
+        /// A Shift release of the split and a split of c land in one layout pass while A's growth carries c: the split
+        /// is one commit, so both motions end with it and the next frame shows the new layout whole.
         case newPaneAtRelease
         /// A Shift release of the split springs onto a snap; a click on the divider while it springs (a press and a
         /// release, no move) changes nothing: the release's value stays and the spring goes on.
@@ -492,7 +493,8 @@ struct SharedEdgeDuringSpringTests {
         case .newPaneAtRelease:
             // Column A grows (a width change, not a key press: a key press trades width with B and C stays): B and C
             // slide on its spring. A Shift drag of the split, and in its release's turn a split of c (c2 under c):
-            // one layout pass makes the release and the new pane.
+            // one layout pass makes the release and the new pane. A split is one commit of one layout: A's growth and
+            // the release's fling end with it.
             rig.model.setColumnWidth("A", width: 0.37, transaction: .make(), phase: .ended)
             rig.root.syncWithModel()
             for tick in 1...3 { rig.frame(edges, "growth frame \(tick)") }
@@ -510,19 +512,19 @@ struct SharedEdgeDuringSpringTests {
             }
             let screen = try rig.screen
             let c = try #require(screen.paneFrames["c"]), c2 = try #require(screen.paneFrames["c2"], "the split of c made no c2")
-            #expect(c.x.velocity != 0, "A's growth no longer carries c")
-            // The new pane rides c across the axis: the release's fling does not give it a speed of its own.
-            #expect(abs(c2.x.velocity - c.x.velocity) < 0.5 && abs(c2.width.velocity - c.width.velocity) < 0.5,
-                    "c2 moves at x \(c2.x.velocity), width \(c2.width.velocity) pt/s; c at \(c.x.velocity), \(c.width.velocity)")
-            var frames = 0
-            repeat {
-                let upper = try #require(screen.paneFrames["c"]), lower = try #require(screen.paneFrames["c2"])
-                if abs(upper.rect.minX - lower.rect.minX) > Rig.edgeSlack || abs(upper.rect.maxX - lower.rect.maxX) > Rig.edgeSlack {
-                    rig.misses.append("arrival frame \(frames): c2 shows at x \(Rig.pt(lower.rect.minX))...\(Rig.pt(lower.rect.maxX)), c at \(Rig.pt(upper.rect.minX))...\(Rig.pt(upper.rect.maxX))")
-                }
-                frames += 1
-                rig.frame(edges, "arrival frame \(frames)")
-            } while frames < 30
+            // Nothing of the two motions is left: every frame rests on its place, the new pane in c's column.
+            #expect(!screen.hasMotion, "the split left a pane or a divider on the growth's or the release's spring")
+            #expect(abs(c.rect.minX - c2.rect.minX) <= Rig.edgeSlack && abs(c.rect.maxX - c2.rect.maxX) <= Rig.edgeSlack,
+                    "c2 rests at x \(Rig.pt(c2.rect.minX))...\(Rig.pt(c2.rect.maxX)), c at \(Rig.pt(c.rect.minX))...\(Rig.pt(c.rect.maxX))")
+            // The next frame shows that layout whole, each pane at its rest rect, and asks for no frame after it.
+            #expect(!rig.root.advanceFrame(1.0 / 120), "the frame that shows the split and the release asks for more frames")
+            rig.root.layoutSubtreeIfNeeded()
+            rig.ticks += 1
+            rig.check(edges, "the frame that shows the split")
+            for pane in screen.layout.panes {
+                #expect(rig.root.context.hosts[pane]?.frame == screen.displayedFrame(of: pane),
+                        "\(pane) is not at its rest rect in the frame that shows the split")
+            }
             rig.land(edges, "landing")
         case .releaseSpringThenKeyPress:
             // A Shift drag of the split from 0.3 toward 0.44: its release lands on the half, on a spring.

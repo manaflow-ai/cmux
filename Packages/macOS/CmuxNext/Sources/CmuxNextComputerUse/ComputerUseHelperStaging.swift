@@ -89,17 +89,39 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
     let operations: Operations
     let home: URL
     let fileSystem: FileSystem
+    /// The folder every copy of this kind lives under (`folder` must be inside it): the Computer
+    /// Use helpers' `root(home:)`, or the Screen Sharing helper's (`screenSharing`).
+    let root: URL
 
-    init(folder: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    init(folder: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser, root: URL? = nil,
          operations: Operations, fileSystem: FileSystem = .init()) {
         self.folder = folder
         self.operations = operations
         self.home = home
         self.fileSystem = fileSystem
+        self.root = root ?? Self.root(home: home)
+    }
+
+    /// The separate Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md), now
+    /// only the fallback for a DEV build and for builds made before `cmux-screen-sharing` moved into
+    /// the Computer Use helper (a release, NIGHTLY or RC build stages that one through ``legacy``):
+    /// `~/Library/Application Support/cmux-next/screen-sharing/<scope>/<its name>` (NEXT's own
+    /// folder, ``NextSupport``), checked against
+    /// the source's own designated requirement, as the Computer Use helper v2's copy is.
+    static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                              home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
+        let operations = Operations.system(verify: { copy, source in satisfiesDesignatedRequirement(copy, of: source) },
+                                           requirement: { designatedRequirement(of: $0) })
+        let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
+        let root = support.folder.appending(path: "screen-sharing", directoryHint: .isDirectory)
+        return ComputerUseHelperStaging(folder: root.appending(path: ComputerUseHelperDaemon.scope(bundleID), directoryHint: .isDirectory),
+                                        home: home, root: root, operations: operations)
     }
 
     /// The legacy helper's copy: `.../cmux-next/cmux-cua/helper/next-<scope>/cmux Computer Use.app`,
-    /// checked against the release helper's Developer ID requirement.
+    /// checked against the release helper's Developer ID requirement. Two roles stage this one
+    /// copy: the Computer Use daemon and the screen sharing host (its `cmux-screen-sharing` ships
+    /// inside the helper); ``stage(_:)`` takes them one at a time.
     static func legacy(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> ComputerUseHelperStaging {
         let operations = Operations.system(verify: { copy, _ in CuaHelperIdentity.satisfiesRequirement(copy) },
@@ -145,12 +167,45 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
 
     /// The copy of `source` to launch: the existing one when it matches, else
     /// a fresh verified copy. Nil when the copy cannot be made or verified.
+    ///
+    /// Stages of one copy take turns, through an exclusive lock on a file beside the folder
+    /// (`.<folder name>.stage-lock` in its parent). Two roles stage the same Computer Use helper
+    /// copy (the daemon and the screen sharing host): without turns both could find it stale and
+    /// copy, and the second swap would move the first's copy, possibly already launched, into
+    /// its own staging folder and delete it. In turn, the second finds the first's copy matching
+    /// and reuses it. A file lock holds across processes too, and is released when its
+    /// descriptor closes, however the stage ends.
     @concurrent func stage(_ source: URL) async -> URL? {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
         guard trustedFolder(create: true, logger: logger) else {
             logger.error("cmux Computer Use helper copy: \(folder.path, privacy: .public) is not a private directory of this user")
             return nil
         }
+        let path = folder.deletingLastPathComponent().appending(path: ".\(folder.lastPathComponent).stage-lock").path
+        let lock = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0 else {
+            logger.error("cmux Computer Use helper copy: cannot open the staging lock \(path, privacy: .public) (errno \(errno, privacy: .public))")
+            return nil
+        }
+        defer { close(lock) }
+        guard await Self.lockExclusively(lock) else { return nil }
+        return await stageInTurn(source, logger: logger)
+    }
+
+    /// Waits for the exclusive lock on `descriptor` on a dispatch worker, never on the Swift
+    /// concurrency pool: a waiting stage must not hold a pool thread the running stage needs.
+    private static func lockExclusively(_ descriptor: Int32) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                // concurrency-allow: a dispatch worker, never main or the pool; waits only while another stage of this one copy runs (a copy and a signature check)
+                var result = flock(descriptor, LOCK_EX)
+                while result != 0, errno == EINTR { result = flock(descriptor, LOCK_EX) }
+                continuation.resume(returning: result == 0)
+            }
+        }
+    }
+
+    @concurrent private func stageInTurn(_ source: URL, logger: Logger) async -> URL? {
         sweepStaleFolders()
         guard let wanted = operations.stamp(source) else {
             logger.error("cmux Computer Use helper copy: cannot read the signature of \(source.path, privacy: .public)")
@@ -218,7 +273,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         let expected = folder.absoluteURL
         let home = home.absoluteURL
         guard !expected.pathComponents.contains("."), !expected.pathComponents.contains(".."),
-              expected.path.hasPrefix(Self.root(home: home).path + "/"),
+              expected.path.hasPrefix(root.absoluteURL.path + "/"),
               fileSystem.resolve(home) == home.path else { return false }
         var directory = home
         for component in expected.pathComponents.dropFirst(home.pathComponents.count) {

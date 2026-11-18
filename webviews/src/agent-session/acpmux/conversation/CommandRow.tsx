@@ -10,7 +10,7 @@
 // (PreviewChip.tsx).
 import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState, useContext } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -23,7 +23,10 @@ import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare, OpenBook } from "./icons";
+import { ReadLabel } from "./ReadLabel";
+import { readFullPath, readPath } from "./readPath";
+import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
@@ -82,6 +85,10 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
   const said = commandSaid(t, tool, look);
+  // A finished read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
+  // the book, "Read <file name>", its full path on hover (ReadLabel.tsx).
+  const read = readPath(tool);
+  const cwd = useContext(SessionCwdContext);
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
   // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
   const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
@@ -94,7 +101,11 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   );
   // "Ran" in the run's verb column (ToolVerb.tsx), the command after it. A named action's words are
   // not the command, so Find skips them and opens the row to its Shell block instead.
-  const called = said ? (
+  const called = read ? (
+    <span data-find-skip>
+      <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+    </span>
+  ) : said ? (
     <span data-find-skip>
       <ToolLabel text={said} />
       {look === "verbs-command" && (
@@ -123,6 +134,20 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       </>
     ) : (
       called
+    );
+  // A read does not open, as the Codex app's reads: the book, its name, its path on hover.
+  if (read)
+    return (
+      <div className="cv-tool cv-command is-strong" data-tool-id={tool.id}>
+        <span className="cv-tool__icon">
+          <OpenBook />
+        </span>
+        <span className="cv-command__text">{called}</span>
+        <span className="cv-command__meta">
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+        </span>
+      </div>
     );
   return (
     <>

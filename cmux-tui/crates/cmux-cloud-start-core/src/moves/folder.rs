@@ -194,32 +194,36 @@ pub fn copy_step(answer: &CopyAnswer, last: bool) -> CopyStep {
     }
 }
 
-/// Which machine New Cloud Workspace (`cmux cloud new-workspace`) opens on. One workspace, one new
-/// small machine: with no machine named, a workspace gets a new machine of its own, never one
-/// picked from the machines already listed (a teammate's, a fleet lane VM).
+/// Which machine New Cloud Workspace (`cmux cloud new-workspace`, or the person's
+/// New Workspace > Cloud) opens on. One workspace, one new small machine: with no
+/// machine named, every new Cloud workspace gets a new machine of its own, never
+/// one already listed (running or paused, a teammate's, a fleet lane VM, one an
+/// earlier Cloud chat made) and never the one the active window shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "id", rename_all = "camelCase")]
 pub enum NewWorkspaceMachine {
     /// `--target machine:<id>`: that machine, refused when it is not there.
     Named(String),
-    /// The person's own gesture in a window that shows a Cloud machine.
+    /// Formerly the person's gesture in a window that showed a Cloud machine.
+    /// [`new_workspace_machine`] never answers it now; it stays only so the
+    /// App's decoder of this answer keeps its case.
     Focused(String),
     /// A new machine of the workspace's own.
     New,
 }
 
+/// `named` (an explicit `--target machine:<id>`) is kept; anything else is a new
+/// machine. `by_person` and `focused` (the machine the active window shows) are
+/// still read from the App's request but never pick a machine: a person's New
+/// Cloud Workspace gesture makes a new machine like any other.
 pub fn new_workspace_machine(
     named: Option<&str>,
-    by_person: bool,
-    focused: Option<&str>,
+    _by_person: bool,
+    _focused: Option<&str>,
 ) -> NewWorkspaceMachine {
-    match (
-        named.filter(|named| !named.is_empty()),
-        focused.filter(|focused| by_person && !focused.is_empty()),
-    ) {
-        (Some(named), _) => NewWorkspaceMachine::Named(named.to_owned()),
-        (None, Some(focused)) => NewWorkspaceMachine::Focused(focused.to_owned()),
-        (None, None) => NewWorkspaceMachine::New,
+    match named.filter(|named| !named.is_empty()) {
+        Some(named) => NewWorkspaceMachine::Named(named.to_owned()),
+        None => NewWorkspaceMachine::New,
     }
 }
 
