@@ -12,9 +12,8 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "Run on the fleet's Linux VM pool (glaeda-linux-arm64) instead of LINUX_RUNNER"
-        type: choice
-        options: ["", glaeda-linux-arm64]
+        description: "Runner label for this run (the fleet's Linux VM pool label); empty takes LINUX_RUNNER"
+        type: string
         default: ""
   push:
     branches: [main]
@@ -33,7 +32,7 @@ concurrency:
 jobs:
   drift:
     # Fork pull requests cannot use the private Blacksmith pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner == 'glaeda-linux-arm64' && 'glaeda-linux-arm64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
