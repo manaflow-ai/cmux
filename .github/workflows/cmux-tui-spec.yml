@@ -42,6 +42,7 @@ on:
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/theme/theme-ink-vectors.json"
+      - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
@@ -52,6 +53,7 @@ on:
       - "scripts/cmux-next/run-v2-gates.sh"
       - "scripts/cmux-next/tests/run-v2-gates.test.sh"
       - "scripts/cmux-next/v2-gates.d/**"
+      - "scripts/measure/screen-stream-eval/wifi-away-holds.json"
       - "webviews/src/agent-session/acpmux/rows/parity/*.changes.jsonl"
       - "webviews/src/pages/shared/generated/pageRouter.ts"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
@@ -275,7 +277,11 @@ jobs:
   # suites miss such a crate or one of its tests/ files. acpmux's own tests/v2_gate_home.rs
   # runs here as well: it is the only test build of the v2 gate registry (benches/v2/mod.rs),
   # no hosted job ran it, and #42725 left two of its tests red on base. The same Python test
-  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts. The job and
+  # asks for every tests/v2_*.rs of acpmux that holds a test a plain run starts.
+  # tests/permission_matrix.rs runs here too: every harness x access level x chat x host x
+  # default-policy combination a person meets, so a change to acpmux's permission handling
+  # shows its red on its own pull request (Leo, 2026-11-17: "we need to test out more of these
+  # permission related combinations in ci"). The job and
   # step keep their names: the scope step finds earlier runs by them.
   acpmux-tests:
     name: acpmux tests (lib, hub_integration)
@@ -376,7 +382,11 @@ jobs:
         working-directory: cmux-tui
         run: |
           output="$RUNNER_TEMP/acpmux-v2-bench.json"
-          cargo bench -q -p acpmux --bench v2 -- --output "$output"
+          # The test step's profile, not bench's (release: thin LTO, acpmux at one codegen unit).
+          # With no --measures the home only lists its rows and times nothing, so optimizing it
+          # bought nothing, and the release build was a second full build of acpmux and every
+          # dependency beside the test step's; under the test profile the test step reuses it.
+          cargo bench -q --profile test -p acpmux --bench v2 -- --output "$output"
           python3 - "$output" <<'PY'
           import json, sys
           with open(sys.argv[1], encoding="utf-8") as f:
@@ -399,7 +409,7 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --no-fail-fast)
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
@@ -422,9 +432,25 @@ jobs:
             echo "::group::replay ${#names[@]} failing test(s) on the merge parent ${BASE_SHA:0:12}"
             # The scope step fetched the merge parent; its build shares this target dir.
             if git worktree add --detach "$RUNNER_TEMP/acpmux-base" "$BASE_SHA"; then
+              # A test target the change adds is not on the merge parent, and cargo refuses the
+              # whole run for one unknown `--test`: every red then read as the change's own
+              # (#45327, which adds tests/permission_matrix.rs). The replay names only targets
+              # the parent has.
+              base_suites=()
+              for ((i = 0; i < ${#suites[@]}; i++)); do
+                if [[ "${suites[i]}" != --test ]]; then
+                  base_suites+=("${suites[i]}")
+                  continue
+                fi
+                i=$((i + 1))
+                if compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}.rs" ||
+                  compgen -G "$RUNNER_TEMP/acpmux-base/cmux-tui/crates/*/tests/${suites[i]}/main.rs"; then
+                  base_suites+=(--test "${suites[i]}")
+                fi > /dev/null
+              done
               (cd "$RUNNER_TEMP/acpmux-base/cmux-tui" &&
                 CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target" \
-                  cargo test "${suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
+                  cargo test "${base_suites[@]}" -- --exact "${names[@]}") > "$base_log" 2>&1 || true
             fi
             cat "$base_log" 2>/dev/null || true
             echo "::endgroup::"
@@ -650,7 +676,7 @@ jobs:
     needs: changes
     # A router that failed or was skipped never skips the job (a skip passes a required check).
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 40
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
     # cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
