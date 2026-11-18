@@ -126,8 +126,9 @@ case "$cmd" in
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
     # The default app is whatever someone once installed: a fleet Mac's /Applications/cmux NEXT.app was a Safari
     # download of a 2026-10-28 build that nothing updates, and each copy of it read inside ~/Downloads at launch
-    # (fixed in cmux#39862), so every new side instance put macOS's Downloads prompt on an unattended screen
-    # (cmux20, 2026-11-18). Named with --from, any build is copied (an older one is how a before look is taken).
+    # (before the LAUNCH-NO-TCC-PROMPTS fixes of 2026-10-30, #28820), so every new side instance put macOS's
+    # Downloads prompt on an unattended screen (cmux20, 2026-11-18). Named with --from, any build is copied (an
+    # older one is how a before look is taken).
     if [[ -z "$chosen" && -n "$(find "$from/Contents/Info.plist" -mtime +7 2>/dev/null)" ]]; then
       die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
     fi
