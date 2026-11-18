@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::link::sync_cli::local::permissions_of;
 use crate::link::sync_cli::place::Dir;
 use crate::link::sync_cli::pull::mode_bits;
-use crate::link::sync_cli::remote::refusal_code;
+use crate::link::sync_cli::remote::{Grew, READ_PART_BYTES, refusal_code};
 use crate::link::sync_cli::stat_walk::times_of;
 
 use super::disk::{self, Fold, Mac, Swap, With, same};
@@ -38,10 +38,11 @@ enum Bring<'a> {
     Link(&'a str),
 }
 
-/// A machine file looked at: its revision and synced permissions.
+/// A machine file looked at: its revision, synced permissions and size.
 struct Seen {
     revision: String,
     perm: u32,
+    size: u64,
 }
 
 impl Run<'_, '_> {
@@ -142,7 +143,8 @@ impl Run<'_, '_> {
         }
         let revision = stat.get("revision").and_then(Value::as_str).unwrap_or_default();
         let mode = stat.get("mode_display").and_then(Value::as_str).map_or(0o644, mode_bits);
-        Ok(Ok(Seen { revision: revision.to_owned(), perm: permissions_of(mode) }))
+        let size = stat.get("size").and_then(Value::as_u64).unwrap_or(0);
+        Ok(Ok(Seen { revision: revision.to_owned(), perm: permissions_of(mode), size }))
     }
 
     fn file(&mut self, path: &str, mac: &Mac, base: &Base) -> Result<(), Failure> {
@@ -171,7 +173,7 @@ impl Run<'_, '_> {
             return Ok(());
         }
         let plan = self.plan(path, mac, base)?;
-        let none = Seen { revision: String::new(), perm: 0 };
+        let none = Seen { revision: String::new(), perm: 0, size: 0 };
         self.land(path, &tag, mac, plan, &Bring::Link(text), none)
     }
 
@@ -408,6 +410,8 @@ impl Run<'_, '_> {
 
     /// Reads the machine's file at `path` into a file of this pull in `dir`, read again when it
     /// changed meanwhile; the staged name and what was read, or None (refused) when it cannot be.
+    /// No more is read than the size its stat gave plus one read part: past that the machine
+    /// is serving a file that keeps growing (or lying about it), refused as `machine_grew`.
     fn fetch(
         &mut self,
         path: &str,
@@ -417,7 +421,8 @@ impl Run<'_, '_> {
         let at = self.there(path);
         for _ in 0..3 {
             let (temp, mut file) = self.disk.temp(dir).map_err(|error| io_failure(&error))?;
-            let size = match self.remote.read_into(&at, &mut file) {
+            let max = seen.size.saturating_add(READ_PART_BYTES);
+            let size = match self.remote.read_into_at_most(&at, &mut file, max) {
                 Ok(Some(size)) => size,
                 Ok(None) => {
                     let _ = dir.unlink(&temp, false);
@@ -426,6 +431,10 @@ impl Run<'_, '_> {
                 }
                 Err(error) => {
                     let _ = dir.unlink(&temp, false);
+                    if error.downcast_ref::<Grew>().is_some() {
+                        self.refuse(path, "machine_grew");
+                        return Ok(None);
+                    }
                     if refusal_code(&error).is_none() {
                         return Err(fatal(&error));
                     }

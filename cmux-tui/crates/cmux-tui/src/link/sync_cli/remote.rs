@@ -121,6 +121,25 @@ impl std::fmt::Display for FsRefusal {
 
 impl std::error::Error for FsRefusal {}
 
+/// A file the machine served more bytes of than a bounded read takes
+/// ([`Remote::read_into_at_most`]).
+#[derive(Debug)]
+pub(super) struct Grew {
+    pub path: String,
+    pub max: u64,
+}
+
+impl std::fmt::Display for Grew {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} holds more than {} bytes", self.path, self.max)
+    }
+}
+
+impl std::error::Error for Grew {}
+
+/// One `fs.read` part's bytes: the slack a bounded read allows past a file's stat'ed size.
+pub(super) const READ_PART_BYTES: u64 = READ_BYTES;
+
 /// The connection to the machine dropped (it closed, or a read or write
 /// failed other than by timing out): a request that reads, or writes what it
 /// wrote before, is sent again on a new one ([`Remote::reconnect`]).
@@ -648,6 +667,17 @@ impl Remote {
         path: &str,
         out: &mut dyn Write,
     ) -> anyhow::Result<Option<u64>> {
+        self.read_into_at_most(path, out, u64::MAX)
+    }
+
+    /// [`Self::read_into`], refused with [`Grew`] (nothing past `max` written) when the file
+    /// holds more than `max` bytes.
+    pub(super) fn read_into_at_most(
+        &mut self,
+        path: &str,
+        out: &mut dyn Write,
+        max: u64,
+    ) -> anyhow::Result<Option<u64>> {
         let mut size = 0u64;
         loop {
             let answer = match self
@@ -669,6 +699,9 @@ impl Remote {
                 (None, None) => bail!("fs.read answered no bytes"),
             };
             size = size.checked_add(part.len() as u64).context("fs.read offset overflow")?;
+            if size > max {
+                return Err(Grew { path: path.to_owned(), max }.into());
+            }
             out.write_all(part)?;
             if answer["truncated"] != json!(true) {
                 return Ok(Some(size));

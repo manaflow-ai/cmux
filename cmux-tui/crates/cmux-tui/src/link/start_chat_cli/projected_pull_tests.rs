@@ -38,6 +38,8 @@ struct State {
     broken: BTreeSet<String>,
     /// Paths whose `fs.read` the machine refuses (an I/O error there).
     refusing: BTreeSet<String>,
+    /// Paths whose `fs.read` never ends: every answer is a part with more to come.
+    endless: BTreeSet<String>,
     /// Every path the Mac asked about.
     asked: Vec<String>,
 }
@@ -124,6 +126,11 @@ fn answer(request: &Value, state: &Mutex<State>) -> Option<Value> {
             if state.refusing.contains(&path) {
                 return Some(refuse("fs.io"));
             }
+            if state.endless.contains(&path) {
+                let part = base64::engine::general_purpose::STANDARD.encode(vec![b'x'; 1 << 20]);
+                return Some(json!({ "ok": true, "data": {
+                    "bytes_base64": part, "truncated": true, "size": u64::MAX } }));
+            }
             let Ok(bytes) = std::fs::read(&path) else { return Some(refuse("fs.not_found")) };
             let offset = usize::try_from(request["offset"].as_u64().unwrap()).unwrap();
             let max = usize::try_from(request["max_bytes"].as_u64().unwrap()).unwrap();
@@ -197,6 +204,7 @@ impl<'d> Fixture<'d> {
         state.upper.clear();
         state.broken.clear();
         state.refusing.clear();
+        state.endless.clear();
         state.asked.clear();
         drop(state);
         Fixture { _dir: dir, daemon, root, kept, machine, outside }
@@ -581,6 +589,23 @@ fn trust_writes_are_a_new_file_renamed_into_place() {
     let summary = f.pull();
     assert_eq!(summary["ok"], false, "{summary}");
     assert_eq!(f.mac("b.txt").unwrap(), b"old b");
+    let names = f.tree();
+    assert!(names.iter().all(|name| !name.contains(".cmux-pull")), "{names:?}");
+}
+
+#[test]
+fn trust_a_read_past_the_stated_size_is_refused_and_its_part_file_removed() {
+    let daemon = Daemon::start();
+    let f = Fixture::new(&daemon, &[("a.txt", b"old")]);
+    f.machine_write("big.bin", b"12 bytes said");
+    f.machine_write("a.txt", b"new");
+    let endless = f.machine.join("big.bin").display().to_string();
+    daemon.state().endless.insert(endless);
+    f.upper(&json!([change("a.txt", "file"), change("big.bin", "file")]));
+    let summary = f.pull();
+    assert_eq!(refused(ok(&summary)), [("big.bin".to_owned(), "machine_grew".to_owned())]);
+    assert_eq!(f.mac("big.bin"), None);
+    assert_eq!(f.mac("a.txt").unwrap(), b"new", "the rest of the pull goes on");
     let names = f.tree();
     assert!(names.iter().all(|name| !name.contains(".cmux-pull")), "{names:?}");
 }
