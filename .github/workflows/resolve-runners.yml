@@ -51,10 +51,10 @@ jobs:
     name: Resolve runner capabilities
     # Not the map: the job that resolves the fleet cannot depend on the map it
     # publishes. A fork takes the GitHub-hosted owner branch (no Blacksmith
-    # there). In manaflow-ai this is a declared light job (.github/runners.json
-    # hosted_light_jobs, about 5 s of work): GitHub-hosted Ubuntu on attempt 1,
-    # the CI_TRUSTED_RUNNER selector (Blacksmith by default) on a re-run, so a
-    # GitHub billing block still cannot stop the graph. No fromJSON(vars.*)
+    # there). In manaflow-ai (about 5 s of work) it takes the CI_TRUSTED_RUNNER
+    # selector (Blacksmith by default) on every attempt; it took GitHub-hosted
+    # Ubuntu on attempt 1 until 2026-11-18, when hosted runners left light jobs
+    # queued for hours (cmux#45735). No fromJSON(vars.*)
     # here: an unset variable would fail every caller's workflow. Attempt 1
     # took that selector alone, one Blacksmith size: on 2026-11-04 run
     # 41762274751 job 126357110864 sat unassigned on
