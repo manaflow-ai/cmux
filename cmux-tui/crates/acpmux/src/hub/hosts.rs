@@ -695,6 +695,16 @@ impl Hub {
                 return Ok(());
             }
         };
+        // The launch credential the agent started with, which this daemon never held: the agent
+        // it starts next for this chat (a wake from idle, a route switch) runs on it too, not on
+        // the machine's route (cloud journey "turn after resume", 2026-11-18). One the owner's Mac
+        // set since then stays.
+        if let Some(credential) = adopted.credential.clone() {
+            let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if held.is_none() {
+                *held = Some(credential);
+            }
+        }
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -1536,6 +1546,8 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            // Its host keeps it for a next daemon, which holds none (`adopt_held`).
+            credential: session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         };
         // The agent holder (`agent_host/custody.rs`): a harness that speaks ACP itself keeps its
         // turn through a host crash. A translated one still has its translator in the host.

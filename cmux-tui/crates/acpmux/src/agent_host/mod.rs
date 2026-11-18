@@ -136,6 +136,16 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The launch credential its harness started with ([`SpawnSpec::credential`]), for the
+        /// owner only: a next daemon holds none of its own (`agent_credentials.rs`), and an agent
+        /// it starts again (a wake from idle, a route switch) runs on this. Absent from a host
+        /// that predates it or started with none.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::agent_credentials::lenient"
+        )]
+        credential: Option<crate::agent_credentials::AgentCredential>,
     },
     Incompatible {
         min: u16,
@@ -243,6 +253,15 @@ pub struct SpawnSpec {
     /// neither (the holder off, or a daemon that predates it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holder: Option<HolderSpec>,
+    /// The session's Cloud launch credential (`agent_credentials.rs`), already in `env`: kept
+    /// apart so the host can hand it to the daemon that adopts it (`HostFrame::HostHello`). Like
+    /// `env`, never written to disk. None: the session has none (or a daemon that predates it).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::agent_credentials::lenient"
+    )]
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// `SpawnSpec::holder`: the host keeps an output ring and hands custody to its daemon.

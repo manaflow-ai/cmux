@@ -134,6 +134,7 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            credential: spec.credential.clone(),
         };
         // The agent holder (`agent_host/custody.rs`), as for a session's own host.
         #[cfg(unix)]

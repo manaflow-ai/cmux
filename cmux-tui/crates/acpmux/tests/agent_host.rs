@@ -68,6 +68,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         orphan_exit: None,
         prompt_suggestions_managed: None,
         holder: None,
+        credential: None,
     }
 }
 

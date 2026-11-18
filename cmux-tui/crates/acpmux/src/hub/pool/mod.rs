@@ -213,6 +213,9 @@ struct PoolSpec {
     key: PoolKey,
     spawn: HarnessProfile,
     draft: SessionMeta,
+    /// The Cloud credential a hinted entry warms with (cmux#45953), handed to its host so a
+    /// daemon that adopts the chat later takes it back (`agent_host::SpawnSpec::credential`).
+    credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// `_acpmux/prewarm`: the harness (and preset) the pane is about to use.
@@ -404,7 +407,7 @@ impl Hub {
             model,
             effort,
         };
-        Ok(PoolSpec { key, spawn, draft: draft.clone() })
+        Ok(PoolSpec { key, spawn, draft: draft.clone(), credential: credential.cloned() })
     }
 
     /// The spec for a new local session of `harness`/`preset` in `cwd`.

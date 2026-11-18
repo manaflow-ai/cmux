@@ -1435,6 +1435,8 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                // Only to the owner, whose token was just checked.
+                credential: self.spec.credential.clone(),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);

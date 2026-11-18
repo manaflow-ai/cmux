@@ -12,9 +12,11 @@
 //!
 //! The credential lives in memory, on its [`crate::hub::Session`] only: never in the session's
 //! meta, journal, transcript, events, snapshots or logs, and never in the machine's model-plane env
-//! file. A daemon that restarts forgets it; the agent host it hands over keeps the env it started
-//! with, and the Mac's next refresh sets it again. Without one the agent keeps today's coderouter
-//! route.
+//! file. A daemon that restarts forgets it; the agent host it hands over keeps it (in memory, from
+//! its spawn spec) and hands it to the next daemon that adopts it, over the host's owner-only
+//! socket, so an agent that daemon starts again for the chat (a wake from idle, a route switch)
+//! still runs on it; the Mac's next refresh sets it again too. Without one the agent keeps today's
+//! coderouter route.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider
@@ -116,6 +118,33 @@ impl std::fmt::Debug for AgentCredential {
             .field("names", &self.env.keys().collect::<Vec<_>>())
             .finish()
     }
+}
+
+/// `{env: {NAME: value}}` on the agent host's private wire only (`agent_host::SpawnSpec` and its
+/// `HostHello`): the host that runs the agent keeps the credential it started with, so a next
+/// daemon that adopts the host takes it back (`hub/hosts.rs` `adopt_held`). Read back through
+/// [`AgentCredential::parse`], so a host never hands a daemon anything a launch could not set.
+impl serde::Serialize for AgentCredential {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&serde_json::json!({"env": self.env}), s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AgentCredential {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = <Value as serde::Deserialize>::deserialize(d)?;
+        Self::parse(&value).map_err(|e| serde::de::Error::custom(e.message))
+    }
+}
+
+/// An optional credential on the agent host wire, read leniently: one this build would refuse (a
+/// name only a newer build takes) reads as none, so the frame that carries it (a host's hello, a
+/// spawn spec) still reads and the host is still adopted.
+pub fn lenient<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<AgentCredential>, D::Error> {
+    let value = <Option<Value> as serde::Deserialize>::deserialize(d)?;
+    Ok(value.and_then(|v| AgentCredential::parse(&v).ok()))
 }
 
 impl AgentCredential {
