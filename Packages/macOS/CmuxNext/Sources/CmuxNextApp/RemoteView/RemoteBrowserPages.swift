@@ -83,7 +83,7 @@ enum RemoteBrowserPages {
             } catch {
                 lastLocalFailure = String(describing: error)
                 guard let window = pane?.view.window else { return }
-                CmuxDialogCenter.shared.present(CmuxDialogSpec(title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
+                CmuxDialogCenter.shared.present(CmuxDialogSpec(usesTransientMaterial: true, title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
                                                                buttons: [.ok()]), in: .window(window)) { _ in }
             }
         }

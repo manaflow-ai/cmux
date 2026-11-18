@@ -54,6 +54,7 @@ export const automations = pgTable("automations", {
 	sourceStream: text("source_stream").notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("automations_team").using("btree", table.teamId.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
 ]);
@@ -74,6 +75,7 @@ export const installs = pgTable("installs", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("installs_user").using("btree", table.userId.asc().nullsLast().op("text_ops")),
 ]);
@@ -91,6 +93,7 @@ export const hosts = pgTable("hosts", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("hosts_team").using("btree", table.teamId.asc().nullsLast().op("text_ops")).where(sql`(deleted_at IS NULL)`),
 ]);
@@ -113,6 +116,7 @@ export const automationRuns = pgTable("automation_runs", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("automation_runs_automation").using("btree", table.automationId.asc().nullsLast().op("text_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
 	index("automation_runs_team").using("btree", table.teamId.asc().nullsLast().op("text_ops"), table.createdAt.desc().nullsFirst().op("text_ops")),
@@ -134,6 +138,7 @@ export const connections = pgTable("connections", {
 	sourceStream: text("source_stream").notNull(),
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("connections_account").using("btree", table.accountKey.asc().nullsLast().op("text_ops")).where(sql`(account_key IS NOT NULL)`),
 	index("connections_team").using("btree", table.teamId.asc().nullsLast().op("text_ops")),
@@ -155,6 +160,7 @@ export const homeConversations = pgTable("home_conversations", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("home_conversations_team").using("btree", table.teamId.asc().nullsLast().op("text_ops"), table.lastAt.desc().nullsFirst().op("text_ops")).where(sql`(team_id IS NOT NULL)`),
 	check("home_conversations_kind_check", sql`kind = ANY (ARRAY['chief'::text, 'dm'::text, 'group'::text])`),
@@ -178,6 +184,7 @@ export const homeInvites = pgTable("home_invites", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("home_invites_address").using("btree", table.addressId.asc().nullsLast().op("text_ops"), table.createdAt.desc().nullsFirst().op("timestamptz_ops")),
 	index("home_invites_conversation").using("btree", table.conversationId.asc().nullsLast().op("text_ops")),
@@ -212,6 +219,7 @@ export const homeParticipants = pgTable("home_participants", {
 	// You can use { mode: "bigint" } if numbers are exceeding js number limitations
 	sourceSeq: bigint("source_seq", { mode: "number" }).notNull(),
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	space: text().default('').notNull(),
 }, (table) => [
 	index("home_participants_member").using("btree", table.participantId.asc().nullsLast().op("text_ops"), table.conversationId.asc().nullsLast().op("text_ops")).where(sql`(left_at IS NULL)`),
 	primaryKey({ columns: [table.conversationId, table.participantId], name: "home_participants_pkey"}),
