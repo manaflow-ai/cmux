@@ -278,8 +278,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         }, token);
       const page = await open(BUSY, width);
       try {
-        // This line follows subagent steps. Counts must not change that 22px context.
-        const withCounts = await measure(page, "--cv-tool-row-height");
+        // This line follows subagent steps: the live line's box in a run (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
+        // Counts must not change it.
+        const withCounts = await measure(page, "--cv-live-step-height");
         expect(withCounts.height).toBe(withCounts.oneLine);
         expect(withCounts.labelHeight).toBe(20);
         expect(withCounts.labelLeft).toBe(0);
@@ -288,7 +289,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         await counts.evaluateAll((nodes) => {
           for (const node of nodes) (node as HTMLElement).style.display = "none";
         });
-        expect(await measure(page, "--cv-tool-row-height")).toEqual(withCounts);
+        expect(await measure(page, "--cv-live-step-height")).toEqual(withCounts);
       } finally {
         await page.close();
       }

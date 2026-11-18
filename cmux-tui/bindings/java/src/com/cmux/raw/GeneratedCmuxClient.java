@@ -593,6 +593,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object floatPane(FloatPaneRequest request) throws CmuxException {
+        Object result = execute(Commands.FLOAT_PANE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
@@ -983,6 +988,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object putSession(PutSessionRequest request) throws CmuxException {
         Object result = execute(Commands.PUT_SESSION, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object quickTerminal(QuickTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.QUICK_TERMINAL, request.toWire());
         return Wire.immutableJson(result);
     }
 

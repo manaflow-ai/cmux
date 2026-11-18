@@ -96,6 +96,8 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
             'mode="$1"; work="$2"; out="$3"; summary="$out/SUMMARY.md"\n'
             'device_type="test-device"; runtime="test-runtime"\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
+            # The script's own sim_create (stock here: no worker helper in the env).
+            + script[script.index("# sim_create NAME"):script.index("# --- end sim_create")]
             + script[start:end] + "\n" + script[status:],
             encoding="utf-8",
         )

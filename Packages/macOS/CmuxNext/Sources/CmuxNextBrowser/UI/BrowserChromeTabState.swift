@@ -23,6 +23,11 @@ public final class BrowserChromeTabState: Sendable {
         get { loads.onPageFinished }
         set { loads.onPageFinished = newValue }
     }
+    /// Each main-frame URL the tab commits, once (`BrowserPageLoads.onPageCommitted`).
+    public var onPageCommitted: ((URL) -> Void)? {
+        get { loads.onPageCommitted }
+        set { loads.onPageCommitted = newValue }
+    }
     public var loadOverride: ((URL) -> Bool)? { didSet { chrome?.loadOverride = loadOverride } }
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)? { didSet { chrome?.onOpenURL = onOpenURL } }
     public var onTypedCommit: (() -> Void)? { didSet { chrome?.onTypedCommit = onTypedCommit } }

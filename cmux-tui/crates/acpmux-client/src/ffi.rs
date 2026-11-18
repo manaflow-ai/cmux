@@ -5,7 +5,10 @@
 //! the ABI boundary.
 
 use crate::chat::{ChatBlobRequest, ChatChange, ChatPageRequest, ChatSubRequest};
-use crate::page::{DriverError, InvalidCode, ListDriver, NextRequest, OpenRequest, PageRequest};
+use crate::page::{
+    CloseRequest, DriverError, InvalidCode, ListDriver, MAX_REQUEST_BYTES, NextRequest,
+    OpenRequest, PageRequest,
+};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -64,6 +67,16 @@ fn page_error(error: DriverError) -> i32 {
             InvalidCode::Request | InvalidCode::Page | InvalidCode::Unsupported,
         ) => ACPMUX_PAGE_ERR_REQUEST,
         DriverError::Invalid(InvalidCode::Protocol(_)) => ACPMUX_CLIENT_ERR_INVALID,
+    }
+}
+
+pub fn page_error_text(status: i32) -> Option<&'static str> {
+    match status {
+        ACPMUX_PAGE_ERR_BUSY => Some("list.busy"),
+        ACPMUX_PAGE_ERR_LIMIT => Some("list.limit"),
+        ACPMUX_PAGE_ERR_SID => Some("list.sid"),
+        ACPMUX_PAGE_ERR_REQUEST => Some("list.request"),
+        _ => None,
     }
 }
 
@@ -792,7 +805,10 @@ pub unsafe extern "C" fn acpmux_page_driver_taken(handle: *mut c_void, number: u
     })
 }
 
-/// Opens a list subscription from a JSON `Sub` and returns `{ "sid": ... }`.
+/// Opens a list subscription from `{ "sid": ..., "view": ... }` and returns `{ "sid": ... }`.
+/// A successful call returns `ACPMUX_CLIENT_OK`; an over-limit call returns
+/// `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`), and an invalid page contract returns
+/// `ACPMUX_PAGE_ERR_REQUEST` (`list.request`).
 ///
 /// # Safety
 /// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -804,6 +820,9 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -823,7 +842,9 @@ pub unsafe extern "C" fn acpmux_page_driver_open(
     })
 }
 
-/// Closes a page list subscription from `{ "sid": ... }`.
+/// Closes a page list subscription from `{ "sid": ... }`, or one question from
+/// `{ "sid": ..., "id": ... }`. A missing sid or question returns
+/// `ACPMUX_PAGE_ERR_SID` (`list.sid`).
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -834,26 +855,32 @@ pub unsafe extern "C" fn acpmux_page_driver_close(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
         };
-        let value = match serde_json::from_slice::<Value>(bytes) {
-            Ok(value) => value,
+        let request = match serde_json::from_slice::<CloseRequest>(bytes) {
+            Ok(request) => request,
             Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
-        };
-        let Some(sid) = value.get("sid").and_then(Value::as_str) else {
-            return ACPMUX_CLIENT_ERR_INVALID;
         };
         let driver = match page_driver_mut(handle) {
             Ok(driver) => driver,
             Err(error) => return error,
         };
-        driver.close(sid).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
+        match request.id {
+            Some(id) => driver
+                .close_question(&request.sid, &id)
+                .map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
+            None => driver.close(&request.sid).map_or_else(page_error, |_| ACPMUX_CLIENT_OK),
+        }
     })
 }
 
-/// Adds wanted keys from `{ "sid": ..., "keys": [...] }`.
+/// Adds wanted keys from `{ "sid": ..., "keys": [...] }`. More than 4,096 keys
+/// or a request over 1 MiB returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`).
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -864,6 +891,9 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -880,7 +910,8 @@ pub unsafe extern "C" fn acpmux_page_driver_want(
     })
 }
 
-/// Removes wanted keys from `{ "sid": ..., "keys": [...] }`.
+/// Removes wanted keys from `{ "sid": ..., "keys": [...] }`. More than 4,096 keys
+/// or a request over 1 MiB returns `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`).
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -891,6 +922,9 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -907,7 +941,11 @@ pub unsafe extern "C" fn acpmux_page_driver_unwant(
     })
 }
 
-/// Starts a bounded page question from a `Page`, returning `{ "id": ... }`.
+/// Starts a bounded page question from a page request, returning `{ "id": ... }`.
+/// A busy sid returns `ACPMUX_PAGE_ERR_BUSY` (`list.busy`); row, question or
+/// request bounds return `ACPMUX_PAGE_ERR_LIMIT` (`list.limit`); a missing sid
+/// returns `ACPMUX_PAGE_ERR_SID` (`list.sid`); and a malformed page contract
+/// returns `ACPMUX_PAGE_ERR_REQUEST` (`list.request`).
 ///
 /// # Safety
 /// `handle` and `out` are owned pointers; `request..request+request_len` is readable.
@@ -919,6 +957,9 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
     out: *mut Bytes,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -938,7 +979,8 @@ pub unsafe extern "C" fn acpmux_page_driver_page(
     })
 }
 
-/// Requests the next page of `{ "id": ... }`; continuation remains in Rust.
+/// Requests the next page of `{ "sid": ..., "id": ... }`; continuation remains in Rust.
+/// The same `list.busy`, `list.limit` and `list.sid` status meanings apply.
 ///
 /// # Safety
 /// `handle` is null or a live page-driver handle; `request..request+request_len` is readable.
@@ -949,6 +991,9 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
     request_len: usize,
 ) -> i32 {
     guarded(|| {
+        if request_len > MAX_REQUEST_BYTES {
+            return ACPMUX_PAGE_ERR_LIMIT;
+        }
         let bytes = match request_bytes(request, request_len) {
             Ok(bytes) => bytes,
             Err(error) => return error,
@@ -963,4 +1008,17 @@ pub unsafe extern "C" fn acpmux_page_driver_next(
         };
         driver.next(&request.sid, &request.id).map_or_else(page_error, |_| ACPMUX_CLIENT_OK)
     })
+}
+
+/// Returns the stable page error code text for a page status in `out`.
+///
+/// # Safety
+/// `out` is an owned writable pointer; callers free its bytes with
+/// `acpmux_client_bytes_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_page_driver_error_code(status: i32, out: *mut Bytes) -> i32 {
+    let Some(code) = page_error_text(status) else {
+        return ACPMUX_CLIENT_ERR_INVALID;
+    };
+    output(out, code.as_bytes().to_vec())
 }

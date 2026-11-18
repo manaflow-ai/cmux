@@ -46,59 +46,76 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
   });
 
   const measure = (page: Page, newTab: boolean) =>
-    page.evaluate((newTab) => {
-      const read = () => {
-        const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
-        const bounds = box.getBoundingClientRect();
-        const paragraph = box.querySelector(".ProseMirror > p")!;
-        const text = paragraph.getBoundingClientRect();
-        const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
-        // Read the first glyph without moving the typing caret or changing scroll state.
-        const first = document.createRange();
-        first.setStart(paragraph.firstChild!, 0);
-        first.setEnd(paragraph.firstChild!, 1);
-        const glyph = first.getBoundingClientRect();
-        const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
-        const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
-        const suggestions = document.querySelector(".nt-popover");
-        const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
-        return {
-          width: text.width,
-          lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
-          line,
-          top: bounds.top,
-          height: bounds.height,
-          firstLineTop: text.top - bounds.top,
-          glyphTop: glyph.top - bounds.top,
-          scrollTop: field.scrollTop,
-          editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
-          moving: field.getAnimations().length > 0,
-          strip: strip?.getBoundingClientRect().top,
-          foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
-          suggestions: suggestions
-            ? suggestions.getBoundingClientRect().top - anchor.getBoundingClientRect().bottom
-            : undefined,
-          devicePixelRatio: window.devicePixelRatio,
-          controls: [
-            ...box.querySelectorAll(
-              ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
-            ),
-          ]
-            .filter((control) => control.getBoundingClientRect().width > 0)
-            .map((control) => {
-              const rect = control.getBoundingClientRect();
-              return { left: rect.left - bounds.left, top: rect.top - bounds.top, bottom: bounds.bottom - rect.bottom };
-            }),
+    page.evaluate(
+      ({ newTab, gap }) => {
+        const read = () => {
+          const box = document.querySelector(newTab ? ".nt-box" : ".acpmux-composer-box")!;
+          const bounds = box.getBoundingClientRect();
+          const paragraph = box.querySelector(".ProseMirror > p")!;
+          const text = paragraph.getBoundingClientRect();
+          const field = box.querySelector<MarkdownFieldElement>(".acpmux-md-field")!;
+          // Read the first glyph without moving the typing caret or changing scroll state.
+          const first = document.createRange();
+          first.setStart(paragraph.firstChild!, 0);
+          first.setEnd(paragraph.firstChild!, 1);
+          const glyph = first.getBoundingClientRect();
+          const line = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+          const strip = document.querySelector(newTab ? ".nt-above" : ".acpmux-composer-strip");
+          const suggestions = document.querySelector(".nt-popover");
+          const anchor = box.querySelector(".nt-input[data-split]") ? box.closest(".nt-composer")! : box;
+          let anchorBottom = anchor.getBoundingClientRect().bottom;
+          if (anchor !== box) {
+            const labels = anchor.querySelectorAll(
+              ".nt-foot .acpmux-mode-text, .nt-foot .acpmux-model-name, .nt-foot .acpmux-model-short",
+            );
+            for (const label of labels) {
+              const rect = label.getBoundingClientRect();
+              if (rect.height === 0 || getComputedStyle(label).visibility !== "visible") continue;
+              anchorBottom = rect.top + rect.bottom - bounds.bottom - gap;
+              break;
+            }
+          }
+          return {
+            width: text.width,
+            lines: Math.round((paragraph as HTMLElement).offsetHeight / line),
+            line,
+            top: bounds.top,
+            height: bounds.height,
+            firstLineTop: text.top - bounds.top,
+            glyphTop: glyph.top - bounds.top,
+            scrollTop: field.scrollTop,
+            editorScrollTop: box.querySelector<HTMLElement>(".ProseMirror")!.scrollTop,
+            moving: field.getAnimations().length > 0,
+            strip: strip?.getBoundingClientRect().top,
+            foot: document.querySelector(".nt-foot")?.getBoundingClientRect().top,
+            suggestions: suggestions ? suggestions.getBoundingClientRect().top - anchorBottom : undefined,
+            devicePixelRatio: window.devicePixelRatio,
+            controls: [
+              ...box.querySelectorAll(
+                ".acpmux-newtab-plus button, .acpmux-composer-plus button, .acpmux-mic, .acpmux-send",
+              ),
+            ]
+              .filter((control) => control.getBoundingClientRect().width > 0)
+              .map((control) => {
+                const rect = control.getBoundingClientRect();
+                return {
+                  left: rect.left - bounds.left,
+                  top: rect.top - bounds.top,
+                  bottom: bounds.bottom - rect.bottom,
+                };
+              }),
+          };
         };
-      };
-      Object.assign(window, { cmuxReadComposerGeometry: read });
-      return new Promise<ReturnType<typeof read>>((resolve) => {
-        window.cmuxAfterPaint(() => {
-          resolve(read());
-          return false;
+        Object.assign(window, { cmuxReadComposerGeometry: read });
+        return new Promise<ReturnType<typeof read>>((resolve) => {
+          window.cmuxAfterPaint(() => {
+            resolve(read());
+            return false;
+          });
         });
-      });
-    }, newTab);
+      },
+      { newTab, gap: UI_ANCHOR_GAP },
+    );
 
   const frame = (page: Page) => page.evaluate(() => window.cmuxPaintFrame());
   type Measurement = Awaited<ReturnType<typeof measure>>;
