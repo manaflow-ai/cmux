@@ -3346,8 +3346,7 @@ export function layoutConversation(
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   /// `all`: every row away from the view keeps its last height, prepared or not, whatever it draws: a
   /// new box width (a divider that held, a window edge, a sidebar) then costs the rows near the view
-  /// whatever the chat's length. Re-laying out every prepared row there cost a 700-turn chat most of
-  /// a second at each width (Leo, 2026-11-18: "claude code desktop vs cmux next :( / we SLOW :(").
+  /// whatever the chat's length, not every prepared row and every row with no text again.
   near?: { from: number; to: number; all?: boolean },
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
