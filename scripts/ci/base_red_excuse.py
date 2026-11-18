@@ -6418,6 +6418,55 @@ def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: st
                       f"({want[:12]}): it tested another base or head. Run ws-check again at this head")
 
 
+# A moved run (2026-11-18, WS_CHECK_MOVE_S). A cmux-ci run that sits queued with no runner on its label is moved: its
+# dispatcher (the lane-gh broker's ci_reroute, or cmux-ci test's reroute, hq scripts/lib/testbox_test.py finish_move)
+# dispatches the same body again on another label (the build fleet's, or Blacksmith's), then cancels the stuck run.
+# ws-check run 44334431026 was moved so, its `ws-check` status still linked it, and it read "cancelled: no result to
+# read", so no red judged there could be excused as a base red. The replacement carries the stuck run's run-name
+# (WS_CHECK_RUN_NAME: the snapshot, and the broker's job id; the runner is not in it), so it is the later
+# fast-checks.yml workflow_dispatch run of exactly that name, made after the stuck run and before WS_CHECK_MOVE_S past
+# its cancel. A replacement cancelled in turn (moved again) is passed over; the one with a verdict decides, and is then
+# held to every check a linked run is (its WS_CHECK_RESULT, receipt and the status's counts). Two with a verdict are
+# refused (which one the status meant is unknown), one still running is no result yet, and a cancelled run with no
+# replacement, or one with no cmux-ci run-name (fleet-reconciler's, one run for many heads), stays no result.
+WS_CHECK_WORKFLOW = "fast-checks.yml"
+WS_CHECK_MOVE_S = 900
+
+
+def ws_check_moved_run(host: str, run: dict, github) -> tuple[dict | None, str]:
+    """(the run cancelled RUN was moved to, "") by the rule above; (None, why none) when RUN has a cmux-ci run-name
+    and no replacement was made; (None, "") when RUN is not a run that is moved. Refused when two runs could be it."""
+    title = str(run.get("display_title") or "")
+    start, cancelled = created(run), created({"created_at": run.get("updated_at")})
+    path = run.get("path")
+    if (not re.fullmatch(WS_CHECK_RUN_NAME.format("[0-9a-f]{40}"), title) or start is None or cancelled is None
+            or run.get("event") not in (None, "workflow_dispatch")
+            or (path is not None and not str(path).endswith(f"/{WS_CHECK_WORKFLOW}"))):
+        return None, ""
+    until = cancelled + timedelta(seconds=WS_CHECK_MOVE_S)
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+    listed = github.json(f"repos/{host}/actions/workflows/{WS_CHECK_WORKFLOW}/runs?event=workflow_dispatch"
+                         f"&created={start.strftime(stamp)}..{until.strftime(stamp)}&per_page=100", paginate=True)
+    pages = listed if isinstance(listed, list) else [listed]
+    later = sorted((found for page in pages if isinstance(page, dict) for found in page.get("workflow_runs") or []
+                    if isinstance(found, dict) and found.get("display_title") == title
+                    and isinstance(found.get("id"), int) and found["id"] > int(run.get("id") or 0)
+                    and (when := created(found)) is not None and start <= when <= until
+                    and (path is None or found.get("path") in (None, path))), key=lambda found: found["id"])
+    judged = [found for found in later
+              if found.get("status") == "completed" and found.get("conclusion") in ("success", "failure")]
+    if len(judged) > 1:
+        raise Refused(f"run {run.get('id')} was moved, but {len(judged)} runs carry its run-name after it "
+                      f"({', '.join(str(found['id']) for found in judged)}): which one holds its verdict is unknown")
+    if judged:
+        return judged[0], ""
+    running = [found for found in later if found.get("status") != "completed"]
+    if running:
+        return running[-1], ""
+    return None, (f"no run took its run-name after it (no move to another label within {WS_CHECK_MOVE_S} s of its "
+                  "cancel)")
+
+
 def ws_check_status(repo: str, sha: str, github) -> dict | None:
     statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
     # The combined status lists the newest per context.
@@ -6522,18 +6571,36 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", found["url"])
     if not link:
         raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run")
-    run = github.json(f"repos/{host}/actions/runs/{link[1]}")
-    jobs = last_real_jobs(host, int(link[1]), github)
-    # fleet-reconciler-ws-check.yml runs one check job per head, named for it; fast-checks.yml runs one, `checks`.
-    picked = ([job for job in jobs if sha in (job.get("name") or "")]
-              or [job for job in jobs if job.get("name") == "checks"])
+    run_id = link[1]
+    run = github.json(f"repos/{host}/actions/runs/{run_id}")
+
+    def checks(run_id: str) -> list[dict]:
+        jobs = last_real_jobs(host, int(run_id), github)
+        # fleet-reconciler-ws-check.yml runs one check job per head, named for it; fast-checks.yml runs one, `checks`.
+        return ([job for job in jobs if sha in (job.get("name") or "")]
+                or [job for job in jobs if job.get("name") == "checks"])
+
+    def judged(job: dict) -> bool:
+        return job.get("status") == "completed" and job.get("conclusion") in ("success", "failure")
+
+    picked, moved, unmoved = checks(run_id), "", ""
+    if (isinstance(run, dict) and run.get("status") == "completed" and run.get("conclusion") == "cancelled"
+            and not any(judged(job) for job in picked)):
+        # A cancelled run its dispatcher moved to another label: the replacement holds the verdict (WS_CHECK_MOVE_S).
+        successor, unmoved = ws_check_moved_run(host, run, github)
+        if successor is not None:
+            moved = f"run {run_id} moved to run {successor['id']}; "
+            found["url"] = f"https://github.com/{host}/actions/runs/{successor['id']}, moved from run {run_id}"
+            run_id, run = str(successor["id"]), successor
+            picked = checks(run_id)
     if len(picked) != 1:
-        raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
+        raise Refused(f"{where}: {moved}run {run_id} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
-    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
+    if not judged(job):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
-        return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
-                                       f"{job.get('conclusion')}: no result to read")
+        return "none", dict(found, why=f"{moved}job '{job.get('name')}' in run {run_id} is {job.get('status')}/"
+                                       f"{job.get('conclusion')}: no result to read"
+                                       + (f"; {unmoved}" if unmoved else ""))
     lines = lines_of(github.log(host, job))
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:
@@ -6543,7 +6610,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     failed = result.get("failed") if isinstance(result, dict) else None
     if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
             or result.get("ok") is not False or len(set(failed)) != len(failed)):
-        raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
+        raise Refused(f"{where}: run {run_id} has no WS_CHECK_RESULT line listing its failed steps")
     if result.get("head") != sha:
         # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
@@ -6552,15 +6619,15 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         except ValueError:
             receipt = {}
         if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
-                and str(receipt.get("run_id")) == link[1]
+                and str(receipt.get("run_id")) == run_id
                 and re.fullmatch(WS_CHECK_RUN_NAME.format(re.escape(str(result.get("head")))),
                                  run.get("display_title") or "")):
-            raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+            raise Refused(f"{where}: the WS_CHECK_RESULT of run {run_id} is from another checkout")
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
-        found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
+        found["snapshot"] = {"run": run_id, "tree": receipt.get("source_tree")}
     if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not ws_check_names_step(named[3], failed[0]):
-        raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")
+        raise Refused(f"{where}: its status (\"{description}\") does not match run {run_id}'s WS_CHECK_RESULT")
     steps = {}
     for step in failed:
         # The step's red result lines, one per red unit ("STEP" alone from a runner before units, else "STEP [UNIT]"),
@@ -6568,7 +6635,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         result = re.compile(re.escape(f"ws-check step FAILED: {step}") + f"({WS_CHECK_UNIT})" + r" \(exit ")
         ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
         if not ends:
-            raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
+            raise Refused(f"{where}: run {run_id} has no 'ws-check step FAILED: {step}' line")
         tests, printed, failures = set(), set(), {}
         try:
             for end, unit in ends:
@@ -6582,7 +6649,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 for test, body in red["failures"].items():
                     failures.setdefault(f"[{suite}] {test}" if suite else test, set()).update(body)
         except Refused as error:
-            raise Refused(f"{where}: run {link[1]}: {error}") from None
+            raise Refused(f"{where}: run {run_id}: {error}") from None
         steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed),
                        "failures": {test: frozenset(body) for test, body in failures.items()}}
     return "fail", dict(found, steps=steps)
