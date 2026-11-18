@@ -24,7 +24,7 @@ import {
   type Ref,
   type UIEventHandler,
 } from "react";
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
 import "./popupSurface.css";
@@ -136,11 +136,50 @@ export function Listbox<T>({
   const [firstRowPx, setFirstRowPx] = useState(0);
   const [rowGap, setRowGap] = useState(0);
   const estimate = firstRowPx || ESTIMATED_ROW_PX;
+  // Bumped when every mounted row changed height at once (an interface scale, text size or look
+  // change): the rows laid out again from a new estimate. A new key function is what makes the
+  // library lay the rows out again; it stays the same over a hover or a scroll step.
+  const [resized, setResized] = useState(0);
+  const getItemKey = useCallback(
+    (index: number) => (items[index] === undefined ? index : getKey(items[index])),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `resized` and `estimate` re-lay the rows.
+    [items, getKey, resized, estimate],
+  );
+  const resizes = useRef({ changed: 0, fresh: 0, queued: false });
+  // A mounted row's new height. When every mounted row changed in one round of resizes, the rows
+  // not mounted are taken as the first of them again, rather than keeping the old heights until
+  // each is scrolled to. One row changing (a line added to it) leaves the others as they are.
+  function noteResize(instance: Virtualizer<HTMLDivElement, Element>, element: Element, size: number) {
+    // A row at the estimate has no size of its own (the library keeps the sizes that differ).
+    const key = instance.options.getItemKey(instance.indexFromElement(element));
+    if ((instance.itemSizeCache.get(key) ?? estimate) === size) return;
+    const round = resizes.current;
+    if (round.changed === 0) round.fresh = size;
+    round.changed += 1;
+    if (round.queued) return;
+    round.queued = true;
+    queueMicrotask(() => {
+      const { changed, fresh } = round;
+      round.changed = 0;
+      round.queued = false;
+      let mounted = 0;
+      for (const node of instance.elementsCache.values()) if (node.isConnected) mounted += 1;
+      if (changed < 2 || changed < mounted) return;
+      for (const key of instance.itemSizeCache.keys()) {
+        if (!instance.elementsCache.get(key)?.isConnected) instance.itemSizeCache.delete(key);
+      }
+      const node = scroller.current;
+      const gap = node ? Number.parseFloat(getComputedStyle(node).rowGap) : 0;
+      setRowGap(Number.isFinite(gap) && gap > 0 ? gap : 0);
+      setFirstRowPx(fresh);
+      setResized((count) => count + 1);
+    });
+  }
   const virtualizer = useVirtualizer<HTMLDivElement, Element>({
     count: ownWindow ? items.length : 0,
     getScrollElement: () => scroller.current,
     estimateSize: () => estimate,
-    getItemKey: (index) => (items[index] === undefined ? index : getKey(items[index])),
+    getItemKey,
     gap: rowGap,
     initialRect: INITIAL_VIEW,
     // One viewport of rows each side.
@@ -161,7 +200,11 @@ export function Listbox<T>({
     // no layout measures 0: keep the estimate there.
     measureElement: (element, entry, instance) => {
       const box = entry?.borderBoxSize?.[0];
-      if (box) return box.blockSize || estimate;
+      if (box) {
+        const size = box.blockSize || estimate;
+        noteResize(instance, element, size);
+        return size;
+      }
       if (!entry) {
         const cached = instance.itemSizeCache.get(instance.options.getItemKey(instance.indexFromElement(element)));
         if (cached !== undefined) return cached;
@@ -367,7 +410,7 @@ const ListboxRow = memo(
           onOpen(index);
         }}
       >
-        <ListboxRowContent item={item} renderItem={renderItem} content={content} />
+        <ListboxRowContent index={index} item={item} renderItem={renderItem} content={content} />
       </div>
     );
   },
@@ -385,13 +428,17 @@ const ListboxRow = memo(
   },
 );
 
-/** The row's content on its own: a highlight change re-renders the row, not what it draws. */
+/** The row's content on its own: a highlight change re-renders the row, not what it draws. The
+ * same item drawn by the same callback is the same content only at the same index: a row moved
+ * to a new place may draw its place (a number, a shortcut hint). */
 const ListboxRowContent = memo(
-  function ListboxRowContent({ content }: { item: unknown; renderItem: unknown; content: ReactNode }) {
+  function ListboxRowContent({ content }: { index: number; item: unknown; renderItem: unknown; content: ReactNode }) {
     return content;
   },
   (previous, next) =>
-    (Object.is(previous.item, next.item) && Object.is(previous.renderItem, next.renderItem)) ||
+    (previous.index === next.index &&
+      Object.is(previous.item, next.item) &&
+      Object.is(previous.renderItem, next.renderItem)) ||
     sameDrawn(previous.content, next.content),
 );
 
