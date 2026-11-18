@@ -222,7 +222,9 @@ class Wiring(unittest.TestCase):
         # (tests/test_nightly_one_mini.py), so it never waits longer than decide would.
         self.assertEqual(runs_on, workflow_jobs.single_runs_on(self.JOBS["decide"]))
         self.assertEqual(job["permissions"], {"issues": "write"})  # the failure incident only
-        self.assertLessEqual(job["timeout-minutes"], 5)
+        # 3 minutes with the one-mini mode off; on, glaeda's capacity wait gets 120 more
+        # (tests/test_nightly_mini_gate_timeouts.py).
+        self.assertEqual(job["timeout-minutes"], "${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}")
         text = json.dumps(job)
         self.assertNotIn("secrets.", text)
         self.assertNotRegex(text, r"cancel|gh run|actions/runs")
