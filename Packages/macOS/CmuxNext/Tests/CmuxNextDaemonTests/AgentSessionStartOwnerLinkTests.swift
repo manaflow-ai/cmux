@@ -20,13 +20,14 @@ import Testing
     }
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
-    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?) async throws
+    private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?,
+                       credentials: [String: String]? = nil) async throws
         -> (refusal: String?, frame: [String: Any]?) {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
-        do { _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink) } catch let error as AgentSessionAttachError {
+        do { _ = try await client.start(cwd: "/w", harness: nil, ownerLink: ownerLink, credentials: credentials) } catch let error as AgentSessionAttachError {
             refusal = error.code
         }
         await client.close()
@@ -57,6 +58,27 @@ import Testing
         let older = try await start(serving: [], ownerLink: link(5, 5))
         #expect(older.frame != nil)
         #expect(older.frame?["vm_kind"] == nil)
+    }
+
+    /// cmux#45774: a Cloud Codex start carrying a ChatGPT sign-in's token (`CMUX_CODEX_ACCESS_TOKEN`) never goes to a
+    /// machine whose cmux names that credential otherwise: that daemon refused the whole start as a bad request, so a
+    /// Home composer Cloud Codex chat never started while Settings said ChatGPT was connected. The app refuses it first
+    /// with a code that updates the machine and starts again; a Claude token still goes to that daemon.
+    @Test func aChatGPTSignInTokenGoesOnlyToAMachineThatTakesIt() async throws {
+        let owner: [String] = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
+        let codex = [AgentSessionAttachClient.codexLoginCredential: "eyJ.codex.token"]
+
+        let older = try await start(serving: owner, ownerLink: link(3, 3), credentials: codex)
+        #expect(older.refusal == AgentSessionAttachClient.credentialUpdateNeeded)
+        #expect(older.frame == nil, "the token went to a daemon that refuses it")
+
+        let current = try await start(serving: owner + [AgentSessionAttachClient.startCodexLoginCapability], ownerLink: link(3, 3), credentials: codex)
+        #expect(current.refusal != AgentSessionAttachClient.credentialUpdateNeeded)
+        #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == codex)
+
+        let claude = try await start(serving: owner, ownerLink: link(3, 3), credentials: ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-x"])
+        #expect(claude.refusal != AgentSessionAttachClient.credentialUpdateNeeded)
+        #expect(claude.frame?["credentials"] != nil)
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

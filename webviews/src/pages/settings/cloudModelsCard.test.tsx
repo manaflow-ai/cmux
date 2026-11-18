@@ -78,7 +78,7 @@ test("a Claude Code token is Connected for Cloud; ChatGPT stays not set up", asy
   expect(statuses(rendered)).toEqual({ claude: "ready", chatgpt: "missing", apiKey: "missing" });
   expect(row(rendered, "claude").querySelector("[data-cloud-status-text]")?.textContent).toBe("Connected for Cloud");
   expect(row(rendered, "claude").querySelector("[data-cloud-via]")?.textContent).toBe("Claude Code token");
-  expect(row(rendered, "claude").querySelector("[data-cloud-action]")).toBeNull();
+  expect(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')).toBeNull();
   expect(row(rendered, "claude").querySelector("[data-cloud-mac-only]")).toBeNull();
 });
 
@@ -157,4 +157,85 @@ test("a This Mac only login offers no Set Up for Cloud once a connection of its 
   const login = rendered.container.querySelector<HTMLElement>('[data-connection="claude-login"]')!;
   expect(login.querySelector("[data-connection-local]")?.textContent).toBe("This Mac only");
   expect(login.querySelector('[data-models-action="setUpForCloud"]')).toBeNull();
+});
+
+const action = (rendered: Rendered, id: string, name: string) =>
+  row(rendered, id).querySelector<HTMLElement>(`[data-cloud-action="${name}"]`);
+
+test("connected Claude and ChatGPT rows offer Edit or Reconnect and Sign Out; unset rows and the team's key don't", async () => {
+  const rendered = await render(mockModels.chatgptForCloud);
+  expect(action(rendered, "chatgpt", "reconnect")?.textContent).toBe("Reconnect");
+  expect(action(rendered, "chatgpt", "signOut")?.textContent).toBe("Sign Out");
+  expect(action(rendered, "claude", "edit")).toBeNull();
+  expect(action(rendered, "claude", "signOut")).toBeNull();
+  page?.unmount();
+  const claude = await render(mockModels.claudeForCloud);
+  expect(action(claude, "claude", "edit")?.textContent).toBe("Edit");
+  expect(action(claude, "claude", "signOut")).not.toBeNull();
+  expect(row(claude, "apiKey").querySelector('[data-cloud-action="signOut"]')).toBeNull();
+  const team = structuredClone(mockModels.macOnly);
+  team.organization = {
+    team: { id: "t", name: "Acme" },
+    canEdit: false,
+    keys: [{ agent: "claude", set: true, last4: null }],
+  };
+  expect(cloudReadiness(team, "claude")).toMatchObject({ state: "ready", connection: null });
+});
+
+test("Reconnect on a ChatGPT sign-in signs that connection in again", async () => {
+  const rendered = await render(mockModels.chatgptForCloud);
+  await click(action(rendered, "chatgpt", "reconnect")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT", id: "chatgpt" }]);
+  expect(row(rendered, "chatgpt").querySelector('[data-chatgpt="pending"]')).not.toBeNull();
+});
+
+test("a Codex CLI login that serves Cloud reconnects through Sign in with ChatGPT and signs out by turning off", async () => {
+  const rendered = await render(mockModels.codexLoginForCloud);
+  expect(statuses(rendered).chatgpt).toBe("ready");
+  expect(row(rendered, "chatgpt").querySelector("[data-cloud-via]")?.textContent).toBe("ChatGPT (Codex CLI login)");
+  await click(action(rendered, "chatgpt", "signOut")!);
+  const confirm = row(rendered, "chatgpt").querySelector<HTMLElement>("[data-cloud-sign-out]")!;
+  expect(confirm.textContent).toContain("Turn off ChatGPT (Codex CLI login)?");
+  await click(confirm.querySelector('[data-cloud-action="confirmSignOut"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "enable", id: "codex-login", on: false }]);
+  expect(statuses(rendered).chatgpt).toBe("off");
+  page?.unmount();
+  const again = await render(mockModels.codexLoginForCloud);
+  await click(action(again, "chatgpt", "reconnect")!);
+  expect(again.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
+});
+
+test("Sign Out removes a Claude token after its confirm; Cancel keeps it", async () => {
+  const rendered = await render(mockModels.claudeForCloud);
+  await click(action(rendered, "claude", "signOut")!);
+  const confirm = () => row(rendered, "claude").querySelector<HTMLElement>("[data-cloud-sign-out]");
+  expect(confirm()?.textContent).toContain("Sign out of Claude Code token? Cloud chats stop using it.");
+  await click(confirm()!.querySelector<HTMLElement>("button:not([data-cloud-action])")!);
+  expect(confirm()).toBeNull();
+  expect(rendered.provider.modelRuns).toEqual([]);
+  await click(action(rendered, "claude", "signOut")!);
+  await click(confirm()!.querySelector('[data-cloud-action="confirmSignOut"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "remove", id: "claude-token" }]);
+  expect(statuses(rendered).claude).toBe("missing");
+});
+
+test("Edit on a Claude token adds the new token, then removes the old one", async () => {
+  const rendered = await render(mockModels.claudeForCloud);
+  await click(action(rendered, "claude", "edit")!);
+  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
+  await changeValue(
+    form.querySelector<HTMLInputElement>('input[type="password"]')!,
+    "sk-ant-oat01-replacement0123456789",
+  );
+  await click(form.querySelector('[data-models-action="addClaudeToken"]')!);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "addClaudeToken", token: "sk-ant-oat01-replacement0123456789" },
+    { action: "remove", id: "claude-token" },
+  ]);
+  expect(sheet()).toBeNull();
+  expect(statuses(rendered).claude).toBe("ready");
+  expect(row(rendered, "claude").querySelector("[data-cloud-via]")?.textContent).toBe("Claude Code token");
+  const ids = rendered.provider.models!.personal.connections.map((c) => c.id);
+  expect(ids).toContain("claude-token-2");
+  expect(ids).not.toContain("claude-token");
 });

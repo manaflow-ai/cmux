@@ -108,6 +108,26 @@ fn a_codex_cli_login_token_is_relayed_with_the_agent_launch() {
     assert_eq!(new[0]["params"]["_meta"]["acpmux"]["credentials"], codex);
 }
 
+/// cmux#45774: the owner's own Cloud VM says it takes `CMUX_CODEX_ACCESS_TOKEN`
+/// (`agent-session-start-codex-login-v1`) beside the credential capability. A daemon before it
+/// refused a start carrying that token as a bad request, so the app updates a machine that lacks the
+/// word before it sends a Cloud Codex start; a Mac or SSH host lists neither.
+#[test]
+fn the_owners_cloud_vm_says_it_takes_the_codex_login_credential() {
+    let capabilities = |label: &str, host: AgentStartHost| -> Vec<Value> {
+        let mut chat = connect(label, host, false);
+        chat.client.request(json!({"cmd":"identify"}))["data"]["capabilities"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    };
+    let owner = capabilities("cred-codex-cap-owner", AgentStartHost::OwnerCloud);
+    assert!(owner.contains(&json!(AGENT_SESSION_START_CREDENTIALS_CAPABILITY)), "{owner:?}");
+    assert!(owner.contains(&json!(AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY)), "{owner:?}");
+    let mac = capabilities("cred-codex-cap-mac", AgentStartHost::Allowed);
+    assert!(!mac.contains(&json!(AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY)), "{mac:?}");
+}
+
 #[test]
 fn a_credential_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [

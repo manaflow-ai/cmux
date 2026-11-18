@@ -109,6 +109,8 @@ const personalOnly = (connections: ModelConnection[]): ModelsState => ({
 const macOnly = personalOnly([codexLogin, claudeLogin]);
 const claudeForCloud = personalOnly([codexLogin, claudeLogin, claudeToken]);
 const chatgptForCloud = personalOnly([codexLogin, claudeLogin, chatgptPlan]);
+/** This Mac's Codex CLI login, which serves Cloud (connections.rs `codex_login_serves_cloud`, cmux#45774). */
+const codexLoginForCloud = personalOnly([{ ...codexLogin, servesCloud: true }, claudeLogin, claudeToken]);
 
 export const mockModels = {
   empty,
@@ -116,6 +118,7 @@ export const mockModels = {
   macOnly,
   claudeForCloud,
   chatgptForCloud,
+  codexLoginForCloud,
   chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
   chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_chatgpt_account" } },
   member: {

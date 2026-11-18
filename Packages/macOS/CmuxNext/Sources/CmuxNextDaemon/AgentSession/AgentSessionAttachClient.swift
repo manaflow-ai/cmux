@@ -54,6 +54,15 @@ public actor AgentSessionAttachClient {
     /// credential for a Cloud chat's agent (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2). Served
     /// only on the owner's own Cloud VM, so it is no ``DaemonCapability`` case: this Mac's bundled daemon never lists it.
     public static let startCredentialsCapability = "agent-session-start-credentials-v1"
+    /// The machine takes ``codexLoginCredential`` (cmux-tui `AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY`,
+    /// cmux#45774). A daemon before it named that credential otherwise and refuses the whole start as a bad
+    /// request, so ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
+    /// refuses it here first with ``credentialUpdateNeeded``, which updates the machine and starts again.
+    public static let startCodexLoginCapability = "agent-session-start-codex-login-v1"
+    /// The access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or the Mac's `codex login`).
+    public static let codexLoginCredential = "CMUX_CODEX_ACCESS_TOKEN"
+    /// A start whose credential the machine's older daemon does not take (``startCodexLoginCapability``).
+    public static let credentialUpdateNeeded = "app.credential_update_needed"
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
@@ -108,6 +117,8 @@ public actor AgentSessionAttachClient {
         var startMode = false
         /// `agent-session-start-credentials-v1`.
         var credentials = false
+        /// `agent-session-start-codex-login-v1`.
+        var codexLogin = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -220,6 +231,9 @@ public actor AgentSessionAttachClient {
             }
             guard model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
+            }
+            guard Self.takes(credentials, served: served) else {
+                throw AgentSessionAttachError(code: Self.credentialUpdateNeeded, message: "the machine's cmux does not take this sign-in yet")
             }
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
@@ -353,6 +367,17 @@ public actor AgentSessionAttachClient {
         }
         let data = try await call("agent-session-credentials", ["env": env, "vm_kind": "owner"], on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
+    }
+
+    /// Whether a daemon serving `served` takes `credentials`: a ChatGPT sign-in's token only where it says
+    /// ``startCodexLoginCapability`` (cmux#45774); a daemon that takes no credential drops it, as before.
+    private static func takes(_ credentials: [String: String]?, served: Served) -> Bool {
+        takesCredentials(credentials, servesCredentials: served.credentials, servesCodexLogin: served.codexLogin)
+    }
+
+    static func takesCredentials(_ credentials: [String: String]?, servesCredentials: Bool, servesCodexLogin: Bool) -> Bool {
+        guard servesCredentials, credentials?[codexLoginCredential] != nil else { return true }
+        return servesCodexLogin
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
@@ -897,6 +922,7 @@ public actor AgentSessionAttachClient {
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
+                            codexLogin: identity.supports(Self.startCodexLoginCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

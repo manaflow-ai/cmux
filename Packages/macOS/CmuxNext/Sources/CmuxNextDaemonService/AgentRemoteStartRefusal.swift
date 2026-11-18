@@ -91,7 +91,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
     /// `AgentTabRemoteHost.updateMachine` runs only while the link's owner answer says the machine is the caller's,
     /// so a teammate's machine is never retried (the app refuses that start before it is sent), and an
     /// SSH host, which has no update, keeps the folder refusal.
-    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded]
+    /// The app's own `credential_update_needed` is a start carrying a ChatGPT sign-in's token to a daemon that names that
+    /// credential otherwise (``AgentSessionAttachClient/startCodexLoginCapability``, cmux#45774).
+    public static let olderDaemonCodes: Set<String> = [AgentSessionAttachError.teamMachine, "agent_session.host_unverified", appFolderNeeded,
+                                                       AgentSessionAttachClient.credentialUpdateNeeded]
     public static func startUnsupported(machine: String) -> Self { Self(code: AgentSessionAttachClient.startUnsupported, machine: machine) }
 
     public var userMessage: String { errorDescription ?? code }
@@ -117,7 +120,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case "agent_session.host_unverified":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.hostUnverified",
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
-        case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported":
+        case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported", AgentSessionAttachClient.credentialUpdateNeeded:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
                                   "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)
         case "agent_session.acpmux_unavailable":

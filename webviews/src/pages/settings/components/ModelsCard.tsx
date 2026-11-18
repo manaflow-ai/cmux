@@ -788,12 +788,15 @@ export function AddConnectionSheet({
   run,
   onClose,
   start = null,
+  replaces = null,
 }: {
   models: ModelsState;
   busy: boolean;
   run: Run;
   onClose(): void;
   start?: SheetStart;
+  /** Settings > Cloud's Edit: the connection a pasted token or key replaces, removed once the new one is added. */
+  replaces?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
@@ -822,6 +825,15 @@ export function AddConnectionSheet({
       if (added) onClose();
     }
   }, [attempt, error, count, onClose]);
+  // Edit adds the new token or key first and removes the old one only after that worked, so a refused paste keeps it.
+  const formRun: Run = replaces
+    ? (gesture) =>
+        run(gesture).then((ok) =>
+          ok && (gesture.action === "addClaudeToken" || gesture.action === "addKey")
+            ? run({ action: "remove", id: replaces })
+            : ok,
+        )
+    : run;
   const title = t("settingsWindow.models.add");
   return (
     <Dialog
@@ -910,8 +922,8 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
-        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={formRun} onDone={onClose} />}
+        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={formRun} onDone={onClose} />}
       </div>
     </Dialog>
   );

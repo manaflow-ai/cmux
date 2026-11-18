@@ -100,6 +100,7 @@ CONDITIONAL = {
     "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
     "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
     "agent-session-start-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-codex-login-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.

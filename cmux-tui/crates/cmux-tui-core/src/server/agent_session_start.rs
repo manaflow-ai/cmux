@@ -118,6 +118,13 @@ pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
 /// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
 pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
 
+/// This daemon's credential names include `CMUX_CODEX_ACCESS_TOKEN`, the access token of a ChatGPT
+/// sign-in on Codex's client (cmux#45774). A daemon before it took `CMUX_CHATGPT_ACCESS_TOKEN`
+/// instead and refuses the whole start (`agent_session.bad_request`), so the app updates such a
+/// machine before it sends that credential. Advertised beside
+/// [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
+pub const AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY: &str = "agent-session-start-codex-login-v1";
+
 /// The names a credential may set (acpmux `agent_credentials::NAMES`): a Claude token or key, an
 /// OpenAI key, or the access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or
 /// the Mac's `codex login`, cmux#45774).
