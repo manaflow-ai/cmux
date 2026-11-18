@@ -162,6 +162,11 @@ public struct CustomSidebarValidator {
     }
 
     /// Representative data context used when validating Swift sidebars outside a live render.
+    ///
+    /// Every field carries the type and optionality CustomSidebarDataContextBuilder
+    /// emits for a real render: the populated workspace sample uses the builder's
+    /// object/int shapes, and the quiet workspace omits every optional the builder
+    /// omits when absent, so validation exercises both paths (#7944).
     public static let defaultDataContext: [String: SwiftValue] = [
         "workspaces": .array([
             .object([
@@ -173,22 +178,59 @@ public struct CustomSidebarValidator {
                 "directory": .string("~/project"),
                 "ports": .array([.int(3000)]),
                 "portCount": .int(1),
-                "unread": .int(0),
+                "unread": .int(2),
                 "status": .string("working"),
                 "tabs": .array([]),
                 "tabCount": .int(0),
-                "description": .string(""),
-                "color": .string(""),
+                "description": .string("Crash fix"),
+                "color": .string("#0A84FF"),
                 "branch": .string("main"),
-                "dirty": .bool(false),
-                "pr": .string(""),
-                "prs": .array([]),
-                "progress": .string(""),
-                "latestMessage": .string(""),
-                "latestPrompt": .string(""),
-                "latestAt": .string(""),
-                "remote": .string("")
-            ])
+                "dirty": .bool(true),
+                "pr": .object([
+                    "number": .int(5812),
+                    "label": .string("PR 5812"),
+                    "url": .string("https://github.com/manaflow-ai/cmux/pull/5812"),
+                    "status": .string("open"),
+                    "stale": .bool(false),
+                    "branch": .string("main"),
+                ]),
+                "prs": .array([
+                    .object([
+                        "number": .int(5812),
+                        "label": .string("PR 5812"),
+                        "url": .string("https://github.com/manaflow-ai/cmux/pull/5812"),
+                        "status": .string("open"),
+                        "stale": .bool(false),
+                        "branch": .string("main"),
+                    ]),
+                ]),
+                "progress": .object([
+                    "value": .double(0.42),
+                    "label": .string("Running tests"),
+                ]),
+                "latestMessage": .string("Waiting for review"),
+                "latestPrompt": .string("Fix the crash and add coverage"),
+                "latestAt": .int(1_779_999_400),
+                "remote": .object([
+                    "target": .string("aws-m4pro-1"),
+                    "state": .string("connected"),
+                    "connected": .bool(true),
+                ]),
+            ]),
+            .object([
+                "id": .string("workspace-quiet"),
+                "title": .string("Quiet Workspace"),
+                "selected": .bool(false),
+                "pinned": .bool(false),
+                "index": .int(1),
+                "directory": .string("~/other"),
+                "ports": .array([]),
+                "portCount": .int(0),
+                "unread": .int(0),
+                "status": .string("idle"),
+                "tabs": .array([]),
+                "tabCount": .int(0),
+            ]),
         ]),
         "groups": .array([
             .object([
@@ -199,11 +241,18 @@ public struct CustomSidebarValidator {
                 "anchorId": .string("workspace-sample"),
             ])
         ]),
-        "workspaceCount": .int(1),
+        "workspaceCount": .int(2),
         "selectedTitle": .string("Sample Workspace"),
         "selectedId": .string("workspace-sample"),
-        "unreadTotal": .int(0),
-        "clock": .string("12:00")
+        "unreadTotal": .int(2),
+        "clock": .object([
+            "time": .string("12:00:00"),
+            "hour": .int(12),
+            "minute": .int(0),
+            "second": .int(0),
+            "weekday": .int(4),
+            "epoch": .int(1_780_000_000),
+        ]),
     ]
 
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
