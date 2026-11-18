@@ -67,7 +67,10 @@ cmux-terminal-sizing.workspace = true
 cmux-device-kind.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
-serde_json.workspace = true
+# float_roundtrip, unbounded_depth: the cached session snapshot keeps its public values as JSON text
+# and each read parses them back to the same values, at any depth (resource_api/committed_snapshot.rs
+# `CompactJson`). cmux-layout-reducer already turns both on for this build.
+serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
 uuid.workspace = true
 toml.workspace = true
 anyhow.workspace = true
