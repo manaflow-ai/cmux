@@ -25,7 +25,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
-import { COMPOSER_EDITOR, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 import {
   chipValues,
   installWireLog,
