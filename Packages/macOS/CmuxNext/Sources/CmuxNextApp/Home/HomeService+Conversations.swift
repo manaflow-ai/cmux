@@ -224,9 +224,9 @@ extension HomeService {
     /// the record decides; a refused save shows the record's name again. A cloud Chief renames its
     /// account record (UserDO renames its conversation after); a Chief of this Mac its registry
     /// record, whose owner retitles the Chief's own conversation. Any other conversation with a
-    /// Chief (a group, a channel) is renamed itself. Nil when saved, else why not.
+    /// Chief (a group, a channel) is renamed itself. Nil when saved, else why not. A bare launch's page: the real Chief, once named.
     func renameChief(conversation: String, to name: String) async -> HomeChiefRenameFailure? {
-        let id = ConversationID(conversation)
+        let id = ConversationID(conversation); if id == HomeLaunchChiefSource.conversation, let hold = launchPage?.hold { guard let chief = await hold.resolved() else { return .noConnection }; return await renameChief(conversation: chief.rawValue, to: name) }
         if isCloudConversation(id) {
             return await renamingRecord(id, to: name) { await self.directory.renameChief(conversation: conversation, to: name) }
         }

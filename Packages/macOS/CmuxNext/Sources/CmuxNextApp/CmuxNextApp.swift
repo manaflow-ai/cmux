@@ -5,6 +5,8 @@ import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextMallocZone
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -80,8 +82,8 @@ public struct CmuxNextApp {
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
-        let delegate = AppDelegate(environment: environment,
-                                   launchReads: (work, launchImages, relaunchWake), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
+        let delegate = AppDelegate(environment: environment, // stage 0 (LaunchShell): its plan and image decode while AppKit starts; none for agent, test and relaunch-behind launches
+                                   launchReads: (work, launchImages, relaunchWake, HomeLaunchEarly(title: { HomeStrings.chiefName }, panels: { HomeHeaderPanels.items(nil) }) { DebugTimings.markLaunch($0) }.attach(LaunchShell.atLaunch(bundleID: environment.noActivate || environment.testWindow != nil || environment.relaunchBehind != nil ? nil : environment.launch.bundleID) { DebugTimings.markLaunch($0) })), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")
