@@ -15,6 +15,7 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
+import { movedIndex, rowsDelta } from "./conversation/rowsDelta";
 import { LayeredMap } from "./conversation/layeredMap";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
@@ -2358,7 +2359,9 @@ function TranscriptView({
   useEffect(() => {
     const before = pokedRows.current;
     pokedRows.current = rows;
-    if (rowsMoved(before, rows)) frameBudget.current?.poke();
+    // Read only where the rows changed (rowsDelta.ts), when they kept their length.
+    const changed = before !== rows && before.length === rows.length ? rowsDelta(before, rows) : undefined;
+    if (rowsMoved(before, rows, changed)) frameBudget.current?.poke();
   }, [rows]);
   useEffect(() => {
     transcriptMounted.current = true;
@@ -2891,7 +2894,23 @@ function TranscriptView({
   const enteringRows = useRef(new Set<string>());
   /// Where the tab stop and the selection's ends were found last (rowPresence `hints`).
   const presenceHints = useRef<RowPresenceHints>({});
+  /// The rows the hints are indices into.
+  const presenceRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   useEffect(() => {
+    // A hint follows its row when the rows above it change (a page of older history moves every
+    // row down): rowPresence then finds it there instead of walking the chat for it.
+    const hinted = presenceRows.current;
+    presenceRows.current = rows;
+    if (hinted && hinted !== rows) {
+      const delta = rowsDelta(hinted, rows);
+      const hints = presenceHints.current;
+      for (const key of ["active", "anchor", "focus"] as const) {
+        const at = hints[key];
+        if (at === undefined) continue;
+        const moved = movedIndex(delta, at);
+        if (moved >= 0) hints[key] = moved;
+      }
+    }
     if (sessionChanged) {
       setSelectionSessionKey(sessionKey);
       setActiveRowId(rows[0]?.id);
@@ -2995,16 +3014,23 @@ function TranscriptView({
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
-    const previous = knownFor.current ?? [];
-    let from = 0;
-    while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    const previous = knownFor.current ?? NO_ROWS;
+    // Found once for every pass of this commit that reads what the rows changed (rowsDelta.ts):
+    // only `rows[from, end)` are new; the rows before and after are the last rows' objects.
+    const delta = rowsDelta(previous, rows);
+    const { from, end } = delta;
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows never
     // take a live row's entrance. They draw in place, as if they had always been there, unless the
     // page came late: the reader already reached the top of the loaded rows, and only then do they
     // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
-    const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
+    // Every row of the last rows is known (each was known or added when it came), so the first known
+    // row is among the changed ones or is the first row after them.
+    let oldFirst = -1;
+    for (let index = 0; index < end && oldFirst < 0; index += 1)
+      if (knownRows.current.has(rowFrameKey(rows[index]!))) oldFirst = index;
+    if (oldFirst < 0 && end < rows.length) oldFirst = end;
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
     // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
@@ -3018,7 +3044,9 @@ function TranscriptView({
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
     const liveBefore = previous.at(-1)?.below ? rowFrameKey(previous.at(-1)!) : undefined;
-    for (let index = from; index < rows.length; index += 1) {
+    // The rows after the changed ones are the last rows' own, all known (their live line included:
+    // it is the last rows' last row, `liveBefore`), so none of them arrives.
+    for (let index = from; index < end; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
       // A row that takes over a frame on screen (OrderedRows `adoptFrames`) is drawn all the same.
@@ -3057,15 +3085,16 @@ function TranscriptView({
     }
   }
   knownFor.current = rows;
-  // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): those from the first one
-  // that differs from the last commit's on, so a render React drops leaves no trace and a StrictMode
-  // second render records what the first one did. O(changed rows).
+  // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): the ones that are not the
+  // last commit's (rowsDelta.ts: neither its rows before the change nor the ones after it, which a
+  // page of older history moves down), so a render React drops leaves no trace and a StrictMode
+  // second render records what the first one did. O(changed rows): a page above the chat records
+  // the page, not every row under it again.
   const committedRows = useRef<{ drawn: ChatRows; rows: readonly AcpmuxRow[] } | undefined>(undefined);
   useLayoutEffect(() => {
     const last = committedRows.current?.drawn === chatRowsDrawn ? committedRows.current.rows : NO_ROWS;
-    let from = 0;
-    while (from < rows.length && from < last.length && rows[from] === last[from]) from += 1;
-    for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
+    const { from, end } = rowsDelta(last, rows);
+    for (let index = from; index < end; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
@@ -3513,8 +3542,23 @@ function TranscriptView({
       }
       if (sameIds) return;
     }
-    const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
+    if (previous) {
+      // The rows that left are among the ones these rows changed (rowsDelta.ts): the rows before
+      // and after them are the same objects. A page of older history landing or unloading reads
+      // the page, not a set of every row's id.
+      const { from, end, baseEnd } = rowsDelta(previous, rows);
+      const kept = new Set<string>();
+      for (let index = from; index < end; index += 1) kept.add(rows[index]!.id);
+      const gone = new Map<string, undefined>();
+      for (let index = from; index < baseEnd; index += 1)
+        if (!kept.has(previous[index]!.id)) gone.set(previous[index]!.id, undefined);
+      if (gone.size === 0) return;
+      for (const id of gone.keys()) cache.delete(id);
+      setDrawn((current) => current.with(gone));
+      return;
+    }
+    const ids = new Set(rows.map((row) => row.id));
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
     setDrawn((current) => current.retain((id) => ids.has(id)));
   }, [rows, queuedTail]);
@@ -4190,11 +4234,8 @@ function TranscriptView({
     ) {
       // A scroll frame's rows are the ones placed last: every row is kept, with no walk over them.
       const sameRows = rows === last.rows;
-      if (sameRows) kept = rows.length;
-      else {
-        const limit = Math.min(rows.length, last.rows.length);
-        while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
-      }
+      // Otherwise from the rows' first change, found once for the transcript's passes (rowsDelta.ts).
+      kept = sameRows ? rows.length : rowsDelta(last.rows, rows).from;
       // A row after the kept ones can give the last kept reply its own action row (a steer or a
       // message after it): that reply is placed again, as layoutConversation estimates it again.
       let reply = sameRows ? -1 : kept - 1;

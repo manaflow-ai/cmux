@@ -242,8 +242,7 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
       report.push(
         `${phase}: ${a.perRender.toFixed(0)} -> ${b.perRender.toFixed(0)} blocks per render (renders ${a.renders} -> ${b.renders}), ${ratio.toFixed(2)}x`,
       );
-      if (ratio <= BAR) continue;
-      over.push(phase);
+      if (ratio > BAR) over.push(phase);
       // The blocks that grew most, per render: where the O(rows) pass is.
       const grew = [...b.blocks]
         .map(([key, count]) => ({
@@ -251,7 +250,7 @@ await requireBrowserLane("transcript-render-scale-browser.test.ts", async () => 
           by: count / Math.max(1, b.renders) - (a.blocks.get(key) ?? 0) / Math.max(1, a.renders),
         }))
         .sort((x, y) => y.by - x.by)
-        .slice(0, 8);
+        .slice(0, ratio > BAR ? 8 : 3);
       for (const { key, by } of grew) report.push(`  +${by.toFixed(0)} ${key}`);
     }
     console.log(`transcript-render-scale (lane-VM, Chromium, dev build)\n${report.join("\n")}`);

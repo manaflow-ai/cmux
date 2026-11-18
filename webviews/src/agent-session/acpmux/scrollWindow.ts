@@ -56,9 +56,21 @@ export function warmAnchorTop(
 ) {
   const [offset, hint, id] = anchor.split("\n");
   if (id === undefined) return undefined;
-  const at = Number(hint);
-  const index = shown[at]?.id === id ? at : shown.findIndex((row) => row.id === id);
+  const index = rowNear(shown, id, Number(hint));
   return index < 0 ? undefined : layoutGeometry(placed).topAt(index) + Number(offset);
+}
+
+/// The index of row `id` in `rows`, looked for outward from `hint`, where it was: rows that came or
+/// went above it moved it by that many, so the walk costs the rows that changed, not the chat. Row
+/// ids are unique (they key the row frames), so it is the row a walk from the first would find.
+/// -1 when it is gone.
+function rowNear(rows: readonly { id: string }[], id: string, hint: number) {
+  const at = Number.isInteger(hint) ? Math.min(Math.max(hint, 0), rows.length - 1) : 0;
+  for (let by = 0; at - by >= 0 || at + by < rows.length; by += 1) {
+    if (rows[at - by]?.id === id) return at - by;
+    if (rows[at + by]?.id === id) return at + by;
+  }
+  return -1;
 }
 
 /// The rows a scroll offset mounts, before the warm rows' deferred place is read (TranscriptView

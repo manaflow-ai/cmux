@@ -20,7 +20,8 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
-import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { noteKeptSuffix } from "./rowsDelta";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -846,6 +847,24 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
+  // The rows' readers (the transcript's placement, arrivals, references) start at the change
+  // without walking the chat for it (prefixFlatMap.ts keptPrefix, rowsDelta.ts).
+  // Told exactly: from the reused rows on to the first that differs, a few rows.
+  if (previous && reusedRows > 0) {
+    const limit = Math.min(out.length, previous.rows.length);
+    let same = reusedRows;
+    while (same < limit && out[same] === previous.rows[same]) same += 1;
+    noteKeptPrefix(out, previous.rows, same);
+  } else if (previous && out.length > 0 && previous.rows.length > 0) {
+    // Shaped from the first turn (a page of older history before it, a fold): the turns after the
+    // change come back as the objects they were (`shapedTurn`), so the rows end as the last view's
+    // did. One pointer walk here, which the shaping of every turn already outweighs, spares each of
+    // the transcript's passes reading the whole chat again for a page above it.
+    const limit = Math.min(out.length, previous.rows.length);
+    let same = 0;
+    while (same < limit && out[out.length - 1 - same] === previous.rows[previous.rows.length - 1 - same]) same += 1;
+    if (same > 0) noteKeptSuffix(out, previous.rows, same);
+  }
   return {
     source: rows,
     expanded,

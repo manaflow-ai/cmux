@@ -10,6 +10,7 @@ import * as acpmuxPerfModule from "../../src/agent-session/acpmux/perf";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { received } from "../../src/agent-session/acpmux/incomingFixture";
 import { turnView, turnViewFrom, type TurnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { noteKeptSuffix } from "../../src/agent-session/acpmux/conversation/rowsDelta";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -164,6 +165,9 @@ function Transcript() {
     // caller then hands either array to the transcript with no shaping in between.
     const base = drawn.current?.rows ?? turnView(current, NO_FOLDS);
     const page = [...turnView([olderRow], NO_FOLDS), ...base];
+    // As the pane's shaping tells it (turns.ts `turnViewFrom`): each array ends with the other's rows.
+    noteKeptSuffix(page, base, base.length);
+    noteKeptSuffix(base, page, base.length);
     return (shown) => setGiven(shown ? page : base);
   };
   (window as unknown as { __streamShaped: (count: number) => (at: number) => void }).__streamShaped = (count) => {
