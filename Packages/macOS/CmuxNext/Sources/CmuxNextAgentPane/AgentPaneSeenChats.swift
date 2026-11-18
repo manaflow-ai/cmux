@@ -1,16 +1,17 @@
 import Foundation
 
 /// The chats this app showed recently (Leo, 2026-11-18: "we shouldnt need to see spinners on loading switching
-/// between chats most of the time"). A chat in here is one the person already saw, and whose kept copy its page
-/// draws first (tailCache.ts, ``AgentPaneTailCache``, chatSnapshot/): a pane opened on it again, whether a hidden
+/// between chats most of the time"). A chat in here is one a pane of this app painted (the person saw it, or its
+/// page drew it in a pane), and whose kept copy its page draws first (tailCache.ts, ``AgentPaneTailCache``, chatSnapshot/): a pane opened on it again, whether a hidden
 /// chat whose page was given back and is built again, a sidebar open of it in another tab, or a spare that adopts
 /// it, keeps its loading cover free of the busy mark however long its page takes
 /// (``AgentPaneLoadingView/marksLoading``). Only a chat never shown in this app's life, or not for ``window``,
 /// gets the mark after the beat.
 ///
 /// Bounded two ways: the ``limit`` most recently shown chats, and only those shown within ``window``. Each entry
-/// is a session id and an instant, so the store holds at most a few tens of KiB. ``AgentPaneTailCache`` owns it
-/// and clears it with the tails at sign-out.
+/// is a session id and an instant, so the store holds at most a few tens of KiB. ``AgentPaneTailCache`` owns it,
+/// and its clear leaves this store be: it holds no content, only which chats showed, and every entry ends with
+/// ``window``.
 @MainActor
 final class AgentPaneSeenChats {
     /// Most chats remembered.
@@ -42,12 +43,6 @@ final class AgentPaneSeenChats {
     func wasShown(_ session: String) -> Bool {
         guard let at = shownAt[session] else { return false }
         return clock() - at < window
-    }
-
-    /// Forgets every chat (sign-out, with the tails).
-    func clear() {
-        shownAt.removeAll()
-        order.removeAll()
     }
 
     private func dropExpired(_ now: ContinuousClock.Instant) {

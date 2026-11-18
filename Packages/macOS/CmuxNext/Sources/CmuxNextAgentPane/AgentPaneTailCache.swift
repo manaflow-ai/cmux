@@ -212,7 +212,6 @@ public final class AgentPaneTailCache {
         disk?.clear()
         // The chats' drawn copies go with their tails (AgentPaneChatSnapshots).
         snapshots.clear()
-        seen.clear()
     }
 
     /// A new signed-in lifecycle may hand tails to the host again.
