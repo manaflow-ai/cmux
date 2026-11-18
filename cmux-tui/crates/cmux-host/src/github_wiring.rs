@@ -152,7 +152,7 @@ pub fn ensure(paths: &Paths) {
     for w in plan(read, exists) {
         match write(paths, &w) {
             Ok(()) => {
-                eprintln!("cmux host: wrote {} (git and gh with the cmux GitHub App)", w.path)
+                eprintln!("cmux host: wrote {} (git and gh with the cmux GitHub App)", w.path);
             }
             Err(e) => eprintln!("cmux host: could not write {}: {e}", w.path),
         }
