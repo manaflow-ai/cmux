@@ -157,6 +157,14 @@ function RepoList({ login, avatarUrl, labels }: { login: string; avatarUrl?: str
     return () => clearTimeout(timer);
   }, [load, query]);
 
+  // A new search drops the old one's cursor and any page in flight for it now, so Load more can't fetch them during
+  // the debounce.
+  const search = (value: string) => {
+    request.current++;
+    setCursor(null);
+    setQuery(value);
+  };
+
   const update = (fullName: string, change: Partial<LinkRepo> | null) =>
     setRepos((current) =>
       current.map((repo) => {
@@ -212,7 +220,7 @@ function RepoList({ login, avatarUrl, labels }: { login: string; avatarUrl?: str
         <input
           type="search"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => search(event.target.value)}
           placeholder={labels.search}
           aria-label={labels.search}
           className="w-full rounded-full border border-border bg-transparent px-4 py-1.5 text-[14px] outline-none focus:border-foreground sm:w-72"

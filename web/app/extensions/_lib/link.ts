@@ -97,16 +97,14 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/** What the browser is told for a refusal: the platform's code and message, on a status cmux.com chooses. */
-const FORWARDED_STATUSES = new Set([400, 401, 403, 404, 409, 422, 429]);
-
+/** What the browser is told for a refusal: every platform 4xx keeps its status, code and message; anything else is a 503. */
 function platformError(answer: PlatformAnswer, signInUrl: string): Response {
   const body = record(answer.body);
   const code = str(body.code) ?? str(body._tag) ?? "extension.unavailable";
   const message = str(body.message) ?? "cmux could not reach the extension registry. Try again in a minute.";
   if (answer.status === 401) return signInRequired(signInUrl);
-  if (FORWARDED_STATUSES.has(answer.status)) return json({ code, message }, answer.status);
-  return json({ code: "extension.unavailable", message: "cmux could not reach the extension registry. Try again in a minute." }, 503);
+  if (answer.status >= 400 && answer.status < 500) return json({ code, message }, answer.status);
+  return unavailable();
 }
 
 function unavailable(): Response {
@@ -148,6 +146,9 @@ export async function handleStatus(request: Request, deps: LinkDeps, signInUrl: 
     }
     const install = await callPlatform(deps, session, "GET", "/v1/connectors/github/install", {});
     const installUrl = httpsOrNull(install.status === 200 ? record(install.body).url : undefined) ?? httpsOrNull(identity.connectUrl);
+    // No URL to connect with: say why (expired sign-in, or the registry is down) rather than a dead Connect button.
+    if (!installUrl && install.status === 401) return signInRequired(signInUrl);
+    if (!installUrl && (install.status !== 200 || install.body === null)) return unavailable();
     return json({ connected: false, installUrl } satisfies GitHubStatus);
   });
 }
