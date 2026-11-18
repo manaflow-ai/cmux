@@ -2513,6 +2513,11 @@ mod session_list_pages_tests;
 #[path = "list_follow_link_tests.rs"]
 mod list_follow_link_tests;
 
+// A hidden page hears its own chats only, and reads the rest on show (`_acpmux/watch {shown}`).
+#[cfg(test)]
+#[path = "list_shown_tests.rs"]
+mod list_shown_tests;
+
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]
 mod compressed_link_tests;
