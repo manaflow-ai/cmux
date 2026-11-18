@@ -84,7 +84,17 @@ strip_executable "$APP_PATH/Contents/MacOS/cmux"
 # The framework keeps its global symbols (-S -x): its one export, and the
 # undefined symbols dyld binds.
 if [ "$APP_CODE" != "$APP_PATH/Contents/MacOS/cmux" ]; then
-  strip_if_macho "$APP_CODE"
+  # Measurement arm (cmux#44204, throwaway): strip the framework as far as a
+  # dylib allows, as the old main executable was stripped in full. Keep only
+  # the one export the stub calls, plus undefined and dynamically referenced
+  # symbols, which dyld binds.
+  if [ -f "$APP_CODE" ] && [ ! -L "$APP_CODE" ]; then
+    keep="$(mktemp)"
+    printf '_cmux_next_app_main\n' > "$keep"
+    echo "stripping release framework to its export: $APP_CODE"
+    "$STRIP_TOOL" -x -u -r -s "$keep" "$APP_CODE"
+    rm -f "$keep"
+  fi
 fi
 # bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
 # symbols (-S -x) so its crash reports still name functions.
