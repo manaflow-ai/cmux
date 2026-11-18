@@ -158,15 +158,52 @@ struct Facts {
     builtin: bool,
 }
 
-/// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
-/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
-/// CLI logins and added subscription accounts serve local chats only.
+/// Whether a connection of `kind` always serves a Cloud chat (Revision 2: its credential goes to
+/// the machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. A Codex
+/// CLI login serves one only while it holds a ChatGPT token the machine can use
+/// ([`codex_login_serves_cloud`]); the Claude Code login and added Claude accounts serve local
+/// chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "claude-token" => true,
         "api-key" => matches!(provider, "anthropic" | "openai"),
         _ => false,
     }
+}
+
+/// The Codex home of a Codex CLI login connection: the built-in `codex-login`'s is the Codex
+/// CLI's own (`CODEX_HOME`, else `~/.codex`) unless its route names one; an added Codex account's
+/// is its account home. None for any other connection.
+fn codex_login_folder(route: &Route) -> Option<PathBuf> {
+    let file = &route.file;
+    if file.kind != RouteKind::DirectSubscription || file.families != ["codex"] {
+        return None;
+    }
+    match file.account_home.as_deref() {
+        Some(folder) => Some(PathBuf::from(folder)),
+        None if route.id == routes::CODEX_LOGIN_ROUTE_ID => crate::route_shadow::codex_base(),
+        None => None,
+    }
+}
+
+/// The access a Cloud chat on Codex CLI login connection `route` gets now
+/// (`codex_login_access::read`: a ChatGPT sign-in's access token alone, with enough time left);
+/// None when it has none. Blocking file IO.
+fn codex_login_access(route: &Route) -> Option<crate::codex_login_access::Access> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    crate::codex_login_access::read(&codex_login_folder(route)?, now)
+}
+
+/// Whether a Codex CLI login connection serves a Cloud chat (cmux#45774): it is signed in with
+/// ChatGPT and its access token has time left. Its credential is that token alone
+/// (`codex_login_access.rs`); the machine's Codex sends it to the ChatGPT Codex backend.
+fn codex_login_serves_cloud(route: &Route, facts: &Facts) -> bool {
+    matches!(facts.kind, "codex-login" | "subscription")
+        && facts.signed_in
+        && codex_login_access(route).is_some()
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -182,7 +219,8 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
             .cloned()
             .collect()
     };
-    let serves_cloud = serves_cloud(facts.kind, &facts.provider);
+    let serves_cloud =
+        serves_cloud(facts.kind, &facts.provider) || codex_login_serves_cloud(route, &facts);
     Connection {
         id: route.id.clone(),
         kind: facts.kind,
@@ -484,7 +522,8 @@ pub(super) fn add_claude_token(
 
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
-/// the daemon's own, `chatgpt::Service::token_lasting`).
+/// the daemon's own, `chatgpt::Service::token_lasting`), nor a Codex CLI login (its token is the
+/// login's own, [`codex_login_access`]): no reference for those.
 pub(super) fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
@@ -505,7 +544,10 @@ pub(super) fn credential_plan(
     let family = found.families.first().cloned().unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
+            return Ok((family, "chatgpt-plan", crate::agent_credentials::CHATGPT_TOKEN, None));
+        }
+        ("codex-login" | "subscription", _) if family == "codex" => {
+            return Ok((family, found.kind, crate::agent_credentials::CODEX_LOGIN_TOKEN, None));
         }
         ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
         ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
@@ -718,6 +760,22 @@ pub(super) async fn handle(
             let (family, kind, var, reference) =
                 blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
             let (value, expires_at) = match reference {
+                // A Codex CLI login: its access token now, read only (never refreshed here).
+                None if kind != "chatgpt-plan" => {
+                    let (d, i) = (dir.clone(), id.clone());
+                    let access = blocking(move || {
+                        routes::find(d.as_deref(), &i).ok().as_ref().and_then(codex_login_access)
+                    })
+                    .await?
+                    .ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "{id} has no ChatGPT sign-in with time left: run Codex on this Mac \
+                             (or `codex login`) to renew it"
+                        ))
+                        .with_data(json!({"reason": "connections.no_token", "id": id}))
+                    })?;
+                    (access.token, Some(access.expires_at))
+                }
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
@@ -947,6 +1005,10 @@ mod tests {
             assert_eq!(serves_cloud(kind, provider), cloud, "{kind} {provider}");
         }
         let d = dirs();
+        // A Codex CLI login with no sign-in (never this host's own `~/.codex`).
+        let empty = d._root.path().join("no-codex-login");
+        std::fs::create_dir_all(&empty).unwrap();
+        codex_login_route(&d, &empty);
         let s = state(Some(&d.routes), &d.home);
         assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
         assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
@@ -959,10 +1021,9 @@ mod tests {
         let b64 = |v: &Value| {
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
         };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+                as i64;
         let claims = json!({"exp": now + left,
             "https://api.openai.com/auth": {"chatgpt_account_id": "acct-1234"}});
         let access = format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims));
@@ -999,8 +1060,33 @@ mod tests {
         assert_eq!(c["serves_cloud"], true, "{c}");
         let (family, kind, var, secret) =
             credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap();
-        assert_eq!((family.as_str(), kind, var), ("codex", "codex-login", "CMUX_CODEX_ACCESS_TOKEN"));
+        assert_eq!(
+            (family.as_str(), kind, var),
+            ("codex", "codex-login", "CMUX_CODEX_ACCESS_TOKEN")
+        );
         assert!(secret.is_none(), "the login's own token, not a reference");
+        let route = routes::find(Some(&d.routes), "codex-login").unwrap();
+        let access = codex_login_access(&route).unwrap();
+        assert_eq!(access.token, _access, "the access token, as auth.json has it");
+        assert!(access.expires_at > 0);
+        let shown = format!("{access:?}");
+        assert!(!shown.contains(&access.token), "its Debug never shows the token");
+        let auth = std::fs::read_to_string(folder.join("auth.json")).unwrap();
+        assert!(auth.contains("the-refresh-token"), "auth.json is left as it was");
+
+        // A token about to end (under 15 min) does not serve: the Mac's own Codex renews it first.
+        let (soon, _) = codex_login_folder(&d, "codex-soon", 300);
+        codex_login_route(&d, &soon);
+        let s = state(Some(&d.routes), &d.home);
+        assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
+        let e = credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud");
+        // An API key sign-in is not a ChatGPT one.
+        let (key, _) = codex_login_folder(&d, "codex-key", 3600);
+        std::fs::write(key.join("auth.json"), r#"{"OPENAI_API_KEY":"sk-proj-x"}"#).unwrap();
+        crate::router_socket::owner_only(&key.join("auth.json"));
+        codex_login_route(&d, &key);
+        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], false);
     }
 
     #[test]
@@ -1041,6 +1127,9 @@ mod tests {
         add_key(Some(&d.routes), &d.home, "anthropic", &anthropic, None).unwrap();
         add_key(Some(&d.routes), &d.home, "openai", &openai, None).unwrap();
         add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
+        let empty = d._root.path().join("no-codex-login");
+        std::fs::create_dir_all(&empty).unwrap();
+        codex_login_route(&d, &empty);
         let (family, kind, var, _) =
             credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
         assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
