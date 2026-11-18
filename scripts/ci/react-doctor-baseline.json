@@ -97,7 +97,7 @@
    "src/agent-session/acpmux-preview/PreviewApp.tsx::react-hooks-js/todo": 1,
    "src/agent-session/acpmux/AddAccountDialog.tsx::react-hooks-js/todo": 1,
    "src/agent-session/acpmux/App.tsx::react-doctor/effect-needs-cleanup": 2,
-   "src/agent-session/acpmux/App.tsx::react-doctor/no-ref-current-in-render": 89,
+   "src/agent-session/acpmux/App.tsx::react-doctor/no-ref-current-in-render": 88,
    "src/agent-session/acpmux/ChatUnavailableState.tsx::react-hooks-js/purity": 1,
    "src/agent-session/acpmux/Composer.tsx::react-hooks-js/purity": 1,
    "src/agent-session/acpmux/ComposerContext.tsx::react-doctor/no-ref-current-in-render": 1,
