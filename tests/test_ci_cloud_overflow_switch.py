@@ -81,8 +81,9 @@ class FakeActions:
             return [{**self.probe, "name": switch.probe_job_name(label)} for label in labels] if self.probe else []
         return self.run_jobs.get(run_id, [])
 
-    def runs(self, status: str) -> list[dict]:
-        return [run for run in self.in_flight if run.get("status") == status]
+    def runs(self, status: str, event: str | None = None) -> list[dict]:
+        return [run for run in self.in_flight
+                if run.get("status") == status and (event is None or run.get("event") == event)]
 
     def run(self, run_id: int) -> dict:
         return {"id": run_id, "status": self.status.get(run_id, "in_progress")}
@@ -98,9 +99,13 @@ class FakeActions:
 class FakeSwitch:
     """The App token side: variable writes, in order."""
 
-    def __init__(self) -> None:
+    def __init__(self, variables: dict[str, str] | None = None) -> None:
+        self.variables = variables or {}
         self.writes: list[tuple[str, str | None]] = []
         self.health: list[dict] = []  # CI_CLOUD_LABEL_HEALTH, kept apart from the routing writes
+
+    def get_variable(self, name: str) -> str | None:
+        return self.variables.get(name)
 
     def set_variable(self, name: str, value: str) -> None:
         if name == switch.HEALTH_VARIABLE:
@@ -883,6 +888,69 @@ class PythonDependencyTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((root / 'executed').exists())
             self.assertTrue((root / 'installed').exists())
+
+
+class DeadLabelRescueTests(unittest.TestCase):
+    """2026-11-18: 4, 8 and 16 vCPU marked dead, 2 and 32 vCPU serving; the tree owners stayed queued."""
+
+    POOLS = {"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-09-29T11:00:00Z",
+                       "blacksmith-4vcpu-ubuntu-2404": "2026-09-29T11:00:00Z"},
+             "linux": "blacksmith-2vcpu-ubuntu-2404", "linux_16": "blacksmith-32vcpu-ubuntu-2404",
+             "linux_4": "blacksmith-4vcpu-ubuntu-2404", "macos_26": "blacksmith-6vcpu-macos-26"}
+
+    def stranded(self) -> FakeActions:
+        runs = [{"id": 10, "status": "queued", "event": "push", "name": "cmux-tui artifacts",
+                 "created_at": ago(90), "run_attempt": 1},
+                {"id": 11, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(60)},
+                {"id": 12, "status": "in_progress", "event": "push", "name": "CI", "created_at": ago(50)},
+                {"id": 13, "status": "queued", "event": "push", "name": "Publish docs", "created_at": ago(40)}]
+        dead = {"status": "queued", "runner_name": None, "created_at": ago(45),
+                "labels": ["blacksmith-16vcpu-ubuntu-2404"], "name": "build"}
+        jobs = {10: [dead],
+                # 4 vCPU is dead too, but linux_4 still names it: a re-run comes back to it.
+                11: [{**dead, "labels": ["blacksmith-4vcpu-ubuntu-2404"]}],
+                # Queued on a live size: waiting its turn, not stranded.
+                12: [{**dead, "labels": ["blacksmith-2vcpu-ubuntu-2404"]}],
+                13: [dead]}
+        return FakeActions(None, runs, jobs)
+
+    def test_dead_labels_are_the_marked_ones_no_pool_names(self) -> None:
+        self.assertEqual(switch.dead_labels(self.POOLS), {"blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(switch.dead_labels({"_dead": "x"}), set())
+        self.assertEqual(switch.dead_labels({}), set())
+
+    def test_reruns_runs_queued_on_a_dead_label_only(self) -> None:
+        actions = self.stranded()
+        code, _, summary = run_main({"GH_TOKEN": "t"}, actions,
+                                    FakeSwitch({"RUNNER_POOLS": json.dumps(self.POOLS)}), argv=["--rescue-dead"])
+        self.assertEqual(code, 0)
+        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun", 10)])
+        self.assertIn("run 13 (Publish docs): `build` stuck on blacksmith-16vcpu-ubuntu-2404; left alone", summary)
+
+    def test_a_dry_run_and_no_dead_label_touch_nothing(self) -> None:
+        actions = self.stranded()
+        writer = FakeSwitch({"RUNNER_POOLS": json.dumps(self.POOLS)})
+        run_main({"GH_TOKEN": "t", "DRY_RUN": "true"}, actions, writer, argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [])
+        live = {**self.POOLS, "_dead": {}}
+        run_main({"GH_TOKEN": "t"}, actions, FakeSwitch({"RUNNER_POOLS": json.dumps(live)}), argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [])
+        self.assertEqual(writer.writes, [])
+
+    def test_falls_back_to_the_job_start_value(self) -> None:
+        actions = self.stranded()
+        run_main({"GH_TOKEN": "t", "RUNNER_POOLS": json.dumps(self.POOLS)}, actions, None, argv=["--rescue-dead"])
+        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun", 10)])
+
+    def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        pools = text.index("- name: Point the runner pools at live members")
+        rescue = text.index("- name: Re-run runs stranded on a dead label")
+        end = text.index("- name: End this run's stuck probe")
+        self.assertLess(pools, rescue)
+        self.assertLess(rescue, end)
+        self.assertIn("cloud_overflow_switch.py --rescue-dead", text[rescue:end])
+
 
 class WorkflowTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")

@@ -521,19 +521,23 @@ def protected_reason(run: Mapping[str, Any]) -> str:
 
 
 def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
-              failovers: Iterable[str] = (), linux_moves: bool = True) -> Mapping[str, Any] | None:
+              failovers: Iterable[str] = (), linux_moves: bool = True,
+              only: Iterable[str] | None = None) -> Mapping[str, Any] | None:
     """The oldest job queued with no runner on a Blacksmith label for `minutes` or more.
 
     A job queued on a failover label (another Blacksmith size) already went
     where the switch sends overflow, so re-running it moves nothing. Without
     `linux_moves` (no Linux size started, so no Linux variable has anywhere to
     go), a job on a Blacksmith Linux label would come back on the same label,
-    so it is not one either.
+    so it is not one either. With `only`, a job counts only on one of those
+    labels (the dead labels no pool names any more, dead_labels()).
     """
     skip = {str(label) for label in failovers}
+    wanted = None if only is None else {str(label) for label in only}
 
     def movable(label: str) -> bool:
-        return cloud_label(label) and label not in skip and (linux_moves or not linux_cloud_label(label))
+        return (cloud_label(label) and label not in skip and (linux_moves or not linux_cloud_label(label))
+                and (wanted is None or label in wanted))
 
     stuck = []
     for job in jobs:
@@ -601,8 +605,8 @@ class GitHub:
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
         return list(self.request("GET", f"{where}?per_page=100").get("jobs") or [])
 
-    def runs(self, status: str) -> list[dict[str, Any]]:
-        query = urllib.parse.urlencode({"status": status, "per_page": 100})
+    def runs(self, status: str, event: str | None = None) -> list[dict[str, Any]]:
+        query = urllib.parse.urlencode({"status": status, "per_page": 100, **({"event": event} if event else {})})
         return list(self.request("GET", f"/actions/runs?{query}").get("workflow_runs") or [])
 
     def run(self, run_id: int) -> dict[str, Any]:
@@ -614,6 +618,14 @@ class GitHub:
 
     def rerun(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
+
+    def get_variable(self, name: str) -> str | None:
+        try:
+            return self.request("GET", f"/actions/variables/{name}").get("value")
+        except RuntimeError as error:
+            if "(404)" in str(error):
+                return None
+            raise
 
     def set_variable(self, name: str, value: str) -> None:
         try:
@@ -698,24 +710,32 @@ def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels
 
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
-                      failovers: Iterable[str] = (), linux_moves: bool = True) -> list[str]:
-    """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched."""
+                      failovers: Iterable[str] = (), linux_moves: bool = True,
+                      only: Iterable[str] | None = None) -> list[str]:
+    """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched.
+
+    Push runs are listed and looked at first: one listing holds the newest 100 runs, and with
+    thousands queued (2026-11-18) the branch pushes a nightly waits on (the cmux-tui tree owners)
+    fell outside it.
+    """
     lines: list[str] = []
+    only = None if only is None else sorted({str(label) for label in only})
     seen: dict[int, dict[str, Any]] = {}
-    for status in ("queued", "in_progress"):
+    for status, event in (("queued", "push"), ("in_progress", "push"), ("queued", None), ("in_progress", None)):
         try:
-            for run in api.runs(status):
+            for run in api.runs(status, event) if event else api.runs(status):
                 seen.setdefault(int(run["id"]), run)
         except RuntimeError as error:
-            lines.append(f"could not list {status} runs ({error})")
+            lines.append(f"could not list {status} {event or 'all'} runs ({error})")
     candidates = sorted((run for run_id, run in seen.items() if run_id != own_run_id),
-                        key=lambda run: str(run.get("created_at") or ""))[:MAX_RUN_LISTINGS]
+                        key=lambda run: (run.get("event") != "push",
+                                         str(run.get("created_at") or "")))[:MAX_RUN_LISTINGS]
     chosen: list[tuple[dict[str, Any], Mapping[str, Any]]] = []
     for run in candidates:
         if len(chosen) >= MAX_RESCUES:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers, linux_moves)
+            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers, linux_moves, only)
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
@@ -769,6 +789,57 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
     return lines
 
 
+POOLS_VARIABLE = "RUNNER_POOLS"
+POOLS_DEAD_KEY = "_dead"
+
+
+def dead_labels(pools_value: Mapping[str, Any]) -> set[str]:
+    """Blacksmith labels RUNNER_POOLS marks dead and no pool points at any more.
+
+    runner_pools.py moves each pool off a label it marks dead, so a run that picks its
+    runner again lands on a live one; but a job already queued on that label keeps it
+    and waits forever. On 2026-11-18 (09:32Z) 4, 8 and 16 vCPU were marked dead while
+    2 and 32 vCPU served: an outcome this switch leaves to per-size routing, and the
+    cmux-tui tree owners queued there held the NEXT nightly for hours until they were
+    cancelled and re-run by hand. A dead label a pool still names is skipped: a re-run
+    would come back to it.
+    """
+    marks = pools_value.get(POOLS_DEAD_KEY)
+    if not isinstance(marks, Mapping):
+        return set()
+    routed = {str(value) for key, value in pools_value.items() if not str(key).startswith("_")}
+    return {str(label) for label in marks if cloud_label(str(label)) and str(label) not in routed}
+
+
+def rescue_dead(api: GitHub, switch: GitHub | None, env: Mapping[str, str], *, own_run_id: int, minutes: int,
+                now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
+                dry_run: bool) -> int:
+    """`--rescue-dead`: after the pools step, re-run runs stranded on a dead label no pool names."""
+    raw = None
+    if switch is not None:
+        try:
+            raw = switch.get_variable(POOLS_VARIABLE)
+        except RuntimeError as error:
+            log(f"::warning title=Dead label rescue::could not read {POOLS_VARIABLE} ({error}); "
+                "using the job-start value")
+    if raw is None:
+        raw = env.get(POOLS_VARIABLE) or ""
+    try:
+        value = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        log(f"::warning title=Dead label rescue::{POOLS_VARIABLE} is not JSON; nothing to rescue")
+        return 0
+    labels = dead_labels(value if isinstance(value, Mapping) else {})
+    if not labels:
+        log(f"no dead Blacksmith label off every pool in {POOLS_VARIABLE}; nothing to rescue")
+        return 0
+    log(f"dead labels no pool names: {', '.join(sorted(labels))}; re-running runs queued there {minutes}+ min")
+    for line in rescue_stuck_runs(api, own_run_id=own_run_id, minutes=minutes, now=now, sleep=sleep, log=log,
+                                  dry_run=dry_run, only=labels):
+        log(f"- {line}")
+    return 0
+
+
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 
 
@@ -794,6 +865,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true",
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
+    parser.add_argument("--rescue-dead", action="store_true",
+                        help="only re-run runs stranded on a RUNNER_POOLS dead label no pool names (dead_labels())")
     args = parser.parse_args(argv)
     lines: list[str] = []
 
@@ -813,6 +886,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if switch is None and (env.get("SWITCH_TOKEN") or "").strip():
         switch = GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     minutes = probe_minutes(env.get("PROBE_MINUTES"))
+    if args.rescue_dead:
+        code = rescue_dead(api, switch, env, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep, log=log,
+                           dry_run=args.dry_run)
+        write_summary(env, lines)
+        return code
     try:
         record = parse_record(env.get(f"VAR_{RECORD_VARIABLE}"))
     except ValueError as error:
