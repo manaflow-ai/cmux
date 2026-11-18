@@ -36,6 +36,9 @@ export interface VirtualListProps {
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
   role?: "listbox" | "grid" | "list";
   label?: string;
+  /** With `role="grid"`: the whole list's row count (aria-rowcount), since only some rows are
+   * mounted; rows then carry their own aria-rowindex. */
+  rowCount?: number;
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
   scrollParent?: string;
@@ -77,6 +80,7 @@ export function VirtualList({
   tabIndex,
   onKeyDown,
   itemKey,
+  rowCount,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();
@@ -163,6 +167,7 @@ export function VirtualList({
       aria-label={label}
       tabIndex={tabIndex}
       onKeyDown={onKeyDown}
+      aria-rowcount={role === "grid" ? rowCount : undefined}
     >
       <div
         ref={space}
