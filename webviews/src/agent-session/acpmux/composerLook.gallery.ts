@@ -368,11 +368,13 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "goal-paused": {
+      composerLook: "codex",
       note: "A paused goal remains visible when the conversation reopens.",
       snapshot: goalChat("paused"),
       play: (ctx) => look(ctx, "codex"),
     },
     "goal-stalled": {
+      composerLook: "codex",
       note: "A stalled Codex goal keeps its objective and elapsed time visible so the user can resume it without losing context.",
       snapshot: goalChat("stalled"),
       play: (ctx) => look(ctx, "codex"),
@@ -414,6 +416,7 @@ export default agentPaneEntry({
       },
     },
     "permission-pill-codex": {
+      composerLook: "codex",
       note: "Codex's permission capsule hovered: the same dimensions, 16px after the + glyph.",
       snapshot: startedChat(),
       play: async (ctx) => {
@@ -431,73 +434,87 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
+      composerLook: "codex",
       note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + and the mode left and the context ring, the model, the mic, then Codex's round Send, right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-spacing-compact": {
+      composerLook: "codex",
       note: "Spacing A: 16px after the prompt. Compact, but the placeholder and lower controls are closer than ChatGPT's reference.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(16, 16, 8)),
     },
     "codex-chat-spacing-balanced": {
+      composerLook: "codex",
       note: "Spacing B (#34709's pick, replaced by codex-height-balanced): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
     },
     "codex-chat-spacing-airy": {
+      composerLook: "codex",
       note: "Spacing C: 32px after the prompt. More empty space than the reference without improving the control row's separation.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(16, 32, 8)),
     },
     "codex-height-before": {
+      composerLook: "codex",
       note: "Replaced: the empty box 98.75 px tall, the prompt 16 px under the top, 24 px to the row and the row 8 px over the bottom edge (#34709). Leo 2026-11-08: too tall, too little room at the bottom.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(16, 24, 8, 8)),
     },
     "codex-height-tight": {
+      composerLook: "codex",
       note: "Arm A: 12 px top, 12 px to the row, 12 px under it (86.75 px). Shortest, but the placeholder crowds the row it heads.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(12, 12, 12)),
     },
     "codex-height-balanced": {
+      composerLook: "codex",
       note: "Arm B: 12 px top, 16 px to the row, 12 px under it (90.75 px, 8 px shorter), the box 8 px over the pane's bottom as before. The row has as much room under it as the prompt over it, and the prompt still reads as its own line.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(12, 16, 12, 8)),
     },
     "codex-height-roomy": {
+      composerLook: "codex",
       note: "Arm C: 12 px top, 20 px to the row, 16 px under it (98.75 px, as tall as before). The most room under the row, but no shorter.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", codexSpacing(12, 20, 16)),
     },
     "codex-height-floor-16": {
+      composerLook: "codex",
       note: "Arm D (the pick, shipped): arm B with the box 16 px over the pane's bottom (was 8): the reference's box stands about twice as high over its window's edge as ours did.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-ring-alt-after-model": {
+      composerLook: "codex",
       note: 'Replaced: the ring after the model, before the mic. Leo 2026-11-08: "put the context ring to the left of the model picker".',
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", ALT_RING_AFTER_MODEL),
     },
     "codex-grow-line": {
+      composerLook: "codex",
       note: "A one-line draft in Codex's look; Shift-Return adds a line and the field grows to fit it with no scrollbar thumb on the way (test/composer-grow-no-thumb.test.ts).",
       snapshot: startedChat(),
       ready: GROW_DRAFT,
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-alt-in-box-row": {
+      composerLook: "codex",
       note: "Replaced (cmux #28901, last good commit 8b44a8a1dc2): Codex's own 52 px row in the box under the prompt. Replaced on Leo's \"we already have a good version\" (2026-11-01). Gallery-only CSS, close to the old layout.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex", ALT_IN_BOX_ROW),
     },
     "codex-chat-alt-send-after-mic": {
+      composerLook: "codex",
       note: "Alternate (not shipped): the pick with Codex's send slot after the mic. Not picked: the mic would step left whenever a turn starts or a prompt is typed, and Leo's good version keeps it at the edge.",
       snapshot: runningChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex", ALT_AFTER_MIC),
     },
     "codex-chat-dots": {
+      composerLook: "codex",
       note: "Codex's look with the pointer in the quiet row's empty middle: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
@@ -524,6 +541,7 @@ export default agentPaneEntry({
       play: (ctx) => glassLevel(ctx, "claude", "clear"),
     },
     "composer-glass-balanced-codex": {
+      composerLook: "codex",
       note: "The recommended 70% tint and 24px blur in Codex's look, over the same busy backdrop.",
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
@@ -595,18 +613,21 @@ export default agentPaneEntry({
       play: (ctx) => materialStage(ctx, "reduce"),
     },
     "codex-new-chat": {
+      composerLook: "codex",
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-new-chat-alt-plain-strip": {
+      composerLook: "codex",
       note: "Alternate B (not shipped): Codex's row, but the strip stays plain text over the box as in Claude's look.",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
       play: (ctx) => look(ctx, "codex", ALT_PLAIN_STRIP),
     },
     "codex-new-chat-alt-text-row": {
+      composerLook: "codex",
       note: "Alternate C (not shipped): the tray, and the row as quiet text with no mode glyph.",
       ready: { newSession: true, cwd: CWD },
       snapshot: newChat(),
@@ -626,11 +647,13 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-codex-running": {
+      composerLook: "codex",
       note: "The pick, Codex's look: the one slot after the mic on its disc, Stop while the prompt is empty.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "send-one-slot-codex-typed": {
+      composerLook: "codex",
       note: "The pick, Codex's look: Send (↑ on the accent disc) in the same slot once a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
@@ -644,28 +667,33 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
     },
     "codex-send-accent-disc": {
+      composerLook: "codex",
       note: "Codex's Send (the pick): the ↑ on the accent disc after the mic, as Codex and ChatGPT draw it (Leo 2026-11-04: \"our codex style composer should look like codex's/chatgpt's\"). Ref codex/live/composer-codex-empty-input-controls.",
       snapshot: startedChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-send-empty": {
+      composerLook: "codex",
       note: "Codex's Send with nothing to send: the soft disc and the dimmed ↑ stay after the mic, so the mic never steps.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-send-stop": {
+      composerLook: "codex",
       note: "Codex's slot mid-turn with an empty prompt: Stop's square on the soft disc.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-send-alt-text-disc": {
+      composerLook: "codex",
       note: "Alternate (not shipped): ChatGPT's disc in the text colour. Not picked: Codex's own composer, the look's namesake, uses its accent.",
       snapshot: startedChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex", ALT_TEXT_DISC),
     },
     "codex-send-alt-plain-glyph": {
+      composerLook: "codex",
       note: "Replaced: Codex's look drew Send as a plain glyph (no disc, #23763). Kept for comparison.",
       snapshot: startedChat(),
       ready: DRAFT,

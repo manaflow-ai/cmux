@@ -108,11 +108,13 @@ export default agentPaneEntry({
       play: finalizing,
     },
     "codex-listening-empty": {
+      composerLook: "codex",
       note: "Play, Codex's look: ChatGPT's row: ✕ (drops the words, as Esc), the waveform, Stop (the lit mic, keeps the words) and Send.",
       snapshot: chat(finished),
       play: inCodex(listeningEmpty),
     },
     "codex-listening-words": {
+      composerLook: "codex",
       note: "Play, Codex's look: the words stream in; Send ends the session and sends them once they land.",
       snapshot: chat(finished),
       play: inCodex(listeningWords),

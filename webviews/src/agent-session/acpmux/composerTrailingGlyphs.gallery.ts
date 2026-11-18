@@ -84,6 +84,7 @@ export default agentPaneEntry({
       play: (ctx) => draw(ctx, "claude"),
     },
     "nicer-send-codex": {
+      composerLook: "codex",
       note: "The pick in Codex's look: the same tokens and ↵.",
       snapshot: startedChat(),
       ready: DRAFT,
