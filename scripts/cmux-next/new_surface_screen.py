@@ -299,7 +299,7 @@ class Screen:
                     self.rows.append(row)
                     said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
                     print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
-                          f"{json.dumps(said)} first_is_final={row.get('first_is_final')} "
+                          f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                           f"changes_after_content={row.get('changes_after_content')} "
                           f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}", flush=True)
                 report["cases"][case] = frames_of.summarize(rows)

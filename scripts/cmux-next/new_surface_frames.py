@@ -33,7 +33,15 @@ after it) and in ms:
   first_is_final True: each region is at the last picture IN the `content_first` frame
                  (`content_first_is_last_picture`) and in each row after it. False: one is not. None (not known):
                  each is, but a frame of the display from the one before `content_first` on has no row
-                 (`frames_not_seen_from_content`), so a change can be in it.
+                 (`frames_not_seen_from_content`), so a change can be in it, or the strip is not seen.
+  whole_window   True: the regions that the row judges are the whole window. The rows carry the tab strip's
+                 numbers, or the reply says that the strip changed in one step with the content (no frame with the
+                 strip at neither picture, no row with the strip and the content apart). False: the strip did not,
+                 and the rows do not carry it (a build from before the strip's numbers; `strip_not_seen`). Then the
+                 row has no `final`, a row with the page new and the strip old is a changed frame with its number,
+                 and the reply's count of strip frames at neither picture (`strip_intermediate`), less the rows up
+                 to `content_first`, is the lowest count of changed frames after it: a run with no frame number.
+                 `first_is_final` is then False, or not known when that count is 0: never True.
 
 The frame number of a row is its time over the display's frame time, counted up for the first row and by the rows'
 steps after it. The rows start at the last frame before the reply's zero (frame_strip's `before` picture), so a
@@ -269,15 +277,27 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
         source = (f"not known: the rows carry no strip numbers; {reply.get('strip_intermediate') or 0:.0f} frames of the "
                   f"strip equal neither picture, {sum(1 for row in after if row.get('desync'))} frames show the strip and the content apart")
     out["tab"], out["tab_source"] = tab, source
+    # The strip in a build whose rows do not carry it: the reply still counts the frames with the strip at neither
+    # picture and marks the rows with the strip and the content apart. A strip with neither changed in one step with
+    # the content and is seen with it. One with either is not seen: the judged regions are then not the whole window.
+    hidden = regions["strip"] is None
+    slid = reply.get("strip_intermediate") if hidden and _number(reply.get("strip_intermediate")) else 0
+    apart = {index for index, (_, row) in enumerate(numbered) if row.get("desync")} if hidden else set()
+    whole = bool(regions["outside"]) and not (slid or apart)
+    out["whole_window"] = whole
+    out["strip_not_seen"] = None if whole or not hidden else {"frames_at_neither_picture": slid, "rows_apart": len(apart)}
     unsettled = sorted(name for name, region in known.items() if not region["settled"])
     finals = [region["final"] for region in known.values() if region["changed"] and region["final"]]
-    out["final"] = None if unsettled else max(finals, key=lambda at: at["frame"], default=_at(numbered, 0))
+    # No `final` when the strip is not seen: the end of the last change is not in the rows.
+    out["final"] = None if unsettled or not whole else max(finals, key=lambda at: at["frame"], default=_at(numbered, 0))
     if unsettled:
         out["invalid"].append(f"frames: {', '.join(unsettled)} still changed at the recording's last frame")
     runs, unseen = [], None
     if first is not None:
         for index in range(first + 1, len(numbered)):
             state = {name: region["states"][index] for name, region in known.items()}
+            if index in apart:
+                state["strip"] = "before"  # the page is new in this row (it is after content_first), so the strip is the old one
             if all(value == "final" for value in state.values()):
                 continue
             frame, row = numbered[index]
@@ -286,6 +306,12 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
                 runs[-1]["count"] += 1
             else:
                 runs.append({"frames": [frame, frame], "ms": [row["ms"], row["ms"]], "count": 1, "state": state, "file": row.get("file")})
+        # The strip's frames at neither picture: the rows up to content_first can be `first + 1` of them at most.
+        later = max(0, int(slid) - first - 1)
+        if later:
+            runs.append({"frames": None, "ms": None, "count": later, "state": {"strip": "between"}, "file": None,
+                         "source": "the reply's strip_intermediate, less the rows up to content_first: the rows carry no "
+                                   "strip numbers, so the frames are not known and the count is the lowest one"})
         quiet = after[-1]["ms"] - numbered[first][1]["ms"]
         if quiet < settle_ms:
             out["invalid"].append(f"frames: the take ended before {settle_ms / 1000:g} s after content_first ({quiet:.0f} ms after it)")
@@ -298,10 +324,11 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out["frames_not_seen_from_content"] = unseen
     # The content_first frame itself: each region that the rows carry is at its last picture in it. A page that is
     # half drawn in that frame, or a sidebar row that comes one frame later, is a change after the first content.
-    at_first = first is not None and all(region["states"][first] == "final" for region in known.values())
-    out["content_first_is_last_picture"] = at_first if first is not None else None
-    # None: not known. No row shows a change, but a frame with no row can hold one.
-    out["first_is_final"] = False if first is None or runs or not at_first else (None if unseen else True)
+    at_first = first is not None and first not in apart and all(region["states"][first] == "final" for region in known.values())
+    # None: no content, or each judged region is at its last picture in that frame and the strip is not seen.
+    out["content_first_is_last_picture"] = None if first is None or (at_first and not whole) else at_first
+    # None: not known. No row shows a change, but a frame with no row can hold one, or the strip is not seen.
+    out["first_is_final"] = False if first is None or runs or not at_first else (None if unseen or not whole else True)
     out["regions"] = {name: ({k: v for k, v in region.items() if k != "states"} if region else None) for name, region in regions.items()}
     out["blinks"] = [region["blink"] for region in known.values() if region["blink"]]
     # The pictures that say what each number means: the picture that the app compares with (its last frame before the
@@ -309,7 +336,7 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     before = max((f for f in reply.get("frames") or [] if _number(f.get("ms")) and f["ms"] <= 0), key=lambda f: f["ms"], default={})
     out["pictures"] = {"before": before.get("file"), "last": after[-1].get("file"),
                        **{name: out[name]["file"] for name in ("tab", "content_first", "content_final", "final") if out[name]},
-                       **{f"changed_{index}": run["file"] for index, run in enumerate(runs[:6])}}
+                       **{f"changed_{index}": run["file"] for index, run in enumerate(runs[:6]) if run["file"]}}
     return out
 
 
@@ -328,6 +355,7 @@ def summarize(rows):
     out = {"n": len(rows), "valid": len(good), "invalid": sorted({reason.split(":")[0] for row in rows for reason in row.get("invalid") or []}),
            "first_is_final": sum(1 for row in good if row.get("first_is_final") is True),
            "first_is_final_not_known": sum(1 for row in good if row.get("first_is_final") is None),
+           "whole_window": sum(1 for row in good if row.get("whole_window") is True),
            "changes_after_content": _spread([row.get("changes_after_content") for row in good]),
            "tab_known": sum(1 for row in good if row.get("tab")), "blinks": sum(1 for row in good if row.get("blinks")),
            "blank_frames": sum(row.get("blank_frames") or 0 for row in good),
@@ -346,7 +374,9 @@ def cell(summary):
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + f"; tab {said('tab')} [known {summary['tab_known']}/{summary['valid']}]; content_first {said('content_first')}; "
             f"content_final {said('content_final')}; final {said('final')}; first=final {summary['first_is_final']}/{summary['valid']} "
-            f"(not known {summary['first_is_final_not_known']}); "
+            f"(not known {summary['first_is_final_not_known']}); whole window seen {summary['whole_window']}/{summary['valid']}"
+            + ("" if summary["whole_window"] == summary["valid"] else " (THE STRIP IS NOT SEEN in the others: their changed frames are a lowest count)")
+            + "; "
             f"frames changed after content p50 {changes['p50'] if changes else 'n/a'} max {changes['max'] if changes else 'n/a'}; "
             f"the key's own work p50 {work['p50'] if work else 'n/a'} ms max {work['max'] if work else 'n/a'}; "
             f"blank {summary['blank_frames']}; caret rows {summary['blinks']}")
