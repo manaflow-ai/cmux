@@ -207077,6 +207077,60 @@
         }
       }
     },
+    "settings.cloud.projectedFolders": {
+      "comment": "Settings > Machines: toggle that starts a Cloud chat on a folder too big to copy without copying it; the machine reads each file from this Mac when it first needs it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open Big Folders on Cloud Without Copying"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فتح المجلدات الكبيرة على السحابة دون نسخها"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Otvori velike mape u Cloudu bez kopiranja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Åbn store mapper i Cloud uden at kopiere dem"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Große Ordner in der Cloud öffnen, ohne sie zu kopieren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Abrir carpetas grandes en la nube sin copiarlas"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ouvrir les gros dossiers dans le Cloud sans les copier"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Apri cartelle grandi nel Cloud senza copiarle"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "大きなフォルダをコピーせずに Cloud で開く"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បើកថតធំៗនៅលើ Cloud ដោយមិនចម្លង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "큰 폴더를 복사하지 않고 Cloud에서 열기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Åpne store mapper i Cloud uten å kopiere dem"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Otwieraj duże foldery w chmurze bez kopiowania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Abrir pastas grandes na nuvem sem copiá-las"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Открывать большие папки в облаке без копирования"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เปิดโฟลเดอร์ขนาดใหญ่บน Cloud โดยไม่ต้องคัดลอก"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Büyük klasörleri kopyalamadan Cloud'da aç"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкривати великі папки в хмарі без копіювання"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mở thư mục lớn trên Cloud mà không sao chép"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在云端打开大文件夹而不复制"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在雲端開啟大型資料夾而不複製"}}
+      }
+    },
+    "settings.cloud.projectedFolders.help": {
+      "comment": "Settings > Machines: help for the Open Big Folders on Cloud Without Copying toggle. The Cloud machine reads each file from this Mac the first time it needs it, so this Mac must stay awake and online.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A folder too big to copy opens at once: each file comes from this Mac the first time it is read. This Mac must stay on and connected."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يُفتح المجلد الأكبر من أن يُنسخ على الفور: يأتي كل ملف من هذا الـ Mac في أول مرة يُقرأ فيها. يجب أن يبقى هذا الـ Mac قيد التشغيل ومتصلًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mapa prevelika za kopiranje otvara se odmah: svaka datoteka dolazi s ovog Maca kada se prvi put pročita. Ovaj Mac mora ostati uključen i povezan."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En mappe, der er for stor til at blive kopieret, åbnes med det samme: hver fil hentes fra denne Mac, første gang den læses. Denne Mac skal være tændt og forbundet."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Ordner, der zu groß zum Kopieren ist, öffnet sich sofort: Jede Datei kommt von diesem Mac, wenn sie zum ersten Mal gelesen wird. Dieser Mac muss eingeschaltet und verbunden bleiben."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Una carpeta demasiado grande para copiarla se abre al instante: cada archivo llega desde este Mac la primera vez que se lee. Este Mac debe seguir encendido y conectado."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un dossier trop gros pour être copié s’ouvre aussitôt : chaque fichier vient de ce Mac la première fois qu’il est lu. Ce Mac doit rester allumé et connecté."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Una cartella troppo grande da copiare si apre subito: ogni file arriva da questo Mac la prima volta che viene letto. Questo Mac deve restare acceso e connesso."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "コピーするには大きすぎるフォルダもすぐに開きます。各ファイルは最初に読み込まれたときにこの Mac から届きます。この Mac は電源を入れたまま接続しておく必要があります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ថតដែលធំពេកសម្រាប់ចម្លងនឹងបើកភ្លាមៗ៖ ឯកសារនីមួយៗមកពី Mac នេះនៅពេលវាត្រូវបានអានជាលើកដំបូង។ Mac នេះត្រូវតែបើក និងភ្ជាប់ជានិច្ច។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "복사하기에 너무 큰 폴더도 바로 열립니다. 각 파일은 처음 읽을 때 이 Mac에서 가져옵니다. 이 Mac은 켜져 있고 연결된 상태여야 합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En mappe som er for stor til å kopieres, åpnes med en gang: hver fil hentes fra denne Macen første gang den leses. Denne Macen må være på og tilkoblet."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Folder zbyt duży do skopiowania otwiera się od razu: każdy plik jest pobierany z tego Maca przy pierwszym odczycie. Ten Mac musi pozostać włączony i połączony."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Uma pasta grande demais para copiar abre na hora: cada arquivo vem deste Mac na primeira vez em que é lido. Este Mac precisa ficar ligado e conectado."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Папка, слишком большая для копирования, открывается сразу: каждый файл передаётся с этого Mac при первом чтении. Этот Mac должен оставаться включённым и подключённым."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "โฟลเดอร์ที่ใหญ่เกินกว่าจะคัดลอกจะเปิดได้ทันที: แต่ละไฟล์มาจาก Mac เครื่องนี้ในครั้งแรกที่มีการอ่าน Mac เครื่องนี้ต้องเปิดและเชื่อมต่ออยู่เสมอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kopyalanamayacak kadar büyük bir klasör hemen açılır: her dosya ilk okunduğunda bu Mac'ten gelir. Bu Mac açık ve bağlı kalmalıdır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Папка, завелика для копіювання, відкривається одразу: кожен файл надходить із цього Mac під час першого читання. Цей Mac має залишатися ввімкненим і підключеним."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thư mục quá lớn để sao chép sẽ mở ngay: mỗi tệp được lấy từ máy Mac này vào lần đầu tiên được đọc. Máy Mac này phải luôn bật và kết nối."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "太大而无法复制的文件夹会立即打开：每个文件在首次读取时从这台 Mac 获取。这台 Mac 必须保持开机并联网。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "太大而無法複製的資料夾會立即開啟：每個檔案在第一次讀取時從這台 Mac 取得。這台 Mac 必須保持開機並連線。"}}
+      }
+    },
     "settings.agentPane.composerRing": {
       "comment": "Settings > Agent Chat: the row that picks what the composer's ring shows (context usage or plan usage limits)",
       "extractionState": "manual",

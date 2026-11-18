@@ -35,6 +35,9 @@ extension CloudNewWorkspaceSetting {
     /// `cloud.turnCheckpoints`.
     public nonisolated static let turnCheckpointsPath = ["cloud", "turnCheckpoints"]
     public nonisolated static let turnCheckpointsDefault = false
+    /// `cloud.projectedFolders`.
+    public nonisolated static let projectedFoldersPath = ["cloud", "projectedFolders"]
+    public nonisolated static let projectedFoldersDefault = false
 }
 
 extension CloudAgentStartSetting {
@@ -214,6 +217,16 @@ nonisolated enum MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
+            ),
+            SettingDescriptor(
+                CloudNewWorkspaceSetting.projectedFoldersPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.cloud.projectedFolders", "Open Big Folders on Cloud Without Copying"),
+                help: SettingsText.keyed("settings.cloud.projectedFolders.help", "A folder too big to copy opens at once: each file comes from this Mac the first time it is read. This Mac must stay on and connected."),
+                kind: .toggle,
+                default: .bool(CloudNewWorkspaceSetting.projectedFoldersDefault),
+                keywords: ["cloud", "folder", "big", "large", "copy", "projected", "size"]
             ),
         ]
     }

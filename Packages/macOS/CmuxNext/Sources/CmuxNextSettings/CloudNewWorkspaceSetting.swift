@@ -23,6 +23,13 @@ public nonisolated struct CloudNewWorkspaceSetting: Sendable {
         root.value(at: Self.turnCheckpointsPath)?.boolValue ?? Self.turnCheckpointsDefault
     }
 
+    /// Whether a Cloud chat whose folder is too big to copy starts on a projection of it instead
+    /// (`cloud.projectedFolders`): each file comes from this Mac the first time the machine reads it.
+    /// A missing or non-boolean value is off.
+    public func projectedFolders(in root: JSONValue) -> Bool {
+        root.value(at: Self.projectedFoldersPath)?.boolValue ?? Self.projectedFoldersDefault
+    }
+
     /// What a new Cloud workspace starts with; a missing or unknown value inherits.
     public func folder(in root: JSONValue) -> CloudWorkspaceFolder {
         root.value(at: Self.folderPath)?.stringValue.flatMap(CloudWorkspaceFolder.init(rawValue:)) ?? Self.folderDefault
