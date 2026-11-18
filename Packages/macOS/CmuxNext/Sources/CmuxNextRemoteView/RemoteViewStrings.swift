@@ -114,12 +114,6 @@ nonisolated enum RemoteViewStrings {
         let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? cloudMachine : name
     }
-    /// The card's one line.
-    static func confirmDetail(_ target: RemoteConnectionTarget) -> String {
-        target.requiresConfirmation
-            ? t("rd.gate.approval", "Another action opened this tab. Nothing connects until you choose Connect.")
-            : t("rd.gate.open", "Connect to see what is running here.")
-    }
     /// The status chip's text: status and region, or nil when there is neither.
     static func confirmStatus(_ target: RemoteConnectionTarget) -> String? {
         let values: [String] = [target.status, target.region].compactMap { value -> String? in

@@ -144,6 +144,13 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// top) and below (to the content border), `PaneChromeMetrics`.
     public var stripTopOutset: CGFloat = 0
 
+    /// The gap before the first pill and after the last one (``stripHorizontalPadding``) on `scale`'s pixel grid,
+    /// snapped down as the pill's top is (`tabTop`), so the two are the same to the pixel at 1x and at 2x.
+    public func endGap(scale: CGFloat) -> CGFloat {
+        let pixels = max(scale, 1)
+        return (stripHorizontalPadding * pixels + 0.0001).rounded(.down) / pixels
+    }
+
     /// The tabs' top in a strip `height` points tall, on `scale`'s pixel grid.
     public func tabTop(stripHeight height: CGFloat, scale: CGFloat) -> CGFloat {
         PaneChromeMetrics(stripHeight: height, tabHeight: min(tabHeight, height), panePadding: stripTopOutset).pillTop(scale: scale)

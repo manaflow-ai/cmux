@@ -152,8 +152,9 @@
 #           and this commit in Info.plist, for the simulator and for devices.
 #           The device app is unsigned (CODE_SIGNING_ALLOWED=NO); the person's
 #           Mac signs it with its Apple Development identity. Then the
-#           simulator check: the app signed in with the worker's agent account
-#           (<fleet dir>/secrets/ios-agent-stack.env, never printed), proven by
+#           simulator check: the app signed in with the agent account's session
+#           from the submitter's Mac (cmux-ci run --sign-in agent, read with
+#           scripts/lib/fleet-signin-session.sh, never printed), proven by
 #           its DEBUG readiness receipt (session auto_login), then relaunched
 #           with no credentials and proven again (session restored), with a
 #           screenshot of each and a recording. The artifact (evidence.zip)
@@ -773,17 +774,15 @@ handoff_sim_status="" handoff_sim_reason=""
 if [[ "$mode" == handoff ]]; then
   t0=$SECONDS
   handoff_check() {
-    # The worker's host dir (the step inherits CMUX_CI_HOST_DIR from the worker); a step with
-    # --label ios-agent-signin lands only on a worker whose file passed the worker's own checks.
-    local creds="${CMUX_CI_HOST_DIR:-${CMUX_CI_FLEET_DIR:-/Users/Shared/cmux-build-fleet}}/secrets/ios-agent-stack.env"
+    # The step's own sign-in session, sealed from the submitter's Mac (cmux-ci run --sign-in agent,
+    # hq build-fleet `sign_in`): no worker account file, no password. Only the auto_login launch
+    # gets its refresh token, and it is dropped from this shell after the legs.
     local receipt client nonce data rec_pid=""
-    [[ -f "$creds" && ! -L "$creds" && -O "$creds" && -r "$creds" ]] ||
-      { handoff_sim_reason="no agent account this step can read on $(hostname -s) ($creds); send the step with --label ios-agent-signin"; return 1; }
-    [[ "$(stat -f %Lp "$creds")" =~ ^[0-7]00$ ]] ||
-      { handoff_sim_reason="the agent account file on $(hostname -s) is readable by others; it must be 0600"; return 1; }
+    # shellcheck source=scripts/lib/fleet-signin-session.sh
+    source scripts/lib/fleet-signin-session.sh
+    cmux_fleet_signin_load || { handoff_sim_reason="$CMUX_FLEET_SIGNIN_ERROR"; return 1; }
     local account
-    account="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py env-value "$creds" CMUX_UITEST_STACK_EMAIL)" ||
-      { handoff_sim_reason="the agent account file has no CMUX_UITEST_STACK_EMAIL"; return 1; }
+    account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
     simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
@@ -793,13 +792,8 @@ if [[ "$mode" == handoff ]]; then
       nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
       if [[ "$leg" == auto_login ]]; then
-        # In a subshell, so the password is in no command line and leaves with it.
-        ( set +x
-          SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$account"
-          SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py env-value "$creds" CMUX_UITEST_STACK_PASSWORD)"
-          export SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD
-          SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
-            xcrun simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ) ||
+        SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
+          cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ||
           { handoff_sim_reason="simctl launch failed ($leg)"; break; }
       else
         SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
@@ -827,6 +821,7 @@ if [[ "$mode" == handoff ]]; then
       fi
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
+    cmux_fleet_signin_forget
     if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
