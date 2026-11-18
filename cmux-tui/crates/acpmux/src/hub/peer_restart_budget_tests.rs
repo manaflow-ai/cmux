@@ -33,14 +33,14 @@ fn row(i: usize, started: u64) -> Value {
     let id = format!("s{i}");
     let mut row = json!({
         "sessionId": id, "name": format!("lane-{i}"), "agentSessionId": format!("a{i}"),
-        "status": if i % 4 == 0 { "idle" } else { "closed" }, "turnCount": 3, "updatedAt": 5,
+        "status": if i.is_multiple_of(4) { "idle" } else { "closed" }, "turnCount": 3, "updatedAt": 5,
         "createdAt": 1, "title": format!("chat {i}"),
         "sessionReceipt": {
             "hostId": "local", "muxSessionId": id, "agentSessionId": format!("a{i}"),
             "generation": started,
         },
     });
-    if i % 10 == 0 {
+    if i.is_multiple_of(10) {
         row["timeBreakdown"] = json!({"turns": vec![json!({"ms": 1234, "tool": "Bash"}); 100]});
     }
     row
