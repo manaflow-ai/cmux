@@ -2,6 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudChatHint } from "./CloudChatHint";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../motion/scale.generated";
 
 type Props = Parameters<typeof CloudChatHint>[0];
 
@@ -37,7 +38,7 @@ export default componentEntry<Props>({
       props: { look: "chip", onUse, onClose },
     },
     "line-closing": {
-      note: "The X: the row folds to zero height with a fade on the house settle (cubic-bezier(0.16, 1, 0.3, 1), 180 ms), and the composer moves up with it in the same transition.",
+      note: `The X: the row folds to zero height with a fade on the house settle (${MOTION_SETTLE}, ${MOTION_SETTLE_MS} ms), and the composer moves up with it in the same transition.`,
       props: { look: "line", onUse, onClose },
       play: close,
     },

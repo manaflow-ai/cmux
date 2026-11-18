@@ -129,18 +129,15 @@ enum AgentBesidePlacement {
                 return nil
             }
             if let chatID, let (chat, home) = services.locateTab(chatID, onMachine: machineID), home === anchor, let content = lone?.workspace {
-                // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
-                // chat stays where it shows; only the tab's pane comes in, from the right.
-                if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }
+                // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The dock
+                // is one layout change: the frame that shows it shows the chat in its dock and the tab's
+                // pane right of it.
                 let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) {
                         done.resume(returning: $0)
                     }
                 }
-                guard docked else {
-                    content.layoutModel.cancelContentHandoff()
-                    return "beside-caller: the chat did not dock (see the app log)"
-                }
+                guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
                 moved = true
                 // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
                 // Not when the person acted since the run began: their focus stays where they put it.
