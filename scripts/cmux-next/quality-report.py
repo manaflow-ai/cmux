@@ -44,9 +44,10 @@ cmuxterm-hq). The section says which source answered and why the other did not.
     quality-report.py report [--hours 24] [--perf-state state.json] [--god-small FILE] [--anim-coverage FILE]
                              [--ci-branches feat-cmux-next,main] [--ci-commits 50] [--ci-repo manaflow-ai/cmux] [--speed]
                              [--first-user-journey RESULTS.json]... [--v2-home-exit N --v2-home-stderr FILE
-                             --v2-home-output FILE] --json OUT [--md OUT] [--public-md OUT]
+                             --v2-home-output FILE --v2-home-seconds N --v2-home-limit N] --json OUT [--md OUT]
     quality-report.py fetch-journey --repo OWNER/NAME --workflow FILE.yml --artifact NAME --dir DIR [--tries 5]
     quality-report.py sticky --report OUT.json --md OUT.md [--repo manaflow-ai/cmuxterm-hq]
+    quality-report.py done-today [--repo manaflow-ai/cmuxterm-hq]
     quality-report.py merge-god-small --out FILE INPUT.json...
 
 `report` writes the metrics JSON (--json), the full report with signature names (--md, for the private sticky
@@ -508,38 +509,65 @@ def god_vs_small(doc: Any, why: Optional[str]) -> Dict[str, Any]:
             "worst_ratio": max(ratios) if ratios else None, "why": None if rows else "the god-vs-small input has no rows"}
 
 
-def v2_home(exit_code: Optional[int], stderr_text: Optional[str], output_path: Optional[str]) -> Dict[str, Any]:
-    """Whether the v2 gate home (`cargo bench -p acpmux --bench v2`) wrote its god-vs-small rows tonight.
+def v2_home(exit_code: Optional[int], stderr_text: Optional[str], output_path: Optional[str],
+            seconds: Optional[float] = None, limit: Optional[float] = None) -> Dict[str, Any]:
+    """Whether the v2 gate home (`cargo bench --profile gate -p acpmux --bench v2`) wrote its god-vs-small rows.
 
     hq#11702: cmux#43403 (2026-11-15) added a gate line the home could not read; the home exited 2 before it wrote
     anything, the steps around it are continue-on-error, and the report said only "no input given" for nights. So
     the report names it in its first lines: `status` is "wrote" (exit 0 and a non-empty output), "exited N" (it
     wrote, but exited non-zero) or "no report" (no output), with the home's own error line. No exit given means the
     step did not run (`status` None)."""
+    base = {"seconds": seconds, "limit": limit}
     if exit_code is None:
-        return {"status": None, "exit": None, "error": None, "why": "the gate home was not run"}
+        return {"status": None, "exit": None, "error": None, "why": "the gate home was not run", **base}
     wrote = bool(output_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 0
     if exit_code == 0 and wrote:
-        return {"status": "wrote", "exit": 0, "error": None, "why": None}
+        return {"status": "wrote", "exit": 0, "error": None, "why": None, **base}
     lines = [line.strip() for line in (stderr_text or "").splitlines() if line.strip()]
     own = [line for line in lines if line.startswith("v2 bench:")]  # the home's own error lines
     error = own[-1] if own else (lines[-1] if lines else None)
-    if exit_code == V2_HOME_UNFINISHED:
+    if exit_code == 124:
+        if limit and limit > 0:
+            minutes = limit / 60
+            minute_text = str(int(minutes)) if minutes.is_integer() else f"{minutes:.1f}"
+            error = f"the gate home ran past {minute_text} minutes"
+        else:
+            error = "the gate home ran past its timeout"
+        if lines:
+            error += f"; last line: {error if not lines else lines[-1]}"
+    elif exit_code == V2_HOME_UNFINISHED:
         error = "the gate home did not finish (killed or timed out)" + (f"; last line: {error}" if error else "")
     elif error is None:
         error = "it printed no error"
     if len(error) > V2_HOME_ERROR_MAX:
         error = error[:V2_HOME_ERROR_MAX - 3] + "..."
-    return {"status": f"exited {exit_code}" if wrote else "no report", "exit": exit_code, "error": error, "why": None}
+    return {"status": f"exited {exit_code}" if wrote else "no report", "exit": exit_code, "error": error,
+            "why": None, **base}
+
+
+def v2_home_timing(h: Dict[str, Any]) -> Optional[str]:
+    seconds, limit = h.get("seconds"), h.get("limit")
+    if not isinstance(seconds, (int, float)) or not isinstance(limit, (int, float)) or limit <= 0:
+        return None
+    if seconds <= limit * 0.7:
+        return None
+    minutes = limit / 60
+    minute_text = str(int(minutes)) if minutes.is_integer() else f"{minutes:.1f}"
+    return f"elapsed {seconds:g}s, over 70% of the {minute_text}-minute limit"
 
 
 def v2_home_line(h: Dict[str, Any]) -> Optional[str]:
-    """The report's first line when the home did not write cleanly; None when it did, or did not run."""
-    if h.get("status") in (None, "wrote"):
+    """The report's first line for a failed home or one that ran close to its limit."""
+    if h.get("status") is None:
         return None
+    timing = v2_home_timing(h)
+    suffix = f" ({timing})" if timing else ""
+    if h.get("status") == "wrote":
+        return f"**v2 gate home timing:** {timing}" if timing else None
     if h["status"] == "no report":
-        return f"**v2 gates: no report.** The gate home wrote nothing (exit {h['exit']}): {h['error']}"
-    return f"**v2 gates: the gate home exited {h['exit']}** after writing its rows: {h['error']}"
+        return f"**v2 gates: no report.** The gate home wrote nothing (exit {h['exit']}): {h['error']}{suffix}"
+    return f"**v2 gates: the gate home exited {h['exit']}** after writing its rows: {h['error']}{suffix}"
 
 
 def anim_coverage(doc: Any, why: Optional[str]) -> Dict[str, Any]:
@@ -1079,14 +1107,23 @@ def history_row(r: Dict[str, Any]) -> Dict[str, Any]:
             "v2_home": (r.get("v2_home") or {}).get("status")}
 
 
-def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
-    """The sticky issue's body: the newest report, then one row per night (newest first), the rows also kept as JSON
-    in a comment so the next night appends to them."""
+def sticky_history(old_body: str) -> List[Dict[str, Any]]:
     m = HISTORY_RE.search(old_body or "")
     try:
         history = json.loads(m.group(1)) if m else []
-    except ValueError:
+    except (TypeError, ValueError):
         history = []
+    return [h for h in history if isinstance(h, dict)] if isinstance(history, list) else []
+
+
+def sticky_done_today(old_body: str, today: str) -> bool:
+    return any(h.get("at") == today and h.get("v2_home") == "wrote" for h in sticky_history(old_body))
+
+
+def sticky_body(r: Dict[str, Any], md: str, old_body: str) -> str:
+    """The sticky issue's body: the newest report, then one row per night (newest first), the rows also kept as JSON
+    in a comment so the next night appends to them."""
+    history = sticky_history(old_body)
     row = history_row(r)
     history = [h for h in history if isinstance(h, dict) and h.get("at") != row["at"]] + [row]
     history = history[-HISTORY_KEEP:]
@@ -1113,6 +1150,13 @@ def write_sticky(r: Dict[str, Any], md: str, repo: str, run: Callable = subproce
     if found.returncode != 0:
         raise SourceError(f"gh could not list {repo} issues: {(found.stderr or found.stdout).strip()[-200:]}")
     own = [i for i in json.loads(found.stdout or "[]") if i.get("title") == STICKY_TITLE and STICKY_MARK in (i.get("body") or "")]
+    if own:
+        old_body = own[0].get("body") or ""
+        row = history_row(r)
+        if any(h.get("at") == row["at"] and h.get("v2_home") == "wrote" for h in sticky_history(old_body)) \
+                and row.get("v2_home") != "wrote":
+            print(f"quality-report: kept the sticky's {row['at']} written v2 home row; this run did not write it")
+            return f"#{own[0]['number']}"
     body = sticky_body(r, md, own[0]["body"] if own else "")
     if own:
         cmd = ["gh", "issue", "edit", str(own[0]["number"]), "--repo", repo, "--body-file", "-"]
@@ -1122,6 +1166,15 @@ def write_sticky(r: Dict[str, Any], md: str, repo: str, run: Callable = subproce
     if done.returncode != 0:
         raise SourceError(f"gh could not write the sticky issue: {(done.stderr or done.stdout).strip()[-200:]}")
     return f"#{own[0]['number']}" if own else (done.stdout or "").strip()
+
+
+def sticky_done_from_repo(repo: str, today: str, run: Callable = subprocess.run) -> bool:
+    found = run(["gh", "issue", "list", "--repo", repo, "--state", "open", "--search", f'"{STICKY_TITLE}" in:title',
+                 "--json", "number,title,body", "--limit", "10"], capture_output=True, text=True, timeout=60)
+    if found.returncode != 0:
+        raise SourceError(f"gh could not list {repo} issues: {(found.stderr or found.stdout).strip()[-200:]}")
+    own = [i for i in json.loads(found.stdout or "[]") if i.get("title") == STICKY_TITLE and STICKY_MARK in (i.get("body") or "")]
+    return bool(own and sticky_done_today(own[0].get("body") or "", today))
 
 
 def fetch_journey(repo: str, workflow: str, artifact: str, dest: str, run: Callable = subprocess.run,
@@ -1150,6 +1203,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep.add_argument("--v2-home-exit", type=int, help="the v2 gate home's exit code (-1: it did not finish)")
     rep.add_argument("--v2-home-stderr", help="the v2 gate home's stderr, for its error line")
     rep.add_argument("--v2-home-output", help="the file the v2 gate home was asked to write")
+    rep.add_argument("--v2-home-seconds", type=float, help="seconds spent in the v2 gate home")
+    rep.add_argument("--v2-home-limit", type=float, help="the v2 gate home's timeout in seconds")
     rep.add_argument("--anim-coverage", help="the animation token coverage JSON")
     rep.add_argument("--ci-branches", default="", help="comma-separated base branches for the CI health section")
     rep.add_argument("--ci-commits", type=int, default=CI_COMMITS, help="commits read per branch")
@@ -1165,6 +1220,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     st.add_argument("--report", required=True)
     st.add_argument("--md", required=True)
     st.add_argument("--repo", default=HQ_REPO)
+    done = sub.add_parser("done-today", help="say whether today's sticky row has a written v2 gate home")
+    done.add_argument("--repo", default=HQ_REPO)
     fj = sub.add_parser("fetch-journey", help="download a first-user journey surface's newest results artifact")
     fj.add_argument("--repo", required=True)
     fj.add_argument("--workflow", required=True)
@@ -1193,7 +1250,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                          ci_repo=args.ci_repo, ci_history=gh_ci_history if branches else None,
                          speed_history=gh_speed_history if args.speed else None,
                          journey_paths=args.first_user_journey,
-                         v2_home_state=v2_home(args.v2_home_exit, read_text(args.v2_home_stderr), args.v2_home_output))
+                         v2_home_state=v2_home(args.v2_home_exit, read_text(args.v2_home_stderr), args.v2_home_output,
+                                               args.v2_home_seconds, args.v2_home_limit))
         for path, doc in ((args.json, r), (args.public_json, public_report(r) if args.public_json else None)):
             if path:
                 with open(path, "w", encoding="utf-8") as f:
@@ -1204,6 +1262,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(render_markdown(r, public))
         print(json.dumps(headline(r, public=True), indent=2))  # the job log is public
+        return 0
+    if args.cmd == "done-today":
+        try:
+            value = sticky_done_from_repo(args.repo, now_utc().date().isoformat())
+        except (OSError, SourceError, TypeError, ValueError) as e:
+            print(f"quality-report: today's sticky row could not be read: {e}", file=sys.stderr)
+            value = False
+        print("true" if value else "false")
         return 0
     with open(args.report, encoding="utf-8") as f:
         r = json.load(f)

@@ -8,7 +8,6 @@ use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::Instant;
 
 use cmux_conversation::MAX_PREVIEW_IMAGE_BYTES;
-use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbImage};
 
 /// A JPEG ready to upload.
@@ -61,7 +60,11 @@ pub fn to_jpeg(bytes: &[u8], deadline: Instant) -> Option<Picture> {
         let scaled;
         let shown: &RgbImage = if rgb.width().max(rgb.height()) > side {
             let (width, height) = fit(rgb.width(), rgb.height(), side);
-            scaled = image::imageops::resize(&rgb, width, height, FilterType::Triangle);
+            // Area-averaged in linear light (cmux_image_linear), so fine detail keeps its
+            // brightness instead of going darker.
+            let (w, h) = (rgb.width(), rgb.height());
+            let pixels = cmux_image_linear::downscale(rgb.as_raw(), 3, w, h, width, height);
+            scaled = RgbImage::from_raw(width, height, pixels)?;
             &scaled
         } else {
             &rgb
@@ -142,4 +145,51 @@ fn on_white(image: &DynamicImage) -> RgbImage {
         let blend = |c: u8| ((c as u32 * a as u32 + 255 * (255 - a as u32)) / 255) as u8;
         image::Rgb([blend(r), blend(g), blend(b)])
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::GrayImage;
+
+    fn black_and_white_png(n: u32, checker: bool) -> Vec<u8> {
+        let image = GrayImage::from_fn(n, n, |x, y| {
+            let on = if checker {
+                (x + y) % 2 == 0
+            } else {
+                y % 2 == 0
+            };
+            image::Luma([if on { 255 } else { 0 }])
+        });
+        let mut png = Vec::new();
+        DynamicImage::ImageLuma8(image)
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        png
+    }
+
+    fn middle_mean(jpeg: &[u8]) -> f64 {
+        let rgb = image::load_from_memory(jpeg).unwrap().to_rgb8();
+        let (w, h) = rgb.dimensions();
+        let middle: Vec<u64> = (h / 4..3 * h / 4)
+            .flat_map(|y| (w / 4..3 * w / 4).map(move |x| (x, y)))
+            .map(|(x, y)| u64::from(rgb.get_pixel(x, y)[1]))
+            .collect();
+        middle.iter().sum::<u64>() as f64 / middle.len() as f64
+    }
+
+    /// A card picture's fine black and white detail keeps its light: half black, half
+    /// white is 188, not the 128 an average of sRGB codes gives
+    /// ("What every coder should know about gamma").
+    #[test]
+    fn a_preview_picture_averages_light_not_srgb_codes() {
+        // 2x down to the first try's 1200 px edge.
+        for checker in [true, false] {
+            let deadline = Instant::now() + std::time::Duration::from_secs(60);
+            let picture = to_jpeg(&black_and_white_png(2400, checker), deadline).unwrap();
+            assert_eq!(picture.width, 1200);
+            let mean = middle_mean(&picture.jpeg);
+            assert!((185.0..=191.0).contains(&mean), "checker {checker}: {mean}");
+        }
+    }
 }

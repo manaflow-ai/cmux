@@ -86,9 +86,6 @@ final class MacConversationLoader {
             guard mine == generation, !Task.isCancelled else { return }
             // The one shown now: the previous session, or a first open's fallback shown past the bound.
             if let shown = session, shown !== loaded {
-                // What was written while the link was down goes to the new session.
-                for message in shown.outbox { loaded.send(message, asksForAlerts: false) }
-                shown.discardOutbox()
                 Self.clearStale(shown)
             }
             endNotLive()

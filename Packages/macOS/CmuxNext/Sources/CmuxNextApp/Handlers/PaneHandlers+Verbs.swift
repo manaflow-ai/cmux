@@ -94,10 +94,7 @@ extension PaneHandlers {
             ctx.services.keyRouter.creationInputCoordinator.drop(closing: unshown)
             // One gesture: one question, one toast decision and one closed group over every closing tab (cx-lb4al).
             CloseUndoToasts.close(shown.map { (pane: $0, ids: $0.stripModel.orderedTabs.map(\.id)) })
-            for other in unshown {
-                let handle = other.handle
-                ctx.send("close-pane") { try await $0.closePane(handle) }
-            }
+            for other in unshown { ctx.services.daemon(for: other).closePane(other.handle) { _ in } } // its own daemon, never the active one
         })
         // The name shows in the input's turn (a store intent); a refusal puts the old one back.
         registry.bindEffect("renamePane", effect: { invocation in
