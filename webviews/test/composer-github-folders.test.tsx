@@ -296,13 +296,127 @@ test("another repos.list failure shows one line with Retry, which reads again", 
   }
 });
 
-test("unavailable shows nothing new", async () => {
-  const gh = host({ "github.status": { state: "unavailable", repos_scope: null } });
+test("before the status answers, nothing GitHub shows", async () => {
+  let answer: (value: unknown) => void = () => undefined;
+  const calls: string[] = [];
+  const store = createGitHubPicker((method) => {
+    calls.push(method);
+    return new Promise((resolve) => (answer = resolve));
+  });
+  const { root } = await renderTray({}, store);
+  try {
+    await openFolderMenu();
+    expect(calls).toEqual(["github.status"]);
+    expect(doc().querySelector("[data-github]")).toBeNull();
+    await act(async () => answer({ state: "unavailable", repos_scope: null, reason: "unreachable" }));
+    await settle();
+    expect(option("Add repositories from GitHub")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("unavailable: one row connects in place, never picks a folder, and lists the repositories once ready", async () => {
+  const gh = host({
+    "github.status": { state: "unavailable", repos_scope: null, reason: "unreachable" },
+    "github.connect": { opened: true },
+  });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const row = option("Add repositories from GitHub")!;
+    expect(row.querySelector("[data-github-unavailable]")?.getAttribute("data-github-unavailable")).toBe("unreachable");
+    // No reason worth a line before a click.
+    expect(row.querySelector(".acpmux-menu-description")).toBeNull();
+    await press(row);
+    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.connect"]);
+    expect(picked).toEqual([]);
+    expect(card()).toBeNull();
+    // The menu is still open on the list, the row waiting for the browser.
+    expect(option("Add repositories from GitHub")?.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Waiting for GitHub…",
+    );
+    gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
+    gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await gh.back();
+    expect(option("acme/api")).toBeDefined();
+    expect(option("Add repositories from GitHub")).toBeUndefined();
+    expect(picked).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("unavailable: a refused connect shows the host's words on the row, and a click tries again", async () => {
+  const gh = host({
+    "github.status": { state: "unavailable", repos_scope: null },
+    "github.connect": { error: Object.assign(new Error("GitHub didn't answer."), { code: "github.unavailable" }) },
+  });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await press(option("Add repositories from GitHub")!);
+    const row = option("Add repositories from GitHub")!;
+    expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe("GitHub didn't answer.");
+    gh.answers["github.connect"] = { opened: false };
+    gh.answers["github.status"] = { state: "not_connected", repos_scope: null };
+    await press(row);
+    // Already connected as the host saw it: the status is read again, and its answer drawn.
+    expect(gh.calls.map(([method]) => method)).toEqual([
+      "github.status",
+      "github.connect",
+      "github.connect",
+      "github.status",
+    ]);
+    expect(option("Add repositories from GitHub")?.querySelector("[data-github-unavailable]")).toBeNull();
+    expect(picked).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("unavailable while signed out asks to sign in; not set up says so before any click", async () => {
+  const gh = host({
+    "github.status": { state: "unavailable", repos_scope: null, reason: "signed_out" },
+    "github.connect": { opened: true },
+  });
   const { root } = await renderTray({}, gh.store);
   try {
     await openFolderMenu();
-    expect(doc().querySelector("[data-github]")).toBeNull();
-    expect(gh.calls.map(([method]) => method)).toEqual(["github.status"]);
+    await press(option("Sign in to add GitHub repositories")!);
+    expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  const unset = host({
+    "github.status": { state: "unavailable", repos_scope: null, reason: "not_configured" },
+    "github.connect": { error: Object.assign(new Error("Not set up."), { code: "github.not_configured" }) },
+  });
+  const second = await renderTray({}, unset.store);
+  try {
+    await openFolderMenu();
+    const row = option("Add repositories from GitHub")!;
+    expect(row.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "GitHub isn’t set up for this Cloud service yet.",
+    );
+    // Still a click: the host may have been set up since.
+    await press(row);
+    expect(unset.calls.at(-1)).toEqual(["github.connect", {}]);
+    expect(option("Add repositories from GitHub")!.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Not set up.",
+    );
+  } finally {
+    await act(async () => second.root.unmount());
+  }
+});
+
+test("a host that refuses github.status reads as unreachable", async () => {
+  const gh = host({ "github.status": { error: new Error("unknown method") } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    expect(gh.store.snapshot().status).toEqual({ state: "unavailable", reposScope: null, reason: "unreachable" });
+    expect(option("Add repositories from GitHub")).toBeDefined();
   } finally {
     await act(async () => root.unmount());
   }

@@ -38,7 +38,11 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// `github` (a new Cloud chat only, githubRepos.ts) adds the person's GitHub repositories under the
 /// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`;
 /// before the cmux GitHub App is installed, one Add repositories from GitHub row that turns the menu
-/// into the install card (Escape or Back returns to the list).
+/// into the install card (Escape or Back returns to the list). While GitHub is unavailable (signed out,
+/// no GitHub App on this Cloud service, or the check did not answer) the same row connects in place:
+/// the host signs in or opens the install page, the menu stays open and lists the repositories once
+/// the status says ready; a refusal is the row's second line and a click tries again. It never picks
+/// a folder. Before the first status read answers, nothing shows.
 export function FolderPopover({
   label,
   menu,
@@ -173,7 +177,7 @@ export function FolderPopover({
     [githubReady, githubRepos, typed],
   );
   const githubRows = [
-    ...(githubStatus === "not_connected" ? [GITHUB_ADD] : []),
+    ...(githubStatus === "not_connected" || githubStatus === "unavailable" ? [GITHUB_ADD] : []),
     ...repos.map((repo) => GITHUB_REPO + repo.fullName),
     ...(githubReady && github?.state.status?.reposScope === "selected" ? [GITHUB_MORE] : []),
   ];
@@ -219,9 +223,11 @@ export function FolderPopover({
     escaped.current = false;
   };
   const submit = (value: string) => {
-    // Add repositories from GitHub keeps the menu open on its install card.
+    // Add repositories from GitHub keeps the menu open on its install card; while GitHub is
+    // unavailable it connects from the row (the host re-reads the status first), the menu still open.
     if (value === GITHUB_ADD) {
-      setGitHubCard(true);
+      if (githubStatus === "unavailable") github?.onConnect();
+      else setGitHubCard(true);
       return;
     }
     // Return on words no loaded repository matches: ask GitHub for them (the loaded page may be
@@ -265,6 +271,30 @@ export function FolderPopover({
   const row = (value: string) => {
     // The GitHub group's heading sits over its first row (composerLocation.css `data-section`).
     const section = value === githubRows[0] && value !== GITHUB_ADD ? t("cloudRepository.github") : undefined;
+    if (value === GITHUB_ADD && githubStatus === "unavailable") {
+      const reason = github?.state.status?.reason;
+      // The host's refusal, else the wait for the browser, else why GitHub isn't set up here.
+      const detail =
+        github?.state.connectError ??
+        (github?.state.waiting
+          ? t("composer.githubWaiting")
+          : reason === "not_configured"
+            ? t("composer.githubNotConfiguredDetail")
+            : undefined);
+      return (
+        <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <GitHubMark />
+          </span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">
+              {t(reason === "signed_out" ? "composer.githubSignIn" : "composer.githubAddRepos")}
+            </span>
+            {detail && <span className="acpmux-menu-description">{detail}</span>}
+          </span>
+        </span>
+      );
+    }
     if (value === GITHUB_ADD || value === GITHUB_MORE)
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-section={section}>

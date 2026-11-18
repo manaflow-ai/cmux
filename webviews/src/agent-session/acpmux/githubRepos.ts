@@ -1,7 +1,11 @@
 // The person's GitHub repositories in the new chat's folder menu, for a Cloud chat (FolderPopover's
 // GitHub part). Three host calls, snake_case on the wire like their neighbours:
-//   github.status        {}                -> { state: ready | not_connected | unavailable, repos_scope }
-//   github.connect       {}                -> { opened: true } (the host opens GitHub in the browser)
+//   github.status        {}                -> { state: ready | not_connected | unavailable, repos_scope,
+//                                              reason?: signed_out | not_configured | unreachable }
+//   github.connect       {}                -> { opened: true } (the host opens GitHub, or its sign-in, in the
+//                                              browser) | { opened: false } (already connected); refused with
+//                                              github.signed_out | github.not_configured | github.unavailable |
+//                                              github.connect_failed and a short message
 //   github.repos.list    { query }         -> { repos: [{ full_name, private, default_branch }], truncated }
 // A repository picked as the chat's folder is the folder string `github:owner/name`: the composer
 // carries it where a folder path goes (App.tsx `projectDraft`), and the Cloud start sends it as
@@ -18,10 +22,19 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 
 export type GitHubConnection = "ready" | "not_connected" | "unavailable";
-export type GitHubStatus = { state: GitHubConnection; reposScope: "all" | "selected" | null };
+/// Why GitHub is `unavailable`: signed out of the Cloud service, no GitHub App on this Cloud service, or the
+/// check did not answer (an older host sends no reason: read as `unreachable`).
+export type GitHubUnavailableReason = "signed_out" | "not_configured" | "unreachable";
+export type GitHubStatus = {
+  state: GitHubConnection;
+  reposScope: "all" | "selected" | null;
+  /// Only while `unavailable`.
+  reason?: GitHubUnavailableReason;
+};
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows).
+/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `unavailable`: one row
+/// whose click connects (the host signs in or opens the install page), its failure on that row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -33,7 +46,7 @@ export type GitHubPickerState = {
   error?: string;
   /// Install on GitHub opened GitHub: the card waits until the status says ready.
   waiting: boolean;
-  /// `github.connect` was refused: the host's words, under the card's button.
+  /// `github.connect` was refused: the host's words, under the card's button (or on the unavailable row).
   connectError?: string;
 };
 
@@ -65,11 +78,21 @@ export function githubFolderRepo(folder: string | undefined): string | undefined
 }
 
 export function githubStatusFromReply(reply: unknown): GitHubStatus {
-  const raw = (reply ?? {}) as { state?: unknown; repos_scope?: unknown };
+  const raw = (reply ?? {}) as { state?: unknown; repos_scope?: unknown; reason?: unknown };
   const state: GitHubConnection = raw.state === "ready" || raw.state === "not_connected" ? raw.state : "unavailable";
   const reposScope = raw.repos_scope === "all" || raw.repos_scope === "selected" ? raw.repos_scope : null;
-  return { state, reposScope };
+  if (state !== "unavailable") return { state, reposScope };
+  const reason: GitHubUnavailableReason =
+    raw.reason === "signed_out" || raw.reason === "not_configured" ? raw.reason : "unreachable";
+  return { state, reposScope, reason };
 }
+
+/// A `github.connect` refusal that says why GitHub is unavailable.
+const CONNECT_REFUSAL_REASON: Record<string, GitHubUnavailableReason> = {
+  "github.signed_out": "signed_out",
+  "github.not_configured": "not_configured",
+  "github.unavailable": "unreachable",
+};
 
 export function githubReposFromReply(reply: unknown): { repos: GitHubRepo[]; truncated: boolean } {
   const raw = (reply ?? {}) as { repos?: unknown; truncated?: unknown };
@@ -154,10 +177,10 @@ export function createGitHubPicker(
         if (ready && (state.repos === undefined || state.error !== undefined)) listRepos(state.query);
       },
       () => {
-        // A host that does not serve it (an older app) or refused it: no GitHub part at all.
+        // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
         if (turn !== statusTurn) return;
         stopWaiting();
-        set({ status: { state: "unavailable", reposScope: null }, waiting: false });
+        set({ status: { state: "unavailable", reposScope: null, reason: "unreachable" }, waiting: false });
       },
     );
   };
@@ -167,19 +190,35 @@ export function createGitHubPicker(
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
-    open: readStatus,
+    open() {
+      // A fresh open says nothing of an earlier refusal.
+      if (state.connectError !== undefined) set({ connectError: undefined });
+      readStatus();
+    },
     connect() {
       set({ connectError: undefined });
       call("github.connect", {}).then(
-        () => {
+        (reply) => {
+          // Already connected (the host found it so as it re-read the status): read it here too.
+          if ((reply as { opened?: unknown } | null)?.opened === false) {
+            readStatus();
+            return;
+          }
           set({ waiting: true });
           // Back from the browser: the page becomes the key one again, and the status is read.
           unwatch ??= watchKey(() => {
             if (isKey()) readStatus();
           });
         },
-        (error: unknown) =>
-          set({ connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed") }),
+        (error: unknown) => {
+          const code = (error as { code?: unknown } | null)?.code;
+          const reason = typeof code === "string" ? CONNECT_REFUSAL_REASON[code] : undefined;
+          set({
+            connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed"),
+            // The refusal says why GitHub is unavailable: the row's words follow it.
+            ...(reason && state.status?.state === "unavailable" ? { status: { ...state.status, reason } } : {}),
+          });
+        },
       );
     },
     search: listRepos,

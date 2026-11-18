@@ -2,7 +2,8 @@
 //
 // A new Cloud chat's folder menu with its GitHub part (githubRepos.ts, FolderPopover `github`): the
 // Add repositories from GitHub row before the cmux GitHub App is installed, its install card and the
-// wait after Install on GitHub, the repositories once it is ready, and a failed read with Retry.
+// wait after Install on GitHub, the repositories once it is ready, a failed read with Retry, and the
+// row that connects in place while GitHub is unavailable (signed out, not set up, or refused).
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -118,6 +119,35 @@ export default componentEntry<Props>({
         noProject: false,
         summary: { ...base.summary!, cwd: "github:acme/api" },
         github: picker({ status: { state: "ready", reposScope: "all" }, repos: REPOS }),
+      },
+      play: openFolder,
+    },
+    unavailable: {
+      note: "GitHub unavailable (the check did not answer): the same Add repositories from GitHub row; a click connects in place, the menu stays open.",
+      props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "unreachable" } }) },
+      play: openFolder,
+    },
+    "unavailable-signed-out": {
+      note: "Signed out of the Cloud service: the row reads Sign in to add GitHub repositories and opens sign-in.",
+      props: { ...base, github: picker({ status: { state: "unavailable", reposScope: null, reason: "signed_out" } }) },
+      play: openFolder,
+    },
+    "unavailable-not-configured": {
+      note: "No GitHub App on this Cloud service: a quiet second line says so; the row still tries on a click.",
+      props: {
+        ...base,
+        github: picker({ status: { state: "unavailable", reposScope: null, reason: "not_configured" } }),
+      },
+      play: openFolder,
+    },
+    "unavailable-refused": {
+      note: "A click was refused: the host's words are the row's second line, and another click tries again.",
+      props: {
+        ...base,
+        github: picker({
+          status: { state: "unavailable", reposScope: null, reason: "unreachable" },
+          connectError: "GitHub didn't answer. Try again.",
+        }),
       },
       play: openFolder,
     },
