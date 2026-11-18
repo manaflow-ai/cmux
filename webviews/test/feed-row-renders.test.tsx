@@ -201,17 +201,12 @@ test("reports: a selection renders the two report rows whose state flipped", asy
   expect(rowRenders.count("ReportRow")).toBe(2);
 });
 
-test("past DRAWN_WHOLE_UP_TO lines only the window's rows are mounted, and a selection renders two", async () => {
+test("at any length only the window's rows are mounted (a short feed too), and a selection renders two", async () => {
   const { manyNotices } = await import("../src/pages/feed/mockProvider");
-  const { DRAWN_WHOLE_UP_TO } = await import("../src/pages/feed/model");
-  const counts: Record<number, { rows: number; nodes: number; lines: number }> = {};
+  const counts: Record<number, { rows: number; nodes: number }> = {};
   for (const n of [50, 150, 1_000, 10_000]) {
     const feed = await mount("#/list", (now) => manyNotices(now, n));
-    counts[n] = {
-      rows: feed.rows().length,
-      nodes: host.querySelectorAll("*").length,
-      lines: host.querySelectorAll(".feed-lines [role=row]").length,
-    };
+    counts[n] = { rows: feed.rows().length, nodes: host.querySelectorAll("*").length };
     if (n === 1_000) {
       const ids = feed.readRows().map(rowItem);
       expect(ids.length).toBeGreaterThan(2);
@@ -224,17 +219,14 @@ test("past DRAWN_WHOLE_UP_TO lines only the window's rows are mounted, and a sel
   console.log(
     `[jsdom] feed mounted rows / DOM nodes: ${[50, 150, 1_000, 10_000].map((n) => `N=${n} ${JSON.stringify(counts[n])}`).join(", ")}`,
   );
-  // A short feed is drawn whole, so find-in-page and copy reach every line: 50 rows and their titles.
-  expect(counts[50]!.rows).toBe(50);
-  expect(counts[50]!.lines).toBeLessThanOrEqual(DRAWN_WHOLE_UP_TO);
-  // Past the cap, an 800 px viewport holds about 14 lines; the window adds a few on each side.
+  // An 800 px viewport holds about 14 lines; the window adds a few on each side, whatever the length.
   expect(counts[1_000]!.rows).toBeGreaterThan(5);
-  expect(counts[150]!.rows).toBeLessThan(40);
+  expect(counts[50]!.rows).toBeLessThan(40);
   expect(counts[150]!.rows).toBe(counts[1_000]!.rows);
   expect(counts[10_000]!.rows).toBe(counts[1_000]!.rows);
 });
 
-test("a scroll step in a windowed feed mounts the rows coming into view and renders no other", async () => {
+test("a scroll step in a short feed mounts the rows coming into view and renders no other", async () => {
   const { manyNotices } = await import("../src/pages/feed/mockProvider");
   const feed = await mount("#/list", (now) => manyNotices(now, 150));
   const scroller = host.querySelector<HTMLElement>(".feed-list-scroll")!;
