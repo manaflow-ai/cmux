@@ -8,14 +8,14 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
-import { PermissionCard } from "../src/agent-session/acpmux/PermissionCard";
-import {
-  compareHarnesses,
-  harnessName,
-  planBuildTarget,
-  type PlanBuildElsewhere,
-} from "../src/agent-session/acpmux/permissions/planBuild";
+import type { PlanBuildElsewhere } from "../src/agent-session/acpmux/permissions/planBuild";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { PermissionCard } = await importWithDom(() => import("../src/agent-session/acpmux/PermissionCard"));
+const { compareHarnesses, harnessName, planBuildTarget } = await importWithDom(
+  () => import("../src/agent-session/acpmux/permissions/planBuild"),
+);
 
 const plan: AcpmuxPermission = {
   permissionId: "p1",

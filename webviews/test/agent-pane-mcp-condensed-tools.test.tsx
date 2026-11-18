@@ -11,11 +11,15 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { mcpCall, mcpDescription, mcpOutcome } from "../src/agent-session/acpmux/conversation/mcpCalls";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { toolLabel } from "../src/agent-session/acpmux/toolPaths";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { mcpCall, mcpDescription, mcpOutcome } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/mcpCalls"),
+);
+const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { toolLabel } = await importWithDom(() => import("../src/agent-session/acpmux/toolPaths"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;

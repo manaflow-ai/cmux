@@ -2,9 +2,16 @@ import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState } from "@milkdown/kit/prose/state";
-import { fieldGrowth, growthHoldsTop } from "../src/agent-session/acpmux/composer/fieldGrowth";
-import { FIELD_GROWTH_EVENT, type FieldGrowthEvent } from "../src/agent-session/acpmux/composer/fieldGrowthEvent";
+import type { FieldGrowthEvent } from "../src/agent-session/acpmux/composer/fieldGrowthEvent";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { fieldGrowth, growthHoldsTop } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/fieldGrowth"),
+);
+const { FIELD_GROWTH_EVENT } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/fieldGrowthEvent"),
+);
 
 test("one line grows and shrinks in CSS pixels at every composer zoom", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });

@@ -9,11 +9,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
-import { pageClocks } from "../src/ui/pageClock";
-import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { translate } from "../src/agent-session/acpmux/i18n";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { ActivityLine } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ActivityLine"));
+const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
+const { Thinking } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Thinking"));
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

@@ -10,15 +10,24 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxPlanEntry, AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { currentPlan } from "../src/agent-session/acpmux/session-info/progressSectionModel";
-import { projectLiveProgress, type LiveProgress } from "../src/agent-session/acpmux/liveProgress";
-import { resetSessionInfoState, setSessionInfoOpen } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import type { LiveProgress } from "../src/agent-session/acpmux/liveProgress";
 import { settleReact } from "./support/domTeardown";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { importWithDom } from "./support/importWithDom";
+
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { setPaneLanguage } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { currentPlan } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/progressSectionModel"),
+);
+const { projectLiveProgress } = await importWithDom(() => import("../src/agent-session/acpmux/liveProgress"));
+const { resetSessionInfoState, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { assistant, chat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
