@@ -296,6 +296,7 @@ fn own_tree_each_git_operation_of_the_catalog_refuses_a_refused_folder_and_chang
         ("git.checkpoint.create", json!({})),
         ("git.checkpoint.pin", pin),
         ("git.checkpoint.unpin", json!({"checkpoint_id": "none", "pin_id": "a-pin"})),
+        ("git.checkpoint.restore", json!({"checkpoint_id": "none"})),
         ("git.commit", commit),
         ("git.push", json!({})),
         ("git.worktree.create", json!({"name": "a-name"})),
@@ -361,6 +362,7 @@ fn own_tree_a_checkpoint_operation_of_a_refused_folder_makes_no_folder_of_the_st
         ("create", "git.checkpoint.create", json!({})),
         ("pin", "git.checkpoint.pin", pin),
         ("unpin", "git.checkpoint.unpin", json!({"checkpoint_id": "none", "pin_id": "a-pin"})),
+        ("restore", "git.checkpoint.restore", json!({"checkpoint_id": "none"})),
     ];
     let (mut made, mut tops) = (Vec::new(), Vec::new());
     for (name, operation, params) in operations {

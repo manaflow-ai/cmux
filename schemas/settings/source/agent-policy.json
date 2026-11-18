@@ -940,6 +940,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Turn checkpoints let Back to Before This Turn reset the person's files, and add time to every turn's start: only the person turns that on.",
+      "keys": [
+        "agents.turnCheckpoints"
+      ]
+    },
+    {
       "agent": "privacy",
       "keys": [
         "agents.chats.roots",

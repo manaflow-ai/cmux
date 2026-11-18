@@ -477,6 +477,10 @@ pub struct Session {
     pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
+    /// The checkpoint taken before the running turn's prompt (`turn_rewind.rs`), by turn id: its
+    /// `turn_result` fields, taken when that turn ends.
+    pub(super) turn_checkpoint:
+        StdMutex<Option<(String, serde_json::Map<String, serde_json::Value>)>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
     /// Other agents' messages to this chat, in threads (`inbox.rs`). Read through

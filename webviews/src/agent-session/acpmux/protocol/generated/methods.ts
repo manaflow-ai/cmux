@@ -120,6 +120,8 @@ export interface AcpmuxRequests {
   "_acpmux/worktree/report": { params: unknown; result: unknown };
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
+  "_acpmux/rewind": { params: unknown; result: unknown };
+  "_acpmux/rewind_undo": { params: unknown; result: unknown };
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/cold_archive": { params: unknown; result: unknown };
   "_acpmux/kill": { params: KillParams; result: unknown };
@@ -500,6 +502,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/worktree/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/restore", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/rewind", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/rewind_undo", kind: "request", acp: false, typed: false },
   { name: "_acpmux/retention", kind: "request", acp: false, typed: false },
   { name: "_acpmux/cold_archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },

@@ -842,7 +842,7 @@ git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
-  [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
+  [--reason manual|handoff|turn|restore] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
 git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
@@ -850,6 +850,7 @@ git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
   [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
+git checkpoint restore [TARGET] <checkpoint> [--dry-run] [--allow-base-change]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -1171,7 +1172,7 @@ write (new, adopt, edit, delete, undo) is refused for an agent caller (`origin.f
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.
 
-`git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
+`git checkpoint` (`git.checkpoint.create|get|list|pin|unpin|diff|restore`, capability
 `git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw
 index entries, the tracked worktree files, and the untracked files the caller
 names (or `--untracked eligible` for every eligible one), each tree with its
@@ -1202,6 +1203,26 @@ by its retry, and a create sweeps refs of its worktree that have no record.
 most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
 kept per repository; pins never expire, and pins beginning `handoff:` or
 `restore:` are owned by cmux and cannot be removed with `unpin`.
+
+`git checkpoint restore` (`git.checkpoint.restore`) writes a checkpoint back:
+the tracked worktree files it holds (raw bytes, modes, links as links), its
+staged entries and its untracked files; a path tracked now that it did not
+have, and a new eligible untracked file, are removed. Paths it skipped,
+ignored files, nested repositories and submodules are never touched, nothing
+is cleaned and HEAD never moves. The reply's `value` is `{checkpoint_id,
+base_changed, complete, files_total, files: [{path, change: restore|remove}]}`
+(at most 200 files), with `dry_run: true` for `--dry-run`, which writes
+nothing, or `safety_checkpoint_id` for an apply: before its first write an
+apply captures every eligible file as a checkpoint with reason `restore`,
+pinned `restore:<checkpoint>:<key>`; restoring it is Undo. Refusals add
+`base_changed` (HEAD is not the checkpoint's base; `--allow-base-change`
+keeps HEAD and restores only the files), `worktree_mismatch`, `conflict` (a
+covered path is a folder, an ignored or unreadable occupant, behind a
+non-folder parent, in a nested repository or a submodule), `repository_busy`
+(`index.lock` is held) and `restore_incomplete` (a write failed part way; its
+`extra.safety_checkpoint_id` undoes it). A replayed key returns the first
+reply and never applies again. There is no restore journal yet, so a crash
+mid-apply is not recovered on its own.
 
 `git commit` (`git.commit`, capability `git-commit-v1`) and `git push`
 (`git.push`, capability `git-push-v1`) are the user's own actions: git runs in

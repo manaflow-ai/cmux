@@ -21,6 +21,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
+import { LocalRewindButton } from "./LocalRewind";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -172,6 +173,8 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
 /// running or finished rewind keeps the prompt's row shown while the pointer is elsewhere
 /// (conversation.css), in the same 24 px slot, so nothing moves. The gallery's other placements of
 /// the same button (UserBubble.gallery.ts) are page attributes (`data-turn-rewind-look`), CSS only.
+/// A chat on this machine draws the same button from acpmux's turn checkpoints (TurnActions
+/// `localRewind`), which asks what goes back first (LocalRewind.tsx).
 export function RewindButton({ rowId }: { rowId: string }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -181,7 +184,9 @@ export function RewindButton({ rowId }: { rowId: string }) {
   const [state, setState] = useState<
     { kind: "idle" } | { kind: "pending" } | { kind: "done"; seconds: number } | { kind: "failed" }
   >({ kind: "idle" });
-  if (!rewind || !rewind.ready.has(rowId) || readOnly) return null;
+  // A chat on this machine rewinds through acpmux's checkpoint instead, asking first (LocalRewind.tsx).
+  if (!rewind || !rewind.ready.has(rowId)) return readOnly ? null : <LocalRewindButton rowId={rowId} />;
+  if (readOnly) return null;
   const label =
     state.kind === "pending"
       ? t("turn.rewinding")

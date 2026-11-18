@@ -978,6 +978,10 @@
       "reason": "keep: retention pins agents put on checkpoints they still need"
     },
     {
+      "verb": "git checkpoint restore",
+      "reason": "keep: a person rewinds from the chat's own turn menu (Also reset files, with Undo); agents and scripts restore a checkpoint by id"
+    },
+    {
       "verb": "git checkpoint unpin",
       "reason": "keep: retention pins agents put on checkpoints they still need"
     },

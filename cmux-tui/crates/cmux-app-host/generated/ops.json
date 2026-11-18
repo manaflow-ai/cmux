@@ -190,6 +190,7 @@
     "git.checkpoint.get",
     "git.checkpoint.list",
     "git.checkpoint.pin",
+    "git.checkpoint.restore",
     "git.checkpoint.unpin",
     "git.commit",
     "git.diff",

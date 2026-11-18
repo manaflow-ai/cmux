@@ -47,6 +47,7 @@ impl ResourceOperation {
             Self::GitCheckpointGet => "git.checkpoint.get",
             Self::GitCheckpointList => "git.checkpoint.list",
             Self::GitCheckpointPin => "git.checkpoint.pin",
+            Self::GitCheckpointRestore => "git.checkpoint.restore",
             Self::GitCheckpointUnpin => "git.checkpoint.unpin",
             Self::ChiefEngineGet => "chief.engine.get",
             Self::ChiefEngineSet => "chief.engine.set",

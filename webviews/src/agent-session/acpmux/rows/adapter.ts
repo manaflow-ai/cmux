@@ -12,6 +12,7 @@ import type { AcpmuxRow, QueuedPrompt } from "../model";
 import { answeredBy } from "../multiplayer/participants";
 import { DECISION_TEXT, PERMISSION_RECORD, type PermissionDecision } from "../permissions/record";
 import type { IncomingContext } from "../conversation/incomingMessage";
+import { readTurnRewind } from "../conversation/localRewindModel";
 import { type UserBody, userPrompt } from "./incoming";
 import type { ChatRowEntry, ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
@@ -142,6 +143,7 @@ function turnSummary(
   group?: ChatRow,
 ): AcpmuxRow {
   const turn = (group?.body ?? {}) as { ms?: number; calls?: number };
+  const rewind = readTurnRewind(body);
   return {
     ...head,
     kind: "turnSummary",
@@ -154,6 +156,7 @@ function turnSummary(
     error: typeof body.error === "string" ? body.error : undefined,
     ...(typeof body.errorCode === "string" && body.errorCode ? { errorCode: body.errorCode } : {}),
     ...(body.checkpoint ? { checkpoint: body.checkpoint } : {}),
+    ...(rewind ? { rewind } : {}),
     ...(body.stopForced ? { stopForced: true as const } : {}),
   };
 }

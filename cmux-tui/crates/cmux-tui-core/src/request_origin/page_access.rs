@@ -114,6 +114,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointGet
         | Op::GitCheckpointList
         | Op::GitCheckpointPin
+        | Op::GitCheckpointRestore
         | Op::GitCheckpointUnpin
         // The diff page's review comments: kept for the app, never a page.
         | Op::DiffCommentsList

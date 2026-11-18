@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
+  "catalog_sha256": "def9c006a7dd1b9e36e8b2f4d7c46ff2a4d38162ea43d50307abbdfcb47265ec",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -386,6 +386,9 @@
       "class": "read"
     },
     "git.checkpoint.pin": {
+      "class": "mutation"
+    },
+    "git.checkpoint.restore": {
       "class": "mutation"
     },
     "git.checkpoint.unpin": {

@@ -183,6 +183,8 @@ declare namespace Cmux {
   type GitCheckpointLimits = { max_bytes: number; max_files: number; max_untracked_file_bytes: number }
   type GitCheckpointList = { repository_id: string; worktree_id: string; checkpoints: Array<Cmux.GitCheckpoint>; next_cursor: string | null; candidates?: Array<Cmux.GitCheckpointCandidate>; ignored_total?: number; limits: Cmux.GitCheckpointLimits }
   type GitCheckpointPin = { pin_id: string; reason: string }
+  type GitCheckpointRestoreFile = { path: string; change: "restore" | "remove" }
+  type GitCheckpointRestoreResult = { checkpoint_id: string; dry_run?: boolean; safety_checkpoint_id?: string; base_changed: boolean; complete: boolean; files_total: number; files: Array<Cmux.GitCheckpointRestoreFile> }
   type GitCheckpointSkip = { path: string; code: Cmux.GitCheckpointSkipCode; bytes?: number }
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitCommitResult = { root: string; commit: string; branch?: string; parent?: string; summary: string; files_changed: number; additions: number; deletions: number }
@@ -1062,7 +1064,7 @@ interface CmuxGlobal {
     branches: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitBranchesResult>
     checkpoint: {
       /** `git.checkpoint.create` (mutation, scope `git:write`) */
-      create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; expected_repository_id?: string; expected_worktree_id?: string; include_untracked?: unknown; exclude_paths?: Array<string>; reason?: "manual" | "handoff" | "turn"; limits?: { max_bytes?: number; max_files?: number } }, Cmux.MutationResult<Cmux.GitCheckpoint>>
+      create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; expected_repository_id?: string; expected_worktree_id?: string; include_untracked?: unknown; exclude_paths?: Array<string>; reason?: "manual" | "handoff" | "turn" | "restore"; limits?: { max_bytes?: number; max_files?: number } }, Cmux.MutationResult<Cmux.GitCheckpoint>>
       /** `git.checkpoint.diff` (read, scope `git:read`) */
       diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; from: string; to?: string; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number; after_path?: string; patch_offset?: string; patch_revision?: string }, Cmux.GitCheckpointDiffResult>
       /** `git.checkpoint.get` (read, scope `git:read`) */
@@ -1071,6 +1073,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; cursor?: string; limit?: number; include_candidates?: boolean }, Cmux.GitCheckpointList>
       /** `git.checkpoint.pin` (mutation, scope `git:write`) */
       pin: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; checkpoint_id: string; pin_id: string; reason: string }, Cmux.MutationResult<Cmux.GitCheckpoint>>
+      /** `git.checkpoint.restore` (mutation, scope `git:write`) */
+      restore: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; checkpoint_id: string; dry_run?: boolean; allow_base_change?: boolean }, Cmux.MutationResult<Cmux.GitCheckpointRestoreResult>>
       /** `git.checkpoint.unpin` (mutation, scope `git:write`) */
       unpin: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; checkpoint_id: string; pin_id: string }, Cmux.MutationResult<Cmux.GitCheckpoint>>
     }

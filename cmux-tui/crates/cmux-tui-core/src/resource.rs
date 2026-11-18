@@ -120,6 +120,8 @@ pub enum ResourceOperation {
     GitCheckpointList,
     #[serde(rename = "git.checkpoint.pin")]
     GitCheckpointPin,
+    #[serde(rename = "git.checkpoint.restore")]
+    GitCheckpointRestore,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
     #[serde(rename = "chief.engine.get")]

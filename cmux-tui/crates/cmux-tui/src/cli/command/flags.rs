@@ -43,6 +43,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     // `workspace group create --reuse`: the room's group of that name when it has one.
     "reuse",
     "patch",
+    // `git checkpoint restore --allow-base-change`: restore files though HEAD moved.
+    "allow-base-change",
     "candidates",
     "catalog",
     "expand",

@@ -2426,6 +2426,7 @@ mod pending;
 mod place;
 mod processes;
 mod prompt_cancel;
+mod rewind;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;

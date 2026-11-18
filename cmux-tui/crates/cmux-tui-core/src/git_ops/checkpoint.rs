@@ -1,6 +1,7 @@
-//! `git.checkpoint.create|get|list|pin|unpin`: immutable repository
+//! `git.checkpoint.create|get|list|pin|unpin|diff`: immutable repository
 //! checkpoints the session host captures without changing HEAD, the index or
 //! the worktree, published as `refs/cmux/checkpoints/<worktree>/<id>`.
+//! `git.checkpoint.restore` (`restore.rs`) writes one back.
 //! Mutations are serialized by one per-session lock and recorded in the
 //! session's `resource_mutations` ledger, bound to their arguments and the
 //! repository and worktree their target resolved to. Reads take no lock.
@@ -11,6 +12,7 @@ pub(super) mod ledger;
 mod reads;
 pub(super) mod record;
 mod refs;
+mod restore;
 mod scan;
 pub(super) mod store;
 
@@ -40,6 +42,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitCheckpointGet
             | ResourceOperation::GitCheckpointList
             | ResourceOperation::GitCheckpointPin
+            | ResourceOperation::GitCheckpointRestore
             | ResourceOperation::GitCheckpointUnpin
     )
 }
@@ -58,6 +61,7 @@ pub(super) fn dispatch(
         ResourceOperation::GitCheckpointPin | ResourceOperation::GitCheckpointUnpin => {
             pin(mux, &store, &request)
         }
+        ResourceOperation::GitCheckpointRestore => restore::restore(mux, &store, &request),
         // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         other => unreachable!("checkpoint does not handle {other:?}"),
     };
@@ -157,7 +161,7 @@ fn create(
             return Ok(reply);
         }
         refs::sweep(store, &git, &target.repository_id, &target.worktree_id);
-        let stored = capture(store, &git, &target, &arguments)?;
+        let (stored, _) = capture(store, &git, &target, &arguments, OPERATION)?;
         let pending = Pending { idempotency_key: key.clone(), fingerprint, draft: stored.clone() };
         // Journal the intent first: a retry after a crash finds the ref.
         store.journal(&pending).map_err(|error| io_failed(OPERATION, &error))?;
@@ -209,18 +213,19 @@ fn finish(
     Ok(reply)
 }
 
-/// Captures the target and returns its record, unpublished.
+/// Captures the target and returns its record, unpublished, with the
+/// observation of HEAD and the index the capture verified.
 fn capture(
     store: &Store,
     git: &WriteGit<'_>,
     target: &Target,
     arguments: &CreateArguments,
-) -> Result<Stored, ResourceError> {
-    const OPERATION: &str = "git.checkpoint.create";
+    operation: &'static str,
+) -> Result<(Stored, String), ResourceError> {
     let checkpoint_id = mint("ckpt");
     let created_at_ms = now_ms();
     let created_at = rfc3339(created_at_ms);
-    let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;
+    let scratch = store.scratch().map_err(|error| io_failed(operation, &error))?;
     let stamp = Stamp {
         checkpoint_id: &checkpoint_id,
         repository_id: &target.repository_id,
@@ -235,7 +240,7 @@ fn capture(
         &scratch,
         &arguments.request,
         &stamp,
-        OPERATION,
+        operation,
     )?;
     drop(scratch);
     let mut stored = Stored {
@@ -262,7 +267,7 @@ fn capture(
         revision: 1,
     };
     stored.settle();
-    Ok(stored)
+    Ok((stored, captured.fingerprint))
 }
 
 fn expect_identity(fields: &Map<String, Value>, target: &Target) -> Result<(), ResourceError> {
