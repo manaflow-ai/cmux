@@ -65,8 +65,27 @@ extension AppSceneNodeNSView {
     func paintDecorations() {
         guard let layer else { return }
         let hover = isDecorationHovered ? node.props["hoverBackground"]?.sceneColor : nil
-        layer.backgroundColor = (hover ?? node.props["background"]?.sceneColor)?.cgColor
+        if hover == nil, let gradient = AppSceneGradient(node.props["background"]) {
+            let fill = backgroundGradientLayer(in: layer)
+            fill.isHidden = false
+            fill.frame = layer.bounds
+            gradient.apply(to: fill, size: layer.bounds.size, yDown: fill.contentsAreFlipped())
+            layer.backgroundColor = nil
+        } else {
+            decorationGradient?.isHidden = true
+            layer.backgroundColor = (hover ?? node.props["background"]?.sceneColor)?.cgColor
+        }
         layer.borderColor = node.props["borderColor"]?.sceneColor?.cgColor
+    }
+
+    /// The layer a gradient `background` draws in, below every child (made once per view).
+    private func backgroundGradientLayer(in layer: CALayer) -> CAGradientLayer {
+        if let decorationGradient { return decorationGradient }
+        let made = CAGradientLayer()
+        made.actions = ["colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        layer.insertSublayer(made, at: 0)
+        decorationGradient = made
+        return made
     }
 
     /// `offset`'s `{x, y}` in points (zero when absent).
@@ -79,6 +98,8 @@ extension AppSceneNodeNSView {
     /// A rotation change draws its end state: the AppKit renderer does not animate scene props yet.
     func layoutDecorations() {
         guard let layer else { return }
+        // A gradient's points follow the box's shape: repaint it at the new size.
+        if let decorationGradient, !decorationGradient.isHidden, decorationGradient.frame != layer.bounds { needsDisplay = true }
         let degrees = node.number("rotation") ?? 0
         let offset = drawingOffset
         guard degrees != 0 || offset != .zero else {
