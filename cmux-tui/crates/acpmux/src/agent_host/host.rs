@@ -542,6 +542,19 @@ fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
     false
 }
 
+/// Debug builds only: `ACPMUX_TEST_TRANSLATOR_PANIC` in the harness's environment makes the
+/// Claude translator panic on a stdout line of type `acpmux_test_panic`, so the daemon's
+/// integration tests can drive a translator crash mid-turn. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn test_translator_panic(harness_env: &[(String, String)], raw: &Value) {
+    #[cfg(debug_assertions)]
+    if raw.get("type").and_then(Value::as_str) == Some("acpmux_test_panic")
+        && harness_env.iter().any(|(k, _)| k == "ACPMUX_TEST_TRANSLATOR_PANIC")
+    {
+        crate::daemon::test_panic("test: the translator panics on an acpmux_test_panic line");
+    }
+}
+
 impl Started {
     async fn serve(self, spec: SpawnSpec) -> Result<()> {
         let Started { record, listener, harness, holder, _live } = self;
@@ -1271,6 +1284,7 @@ impl State {
         // Keep the raw Claude line in the log under its own kind.
         // Translated first, so the raw line moves into its record instead of being
         // copied; the raw record still comes first.
+        test_translator_panic(&self.spec.env, &raw);
         let translated = tr.inbound(&raw).await;
         self.push(Entry::Tap {
             dir: TapDir::In,
