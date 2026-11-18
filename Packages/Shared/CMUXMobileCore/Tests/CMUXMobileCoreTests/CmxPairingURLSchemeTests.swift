@@ -14,8 +14,8 @@ import Testing
         )
         #expect(
             CmxPairingURLScheme(
-                iOSBundleIdentifier: "dev.cmux.app.demo"
-            )?.rawValue == "cmux-ios-dev.cmux.app.demo"
+                iOSBundleIdentifier: "dev.cmux.app.classic"
+            )?.rawValue == "cmux-ios-dev.cmux.app.classic"
         )
         #expect(
             CmxPairingURLScheme(
@@ -82,7 +82,7 @@ import Testing
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ] {
             #expect(
                 CmxPairingURLSchemeResolver(
@@ -99,7 +99,7 @@ import Testing
 
     @Test func parserAcceptsNamespacedSchemes() {
         #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.internal") != nil)
-        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.demo") != nil)
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.classic") != nil)
         #expect(CmxPairingURLScheme(rawValue: "CMUX-IOS-DEV.CMUX.IOS.FEATURE-A") != nil)
         // Old QR codes remain scannable inside an already-open app. New builds
         // do not register these shared schemes with iOS.
@@ -119,7 +119,7 @@ import Testing
             "com.cmux.app",
             "dev.cmux.app.beta",
             "dev.cmux.app.internal",
-            "dev.cmux.app.demo",
+            "dev.cmux.app.classic",
         ] {
             let scheme = try #require(
                 CmxPairingURLScheme(
@@ -137,6 +137,8 @@ import Testing
         #expect(development.isDevelopment)
         #expect(!development.isRelease)
         #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.unrecognized") == nil)
+        // cmux DEMO is retired: its scheme no longer parses.
+        #expect(CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.app.demo") == nil)
     }
 
     @Test func prefixCheckAcceptsNamespacedSchemesAndRejectsOthers() {

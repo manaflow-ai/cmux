@@ -159,6 +159,11 @@ case "$LANE" in
     export CMUX_CRASH_REPORTING_ENABLED="YES"
     ;;
   appstore|prod)
+    # com.cmux.app ships cmux-next from feat-cmux-next; upload-testflight.sh
+    # refuses to upload the classic app there. Fail before the fleet archive.
+    if [[ "$NO_UPLOAD" -ne 1 && "${CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD:-}" != "1" ]]; then
+      die "--lane appstore no longer uploads: com.cmux.app ships cmux-next. Use ios/scripts/upload-testflight.sh --lane classic for cmux CLASSIC, or pass --no-upload."
+    fi
     BETA_BUNDLE_ID="com.cmux.app"
     LANE_DISPLAY_NAME="cmux"
     [[ "$TAG" == "beta" ]] && TAG="appstore"

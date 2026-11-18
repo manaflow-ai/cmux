@@ -25,7 +25,7 @@ const subprocessors: readonly Subprocessor[] = [
     group: "content",
     category: "Cloud hosting and storage",
     name: "Cloudflare, Inc.",
-    purpose: "Runs the cmux.cloud service, stores files and conversation archives, serves the web app, and runs open AI models (Workers AI).",
+    purpose: "Runs the cmux.cloud service, stores files and conversation archives, stores mirrors of the git repositories that your team connects and the commits that agents make (source code and commit metadata, Cloudflare Artifacts, stored and processed only in the United States), serves the web app, and runs open AI models (Workers AI).",
     location: "United States and global edge network",
   },
   {
