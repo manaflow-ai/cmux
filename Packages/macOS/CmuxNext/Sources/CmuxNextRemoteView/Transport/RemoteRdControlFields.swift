@@ -39,6 +39,21 @@ public nonisolated struct RemoteRdHello: Sendable, Equatable, Codable {
         case udpPort = "udp_port"
         case maxDatagram = "max_datagram"
     }
+
+    /// The host's defaults (cmux-rd-proto `Control::Hello`): a viewer older than rd change C1
+    /// names no service and no caps, and its hello is for the desktop.
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        user = try fields.decode(String.self, forKey: .user)
+        install = try fields.decode(String.self, forKey: .install)
+        principalClass = try fields.decode(String.self, forKey: .principalClass)
+        interactive = try fields.decode(Bool.self, forKey: .interactive)
+        udpPort = try fields.decodeIfPresent(UInt16.self, forKey: .udpPort)
+        maxDatagram = try fields.decode(Int.self, forKey: .maxDatagram)
+        token = try fields.decodeIfPresent(String.self, forKey: .token)
+        service = try fields.decodeIfPresent(String.self, forKey: .service) ?? "desktop"
+        caps = try fields.decodeIfPresent([String].self, forKey: .caps) ?? []
+    }
 }
 
 public nonisolated extension RemoteRdHello {
