@@ -58,9 +58,8 @@ pub(crate) fn busy() -> RpcError {
 /// watchdog that retried every 429'd chat kept the spiral going (2026-11-17).
 fn rate_limited(until: u64) -> RpcError {
     let at = crate::hub::rate_hold::until_line(until);
-    let why = format!(
-        "retry.rate_limited: {at}: the chat goes on by itself at the reset; Stop ends the hold"
-    );
+    let why =
+        format!("retry.rate_limited: {at}: the chat goes on by itself at the reset; Stop parks it");
     RpcError::invalid_params(why).with_data(json!({"reason": "retry.rate_limited", "until": until}))
 }
 
@@ -191,11 +190,20 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
         // A parked chat (`rate_hold.rs`) goes on at a retry: its waiting continuation runs now,
-        // compacted first past the line; with none waiting, the hold ends and this retry runs.
-        if auto.is_none()
-            && let Some(cut_turn) = self.unpark_rate_hold(session)
-        {
-            return Ok(answer(format!("{cut_turn} (rate-limit continuation)"), None));
+        // compacted first past the line, with what queued. With none waiting the hold ends:
+        // what queued goes on as the next turn, carrying the continuation's words, else this
+        // retry runs as on any chat.
+        if auto.is_none() {
+            use crate::hub::rate_hold::Unparked;
+            match self.unpark_rate_hold(session, "retry") {
+                Some(Unparked::Continues(cut_turn)) => {
+                    return Ok(answer(format!("{cut_turn} (rate-limit continuation)"), None));
+                }
+                Some(Unparked::Queue) => {
+                    return Ok(answer("the queue (rate-limit continuation)".into(), None));
+                }
+                Some(Unparked::Released) | None => {}
+            }
         }
         // A person's or an agent's retry waits for the account's reset like every other turn.
         if auto.is_none()

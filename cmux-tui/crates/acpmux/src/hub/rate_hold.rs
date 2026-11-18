@@ -25,7 +25,8 @@
 //!   so the first turn after the reset does not send a 300K context again.
 //! - The session row says so (`SessionSummary::rate_limited_until`; `acpmux ls`: "rate-limited
 //!   until HH:MMZ"), and each hold and its end are logged (`rate_limit_held`, `rate_limit_lifted`).
-//! - The person's Retry (`_acpmux/retry`) and Stop end the hold at once.
+//! - A retry (`_acpmux/retry`) while held is refused (`retry.rate_limited`); Stop parks the
+//!   chat (below).
 //!
 //! The same loop came back on 2026-11-18 (Leo: "claude-sr2-coord fell into a weird "rate limited"
 //! loop again 429 and whatever"): from 00:41Z claude-sr2-coord (a 330K-token context) started 159
@@ -39,8 +40,24 @@
 //!   its attempt's wait, `retry-after` or the reset says so: attempt 1's 10 s no longer cuts it.
 //! - After [`PARK_AFTER`] strikes in a row the chat parks: it starts nothing by itself, its
 //!   continuation waits, and it tells the session it reports to in one line
-//!   (`rate_limit_parked`), at most once per [`NOTICE_EVERY_MS`]. `acpmux retry` sends the
-//!   continuation on (compacted first past [`COMPACT_BEFORE_TOKENS`]); Stop releases the chat.
+//!   (`rate_limit_parked`), at most once per [`NOTICE_EVERY_MS`]. `acpmux retry` or the
+//!   person's own prompt sends the continuation on (compacted first past
+//!   [`COMPACT_BEFORE_TOKENS`]), with what queued as one turn ([`Hub::unpark_rate_hold`]).
+//!
+//! Two more gaps showed on Leo's Mac on 2026-11-18, 06:50-07:00Z (Leo: "the gui coordinators
+//! keep saying stuff is rate limited and 429 and stuff :("), claude-sr2-coord at 354K context:
+//!
+//! - A NIGHTLY update restarted the daemon, and the chat came back with no hold: 5 more turns
+//!   failed on the 429. Every hold, park, lift and unpark is a record with the chat's strikes,
+//!   and a restart or a takeover reads the last one back before the queue goes on
+//!   ([`Hub::restore_rate_hold`]): a hold before its `until` holds until then, a parked chat
+//!   stays parked, and the strikes carry over. Its continuation is restored as before
+//!   (`auto_resume/restore.rs`), also behind what queued meanwhile.
+//! - After `acpmux session stop`, another agent's message started a turn at once. Stop (and
+//!   `session stop`) of a chat that is held, parked or has a strike parks it now
+//!   ([`Hub::park_at_stop`], `rate_limit_parked` with `why: "stopped"`): it starts no turn by
+//!   itself; other agents' messages, notices and its continuation wait; `acpmux retry` or the
+//!   person's own prompt sends it on, as above. Any other chat's Stop is as before.
 
 use super::*;
 use std::sync::Mutex as StdMutex;
@@ -85,6 +102,19 @@ pub(crate) struct RateHold {
     changed: Notify,
     /// The deadline passed while a continuation waits for it ([`Hub::wait_rate_hold`]).
     due: Notify,
+    /// The chat's log was read for its hold once ([`Hub::restore_rate_hold`]).
+    restored: std::sync::atomic::AtomicBool,
+}
+
+/// What a retry or the person's own prompt did to a parked chat ([`Hub::unpark_rate_hold`]).
+pub(super) enum Unparked {
+    /// The continuation of this cut turn that waited goes on now, with what queued.
+    Continues(String),
+    /// None waited: the hold ended, and the queue's next turn carries the continuation's words
+    /// and what queued.
+    Queue,
+    /// None waited and nothing queued: the hold ended.
+    Released,
 }
 
 #[derive(Default)]
@@ -99,7 +129,8 @@ struct HoldState {
     continuation: bool,
     /// Turns in a row that failed on the limit; a turn that ends well clears them.
     strikes: u32,
-    /// Since when the chat is parked (Unix ms): held with no deadline until a retry or Stop.
+    /// Since when the chat is parked (Unix ms): held with no deadline until a retry or the
+    /// person's own prompt.
     parked: Option<u64>,
     /// When the chat last told the session it reports to that it parked.
     noticed_at: Option<u64>,
@@ -125,6 +156,13 @@ impl RateHold {
     pub(crate) fn strikes(&self) -> u32 {
         self.lock().strikes
     }
+
+    /// Whether the limit has the chat: held, parked, or with a strike. A Stop parks such a chat
+    /// ([`Hub::park_at_stop`]).
+    pub(super) fn limited(&self) -> bool {
+        let s = self.lock();
+        s.until.is_some() || s.parked.is_some() || s.strikes > 0
+    }
 }
 
 impl Hub {
@@ -142,30 +180,36 @@ impl Hub {
             let mut s = hold.lock();
             s.turn = Some(turn.to_owned());
             s.continuation = continuation;
-            // Parked: no deadline, no timer, until a retry or Stop.
+            // Parked: no deadline, no timer, until a retry or the person's own prompt.
             if s.parked.is_some() {
                 return;
             }
-            let changed = s.until != Some(until);
+            // Each failure is recorded, a strike with it: a restart reads the hold and the
+            // strikes back from the last record ([`Hub::restore_rate_hold`]).
+            let changed = s.until != Some(until) || !continuation;
             s.until = Some(until);
             if changed {
                 self.append(
                     session,
                     "mux",
                     "rate_limit_held",
-                    json!({"turnId": turn, "until": until}),
+                    json!({"turnId": turn, "until": until, "strikes": s.strikes}),
                 );
             }
             !std::mem::replace(&mut s.timer, true)
         };
         hold.changed.notify_waiters();
         if spawn {
-            let (hub, session) = (self.clone(), session.clone());
-            // One per held chat; it ends with the hold, or with the hub.
-            self.scope.spawn_until_cancelled("rate-hold-timer", async move {
-                hub.rate_hold_timer(&session).await;
-            });
+            self.spawn_rate_hold_timer(session);
         }
+    }
+
+    fn spawn_rate_hold_timer(self: &Arc<Self>, session: &Arc<Session>) {
+        let (hub, session) = (self.clone(), session.clone());
+        // One per held chat; it ends with the hold, or with the hub.
+        self.scope.spawn_until_cancelled("rate-hold-timer", async move {
+            hub.rate_hold_timer(&session).await;
+        });
     }
 
     async fn rate_hold_timer(self: &Arc<Self>, session: &Arc<Session>) {
@@ -226,20 +270,25 @@ impl Hub {
         self.lift_hold(session, Some(turn), why);
     }
 
+    /// A parked chat's hold ends only by [`Hub::unpark_rate_hold`]: a continuation that Stop or
+    /// close woke, or that skipped, leaves it parked.
     fn lift_hold(&self, session: &Session, of: Option<&str>, why: &str) {
         let hold = &session.rate_hold;
-        let turn = {
+        let (turn, strikes) = {
             let mut s = hold.lock();
-            if s.until.is_none() || of.is_some_and(|t| s.turn.as_deref() != Some(t)) {
+            if s.until.is_none()
+                || s.parked.is_some()
+                || of.is_some_and(|t| s.turn.as_deref() != Some(t))
+            {
                 return;
             }
             s.until = None;
-            s.parked = None;
             s.continuation = false;
-            s.turn.take()
+            (s.turn.take(), s.strikes)
         };
         hold.changed.notify_waiters();
-        self.append(session, "mux", "rate_limit_lifted", json!({"turnId": turn, "why": why}));
+        let msg = json!({"turnId": turn, "why": why, "strikes": strikes});
+        self.append(session, "mux", "rate_limit_lifted", msg);
         session.queue_moved.notify_waiters();
     }
 
@@ -280,7 +329,8 @@ impl Hub {
     }
 
     /// Parks `session` after `strikes` turns in a row failed on the limit: held with no
-    /// deadline, its continuation waits for a retry or Stop, and the session it reports to gets
+    /// deadline, its continuation waits for a retry or the person's prompt, and the session it
+    /// reports to gets
     /// one line (at most once per [`NOTICE_EVERY_MS`]).
     fn park_rate_hold(
         self: &Arc<Self>,
@@ -306,11 +356,36 @@ impl Hub {
             session,
             "mux",
             "rate_limit_parked",
-            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice}),
+            json!({"turnId": turn, "strikes": strikes, "contextTokens": context, "noticed": notice, "why": "strikes"}),
         );
         if notice {
             self.tell_rate_park(session, strikes, context, now);
         }
+    }
+
+    /// A Stop of a chat the limit has ([`RateHold::limited`]) parks it instead of releasing it:
+    /// it starts nothing by itself, and what comes in queues until `acpmux retry` or the
+    /// person's own prompt. With `keeps_continuation`, the continuation that waits stays and
+    /// goes on with the retry; without, the Stop took it. Recorded once, with no notice: the
+    /// person stopped it.
+    pub(super) fn park_at_stop(&self, session: &Session, keeps_continuation: bool) {
+        let (turn, strikes) = {
+            let mut s = session.rate_hold.lock();
+            s.continuation &= keeps_continuation;
+            if s.parked.is_some() {
+                return;
+            }
+            s.parked = Some(now_ms());
+            s.until = Some(u64::MAX);
+            (s.turn.clone(), s.strikes)
+        };
+        session.rate_hold.changed.notify_waiters();
+        self.append(
+            session,
+            "mux",
+            "rate_limit_parked",
+            json!({"turnId": turn, "strikes": strikes, "noticed": false, "why": "stopped"}),
+        );
     }
 
     /// The one line a parked chat sends the session it reports to (its lane's parent, else the
@@ -350,39 +425,153 @@ impl Hub {
         });
     }
 
-    /// A retry of a parked `session`: unparked with one strike left, and its waiting
-    /// continuation goes on now (compacted first past [`COMPACT_BEFORE_TOKENS`]). The cut turn
-    /// whose continuation goes on, or none when no continuation waits (the hold ends and the
-    /// retry runs as on any chat). None too when the chat is not parked.
-    pub(super) fn unpark_rate_hold(&self, session: &Session) -> Option<String> {
-        let (turn, waits) = {
+    /// A retry (`why` "retry") or the person's own prompt ("prompt") of a parked `session`:
+    /// unparked, its strikes at most one short of parking again. Whatever a person's Stop held
+    /// goes in now: the person acted. Its waiting continuation goes on now (compacted first
+    /// past [`COMPACT_BEFORE_TOKENS`]) and folds what queued into its one turn
+    /// ([`Hub::rate_hold_due`]). With none waiting the hold ends, and when anything queued the
+    /// queue's next turn carries the continuation's words. None when the chat is not parked.
+    pub(super) fn unpark_rate_hold(&self, session: &Arc<Session>, why: &str) -> Option<Unparked> {
+        let (turn, waits, strikes) = {
             let mut s = session.rate_hold.lock();
             s.parked?;
             s.parked = None;
-            s.strikes = PARK_AFTER - 1;
+            s.strikes = s.strikes.min(PARK_AFTER - 1);
             if s.continuation {
                 s.until = Some(now_ms());
             }
-            (s.turn.clone(), s.continuation)
+            (s.turn.clone(), s.continuation, s.strikes)
         };
         self.append(
             session,
             "mux",
             "rate_limit_unparked",
-            json!({"turnId": turn, "why": "retry", "continues": waits}),
+            json!({"turnId": turn, "why": why, "continues": waits, "strikes": strikes}),
         );
+        // The person acted: a person's Stop's hold of other agents' messages ends (`cancel.rs`).
+        // The limit still holds them until the continuation folds them, or the lift below.
+        let stop_hold = session.stop_hold.load(std::sync::atomic::Ordering::SeqCst);
+        self.release_held_agent_messages(session, stop_hold);
         if waits {
             session.rate_hold.due.notify_one();
-            turn
-        } else {
-            self.lift_rate_hold(session, "retry");
-            None
+            return Some(Unparked::Continues(turn.unwrap_or_default()));
+        }
+        let queued = session.queue().iter().any(|q| !q.aside());
+        if queued {
+            let error = session
+                .meta()
+                .last_turn
+                .and_then(|t| t.get("errorText").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| "HTTP 429".into());
+            let note = super::auto_resume::continue_text(&error, "rate_limit");
+            session.rate_note.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(note);
+        }
+        self.lift_rate_hold(session, why);
+        Some(if queued { Unparked::Queue } else { Unparked::Released })
+    }
+
+    /// The person's own prompt (`inbox::persons_prompt`), queued in a parked chat, takes it
+    /// back as a retry does ([`Hub::unpark_rate_hold`]).
+    pub(super) fn persons_prompt_unparks(
+        &self,
+        session: &Arc<Session>,
+        agent: Option<&str>,
+        provenance: Option<&Value>,
+    ) {
+        if session.rate_hold.parked().is_some() && super::inbox::persons_prompt(agent, provenance) {
+            let _ = self.unpark_rate_hold(session, "prompt");
+        }
+    }
+
+    /// After a restart or a takeover: the hold, the park and the strikes `session`'s log says it
+    /// had, before its queue and its continuation go on (`queue.rs` `resume_restored_as`). A
+    /// NIGHTLY update's restart came back with no hold on 2026-11-18, and the chat failed 5 more
+    /// turns on the 429. The last of its `rate_limit_*` records says it, read back no further
+    /// than a turn that ended well, which cleared them all:
+    ///
+    /// - `rate_limit_held` before its `until`: held until then, with its own timer; the
+    ///   continuation the restore arms takes the hold over. Past it, nothing holds.
+    /// - `rate_limit_parked`: parked, no timer and no turn, until a retry or the person's own
+    ///   prompt; its notice counts as sent then.
+    /// - `rate_limit_lifted`, `rate_limit_unparked`: nothing holds.
+    ///
+    /// Each carries the strikes, which carry over.
+    pub(super) fn restore_rate_hold(self: &Arc<Self>, session: &Arc<Session>) {
+        let hold = &session.rate_hold;
+        if hold.restored.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let kinds: [&[u8]; 5] = [
+            b"rate_limit_held",
+            b"rate_limit_parked",
+            b"rate_limit_lifted",
+            b"rate_limit_unparked",
+            b"turn_result",
+        ];
+        let mut last = None;
+        let scanned = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|_, kind| !kinds.contains(&kind),
+            &mut |e: EventRecord| {
+                if e.kind == "turn_result" {
+                    return e.msg.get("status").and_then(Value::as_str) != Some("completed");
+                }
+                last = Some(e);
+                false
+            },
+        );
+        let (Ok(()), Some(last)) = (scanned, last) else { return };
+        let strikes = |default: u32| {
+            last.msg
+                .get("strikes")
+                .and_then(Value::as_u64)
+                .map_or(default, |n| u32::try_from(n).unwrap_or(u32::MAX))
+        };
+        let turn = last.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+        let spawn = {
+            let mut s = hold.lock();
+            // Live since: a hold this daemon set already is newer than its log.
+            if s.until.is_some() || s.parked.is_some() || s.strikes > 0 {
+                return;
+            }
+            match last.kind.as_str() {
+                "rate_limit_parked" => {
+                    s.strikes = strikes(PARK_AFTER);
+                    s.parked = Some(last.at);
+                    s.noticed_at = Some(last.at);
+                    s.until = Some(u64::MAX);
+                    s.turn = turn;
+                    false
+                }
+                "rate_limit_held" => {
+                    s.strikes = strikes(0);
+                    let until = last.msg.get("until").and_then(Value::as_u64);
+                    match until.filter(|u| *u > now_ms()) {
+                        Some(until) => {
+                            s.until = Some(until);
+                            s.turn = turn;
+                            !std::mem::replace(&mut s.timer, true)
+                        }
+                        None => false,
+                    }
+                }
+                _ => {
+                    s.strikes = strikes(0);
+                    false
+                }
+            }
+        };
+        if spawn {
+            self.spawn_rate_hold_timer(session);
         }
     }
 
     /// A `rate_limit` continuation of `turn` waits here for the hold's deadline `until`, or for
-    /// `wake` (Stop, close, a turn that took the chat: the hold then ends). True when the
-    /// deadline came: the continuation then decides ([`Hub::rate_hold_due`]).
+    /// `wake` (Stop, close, a turn that took the chat: the hold then ends, unless the chat is
+    /// parked). True when the deadline came: the continuation then decides
+    /// ([`Hub::rate_hold_due`]).
     pub(super) async fn wait_rate_hold(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -502,7 +691,7 @@ pub(crate) fn park_line(name: &str, strikes: u32, context: Option<u64>) -> Strin
     format!(
         "acpmux: {name} stopped retrying: its last {strikes} turns failed on the rate limit \
          (HTTP 429){context}. It is parked with its queue kept; `acpmux retry {name}` sends it \
-         on (compacted first), Stop releases it."
+         on (compacted first), and so does the person's own prompt."
     )
 }
 
@@ -543,7 +732,8 @@ mod tests {
             line,
             "acpmux: claude-sr2-coord stopped retrying: its last 6 turns failed on the rate \
              limit (HTTP 429), context 334K tokens. It is parked with its queue kept; `acpmux \
-             retry claude-sr2-coord` sends it on (compacted first), Stop releases it."
+             retry claude-sr2-coord` sends it on (compacted first), and so does the person's \
+             own prompt."
         );
     }
 }

@@ -440,8 +440,11 @@ prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row
 `agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
-words (a context past 250K tokens compacts first), the row's `rateLimitedUntil` says until when,
-and `acpmux retry` is refused (`retry.rate_limited`) until then; Stop ends the hold.
+words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
+and `acpmux retry` is refused (`retry.rate_limited`) until then. Six such turns in a row, or a
+Stop (or `session stop`) while the limit has the chat, park it (`rateLimitParked`): nothing
+starts by itself until `acpmux retry` or the person's own prompt, which send it on with what
+queued as one turn. A daemon restart keeps the hold, the park and the strikes.
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had

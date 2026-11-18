@@ -6171,7 +6171,7 @@
           "type": "integer"
         },
         "rateLimitParked": {
-          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, so it starts nothing by itself until `acpmux retry` or Stop (`hub/rate_hold.rs`).\nAbsent otherwise, and from a peer on an older acpmux.",
+          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, or Stop came while the limit had it, so it starts nothing by itself until `acpmux\nretry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer\non an older acpmux.",
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -6889,7 +6889,7 @@
           "type": "integer"
         },
         "rateLimitParked": {
-          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, so it starts nothing by itself until `acpmux retry` or Stop (`hub/rate_hold.rs`).\nAbsent otherwise, and from a peer on an older acpmux.",
+          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, or Stop came while the limit had it, so it starts nothing by itself until `acpmux\nretry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer\non an older acpmux.",
           "format": "uint64",
           "minimum": 0,
           "type": [

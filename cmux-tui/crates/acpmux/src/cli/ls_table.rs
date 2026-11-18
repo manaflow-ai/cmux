@@ -190,7 +190,8 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         1 => return "permission".into(),
         n => return format!("{n} permissions"),
     }
-    // Parked on the rate limit: nothing starts until `acpmux retry` or Stop (`hub/rate_hold.rs`).
+    // Parked on the rate limit: nothing starts until `acpmux retry` or the person's own prompt
+    // (`hub/rate_hold.rs`).
     if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {
         return "rate-limited, parked: acpmux retry".into();
     }

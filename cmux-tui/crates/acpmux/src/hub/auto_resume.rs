@@ -167,7 +167,7 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
 }
 
 /// The text the agent gets; `reason` is the failure's [`super::turn_errors::resume_cause`].
-fn continue_text(error: &str, reason: &str) -> String {
+pub(super) fn continue_text(error: &str, reason: &str) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
     let cause = match reason {
         "agent_exited" => "an agent process exit",
@@ -768,11 +768,28 @@ impl Hub {
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
-    /// ending now gets none, however it ends.
+    /// ending now gets none, however it ends. A chat the rate limit has parks instead
+    /// (`rate_hold.rs` `park_at_stop`).
     pub(super) fn stop_auto_resume(&self, session: &Session) {
+        // A chat the account's rate limit has (held, parked, or with a strike) is parked by a
+        // Stop, not released: it starts nothing by itself until a retry or the person's own
+        // prompt (`rate_hold.rs`). Its rate-limit continuation that waits stays, and goes on
+        // with that retry; one a turn now running would get, or a closed chat's, does not.
+        if session.rate_hold.limited() {
+            let keeps = !session.closing.load(std::sync::atomic::Ordering::SeqCst)
+                && session.turn().is_none()
+                && matches!(
+                    session.auto_resume.lock().as_ref(),
+                    Some(Mark::Waiting { retry: Some(r), .. }) if r.reason == RetryReason::RateLimit
+                );
+            // Parked first: the continuation the stop below wakes finds it so, and lifts nothing.
+            self.park_at_stop(session, keeps);
+            if !keeps {
+                self.stop_auto_resume_by(session, None);
+            }
+            return;
+        }
         self.stop_auto_resume_by(session, None);
-        // Stop, close or a move ends a rate-limit hold too: the person takes the chat back.
-        self.lift_rate_hold(session, "stopped");
     }
 
     /// Read durable exact-prompt tombstones once per restored session. Callers hold

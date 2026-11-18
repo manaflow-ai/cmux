@@ -394,6 +394,9 @@ impl Hub {
                         accepted.set("awaitingOwner", json!(true));
                     }
                     accept(accepted);
+                    // The person's own prompt takes a parked chat back (`rate_hold.rs`), once
+                    // it is in the queue the continuation folds.
+                    self.persons_prompt_unparks(session, p.agent, p.provenance);
                     Some(waits)
                 } else {
                     None
@@ -456,6 +459,7 @@ impl Hub {
                         accept(
                             json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
                         );
+                        self.persons_prompt_unparks(session, p.agent, p.provenance);
                         break 'run (waits, None);
                     }
                     ClaimedTurn::new(session, guard)
@@ -1435,6 +1439,9 @@ impl Hub {
                 self.start_restored(session);
                 continue;
             }
+            // The rate-limit hold, park and strikes its log says it had, before anything of it
+            // goes on: its queue then waits for the hold, and its continuation for the park.
+            self.restore_rate_hold(session);
             self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
