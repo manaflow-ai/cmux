@@ -48,8 +48,18 @@ export const {
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
 } = g
 
+/** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
+ * `#RRGGBB[AA]`); the runtime's builders refuse a bad stop or angle. On a cmux older than them the
+ * value is built here and an older renderer draws no fill. */
+export const linearGradient: (colors: readonly string[], angle?: number) => CmuxGradient =
+  g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }))
+export const radialGradient: (colors: readonly string[]) => CmuxGradient =
+  g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }))
+
 export type View = CmuxView
 export type Signal<T> = CmuxSignal<T>
+export type Gradient = CmuxGradient
+export type Fill = CmuxFill
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.

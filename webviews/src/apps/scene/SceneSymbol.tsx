@@ -3,6 +3,7 @@ import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack } from "../../agent-session/acpmux/icons/iconPack";
 import type { IconPack } from "../../agent-session/acpmux/icons/types";
 import { sceneText } from "./sceneStyle";
+import { symbolLayerPaint } from "./sceneSymbolRendering";
 
 /** SF Symbols apps and widgets emit, drawn with the pack glyph that means the same thing. A `.fill`
  *  name draws the glyph's Solid form (SceneSymbol), as the native sidebar draws the filled SF Symbol.
@@ -144,21 +145,28 @@ export function appSceneIconFilled(value: unknown): boolean {
 }
 
 /** Unknown SF names deliberately draw the neutral fallback without an icon-pack warning, unfitted so it
- *  stays a small dot rather than being scaled up to the shared glyph box. */
+ *  stays a small dot rather than being scaled up to the shared glyph box. `rendering`
+ *  (`symbolRendering`) and `palette` (`symbolColors`) color the glyph's layers as SF Symbols' modes
+ *  do, as far as the pack's layers allow (sceneSymbolRendering.ts). */
 export function SceneSymbol({
   symbol,
   size = 14,
   color,
   className,
+  rendering,
+  palette,
 }: {
   symbol: unknown;
   size?: number;
   color?: string;
   className?: string;
+  rendering?: unknown;
+  palette?: unknown;
 }) {
   const { pack } = useIcons();
   const value = sceneText(symbol);
   const name = resolve(pack, value);
+  const layerPaint = name === SCENE_FALLBACK_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
   return (
     <Icon
       name={name}
@@ -168,6 +176,7 @@ export function SceneSymbol({
       fit={name !== SCENE_FALLBACK_ICON}
       color={color}
       className={className}
+      layerPaint={layerPaint}
     />
   );
 }
