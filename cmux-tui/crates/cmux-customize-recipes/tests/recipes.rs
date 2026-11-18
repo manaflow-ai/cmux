@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use cmux_customize::profile::Profile;
 use cmux_customize::{Customize, Roots};
-use cmux_customize_recipes::{GUIDE, GUIDE_DIR, Group, RECIPES, find, guide, problems, write_all};
+use cmux_customize_recipes::{find, guide, problems, write_all, Group, GUIDE, GUIDE_DIR, RECIPES};
 
 #[test]
 fn every_shipped_recipe_names_only_keys_the_schema_has() {
@@ -43,8 +43,8 @@ fn a_recipe_that_names_a_key_the_schema_lacks_is_refused() {
 }
 
 #[test]
-fn there_are_ten_recipes_with_unique_names_in_every_group() {
-    assert_eq!(RECIPES.len(), 10);
+fn there_are_thirteen_recipes_with_unique_names_in_every_group() {
+    assert_eq!(RECIPES.len(), 13);
     let mut names: Vec<_> = RECIPES.iter().map(|recipe| recipe.name).collect();
     names.sort();
     names.dedup();
@@ -57,11 +57,48 @@ fn there_are_ten_recipes_with_unique_names_in_every_group() {
     }
 }
 
+/// CMUX-642, Leo: "make customization for codex, [another agent app], claude code app
+/// (everything)", "sidebar, gui, everything". Each look-alike is one profile
+/// that turns on the theme file it carries, restyles the chat with its own
+/// stylesheet and sets the sidebar and chat settings.
+#[test]
+fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
+    for name in ["codex-app", "true-black", "claude-code-app"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        assert_eq!(recipe.group, Group::Apps, "{name}");
+        let profile = recipe.profile().unwrap();
+        assert_eq!(
+            profile.settings.get("appearance.themeFile"),
+            Some(&serde_json::json!(name)),
+            "{name} turns on a theme file of its own name"
+        );
+        let theme = profile
+            .files
+            .get(&format!("themes/{name}.json"))
+            .unwrap_or_else(|| panic!("{name} carries no theme file"));
+        assert!(cmux_config::jsonc::parse(theme).is_ok(), "{name}: its theme file is not JSONC");
+        let chat = profile
+            .files
+            .get("agent-pane/theme.css")
+            .unwrap_or_else(|| panic!("{name} carries no chat stylesheet"));
+        assert!(
+            chat.contains(".cv-user__bubble"),
+            "{name}: the stylesheet leaves the prompt alone"
+        );
+        for key in ["sidebar.groupBy", "agentPane.display.width", "tabs.hideLoneChatTab"] {
+            assert!(profile.settings.contains_key(key), "{name} does not set {key}");
+        }
+        assert_eq!(recipe.parts(), ["settings", "themes", "styles"], "{name}");
+    }
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
         let profile = recipe.profile().unwrap();
-        let Some(text) = profile.files.get("keybindings.json") else { continue };
+        let Some(text) = profile.files.get("keybindings.json") else {
+            continue;
+        };
         let parsed = cmux_config::keybindings::parse(text);
         assert!(parsed.diagnostics.is_empty(), "{}: {:?}", recipe.name, parsed.diagnostics);
         assert!(!parsed.entries.is_empty(), "{}: binds nothing", recipe.name);
