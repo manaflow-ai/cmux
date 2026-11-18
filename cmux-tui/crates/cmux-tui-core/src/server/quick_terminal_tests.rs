@@ -415,6 +415,22 @@ fn the_modes_show_and_hide_do_one_thing_each() {
     assert_eq!(wire.panes().len(), 3, "one quick terminal for the three requests");
 }
 
+/// A make in a screen that has a zoomed pane: the zoom of the screen ends, as it does for each pane that
+/// becomes a split of a pane of a zoomed screen.
+#[test]
+fn a_make_ends_the_zoom_of_its_screen() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let zoom = wire.ok(json!({"cmd": "zoom-pane", "pane": panes[0], "mode": "on"}));
+    assert_eq!(zoom["zoomed"], true, "the fixture: a pane of the screen is zoomed: {zoom}");
+    assert_eq!(wire.screen()["zoomed_pane"], json!(panes[0]), "the fixture: the zoom");
+
+    let data = wire.toggle();
+    assert_eq!(data["created"], true, "{data}");
+    let screen = wire.screen();
+    assert_eq!(screen["quick_terminal"]["pane"], data["pane"], "{screen}");
+    assert!(screen["zoomed_pane"].is_null(), "the make kept the zoom of the screen: {screen}");
+}
+
 #[test]
 fn quick_terminal_refuses_a_bad_argument() {
     let (mut wire, _) = Wire::with_panes(2);
@@ -424,6 +440,10 @@ fn quick_terminal_refuses_a_bad_argument() {
     refused(&response, "invalid-argument");
     let response = wire.send(json!({"cmd": "quick-terminal", "screen": screen, "x": 0.25}));
     refused(&response, "invalid-argument");
+    // A screen that no workspace has: the answer has the text and no code.
+    let response = wire.send(json!({"cmd": "quick-terminal", "screen": u64::MAX}));
+    assert_eq!(response["error"], format!("unknown screen {}", u64::MAX), "{response}");
+    assert!(response.get("error_code").is_none(), "{response}");
     assert!(wire.mark().is_null());
     assert_eq!(wire.panes().len(), 2, "a refused request makes no pane");
 }

@@ -3673,8 +3673,9 @@ Errors:
 | `the quick terminal changed while the request ran: send the request again` | none | Other requests made, brought or closed the quick terminal of the workspace 2 times while this request ran |
 | `unknown screen <id>` | none | No workspace has this screen |
 | `bad request: ...` | none | Missing fields or wrong JSON type |
+| any other text | none | The store refused a commit, the terminal of a new quick terminal did not start, a pane closed while the request ran, or the quick terminal did not take the focus |
 
-A refused request changes nothing.
+A refused request changes nothing, with one exception: when the screen closes after the request did its act and before the daemon reads the state for the result, the answer is `unknown screen <id>` and the act is done.
 
 CLI mapping: none yet.
 
