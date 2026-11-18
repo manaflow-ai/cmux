@@ -350,7 +350,11 @@
   border-radius: 0;
 }
 
-.rows > .row:last-child {
+/* Shared Links' and Library's rows sit in a `.card-busy` fieldset (cardWindow.ts cardBusy), which
+   has no box but is still their parent: the list's first and last rows are the fieldset's first and
+   last when it is the list's first or last child. `:where()` keeps each rule's weight. */
+.rows > .row:last-child,
+.rows > :where(.card-busy:last-child) > .row:last-child {
   box-shadow: none;
 }
 
@@ -394,12 +398,14 @@
   justify-content: flex-start;
 }
 
-.rows > .row:first-child {
+.rows > .row:first-child,
+.rows > :where(.card-busy:first-child) > .row:first-child {
   border-top-left-radius: var(--card-radius);
   border-top-right-radius: var(--card-radius);
 }
 
-.rows > .row:last-child {
+.rows > .row:last-child,
+.rows > :where(.card-busy:last-child) > .row:last-child {
   border-bottom-left-radius: var(--card-radius);
   border-bottom-right-radius: var(--card-radius);
 }
