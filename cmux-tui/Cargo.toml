@@ -79,6 +79,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-projection",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -106,6 +107,7 @@ members = [
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
+    "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
@@ -225,6 +227,7 @@ default-members = [
     "crates/cmux-wallpaper",
     "crates/cmux-config",
     "crates/cmux-customize",
+    "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
@@ -313,6 +316,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-projection = { path = "crates/cmux-projection" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -366,6 +370,7 @@ cmux-stack-auth = { path = "crates/cmux-stack-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-customize = { path = "crates/cmux-customize" }
+cmux-customize-recipes = { path = "crates/cmux-customize-recipes" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
