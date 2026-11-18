@@ -5,8 +5,10 @@
  *
  *   health -> create -> running -> listed -> first exec -> agent CLIs present
  *   -> named terminal over WebSocket (first prompt) -> a background process
- *   -> pause -> paused -> exec refused while paused -> resume -> running
- *   -> the background process survived (memory kept) -> the same terminal
+ *   -> pause -> paused -> resume -> running -> the background process survived
+ *   (memory kept) -> pause again -> an exec with no resume wakes the VM and finds
+ *   the process still alive
+ *   -> the same terminal
  *   reattaches and runs a command -> delete -> 404 -> gone from the list.
  *
  * It lives outside workers/cmux-vm so changing it never redeploys the Worker
@@ -53,6 +55,16 @@ const option = (name: string): string | undefined => {
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
+// The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
+// whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
+const cmuxVmPath = option("--cmux-vm") ?? "";
+const cliPath = cmuxVmPath !== "" ? cmuxVmPath : cmuxPath;
+/** `cmux vm WORD` -> the headless CLI's own word for it (cmux-tui cli/vm.rs maps the same: new -> create, rm -> delete). */
+const cliArgv = (args: string[]): string[] => {
+  if (cmuxVmPath === "") return ["vm", ...args];
+  const [word, ...rest] = args;
+  return [word === "new" ? "create" : word === "rm" ? "delete" : (word ?? ""), ...rest];
+};
 const resultFile = option("--result-file");
 const base = option("--url") ?? process.env["CMUX_VM_DOGFOOD_URL"] ?? "";
 const tenantKey = process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
@@ -272,7 +284,8 @@ const lifecycleVms = new Set<string>();
 const lifecycleSnapshots = new Set<string>();
 const lifecycleAgentKeys = new Set<string>();
 const VM_ID = /^vm_[0-9a-z]{26}$/;
-const LIFECYCLE_FILE = "/tmp/cmux-lifecycle-marker";
+// On the disk, not /tmp: the guest clears /tmp at boot, so a stop and start would lose it whatever the disk keeps.
+const LIFECYCLE_FILE = "/var/tmp/cmux-lifecycle-marker";
 
 async function lifecycleCreate(label: string, body: Record<string, unknown>, token = bearer): Promise<string> {
   const reply = await call(
@@ -315,7 +328,8 @@ async function awake(id: string): Promise<void> {
   if (state === "running") return;
   if (state === "paused" || state === "pausing") {
     if (state === "pausing") await waitForState(id, "paused", 3 * 60_000);
-    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume (wake)");
+    // 409: something else (an exec, inbound traffic) woke it between the read and the resume.
+    expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200, 409], "POST resume (wake)");
   }
   await waitForState(id, "running", 5 * 60_000);
 }
@@ -332,7 +346,7 @@ async function readMarker(id: string): Promise<string> {
 function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; stdout: string; stderr: string; ms: number }> {
   const startedAt = performance.now();
   return new Promise((resolve) => {
-    const child = spawn(cmuxPath, ["vm", ...args], {
+    const child = spawn(cliPath, cliArgv(args), {
       env: { ...process.env, CMUX_VM_BASE_URL: origin.origin, CMUX_VM_API_KEY: bearer, ...(useService ? { CMUX_VM_TEAM_ID: serviceTeam } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -355,6 +369,15 @@ function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; st
     });
     child.on("close", (code) => done(code ?? -1));
   });
+}
+
+/** Why the CLI under test cannot run `vm` verbs, or null when it can (`vm --help` answers without a scope error). */
+async function cliLacksVm(): Promise<string | null> {
+  const out = await cli(["--help"], 60_000);
+  if (out.code === 0) return null;
+  return /unknown resource scope/.test(out.stderr)
+    ? `${cliPath} has no \`vm\` scope (${out.stderr.trim().slice(0, 120)})`
+    : `${cliPath} vm --help exited ${out.code}: ${out.stderr.trim().slice(0, 160)}`;
 }
 
 /** CLI runs still going; cleanup stops them first, so none makes a VM after the sweep looked. */
@@ -464,7 +487,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     return key;
   };
   const source = await timed("cliNew", async () =>
-    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("source")], "new"), "new"));
+    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idempotency-key", cliKey("source")], "new"), "new"));
   await timed("cliRunning", () => waitForState(source, "running", 5 * 60_000));
   await timed("cliExecWrite", async () => {
     const out = await cli(["exec", source, "--", `printf %s ${marker} > ${LIFECYCLE_FILE} && sync`]);
@@ -485,7 +508,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
   await timed("cliStarted", () => waitForState(source, "running", 5 * 60_000));
   proofs["fileAfterStopStart"] = (await cliRead(source)) === marker;
   const fork = await timed("cliFork", async () =>
-    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("fork")], "fork"), "fork"));
+    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idempotency-key", cliKey("fork")], "fork"), "fork"));
   await timed("cliForkRunning", () => waitForState(fork, "running", 5 * 60_000));
   proofs["fileInFork"] = (await cliRead(fork)) === marker;
   await awake(source);
@@ -501,7 +524,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     lifecycleSnapshots.add(snapshotId);
     await cliJson(["snapshot", "get", snapshotId], "snapshot get");
     const fromSnapshot = await timed("cliNewFromSnapshot", async () =>
-      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
+      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
     await timed("cliFromSnapshotRunning", () => waitForState(fromSnapshot, "running", 5 * 60_000));
     proofs["fileInSnapshotVm"] = (await cliRead(fromSnapshot)) === marker;
     await timed("cliSnapshotDelete", async () => {
@@ -703,20 +726,35 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
-    // A paused VM refuses exec with 409 instead of waking for it.
-    const whilePaused = await call("POST", `${vmPath(id)}/exec`, { command: "true", timeoutMs: 10_000 }, {}, 40_000);
-    result["execWhilePausedStatus"] = whilePaused.status;
-    if (whilePaused.status !== 409) note(`exec on a paused VM answered ${whilePaused.status}, expected 409`);
-
+    // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
+    // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/resume`, undefined, {}, 5 * 60_000), [200], "POST resume");
     });
     await timed("runningAfterResume", () => waitForState(id, "running", 3 * 60_000));
-    result["memoryKept"] = await timed("memoryKept", async () => {
-      const out = await exec(id, `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`);
-      return out.stdout.trim() === "alive";
-    });
+    const alive = `kill -0 ${pid} 2>/dev/null && echo alive || echo gone`;
+    result["memoryKept"] = await timed("memoryKept", async () => (await exec(id, alive)).stdout.trim() === "alive");
     if (result["memoryKept"] !== true) failed.push("memoryKept");
+
+    // Then pause again and exec with no resume: the exec wakes the VM where it was, memory kept.
+    await timed("pauseAgain", async () => {
+      expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause (again)");
+    });
+    await timed("pausedAgain", () => waitForState(id, "paused", 3 * 60_000));
+    const whilePaused = await timed("execWakes", () =>
+      call("POST", `${vmPath(id)}/exec`, { command: alive, timeoutMs: 60_000 }, {}, 5 * 60_000));
+    result["execWhilePausedStatus"] = whilePaused.status;
+    if (whilePaused.status === 200) {
+      result["memoryKeptOnExecWake"] = String(field(whilePaused.body, "stdout") ?? "").trim() === "alive";
+      if (result["memoryKeptOnExecWake"] !== true) failed.push("memoryKeptOnExecWake");
+    } else {
+      // The exec failed: a red (exec should wake a paused VM). It may still have woken it; awake() resumes only a
+      // VM that is still paused, so the rest of the journey runs.
+      failed.push("execWakes");
+      note(`exec on a paused VM answered ${whilePaused.status}, expected it to wake the VM and answer 200`);
+      await awake(id);
+    }
+    await timed("runningAfterExecWake", () => waitForState(id, "running", 3 * 60_000));
   }
 
   if (terminalLeg) {
@@ -743,7 +781,8 @@ try {
 
   if (lifecycle) {
     await lifecycleApi(failed);
-    if (cmuxPath === "") note("no --cmux binary; the CLI lifecycle legs were skipped");
+    const cliMissing = cliPath === "" ? "no --cmux or --cmux-vm binary" : await cliLacksVm();
+    if (cliMissing !== null) note(`${cliMissing}; the CLI lifecycle legs were skipped`);
     else if (useService) note("a service key needs role=chief on every VM and `cmux vm` sets no labels; the CLI lifecycle legs were skipped");
     else await lifecycleCli(failed);
     await lifecycleCleanup(failed);

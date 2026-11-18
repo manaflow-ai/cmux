@@ -10,12 +10,21 @@ import { screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
 import { setHarnessSymbolHost } from "../src/agent-session/shared/harnessIcons";
 import { teardownDom } from "./support/domTeardown";
 
-test("every suggestion order keeps create actions outside the palette", () => {
+test("every suggestion order finds create commands only when the query matches", () => {
   for (const order of ["intent", "chat", "minimal"] as const) {
     const context = { omnibar: EMPTY_OMNIBAR, order, create: ["terminal", "browser", "chat"] as const };
-    for (const text of ["ff", "new", "term", "reddit.com"]) {
-      expect(screenRows(text, context).map((row) => row.type)).not.toContain("create");
-    }
+    for (const text of ["", "ff", "reddit.com"])
+      expect(screenRows(text, context).filter((row) => row.type === "create")).toEqual([]);
+    expect(
+      screenRows("new", context)
+        .filter((row) => row.type === "create")
+        .map((row) => row.kind),
+    ).toEqual(["terminal", "browser", "chat"]);
+    expect(
+      screenRows("term", context)
+        .filter((row) => row.type === "create")
+        .map((row) => row.kind),
+    ).toEqual(["terminal"]);
   }
 });
 
@@ -117,29 +126,34 @@ async function type(text: string) {
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('.nt-popover [role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
-const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".nt-create [data-create]")];
+const creates = () => rows().filter((row) => row.dataset.type === "create");
 const key = (field: Element, name: string) =>
   act(async () => {
     field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
   });
 
-test("Minimal keeps create buttons under the composer while suggestions are open", async () => {
+test("Minimal keeps the home clear and shows create rows for a matching search", async () => {
   await render([]);
-  expect(buttons().map((button) => button.textContent)).toEqual(["New terminal", "New browser tab", "New chat"]);
+  expect(host.querySelector(".nt-create")).toBeNull();
+  expect(creates()).toEqual([]);
   await type("ff");
   expect(rows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
   expect(rows().some((row) => row.dataset.type === "create")).toBe(false);
-  expect(buttons().every((button) => !button.closest('[role="listbox"]'))).toBe(true);
+  await render([]);
+  await type("new");
+  expect(creates().map(label)).toEqual(["New terminal", "New browser tab", "New chat"]);
+  expect(creates().every((row) => row.closest('[role="listbox"]'))).toBe(true);
 });
 
-test("create buttons run the terminal, browser and chat actions", async () => {
+test("create suggestion rows run the terminal, browser and empty chat actions", async () => {
   for (const kind of ["terminal", "browser", "chat"]) {
     const calls: unknown[][] = [];
     await render(calls);
-    await type("ff");
-    const button = buttons().find((button) => button.dataset.create === kind)!;
-    await act(async () => button.click());
-    expect(calls[0]?.slice(0, 2)).toEqual(kind === "chat" ? ["ask", "claude"] : ["create", kind]);
+    await type("new");
+    const title = kind === "browser" ? "New browser tab" : `New ${kind}`;
+    const row = creates().find((row) => label(row) === title)!;
+    await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+    expect(calls[0]?.slice(0, 3)).toEqual(kind === "chat" ? ["ask", "claude", ""] : ["create", kind]);
   }
 });
 
@@ -204,7 +218,7 @@ test("command rows show catalog icons and live shortcut keycaps", async () => {
   ).toEqual(["⇧", "⌘", "J"]);
 });
 
-test("commands use the host's symbol image when the catalog has no override", async () => {
+test("commands use the host's symbol image when the cmux pack has no icon for the symbol", async () => {
   const asked: string[] = [];
   const src = "data:image/png;base64,iVBORw0KGgo=";
   const release = setHarnessSymbolHost(async (name) => {
@@ -212,11 +226,11 @@ test("commands use the host's symbol image when the catalog has no override", as
     return src;
   });
   try {
-    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "sparkles" }]);
+    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "tortoise" }]);
     await type("custom");
     const command = rows().find((row) => row.dataset.type === "action")!;
-    expect(asked).toEqual(["sparkles"]);
-    const symbol = command.querySelector<HTMLElement>("[data-symbol=sparkles]")!;
+    expect(asked).toEqual(["tortoise"]);
+    const symbol = command.querySelector<HTMLElement>("[data-symbol=tortoise]")!;
     expect(symbol.style.maskImage).toContain(src);
   } finally {
     release();

@@ -68,11 +68,37 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     init(log: @escaping @Sendable (String) -> Void, timing: CaptureTimingLog?, input: EventInjector,
-         writePasteboard: @escaping @Sendable (Data, String) -> Bool) {
+         writePasteboard: @escaping @Sendable (Data, String) -> Bool,
+         sourceProbe: any ScreenSourceProbe = SystemScreenSourceProbe()) {
         self.log = log
         self.timing = timing
         self.input = input
         self.writePasteboard = writePasteboard
+        self.sourceProbe = sourceProbe
+    }
+
+    /// Reads the lock and display sleep (the system's; a test's own).
+    private let sourceProbe: any ScreenSourceProbe
+    /// Reports them while a viewer watches (``observeSourceState(_:)``) until `stop()`:
+    /// checked on the 2 s exclusion tick, and on each frame while not live, so an
+    /// unlock clears the viewer's notice with its first new picture.
+    private var sourceMonitor: ScreenSourceMonitor?
+
+    public func observeSourceState(_ changed: @escaping @Sendable (ScreenSourceState) -> Void) {
+        let monitor = ScreenSourceMonitor(probe: sourceProbe, changed: changed)
+        let previous = lock.withLock { () -> ScreenSourceMonitor?? in
+            guard !stopped else { return .none }
+            defer { sourceMonitor = monitor }
+            return .some(sourceMonitor)
+        }
+        guard let previous else { return }
+        previous?.stop()
+        monitor.check()
+    }
+
+    /// Reads the source state again (a change goes to the viewer).
+    func checkSource() {
+        lock.withLock { sourceMonitor }?.check()
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -329,6 +355,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
                 guard let self else { return }
+                checkSource() // locked or display asleep since the last tick
                 let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
                     (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
                 }
@@ -359,7 +386,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
         timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
-        let sink = lock.withLock { onFrame }
+        let (sink, monitor) = lock.withLock { (onFrame, sourceMonitor) }
+        // A new picture while locked or asleep: read again, so an unlock or wake clears the notice now.
+        if let monitor, let state = monitor.state, state != .live { monitor.check() }
         sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
     }
 
@@ -409,16 +438,18 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     public func stop() {
-        let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
+        let (stream, reconfiguration, sourceMonitor) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?, ScreenSourceMonitor?) in
             defer {
                 self.stream = nil
                 streamDisplay = nil
                 streamGeneration += 1
                 stopped = true
                 self.reconfiguration = nil
+                self.sourceMonitor = nil
             }
-            return (self.stream, self.reconfiguration)
+            return (self.stream, self.reconfiguration, self.sourceMonitor)
         }
+        sourceMonitor?.stop()
         if let reconfiguration {
             // On the main thread, where the callbacks run: none is mid-call when
             // the hold it used is released.
@@ -659,5 +690,23 @@ final class EventInjector: @unchecked Sendable {
         "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
         "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`",
     ]
+}
+
+/// This Mac's lock and display sleep, read now: the session dictionary's
+/// `CGSSessionScreenIsLocked` (the window server sets it only while locked;
+/// absent or not a Boolean reads as unlocked, so no false notice) and the
+/// main display's `CGDisplayIsAsleep`. Neither needs an entitlement or a grant.
+public struct SystemScreenSourceProbe: ScreenSourceProbe {
+    public init() {}
+
+    public func read() -> ScreenSourceState {
+        ScreenSourceState(locked: Self.locked(session: CGSessionCopyCurrentDictionary() as? [String: Any]),
+                          asleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0)
+    }
+
+    static func locked(session: [String: Any]?) -> Bool {
+        guard let number = session?["CGSSessionScreenIsLocked"] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue
+    }
 }
 #endif

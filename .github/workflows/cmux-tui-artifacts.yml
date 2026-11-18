@@ -108,8 +108,8 @@ on:
         type: boolean
 
 concurrency:
-  # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
-  # per commit for a manual dispatch. Pin refs are refused before preflight.
+  # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
+  # pushed branch, and per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
   # publish of immutable objects stops mid-upload.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
@@ -124,8 +124,13 @@ concurrency:
   # stops after the 3 min tree-preflight. Same-key pushes share one build
   # through the owner election, not a key concurrency group (a key group
   # replaced pending builds; see the build job).
+  # nightly-next pushes get the same per-commit group: every nightly build waits
+  # (await-tree-client.sh, 45 min) for its own commit's tree. In a shared
+  # branch group, run 44154640719 queued on a dead Linux pool held the group for
+  # 8 hours, the newer commits' runs stayed pending, and every nightly in that
+  # window failed at "Bundle the cmux-tui client" (#45792).
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
@@ -176,8 +181,9 @@ jobs:
       name: ci-routing-agent
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # The feat-cmux-next election fetches each active run's commit.
-    timeout-minutes: 6
+    # The feat-cmux-next election fetches each active run's commit. The musl legs' owned-Linux
+    # placement may wait up to 2 more minutes for a fleet runner (linux-build-placement).
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
@@ -215,6 +221,10 @@ jobs:
       # Blacksmith overflow. The build legs keep their own routes.
       linux_runner: ${{ steps.linux-placement.outputs.linux_runner }}
       linux_jobs: ${{ steps.linux-placement.outputs.linux_jobs }}
+      # Owned GCP Linux for the shipped tree's two musl legs (the tree the NEXT nightly bundles), only
+      # when both placed on it; empty keeps their Blacksmith route (tests/test_ci_tui_tree_owned_linux_first.py).
+      linux_build_runner: ${{ contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-x86_64-musl ') && contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-aarch64-musl ') && steps.linux-build-placement.outputs.linux_runner || '' }}
+      machine_build_runner: ${{ contains(steps.linux-build-placement.outputs.linux_jobs, ' machine-x86_64-musl ') && contains(steps.linux-build-placement.outputs.linux_jobs, ' machine-aarch64-musl ') && steps.linux-build-placement.outputs.linux_runner || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -760,6 +770,43 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
+      # The shipped tree's musl legs (x86_64 and aarch64), which every NEXT nightly waits for
+      # (await-tree-client.sh), go to owned GCP Linux first and to Blacksmith only as overflow. On
+      # 2026-11-18 tree 453a2f94's legs sat on blacksmith-16vcpu behind about 346 queued runs while
+      # the nightly waited (Leo: "i thought we had a priority option / hey what about setting up
+      # those linux vms finally on our end? what about teh gcp ones?"). Both legs or neither take
+      # the fleet label, and only runners idle now beyond the label's queue count, so queued
+      # nightly jobs on it keep coming first and a leg never queues on a dead pool (#45792). With
+      # an online fleet runner but none free, it waits up to 2 minutes for one; with none online
+      # (the pool cannot boot VMs) it takes Blacksmith at once. Only trees a nightly or a dev
+      # build reads: feat-cmux-next and nightly-next pushes, and dispatches (cmux-tui-tree-request).
+      # The same pick places the Cloud machine channel's thin musl legs (build-linux), the pair after
+      # the tree's: on 2026-11-18 they queued 18-27 min on blacksmith-16vcpu in front of every
+      # merge-to-machine (goals/cloud-fix-to-machine.md). A fleet VM has no sticky disk, so a thin
+      # leg there builds cold (restore and record do nothing without a mounted disk).
+      - name: Pick owned Linux for the tree's musl legs
+        id: linux-build-placement
+        if: >-
+          steps.inspect.outputs.place_macos == 'true' && github.run_attempt == 1 &&
+          (github.event_name == 'workflow_dispatch' || github.event_name == 'push' &&
+           (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next'))
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          JOBS: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
+          LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
+          LINUX_GROUPS: tree-x86_64-musl,tree-aarch64-musl machine-x86_64-musl,machine-aarch64-musl
+          FLEET_LINUX: cmux-fleet-linux-x64
+          REQUIRE_LIVE_CAPACITY: "1"
+          NIGHTLY_WAIT_FOR_FLEET: "1"
+          NIGHTLY_WAIT_SECONDS: "120"
+          FLEET_WAIT_NEEDS_MEMBER: "1"
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ github.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
         id: tree-source
@@ -1235,6 +1282,9 @@ jobs:
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
       artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
+      # Owned GCP Linux for the thin musl legs when tree-preflight placed both there, else empty
+      # (their Blacksmith route). A re-run never reuses attempt 1's pick.
+      linux_build_runner: ${{ github.run_attempt == 1 && needs.tree-preflight.outputs.machine_build_runner || '' }}
 
   build:
     if: >-
@@ -1301,6 +1351,9 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       darwin_mac_runner: ${{ needs.tree-preflight.outputs.darwin_mac_runner }}
+      # Owned GCP Linux for the musl legs when tree-preflight placed both there, else empty
+      # (their Blacksmith route). A re-run never reuses attempt 1's pick.
+      linux_build_runner: ${{ github.run_attempt == 1 && needs.tree-preflight.outputs.linux_build_runner || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -3452,6 +3505,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
@@ -3532,7 +3589,7 @@ jobs:
     # Pin pushes have their own daemon pool and must not join the PR side lane.
     # When that pool is unset, the light owned lane is the safe shared fallback;
     # Blacksmith 6 vCPU remains the final overflow route only while its switch is on.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ((vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_DAEMON_POOL && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL && vars.CI_PIN_DAEMON_POOL) || (vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_DAEMON_POOL && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_PROMOTE_POOL && vars.CI_LIGHT_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && 'glaeda-root-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26)) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && ((vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_DAEMON_POOL && vars.CI_PIN_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL && vars.CI_PIN_DAEMON_POOL) || (vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_DAEMON_POOL && vars.CI_LIGHT_LANE_RUNNER != vars.CI_NEXT_PROMOTE_POOL && vars.CI_LIGHT_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && 'glaeda-root-std-xcode-26.6' || fromJSON(vars.RUNNER_POOLS).macos_26)) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 20
     continue-on-error: true
     permissions:
@@ -4088,7 +4145,7 @@ jobs:
       # waited). Start them now: cmux-next.yml same-tree mode.
       # NOTIFY_NEVER_LOST (lw#5184): a notify GitHub refuses (a spent
       # github.token included) leaves a cmux-next-tree-notify-pending record
-      # that the next feat-cmux-next push's sweep-commit-manifests makes again
+      # that the next feat-cmux-next push's sweep-pending-tree-notify makes again
       # on the cmux-bot App's token. publish-tree mints no App token itself: it
       # runs in the `artifacts` environment, for cmux-tui-pin-* helper branches
       # too, which holds only R2 upload secrets
@@ -4460,17 +4517,76 @@ jobs:
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
         run: python3 scripts/ci/cmux_tui_manifest_sweep.py --repo "$GITHUB_REPOSITORY" --window 40 --tip-branch feat-cmux-next
 
-      # NOTIFY_NEVER_LOST (lw#5184, scripts/ci/cmux_next_tree_notify.py): a
-      # publish whose same-tree notify GitHub refused left a
-      # cmux-next-tree-notify-pending record; make that notify again here, on
-      # every feat-cmux-next push, so no deferred same-tree run is lost to one
-      # refused call. One artifacts read when nothing is pending; no wait.
+  # NOTIFY_NEVER_LOST (lw#5184, scripts/ci/cmux_next_tree_notify.py): a
+  # publish whose same-tree notify GitHub refused left a
+  # cmux-next-tree-notify-pending record; make that notify again here, on
+  # every feat-cmux-next push, so no deferred same-tree run is lost to one
+  # refused call. One artifacts read when nothing is pending; no wait.
+  # Overlapping sweeps read the same record and marker before either deleted
+  # them, and each dispatched the same same-tree run (2026-11-17, b0549a37:
+  # three runs, three Debug scheme compiles on the owned Mac minis). A sweep
+  # now claims a record by deleting it first, and records again what it
+  # claimed and could not finish (sweep_pending). No concurrency group: GitHub
+  # ends a pending job its group replaced as cancelled, and with it this run,
+  # which nightly_builder.py and pin-cmux-tui.sh read. The step ran on every
+  # branch's push before; it is a feat-cmux-next sweep, as its reason says.
+  sweep-pending-tree-notify:
+    name: start the cmux-next tree jobs a refused tree notify left
+    needs: [tree-preflight, mark-tree-commits]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.mark-tree-commits.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    # Secrets only: no deployment on the PR. The spare token (below) is the cmux-bot App's.
+    environment:
+      name: ci-routing-agent
+      deployment: false
+    permissions:
+      actions: write
+      contents: read
+      # the tree notify sweep reads a waiting pull request's head (is_current)
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      # As notify-unpublished-tree's hand-off: a rate-limited workflow token
+      # moves to the cmux-bot App's (HANDOFF_NEVER_SILENT).
+      - name: Mint the sweep's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-pull-requests: read
+
       - name: Start the cmux-next tree jobs a refused tree notify left
-        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
-        run: python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending
+        run: |
+          pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
+          python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending --pending-file "$pending"
+
+      # The records this sweep claimed (deleted) and has not finished, written
+      # before its first notify, so a sweep that dies keeps them. A name of its
+      # own: this run may have uploaded cmux-next-tree-notify-pending from
+      # publish-tree, which overwrite would replace.
+      - name: Record again the tree notifies the sweep could not finish
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-tree-notify-pending-sweep
+          path: ${{ runner.temp }}/tree-notify-pending/pending.json
+          if-no-files-found: ignore
+          retention-days: 3
+          overwrite: true
 
   # Cloud machines keep their cmux-tui and cmux-tui-hook on the newest
   # feat-cmux-next build by themselves (the updater role of `cmux host run`,
@@ -4879,7 +4995,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
