@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, turnView, turnViewFrom } from "./turns";
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -31,7 +31,7 @@ test("a completed turn has no live timer row", () => {
     new Set(),
     { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
-  expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
+  expect(shown.some((row) => row.kind === THINKING || row.turnPhase === "running")).toBe(false);
 });
 
 test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
