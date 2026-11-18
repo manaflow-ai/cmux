@@ -144,8 +144,13 @@ enum Command {
     /// caller that just wrote an app's files (`cmux ext dev`) asks, so its
     /// reload never waits on file events. The `apps-changed` and
     /// `apps-reload-failed` events of the pass go out before the reply.
+    /// `folders` names the package folders the caller wrote: the pass reads
+    /// only those when each is a watched one, else every folder.
     #[serde(rename = "apps-reload-local")]
-    ReloadLocal,
+    ReloadLocal {
+        #[serde(default)]
+        folders: Option<Vec<std::path::PathBuf>>,
+    },
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -174,6 +179,13 @@ enum Command {
     /// The verified app's provider of `family` says its data changed (`<family>.changed`).
     #[serde(rename = "apps-provider-changed")]
     ProviderChanged { family: String },
+    /// One bridge message of an app's web pane (`render: web`,
+    /// apps/page_calls.rs), from the Mac app that hosts the page: `page`
+    /// names the open page, `message` is the page's raw `{id, op, params}`
+    /// (the size limit applies before it is parsed). Verified app only. The
+    /// reply is the page's answer `{id, ok, value | error}`.
+    #[serde(rename = "apps-page-call")]
+    PageCall { app: String, page: String, message: String },
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -461,6 +473,20 @@ pub(super) fn try_handle(
             )),
         ));
     }
+    // A web pane's call runs with its app's grant: only the app that hosts
+    // the page may send it, so no other connection borrows that grant.
+    if matches!(request.command, Command::PageCall { .. })
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection hosts an extension's web pane",
+            )),
+        ));
+    }
     if crate::apps::advertised().is_none() {
         return Some(reply(
             writer,
@@ -495,7 +521,7 @@ pub(super) fn try_handle(
     };
     let result = match command {
         Command::List => Ok(supervisor.list()),
-        Command::ReloadLocal => Ok(supervisor.reload_local_apps_now()),
+        Command::ReloadLocal { folders } => Ok(supervisor.reload_local_apps_named(folders)),
         Command::Capabilities { op, brief } => capabilities(op.as_deref(), brief),
         Command::Place { contribution, region } => supervisor.place_sidebar(&contribution, region),
         // Answered on its own thread above.
@@ -527,6 +553,7 @@ pub(super) fn try_handle(
                 hidden_access,
                 sandboxed,
                 grant: grant.map(|g| (g.scope, g.granted)),
+                grant_optional: false,
             },
         ),
         Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
@@ -553,6 +580,19 @@ pub(super) fn try_handle(
                         request: id.clone().unwrap_or(Value::Null),
                     }),
                 },
+                Box::new(move |result| {
+                    reply(&writer, id, result);
+                }),
+            );
+            return Some(true);
+        }
+        Command::PageCall { app, page, message } => {
+            let writer = writer.clone();
+            supervisor.page_call(
+                client,
+                &app,
+                &page,
+                &message,
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),
@@ -707,6 +747,26 @@ mod tests {
             let code = error_code(&mux, app, &app_out, request);
             assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
         }
+    }
+
+    /// A web pane's call runs with its app's grant, so only the verified app
+    /// that hosts the page may send one: a CLI or agent connection cannot
+    /// borrow an extension's scopes through `apps-page-call`.
+    #[test]
+    fn page_calls_need_the_verified_app_connection() {
+        let mux = Mux::new_for_test("apps-page-call-gate", SurfaceOptions::default());
+        let call = || json!({"id": 1, "cmd": "apps-page-call", "app": "local/web", "page": "p1", "message": "{\"id\":\"1\",\"op\":\"workspace.list\"}"});
+        let (cli, cli_out) = connection(&mux, Some("cli"), false);
+        assert_eq!(error_code(&mux, cli, &cli_out, call()).as_deref(), FORBIDDEN);
+        let (declared, declared_out) = connection(&mux, Some("app"), false);
+        assert_eq!(error_code(&mux, declared, &declared_out, call()).as_deref(), FORBIDDEN);
+        let (agent_app, agent_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert_eq!(error_code(&mux, agent_app, &agent_out, call()).as_deref(), FORBIDDEN);
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        let code = error_code(&mux, app, &app_out, call());
+        assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
     }
 
     /// `apps-capabilities` answers the capability manifest on any local

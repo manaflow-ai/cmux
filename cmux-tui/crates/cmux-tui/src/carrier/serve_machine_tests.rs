@@ -226,7 +226,7 @@ fn refusal_before_ready_maps_start_errors() {
         (
             "handshake",
             None,
-            LinkError::Failed { code: "handshake".to_owned(), message: String::new() },
+            LinkError::HelperRefused { code: "handshake".to_owned(), message: String::new() },
         ),
     ];
     for (code, detail, error) in cases {

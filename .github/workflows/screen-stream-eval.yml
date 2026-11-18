@@ -5,7 +5,8 @@ name: screen stream eval
 # scrolling, 13 pt code OCR error, encode/network/decode split) on one console Mac, every day at the
 # feat-cmux-next tip. Report only, no gate: the run uploads results.json and a summary.md that
 # compares each number with the last successful daily run (artifacts keep 3 days, the repo's
-# limit, so a daily run always finds yesterday's). It goes through the build-fleet
+# limit, so a daily run always finds yesterday's). It also publishes probe.json
+# (schema cmux.screen-share-fast/1) for the screen-share-fast goal board. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
@@ -112,6 +113,7 @@ jobs:
             previous=()
             [[ -s "$RUNNER_TEMP/previous/results.json" ]] && previous=(--previous "$RUNNER_TEMP/previous/results.json")
             python3 scripts/measure/screen-stream-eval/eval.py summary "$out/results.json" "$out/summary.md" ${previous[@]+"${previous[@]}"}
+            python3 scripts/measure/screen-stream-eval/probe.py "$out/results.json" "$out/probe.json"
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::error title=screen stream eval::no results.json came back (step ${step:-none}, exit $status)"
@@ -124,5 +126,6 @@ jobs:
           path: |
             artifacts/screen-stream-eval/results.json
             artifacts/screen-stream-eval/summary.md
+            artifacts/screen-stream-eval/probe.json
           if-no-files-found: ignore
           retention-days: 3

@@ -25,7 +25,8 @@ cmux-app-ffi-<commit>). For a commit SHA this part:
   swap     quits the app keeping its sessions (`cmux app quit --keep-sessions` from the app's own bin), renames
            the library into place, opens the app again (through launchd's GUI domain where `open` fails: in a
            terminal of the app itself, or over ssh) and waits until its control socket answers from a new pid
-           that stays up STAY_SECONDS. The daemon and its terminals never stop.
+           that stays up STAY_SECONDS. The daemon and its terminals never stop. An app that is not running is
+           not opened: it loads the library at its next launch.
 
 This is a warm swap, not a live one: the C ABI holds state, so the new library loads with the app. A failed check
 after the swap puts the old library (and the old signature) back and opens the app again.
@@ -450,7 +451,7 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
         if not copy.is_file():
             copy.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest, copy)
-        undo = {"copy": str(copy), "sha256": prior, "how": how}
+        undo = {"copy": str(copy), "sha256": prior, "how": how, "was_running": app_pid(app) is not None}
         if how == "reseal":
             undo["signature"] = keep_signature(app, state)
     with tempfile.TemporaryDirectory(prefix="hot-apply-ffi.") as work:
@@ -472,8 +473,13 @@ def swap(app: Path, new: Path, state: Path, how: str, identity: str | None, phas
                     reseal(app, Path(work))
             if sha256_file(dest) != to:
                 raise RuntimeError(f"{DYLIB} does not hash to the library put in ({to})")
-            with phases("launch"):
-                step["launch"] = launch(app, step["quit_pid"])
+            if step["quit_pid"] is None:
+                # An app that was not running stays stopped and loads the library when it opens (hot-verify.py puts
+                # a lagging NIGHTLY's copy on its branch's pinned release before the copy's first launch).
+                step["launch"] = None
+            else:
+                with phases("launch"):
+                    step["launch"] = launch(app, step["quit_pid"])
         except Exception as error:
             error.undo = undo  # type: ignore[attr-defined]
             raise
@@ -493,4 +499,6 @@ def put_back(app: Path, undo: dict) -> dict:
         restore_signature(app, undo["signature"])
     if sha256_file(dest) != undo["sha256"]:
         raise RuntimeError(f"{DYLIB} does not hash to the library put back ({undo['sha256']})")
+    if old is None and not undo.get("was_running", True):
+        return {"ok": True, "running_sha256": undo["sha256"], "launch": None}  # it was not running: it stays stopped
     return {"ok": True, "running_sha256": undo["sha256"], "launch": launch(app, old)}

@@ -62,6 +62,18 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["inference gateway read", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`)],
   ["inference gateway set", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`, { method: "PUT", body: '{"mode":"gateway"}' })],
   ["inference gateway socket", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/connect`, { headers: { upgrade: "websocket" } })],
+  // A person's own gateway (cmux multiplayer: a shared chat spends its owner's login).
+  ["personal inference gateway read", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/personal`)],
+  ["personal inference gateway socket", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/personal/connect`, { headers: { upgrade: "websocket" } })],
+  // File push and SCP, client access, desktop, the state socket and shares: platform-only, and an empty 404 here before they were listed.
+  ["cloud ssh endpoint", () => post(`/v1/cloud/machines/${VM}/ssh-endpoint`, '{"publicKey":"ssh-ed25519 AAAA"}')],
+  ["cloud access", () => post(`/v1/cloud/machines/${VM}/access`, "{}")],
+  ["cloud desktop read", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/desktop`)],
+  ["cloud desktop start", () => post(`/v1/cloud/machines/${VM}/desktop`, "{}")],
+  ["cloud state socket", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/state`, { headers: { upgrade: "websocket" } })],
+  ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
+  ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
+  ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
@@ -71,6 +83,11 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["staying op", () => post("/v1/ops", op(stayingMutation))],
   ["health", () => new Request(`${ORIGIN}/v1/health`)]
 ]
+
+/** The rows the cloud surface sends to the platform: every row before the first that stays here. */
+const firstLocal = requests.findIndex(([name]) => name === "staying op")
+if (firstLocal < 1) throw new Error("platform-forward.test: the \"staying op\" row marks the end of the forwarded rows")
+const forwardedRequests = requests.slice(0, firstLocal)
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -100,7 +117,7 @@ describe("PLATFORM_SURFACES", () => {
 
 describe("cloud surface on", () => {
   it("forwards NEXT Cloud's machine routes and CloudDO ops with the body intact", async () => {
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of forwardedRequests) {
       const platform = fakePlatform()
       const original = make()
       const body = await original.clone().text()
@@ -141,7 +158,7 @@ describe("cloud surface on", () => {
 
   it("stays here and logs when the PLATFORM binding is absent", async () => {
     const log = vi.spyOn(console, "error")
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of forwardedRequests) {
       const off = await call(make(), {})
       const on = await call(make(), { PLATFORM_SURFACES: "cloud" })
       expect(on.status, name).toBe(off.status)

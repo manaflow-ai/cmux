@@ -79,14 +79,7 @@ export function MarkdownEmptyState({ client, strings, open, now }: MarkdownEmpty
 
   return (
     <div ref={mountRef} className="ve-root">
-      <EmptyState
-        kind="markdown"
-        title={t(E.markdownTitle)}
-        subtitle={t(E.markdownSubtitle)}
-        dropText={t(E.dropFile)}
-        onDrop={onDrop}
-        error={error}
-      >
+      <EmptyState kind="markdown" title={t(E.markdownTitle)} dropText={t(E.dropFile)} onDrop={onDrop} error={error}>
         <div className="ve-actions">
           <button
             type="button"

@@ -15,7 +15,9 @@ extension AppServices {
         var controller = fallback
         if let workspaceID {
             let value = windows.registry.value
-            let owner = value.owner(of: workspaceID).flatMap { value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
+            // `fallback` when it lists the workspace (a guest too: two windows on one space), else the owner window.
+            let shows = fallback.flatMap { value.lists(workspaceID, in: $0.state.id) ? $0.state.id : nil } ?? value.owner(of: workspaceID)
+            let owner = shows.flatMap { value.window($0)?.isOpen == true ? windows.controller(for: $0) : nil }
             if reveal.showsWorkspace {
                 if let owner {
                     windows.select(workspaceID, in: owner.state)
@@ -30,12 +32,15 @@ extension AppServices {
 
     /// The window that will show a tab after a move into `workspaceID` (its
     /// owner window when open), else the one showing `tabWorkspace` (the tab's now).
-    func landingWindow(tabWorkspace: String?, workspaceID: String?) -> WindowController? {
+    /// `preferring` (the window of a drop) wins when it lists `workspaceID`: two windows on one space both show it,
+    /// and the reveal and the focus of one drop must name the same one.
+    func landingWindow(tabWorkspace: String?, workspaceID: String?, preferring: WindowController? = nil) -> WindowController? {
         let value = windows.registry.value
-        if let workspaceID, let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true {
+        if let workspaceID, let preferring, value.lists(workspaceID, in: preferring.state.id) { return preferring }
+        if let workspaceID, let owner = windows.actingWindow(for: workspaceID), value.window(owner)?.isOpen == true {
             return windows.controller(for: owner)
         }
-        return tabWorkspace.flatMap { value.owner(of: $0) }.flatMap(windows.controller(for:))
+        return tabWorkspace.flatMap { windows.actingWindow(for: $0) }.flatMap(windows.controller(for:))
     }
 
     /// The reveal for a move an action started (palette, menu, key, CLI):
