@@ -1027,67 +1027,6 @@ class PortableGhLog(unittest.TestCase):
         self.assertTrue(text.endswith("tail\n"))
 
 
-class AgentApiUnavailable(unittest.TestCase):
-    """The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one
-    `agent.api-unavailable {json}` marker when the CLI's result showed the API never served it. That red is the shared
-    account's, not the PR's, but only for the marker with zero recorded API usage, on the agent pass step alone. Gate
-    run 43637095919 (job 132576237860): the weekly limit, duration_api_ms 0, no tokens, on every PR."""
-
-    NAME, STEP = "Reviewer path (appstore, ipad)", "Agent reviewer pass"
-    EVIDENCE = {"message": "agent pass: API unavailable (rate limited)", "duration_api_ms": 0, "input_tokens": 0,
-                "api_error_status": 429, "api_error_type": "rate_limit_error", "api_error": "usage_limit_reached",
-                "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1}
-
-    def setUp(self):
-        self.gh = FakeGitHub()
-        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
-        self.gh.logs[2] = log(self.NAME, self.STEP, "##[error]agent reviewer pass: the agent wrote a verdict without "
-                              "one screenshot of the app", "##[error]Process completed with exit code 1.")
-
-    def head(self, *errors):
-        self.gh.logs[1] = log(self.NAME, self.STEP, "agent pass: retrying", *errors,
-                              "##[error]Process completed with exit code 1.")
-
-    def marker(self, **changes):
-        return "##[error]agent.api-unavailable " + json.dumps(dict(self.EVIDENCE, **changes), separators=(",", ":"))
-
-    def judged(self) -> str:
-        try:
-            return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
-        except excuse.Refused as why:
-            return f"refused: {why}"
-
-    def test_a_zero_usage_marker_is_not_this_prs_red(self):
-        self.head(self.marker())
-        text = self.judged()
-        self.assertIn(f"excused '{self.NAME}': not this PR (agent API unavailable)", text)
-        self.assertIn("duration_api_ms=0", text)
-        self.assertIn("resets Nov 18 at 3am (UTC)", text)
-
-    def test_a_marker_with_api_usage_stays_the_prs(self):
-        for changes in ({"input_tokens": 5200}, {"duration_api_ms": 41000}, {"input_tokens": None},
-                        {"duration_api_ms": False}):
-            self.head(self.marker(**changes))
-            self.assertNotIn("agent API unavailable", self.judged(), changes)
-
-    def test_failure_text_without_the_marker_stays_the_prs(self):
-        for line in ("##[error]agent reviewer pass: You've hit your weekly limit · resets Nov 18 at 3am (UTC)",
-                     "##[error]agent reviewer pass: agent pass: API unavailable (rate limited): duration_api_ms=0",
-                     "##[error]rate limit: agent.api-unavailable " + json.dumps(self.EVIDENCE)):
-            self.head(line)
-            self.assertNotIn("agent API unavailable", self.judged(), line)
-
-    def test_the_marker_beside_another_red_stays_the_prs(self):
-        self.head(self.marker(), "##[error]agent reviewer pass: the agent wrote a verdict without one screenshot")
-        self.assertNotIn("agent API unavailable", self.judged())
-        # Or another step of the job failed too: the walk itself is judged, not set aside.
-        self.gh.jobs[1]["steps"].insert(2, {"name": "Walk the reviewer path on ipad", "status": "completed",
-                                            "conclusion": "failure"})
-        self.head(self.marker())
-        self.assertNotIn("agent API unavailable", self.judged())
-
-
 class Excusing(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
@@ -6539,6 +6478,163 @@ class GuardGroupPerStep(unittest.TestCase):
             self.judge(github)
 
 
+# cloud-journey-pr.yml's "journey" job (scripts/cmux-next/cloud-journey.ts through cloud-journey-ci.sh): one
+# `PASS|FAIL|SKIP <step> <ms> ms :: <detail>` line per journey step and a closing `FAIL staging: N passed, M failed, ...`
+# per run; a failed run is run once more, after a `failed once; running it again` warning, and that second run is the
+# one judged. Lines below are the real ones: cmux#44814's job 133995408217 at ed4e2af2 and feat-cmux-next's job
+# 134037946137 (run 44082948116 at de3b0eab), both failing the stub's forwarded-login step.
+JOURNEY = "journey"
+JOURNEY_STEP = "Cloud journey (staging, this pull request's CLI)"
+JOURNEY_WORKFLOW = ".github/workflows/cloud-journey-pr.yml"
+JOURNEY_STUB = ("stub: forwarded login and a tool round trip {ms} ms :: a model request did not carry the login the "
+                "journey passed (the forwarded credential did not reach claude)")
+
+
+def journey_run(stub_ms, vm, nonce, *, fail=(), summary=True):
+    """One cloud-journey.ts run's lines: the real step lines, the stub step red, FAIL lines for FAIL's (step, detail)
+    pairs besides, and the closing summary unless SUMMARY is false (a run cut short)."""
+    lines = [
+        "PASS health 135 ms :: commit 0.1.0",
+        "PASS sign in (agent test account) 383 ms :: Stack project 454ecd03",
+        f"PASS create machine 2193 ms :: {vm} status running",
+        "PASS running (status) 37 ms :: host host_d0b8ec710edc69aa6859, daemon 1.0.0+52c3806ac662",
+        f"PASS model stub on the machine 3687 ms :: the shared model stub at 127.0.0.1:39337, nonce {nonce}, one "
+        "shell tool round trip (claude)",
+        f"PASS reply 1366 ms :: Stub reply {nonce}. The tool printed {nonce}-tool.",
+        "SKIP GitHub on the machine (live) 0 ms :: CMUX_JOURNEY_GITHUB_REPO is not set",
+        "FAIL " + JOURNEY_STUB.format(ms=stub_ms),
+        *(f"FAIL {step} 812 ms :: {detail}" for step, detail in fail),
+        "SKIP failure facts 1309 ms :: read before any delete: {\"machine\":{\"status\":\"running\"}}",
+        f"PASS delete (cleanup) 2284 ms :: {vm}",
+        "",
+    ]
+    if summary:
+        lines.append(f"FAIL staging: 6 passed, {1 + len(fail)} failed, 2 skipped, 32.5 s")
+    return lines
+
+
+RETRIED = "##[warning]staging test-team failed once; running it again (first run's steps in the job summary)"
+JOURNEY_HEAD = [*journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc"), RETRIED,
+                *journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32"),
+                "##[notice]target=staging result=red"]
+JOURNEY_BASE = [*journey_run(1327, "vm_c6537f75e4c600364ef7", "6e7bedbd4444"), RETRIED,
+                *journey_run(2596, "vm_5bbf16fdc988904ba609", "8dfc00220e55"),
+                "##[notice]target=staging result=red"]
+
+
+class JourneyGitHub(FakeGitHub):
+    """A pull request's red cloud-journey-pr.yml journey job (run 10) and the newest feat-cmux-next run of it (run
+    20, a workflow_dispatch at the branch tip)."""
+
+    def __init__(self, head_lines, base_lines, *, paths=("cmux-tui/crates/cmux-cloud-client/src/lib.rs",),
+                 base_conclusion="failure"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=JOURNEY, step=JOURNEY_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=JOURNEY, step=JOURNEY_STEP),
+                             conclusion=base_conclusion)}
+        if base_conclusion == "success":
+            self.jobs[2]["steps"][-1]["conclusion"] = "success"
+        self.logs = {1: log(JOURNEY, JOURNEY_STEP, *head_lines), 2: log(JOURNEY, JOURNEY_STEP, *base_lines)}
+        self.base_runs[1]["conclusion"] = base_conclusion
+        self.base_runs[1]["event"] = "workflow_dispatch"
+        self.paths = list(paths)
+
+    def json(self, route, *, paginate=False):
+        found = super().json(route, paginate=paginate)
+        if "/actions/runs/" in route and route.rsplit("/", 1)[1].isdigit() and isinstance(found, dict):
+            found = dict(found, path=JOURNEY_WORKFLOW, name="Cloud journey (PR CLI on staging)")
+        return found
+
+
+class JourneyPerStep(unittest.TestCase):
+    """2026-11-17: every PR whose Cloud journey ran was refused while feat-cmux-next's own journey was red on the same
+    step ("'journey': its failed steps' own lines name no failing test or error line ... nothing to compare with the
+    base", cmux#44814 at ed4e2af2): the journey's `FAIL <step>` lines were no failing test to any parser. A journey red
+    is excused only when every failed journey step of the judged run fails on the newest base verdict with the same
+    name and the same detail (ids, nonces and times masked), the run finished, and the PR changes none of the
+    journey's own files (cloud-journey.ts and its wrapper, tests and workflow decide the steps and their checks)."""
+
+    def judge(self, github):
+        github.run = pr_graphql(self, [], github.paths, number=44814)
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_bases_own_journey_step_red_is_excused(self):
+        text = self.judge(JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE))
+        self.assertIn(f"excused '{JOURNEY}'", text)
+        self.assertIn("stub: forwarded login and a tool round trip", text)
+        self.assertIn("run 20", text)
+
+    def test_a_pr_that_changes_the_journey_itself_is_not_excused(self):
+        # cmux#44814 changes cloud-journey.ts: its steps and checks are the PR's, so the base's line proves nothing.
+        github = JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE,
+                               paths=("cmux-tui/crates/cmux-tui/src/spare_warm.rs", "scripts/cmux-next/cloud-journey.ts"))
+        with self.assertRaisesRegex(excuse.Refused, r"#44814 changes scripts/cmux-next/cloud-journey\.ts"):
+            self.judge(github)
+
+    def test_a_pr_that_changes_the_journey_workflow_is_not_excused(self):
+        github = JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE, paths=(JOURNEY_WORKFLOW,))
+        with self.assertRaisesRegex(excuse.Refused, r"#44814 changes \.github/workflows/cloud-journey-pr\.yml"):
+            self.judge(github)
+
+    def test_a_step_red_only_on_this_head_is_not_excused(self):
+        head = journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32",
+                           fail=[("connect (carrier dial)", "carrier dial refused: 403 ticket expired")])
+        with self.assertRaisesRegex(excuse.Refused, r"connect \(carrier dial\)"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_the_same_step_failing_another_way_is_not_excused(self):
+        head = [line.replace("did not carry the login", "carried another login") for line in JOURNEY_HEAD]
+        with self.assertRaisesRegex(excuse.Refused, "carried another login"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_first_run_red_that_the_retry_passed_is_not_judged(self):
+        first = journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc",
+                            fail=[("create machine", "502 vm_unavailable")])
+        head = [*first, RETRIED, *journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32")]
+        self.assertIn(f"excused '{JOURNEY}'", self.judge(JourneyGitHub(head, JOURNEY_BASE)))
+
+    def test_a_run_cut_short_before_its_summary_is_refused(self):
+        head = [*journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc"), RETRIED,
+                *journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32", summary=False)]
+        with self.assertRaisesRegex(excuse.Refused, "cut short|no closing summary"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_retry_after_a_run_cut_short_hides_no_judged_run(self):
+        # The first run dies before its summary; the retry line must not mark an earlier judged run as retried.
+        head = [*journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32"),
+                *journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc", summary=False)[:3], RETRIED,
+                *journey_run(1327, "vm_c6537f75e4c600364ef7", "6e7bedbd4444")]
+        with self.assertRaisesRegex(excuse.Refused, "retry line that follows no closed failed run"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_summary_that_counts_more_failures_than_its_lines_is_refused(self):
+        head = [line.replace("1 failed", "2 failed") for line in JOURNEY_HEAD]
+        with self.assertRaisesRegex(excuse.Refused, "2 failed"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_journey_that_never_ran_is_refused(self):
+        head = ["##[error]this job's environment holds no agent test account",
+                "##[notice]target=staging result=not-run"]
+        with self.assertRaises(excuse.Refused):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_base_run_cut_short_is_no_evidence(self):
+        base = journey_run(2596, "vm_5bbf16fdc988904ba609", "8dfc00220e55", summary=False)
+        with self.assertRaisesRegex(excuse.Refused, "run 20"):
+            self.judge(JourneyGitHub(JOURNEY_HEAD, base))
+
+    def test_a_red_build_step_is_refused(self):
+        github = JourneyGitHub(JOURNEY_HEAD, JOURNEY_BASE)
+        github.jobs[1]["steps"][1]["conclusion"] = "failure"
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_a_green_base_is_no_excuse(self):
+        with self.assertRaises(excuse.Refused):
+            self.judge(JourneyGitHub(JOURNEY_HEAD, ["PASS staging: 24 passed, 0 failed, 2 skipped, 30.1 s"],
+                                     base_conclusion="success"))
+
+
 class Script(unittest.TestCase):
     def test_a_rate_limited_read_exits_3(self):
         # gh-merge-green reports exit 3 as a rate limit, not a red (main's main_fix_evidence.RateLimited).
@@ -10818,6 +10914,7 @@ VIEW_COMPARATORS = frozenset({
     "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
+    "journey",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
     "owned_unnamed", "cited_red", "compile_errors_verdict", "setup_errors"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
@@ -10841,8 +10938,6 @@ RAW_LOG_READERS = {
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
-    "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
-                             "nothing",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14451,7 +14546,6 @@ SCANNERS = {
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
     "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
-    "base_red_excuse.agent_api_unavailable": lambda f: excuse.agent_api_unavailable(f.job, f.log),
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
@@ -14462,6 +14556,7 @@ SCANNERS = {
     "base_red_excuse.step_evidence": lambda f: excuse.step_evidence(f.view, "Tests"),
     "base_red_excuse.rollup_log_reds": lambda f: excuse.rollup_log_reds(f.log),
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
+    "base_red_excuse.journey_reds": lambda f: excuse.journey_reds(f.log),
     "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
     "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
     "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
@@ -15095,12 +15190,15 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
     NOT_GUARD_WORKFLOWS = {
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
+            "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
-            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
+            "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",

@@ -23,6 +23,8 @@ fn fake() -> String {
 struct Rig {
     _tmp: tempfile::TempDir,
     root: PathBuf,
+    /// The machine's shared store (`~/.cmux/mcp` outside tests).
+    shared: PathBuf,
     skills: PathBuf,
     notes: Arc<Mutex<Vec<String>>>,
     hub: McpHub,
@@ -31,22 +33,25 @@ struct Rig {
 fn rig() -> Rig {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("optchat/mcp");
+    let shared = tmp.path().join("cmux/mcp");
     let skills = tmp.path().join("skills");
     let notes: Arc<Mutex<Vec<String>>> = Arc::default();
-    let hub = hub_at(&root, &skills, &notes);
+    let hub = hub_at(&root, &shared, &skills, &notes);
     Rig {
         _tmp: tmp,
         root,
+        shared,
         skills,
         notes,
         hub,
     }
 }
 
-fn hub_at(root: &Path, skills: &Path, notes: &Arc<Mutex<Vec<String>>>) -> McpHub {
+fn hub_at(root: &Path, shared: &Path, skills: &Path, notes: &Arc<Mutex<Vec<String>>>) -> McpHub {
     let n = notes.clone();
     let hub = McpHub::new(
         root.to_path_buf(),
+        shared.to_path_buf(),
         Some(skills.to_path_buf()),
         Arc::new(move |t: String| n.lock().unwrap().push(t)),
     );
@@ -108,7 +113,7 @@ fn chief_adds_a_stdio_server_and_calls_a_tool_in_the_same_turn() {
     );
     assert_eq!(text, "hello hub");
     // Kept on disk with no secret in it, and declared for code mode.
-    let saved = std::fs::read_to_string(r.root.join("servers.json")).unwrap();
+    let saved = std::fs::read_to_string(r.shared.join("servers/fake.json")).unwrap();
     assert!(saved.contains("\"name\": \"fake\""));
     let api = std::fs::read_to_string(r.root.join("api/fake.d.ts")).unwrap();
     assert!(api.contains("function echo(args: {"), "{api}");
@@ -138,7 +143,7 @@ fn servers_outlive_the_hub_and_reconnect_lazily() {
     add_stdio(&r, "session");
     r.hub.stop();
     let notes: Arc<Mutex<Vec<String>>> = Arc::default();
-    let again = hub_at(&r.root, &r.skills, &notes);
+    let again = hub_at(&r.root, &r.shared, &r.skills, &notes);
     let list = call(&again, json!({"action": "list"}));
     assert!(list.contains("fake") && !list.contains("[live]"), "{list}");
     let text = call(
@@ -312,11 +317,20 @@ fn a_subagent_uses_servers_but_cannot_add_or_remove_them() {
     let e = r
         .hub
         .handle(
-            &json!({"action": "add", "target": "https://mcp.deepwiki.com/mcp"}),
+            &json!({"action": "add", "target": "https://mcp.example.com/mcp"}),
             &sub,
         )
         .unwrap_err();
-    assert!(e.contains("only the Chief"), "{e}");
+    assert!(e.contains("known services"), "{e}");
+    // A known service with a key, or a local command, stays the Chief's too.
+    for args in [
+        json!({"action": "add", "target": "linear", "headers": {"Authorization": "Bearer x"}}),
+        json!({"action": "add", "target": format!("python3 {}", fake())}),
+        json!({"action": "add", "target": "linear", "replace": true}),
+    ] {
+        let e = r.hub.handle(&args, &sub).unwrap_err();
+        assert!(e.contains("known services"), "{args}: {e}");
+    }
     assert!(
         r.hub
             .handle(&json!({"action": "remove", "server": "fake"}), &sub)
@@ -347,9 +361,12 @@ fn unsafe_targets_are_refused_before_anything_runs() {
             .unwrap_err();
         assert!(e.starts_with("mcp add:"), "{target}: {e}");
     }
+    assert!(!call(&r.hub, json!({"action": "list"})).contains("evil"));
     assert!(
-        !r.root.join("servers.json").exists()
-            || !call(&r.hub, json!({"action": "list"})).contains("evil")
+        std::fs::read_dir(r.shared.join("servers"))
+            .map(|d| d.count())
+            .unwrap_or(0)
+            == 0
     );
 }
 
@@ -459,10 +476,10 @@ fn oauth_sign_in_then_the_server_connects_and_wakes_the_chief() {
         "authed"
     );
     // The token is in the 0600 secrets file only.
-    let saved = std::fs::read_to_string(r.root.join("servers.json")).unwrap();
+    let saved = std::fs::read_to_string(r.shared.join("servers/locked.json")).unwrap();
     assert!(!saved.contains("tok-123"));
     use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(r.root.join("secrets/locked.json"))
+    let mode = std::fs::metadata(r.shared.join("secrets/locked.json"))
         .unwrap()
         .permissions()
         .mode();
@@ -529,4 +546,101 @@ impl optchat_chief::tools::Memory for NoMemory {
     fn date(&self, _: u64) -> String {
         String::new()
     }
+}
+
+// ---- one store of connections for the machine (Chief integrations) ----
+
+#[test]
+fn a_server_one_chief_connects_is_there_for_every_chief_and_removal_goes_everywhere() {
+    let r = rig();
+    add_stdio(&r, "session");
+    // A second Chief home on this machine: its own folder, the same store.
+    let other_root = r.root.parent().unwrap().join("other-chief/mcp");
+    let notes: Arc<Mutex<Vec<String>>> = Arc::default();
+    let other = hub_at(&other_root, &r.shared, &r.skills, &notes);
+    let list = call(&other, json!({"action": "list"}));
+    assert!(list.contains("fake ("), "{list}");
+    assert_eq!(
+        call(
+            &other,
+            json!({"action": "call", "server": "fake", "tool": "echo", "args": {"text": "from the other Chief"}})
+        ),
+        "from the other Chief"
+    );
+    // A server added while both run reaches the first one without a restart.
+    call(
+        &other,
+        json!({"action": "add", "name": "fake2", "target": format!("python3 {} --era stateless", fake())}),
+    );
+    let list = call(&r.hub, json!({"action": "list"}));
+    assert!(list.contains("fake2 ("), "{list}");
+    // Removed in one Chief: gone in the other, secrets and record too.
+    call(&other, json!({"action": "remove", "server": "fake"}));
+    let list = call(&r.hub, json!({"action": "list"}));
+    assert!(!list.contains("fake ("), "{list}");
+    assert!(!r.shared.join("servers/fake.json").exists());
+    // And a save in the first Chief does not bring it back.
+    call(
+        &r.hub,
+        json!({"action": "call", "server": "fake2", "tool": "echo", "args": {"text": "x"}}),
+    );
+    assert!(!r.shared.join("servers/fake.json").exists());
+}
+
+#[test]
+fn servers_an_older_chief_kept_move_to_the_shared_store() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("optchat/mcp");
+    let shared = tmp.path().join("cmux/mcp");
+    std::fs::create_dir_all(root.join("secrets")).unwrap();
+    std::fs::write(
+        root.join("servers.json"),
+        json!({"servers": [{"name": "fake", "transport": {"type": "stdio", "command": "python3", "args": [fake()]}, "publisher": "local", "state": "connected"}], "tasks": [], "subscriptions": []}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("secrets/fake.json"),
+        json!({"env": {"K": "v"}}).to_string(),
+    )
+    .unwrap();
+    let notes: Arc<Mutex<Vec<String>>> = Arc::default();
+    let hub = hub_at(&root, &shared, &tmp.path().join("skills"), &notes);
+    assert!(call(&hub, json!({"action": "list"})).contains("fake ("));
+    assert!(shared.join("servers/fake.json").exists());
+    assert!(
+        std::fs::read_to_string(shared.join("secrets/fake.json"))
+            .unwrap()
+            .contains("\"K\"")
+    );
+    assert!(!root.join("secrets/fake.json").exists());
+    let own = std::fs::read_to_string(root.join("servers.json")).unwrap();
+    assert!(!own.contains("\"fake\""), "{own}");
+}
+
+#[test]
+fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
+    let (child, port) = http_server(&["--token", "tok-123"]);
+    let _k = Kill(child);
+    let r = rig();
+    let base = format!("http://127.0.0.1:{port}");
+    // Tokens another Chief left: the access token is dead, the refresh token is not.
+    std::fs::create_dir_all(r.shared.join("secrets")).unwrap();
+    std::fs::write(
+        r.shared.join("secrets/locked.json"),
+        json!({"oauth": {"access_token": "dead", "refresh_token": "ref-1", "expires_ms": 0,
+            "client_id": "fake-client", "token_endpoint": format!("{base}/token"),
+            "issuer": base, "resource": format!("{base}/mcp")}})
+        .to_string(),
+    )
+    .unwrap();
+    let out = call(
+        &r.hub,
+        json!({"action": "add", "name": "locked", "target": format!("{base}/mcp")}),
+    );
+    assert!(out.contains("outcome: done"), "{out}");
+    let secrets = std::fs::read_to_string(r.shared.join("secrets/locked.json")).unwrap();
+    assert!(
+        secrets.contains("tok-123") && secrets.contains("ref-2"),
+        "{secrets}"
+    );
 }
