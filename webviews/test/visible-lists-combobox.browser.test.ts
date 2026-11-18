@@ -55,15 +55,20 @@ await requireBrowserLane("visible-lists-combobox.browser.test.ts", async () => {
           const hover = await open.measure("hover");
           expect(hover.rowRendersMax).toBeLessThanOrEqual(2);
           report.push(`hover ${hover.rowRendersMax} rows ${hover.taskMsP95} ms`);
-          if (has.changeOne) {
-            const change = await open.measure("changeOne");
-            expect(change.rowRendersMax).toBeLessThanOrEqual(changeOneBound);
-            report.push(`change ${change.rowRendersMax} rows ${change.taskMsP95} ms`);
-          }
           const resize = await open.measure("resize");
           expect(resize.rowRendersMax).toBeLessThanOrEqual(rows);
           report.push(`resize ${resize.rowRendersMax} rows ${resize.taskMsP95} ms`);
           await open.close();
+          if (has.changeOne) {
+            // A fresh page, so the changed item (the third) is mounted: its row re-renders on every
+            // step, and nothing past the bound does.
+            const changing = await server.open(name, n);
+            const change = await changing.measure("changeOne");
+            expect(change.rowRendersMean).toBeGreaterThanOrEqual(1);
+            expect(change.rowRendersMax).toBeLessThanOrEqual(changeOneBound);
+            report.push(`change ${change.rowRendersMax} rows ${change.taskMsP95} ms`);
+            await changing.close();
+          }
           if (has.filter) {
             // A fresh page: the steps above moved its scroll and pointer.
             const typing = await server.open(name, n);
