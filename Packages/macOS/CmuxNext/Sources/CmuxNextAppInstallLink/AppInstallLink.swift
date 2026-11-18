@@ -1,7 +1,7 @@
-import AppKit
-import CmuxNextDaemon
+public import AppKit
+public import CmuxNextDaemon
 import CmuxNextDesign
-import Foundation
+public import Foundation
 import os
 
 /// cmux.com's Open in cmux button: `cmux://apps/install?repo=github.com%2FOWNER%2FREPO&commit=SHA`.
