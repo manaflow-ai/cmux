@@ -19,7 +19,8 @@ fn state() -> tempfile::TempDir {
 }
 
 fn paths(answer: &[u8]) -> (String, Vec<String>) {
-    let mut parts = answer.split(|byte| *byte == 0).map(|part| String::from_utf8_lossy(part).into_owned());
+    let mut parts =
+        answer.split(|byte| *byte == 0).map(|part| String::from_utf8_lossy(part).into_owned());
     let token = parts.next().unwrap();
     let mut paths: Vec<String> = parts.filter(|part| !part.is_empty()).collect();
     paths.sort();
@@ -74,5 +75,8 @@ fn the_hook_finds_its_projection_by_mount_point_and_answers_everything_elsewhere
     let (_, found) = paths(&hook(projections.path(), &mount.join("cmux"), "cmux-projection:00ab"));
     assert!(found.contains(&"src/main.rs".to_owned()), "{found:?}");
     let elsewhere = tempfile::tempdir().unwrap();
-    assert_eq!(paths(&hook(projections.path(), elsewhere.path(), "x")), (String::new(), vec!["/".to_owned()]));
+    assert_eq!(
+        paths(&hook(projections.path(), elsewhere.path(), "x")),
+        (String::new(), vec!["/".to_owned()])
+    );
 }

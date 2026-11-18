@@ -74,11 +74,13 @@ fn the_mac_away_keeps_faulted_files_fails_unfetched_ones_after_the_wait_and_a_re
         ("c/w.rs", b"fn w() {}".to_vec()),
         ("big.bin", big.clone()),
     ];
-    let manifest =
-        Arc::new(Manifest::build(1, files.iter().map(|(path, b)| file(path, b.len())).collect()).unwrap());
-    let mac: Arc<dyn Source + Send + Sync> = Arc::new(Mac(
-        files.iter().map(|(path, bytes)| (manifest.resolve(path).unwrap(), bytes.clone())).collect(),
-    ));
+    let manifest = Arc::new(
+        Manifest::build(1, files.iter().map(|(path, b)| file(path, b.len())).collect()).unwrap(),
+    );
+    let mac: Arc<dyn Source + Send + Sync> = Arc::new(Mac(files
+        .iter()
+        .map(|(path, bytes)| (manifest.resolve(path).unwrap(), bytes.clone()))
+        .collect()));
     let link = Arc::new(Link::default());
     assert_eq!(link.away_wait(), AWAY_WAIT);
     assert_eq!(AWAY_WAIT, Duration::from_secs(5), "RFD 0007: a read waits 5 s for the Mac");
@@ -115,7 +117,8 @@ fn the_mac_away_keeps_faulted_files_fails_unfetched_ones_after_the_wait_and_a_re
         let overlay = Arc::new(overlay);
         let reading = overlay.clone();
         let started = Instant::now();
-        let thread = std::thread::spawn(move || (reading.read(overlay_ino, 0, 64), started.elapsed()));
+        let thread =
+            std::thread::spawn(move || (reading.read(overlay_ino, 0, 64), started.elapsed()));
         std::thread::sleep(Duration::from_millis(500));
         let _back = attach(&link, &mac);
         let (read, took) = thread.join().unwrap();

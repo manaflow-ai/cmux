@@ -91,7 +91,10 @@ fn serve(connection: UnixStream, service: &FsService, fault: Fault, dials: &Atom
                 // The dial ends inside setup: no answer at all.
                 Fault::DropsDial | Fault::NoCapability => return,
             };
-            let _ = send(&mut writer, &json!({"id": id, "ok": false, "error": error, "error_code": code}));
+            let _ = send(
+                &mut writer,
+                &json!({"id": id, "ok": false, "error": error, "error_code": code}),
+            );
             return;
         }
         let reply = if cmd == "identify" {
@@ -167,13 +170,9 @@ fn start_chat(w: &World, socket: &Path, switch: Option<&str>) -> Value {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
-        .lines()
-        .rev()
-        .find_map(|line| serde_json::from_str::<Value>(line).ok())
-        .unwrap_or_else(|| {
-            panic!("start-chat copy: {stdout}{}", String::from_utf8_lossy(&output.stderr))
-        })
+    stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line).ok()).unwrap_or_else(
+        || panic!("start-chat copy: {stdout}{}", String::from_utf8_lossy(&output.stderr)),
+    )
 }
 
 fn project(w: &World, action: &str) -> Value {

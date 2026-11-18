@@ -68,8 +68,14 @@ fn measure(files: usize) -> Numbers {
     let overlay =
         Overlay::open(Arc::new(decoded), state.path(), Arc::new(Never), (1000, 1000)).unwrap();
     let open = started.elapsed();
-    let last = format!("pkg{:03}/module_{:04}/src_{:02}", (files - 1) / 40_000, (files - 1) / 400, ((files - 1) / 40) % 10);
-    let folder = last.split('/').fold(overlay.root(), |at, name| overlay.lookup(at, name).unwrap().ino);
+    let last = format!(
+        "pkg{:03}/module_{:04}/src_{:02}",
+        (files - 1) / 40_000,
+        (files - 1) / 400,
+        ((files - 1) / 40) % 10
+    );
+    let folder =
+        last.split('/').fold(overlay.root(), |at, name| overlay.lookup(at, name).unwrap().ino);
     assert_eq!(overlay.readdir(folder).unwrap().len(), 40.min(files));
     Numbers { build, encode, encoded: encoded.len(), decode, open }
 }

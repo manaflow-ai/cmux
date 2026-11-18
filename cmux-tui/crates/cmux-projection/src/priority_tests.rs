@@ -122,7 +122,8 @@ fn run(reads: usize, bulk_files: usize, prioritized: bool) -> Run {
     std::thread::sleep(Duration::from_millis(100));
     let mut took = Vec::with_capacity(reads);
     for path in &demand {
-        let ino = path.split('/').fold(overlay.root(), |at, name| overlay.lookup(at, name).unwrap().ino);
+        let ino =
+            path.split('/').fold(overlay.root(), |at, name| overlay.lookup(at, name).unwrap().ino);
         let start = Instant::now();
         assert_eq!(overlay.read(ino, 0, 4096).unwrap().len(), 4096);
         took.push(start.elapsed());
@@ -132,18 +133,30 @@ fn run(reads: usize, bulk_files: usize, prioritized: bool) -> Run {
     done.store(true, Ordering::Relaxed);
     let prefetched = prefetch.join().unwrap();
     took.sort();
-    let at = |q: f64| took[((took.len() as f64 * q).ceil() as usize).saturating_sub(1).min(took.len() - 1)];
+    let at = |q: f64| {
+        took[((took.len() as f64 * q).ceil() as usize).saturating_sub(1).min(took.len() - 1)]
+    };
     Run { p50: at(0.50), p95: at(0.95), prefetched }
 }
 
 fn item(path: &str, size: usize) -> Item {
-    Item { path: path.into(), kind: Kind::File, mode: 0o644, size: size as u64, mtime_ns: 1, link: None }
+    Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: size as u64,
+        mtime_ns: 1,
+        link: None,
+    }
 }
 
 #[test]
 fn demand_reads_go_before_a_prefetch_that_shares_the_link() {
     let after = run(40, 2000, true);
-    eprintln!("prioritized: demand p50 {:?} p95 {:?}, prefetched {} bytes", after.p50, after.p95, after.prefetched);
+    eprintln!(
+        "prioritized: demand p50 {:?} p95 {:?}, prefetched {} bytes",
+        after.p50, after.p95, after.prefetched
+    );
     assert!(after.prefetched > 0, "the prefetch ran beside the reads");
     // RFD 0007's P1 gate is a demand-fault p95 of at most 150 ms.
     assert!(after.p95 < Duration::from_millis(150), "p95 {:?}", after.p95);

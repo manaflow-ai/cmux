@@ -41,7 +41,8 @@ fn repo(files: usize) -> Repo {
     let folder = base.join("folder");
     let work = folder.join("cmux");
     for index in 0..files {
-        let path = work.join(format!("d{:03}/e{:02}/f{index:07}.rs", index / 2000, (index / 50) % 40));
+        let path =
+            work.join(format!("d{:03}/e{:02}/f{index:07}.rs", index / 2000, (index / 50) % 40));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, format!("// {index}\n")).unwrap();
     }
@@ -104,7 +105,10 @@ impl Repo {
     fn lstat_count(&self, hooked: bool) -> usize {
         let trace = self.state_dir.join(format!("trace-{hooked}.txt"));
         let _ = std::fs::remove_file(&trace);
-        let hook = format!("core.fsmonitor={}", if hooked { self.hook.display().to_string() } else { "false".into() });
+        let hook = format!(
+            "core.fsmonitor={}",
+            if hooked { self.hook.display().to_string() } else { "false".into() }
+        );
         let output = Command::new("strace")
             .args(["-f", "-c", "-e", "trace=lstat,newfstatat,statx", "-o"])
             .arg(&trace)
@@ -178,6 +182,12 @@ fn a_bench_of_git_status_with_the_hook() {
     let (without, with) = (best(false), best(true));
     println!("| git status, {files} files, 4 edits | best of 5 | stat calls |\n|---|---|---|");
     println!("| git's own scan (before) | {} ms | {} |", without.as_millis(), r.lstat_count(false));
-    println!("| fsmonitor from the change set (after) | {} ms | {} |", with.as_millis(), r.lstat_count(true));
-    println!("plain disk; over the projection's FUSE mount each stat git skips is a round trip to the daemon");
+    println!(
+        "| fsmonitor from the change set (after) | {} ms | {} |",
+        with.as_millis(),
+        r.lstat_count(true)
+    );
+    println!(
+        "plain disk; over the projection's FUSE mount each stat git skips is a round trip to the daemon"
+    );
 }

@@ -85,9 +85,7 @@ impl Version {
     fn side(&self) -> Side {
         match self {
             Self::Missing => Side::Missing,
-            Self::File { text, mode } => {
-                Side::File { sha256: text.0.concat(), permissions: *mode }
-            }
+            Self::File { text, mode } => Side::File { sha256: text.0.concat(), permissions: *mode },
             Self::Link(target) => Side::Link(target.clone()),
         }
     }
@@ -327,7 +325,12 @@ fn ten_thousand_seeded_trials_lose_no_edit() {
     let started = std::time::Instant::now();
     let failures: Vec<String> = (0..trials).filter_map(|seed| trial(seed).err()).take(5).collect();
     eprintln!("{trials} trials in {:?}", started.elapsed());
-    assert!(failures.is_empty(), "{} failing trials, first:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failing trials, first:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 #[test]

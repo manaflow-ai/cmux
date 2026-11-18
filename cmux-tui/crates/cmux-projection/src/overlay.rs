@@ -650,7 +650,9 @@ impl Overlay {
             }
             for (index, answer) in batch.iter().zip(self.fetch.prefetch(&batch)) {
                 let expected = self.manifest.entry(*index).map_or(0, |entry| entry.size);
-                if let Ok(bytes) = answer && bytes.len() as u64 == expected {
+                if let Ok(bytes) = answer
+                    && bytes.len() as u64 == expected
+                {
                     self.store((*index, WHOLE), &bytes);
                     brought += expected;
                 }

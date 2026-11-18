@@ -59,8 +59,10 @@ fn links_inside_the_folder_are_in_the_manifest_and_ones_that_leave_it_or_dangle_
     std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
     std::os::unix::fs::symlink("src/main.rs", root.join("main-link.rs")).unwrap();
     std::os::unix::fs::symlink("src", root.join("current")).unwrap();
-    std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("absolute-out")).unwrap();
-    std::os::unix::fs::symlink("../../../../../../etc/passwd", root.join("src/climbs-out")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("absolute-out"))
+        .unwrap();
+    std::os::unix::fs::symlink("../../../../../../etc/passwd", root.join("src/climbs-out"))
+        .unwrap();
     std::os::unix::fs::symlink("not-there.txt", root.join("dangling")).unwrap();
 
     let listed = list(&root).unwrap();
