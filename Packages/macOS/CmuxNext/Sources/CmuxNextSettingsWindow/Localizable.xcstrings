@@ -74268,10 +74268,10 @@
         "nb": {"stringUnit": {"state": "translated", "value": "Spør første gang hver app brukes, og husker det."}},
         "pl": {"stringUnit": {"state": "translated", "value": "Pyta przy pierwszym użyciu każdej aplikacji i zapamiętuje."}},
         "pt-BR": {"stringUnit": {"state": "translated", "value": "Pergunta na primeira vez que cada app é usado e lembra."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Спрашивает при первом запуске приложения и запоминает."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Спрашивает при первом использовании приложения и запоминает."}},
         "th": {"stringUnit": {"state": "translated", "value": "ถามครั้งแรกที่ใช้แต่ละแอป แล้วจำไว้"}},
         "tr": {"stringUnit": {"state": "translated", "value": "Her uygulama ilk kullanıldığında sorar ve hatırlar."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Питає при першому запуску кожної програми й запам’ятовує."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Питає при першому використанні програми й запам’ятовує."}},
         "vi": {"stringUnit": {"state": "translated", "value": "Hỏi lần đầu mỗi ứng dụng được dùng, rồi ghi nhớ."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "每个应用首次使用时询问，并记住答案。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "每個 App 首次使用時詢問，並記住答案。"}}
