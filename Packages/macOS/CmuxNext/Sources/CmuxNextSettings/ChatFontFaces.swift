@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 import CmuxNextCompat
 
 /// The font files the agent chat declares (`agentPane.display.font.faces`), so a theme's font pack
