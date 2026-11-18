@@ -11,7 +11,9 @@ import {
   type SnapshotLive,
 } from "./shared";
 
-type Shown = { at: number; swappedAt?: number };
+/// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
+/// what still differed between the copy's composer and the live one (`composerDifference`).
+type Shown = { at: number; swappedAt?: number; hold?: { by: string; at: number; differs?: string } };
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -41,13 +43,33 @@ export function showsChatSnapshot(): boolean {
 ///   labels, all of which the live page restores after the prompt's text;
 /// - how many attachment tiles and pictures it draws (an image chip has no text);
 /// - its height, whole pixels (a tall multi-line draft, a strip of chips).
-function composerShows(scope: ParentNode | null | undefined): string | undefined {
+function composerShows(scope: ParentNode | null | undefined): string[] | undefined {
   const composer = scope?.querySelector(".acpmux-composer");
   const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
   if (!composer || !field) return undefined;
   const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
   const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
-  return [fold(field), fold(composer), tiles, Math.round(composer.getBoundingClientRect().height)].join("\u0000");
+  return [fold(field), fold(composer), String(tiles), String(Math.round(composer.getBoundingClientRect().height))];
+}
+
+const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
+
+/// What differs between the copy's composer and the live one, part by part, copy/live ("height
+/// 96/97"), or undefined when they match; "no composer" when either has none. Text is told by where
+/// it first differs and its length ("prompt at 12, 30/12 chars"), never by its words: the report
+/// carries no draft (capture.ts writes no field's text either).
+export function composerDifference(): string | undefined {
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
+  if (!copy || !live) return "no composer";
+  const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
+    if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at += 1;
+    return `${part} at ${at}, ${a.length}/${b.length} chars`;
+  };
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!)]));
+  return parts.length ? parts.join("; ") : undefined;
 }
 
 /// Whether the live page's composer shows what the copy over it shows (draftSettleHold.ts): the
@@ -57,10 +79,15 @@ function composerShows(scope: ParentNode | null | undefined): string | undefined
 /// the copy went, and the composer grew when the chip came back (cmux#45669 review F1).
 /// False with no copy, or no prompt in either.
 export function promptMatchesChatSnapshot(): boolean {
-  if (!showsChatSnapshot()) return false;
-  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
-  const live = composerShows(document.getElementById("root"));
-  return copy !== undefined && live !== undefined && copy === live;
+  return showsChatSnapshot() && composerDifference() === undefined;
+}
+
+/// Notes how the wait for the chat's draft ran out (draftSettleHold.ts) on the copy's record, for the
+/// report and the restart bench; at a cap, with what still differed.
+export function noteDraftWaitEnd(by: string): void {
+  const value = shown();
+  if (!value || value.hold) return;
+  value.hold = { by, at: performance.now(), ...(by === "cap" ? { differs: composerDifference() ?? "none" } : {}) };
 }
 
 /// When the snapshot drew and when the live page took over, in `performance.now()` time (layoutWatch.ts).
@@ -83,6 +110,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
   const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
   return {
     ...chatSnapshotTimes(),
+    hold: shown()?.hold ?? null,
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
     writes: { ...writes },

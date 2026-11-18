@@ -20,39 +20,46 @@ import { useEffect, useState } from "react";
 /// The longest the last launch's copy waits on the chat's draft read once its rows are in (firstPaint.ts).
 export const DRAFT_SETTLE_HOLD_MS = 2_000;
 
+/// How a wait ran out: the composer showed what it waits for when the rows came in (`shown`) or
+/// later (`match`), or DRAFT_SETTLE_HOLD_MS passed first (`cap`).
+export type DraftWaitEnd = "shown" | "match" | "cap";
+
 /// The chat whose wait for its draft ran out: `rowsReadFor` (the chat whose rows are in) once
 /// DRAFT_SETTLE_HOLD_MS passed with `draftSettled` (the chat whose draft the composer read) not naming it.
 /// `promptShown` says whether the composer already shows what the wait is for (its prompt, attachments,
 /// queued prompts and picks, at the copy's height: chatSnapshot/live.ts); the wait ends as soon as it
 /// does, checked once the rows are in and again as the composer changes (`promptRoot`), until the hold
-/// runs out.
+/// runs out. `ended` hears how each wait ran out; a read that answers first ends none.
 export function useDraftWaitOver(
   rowsReadFor: string | undefined,
   draftSettled: string | undefined,
   promptShown: () => boolean = () => false,
   promptRoot: () => Node | null = () => null,
+  ended: (by: DraftWaitEnd) => void = () => {},
 ): string | undefined {
   const [draftWaitOver, setDraftWaitOver] = useState<string>();
   const waiting = rowsReadFor !== undefined && draftSettled !== rowsReadFor ? rowsReadFor : undefined;
   useEffect(() => {
     if (waiting === undefined) return;
     if (promptShown()) {
+      ended("shown");
       setDraftWaitOver(waiting);
       return;
     }
     let watch: MutationObserver | undefined;
-    const end = () => {
+    const end = (by: DraftWaitEnd) => {
       watch?.disconnect();
       watch = undefined;
       window.clearTimeout(timer);
+      ended(by);
       setDraftWaitOver(waiting);
     };
-    const timer = window.setTimeout(end, DRAFT_SETTLE_HOLD_MS);
+    const timer = window.setTimeout(() => end("cap"), DRAFT_SETTLE_HOLD_MS);
     const root = promptRoot();
     const Observer = window.MutationObserver;
     if (root && Observer) {
       watch = new Observer(() => {
-        if (promptShown()) end();
+        if (promptShown()) end("match");
       });
       // Attributes too: a chip that finishes loading, or a strip shown, changes a class or a style.
       watch.observe(root, { childList: true, characterData: true, attributes: true, subtree: true });

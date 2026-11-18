@@ -838,7 +838,13 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
-import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot, promptMatchesChatSnapshot } from "./chatSnapshot/live";
+import {
+  showsChatSnapshot,
+  swapChatSnapshot,
+  watchChatSnapshot,
+  promptMatchesChatSnapshot,
+  noteDraftWaitEnd,
+} from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -7211,7 +7217,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // copy, which shows the draft, waits for the read, at most DRAFT_SETTLE_HOLD_MS (draftSettleHold.ts).
   const rowsReadFor = clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   // Not while the prompt already shows the copy's (draftSettleHold.ts): the transcript goes live then.
-  const draftWaitOver = useDraftWaitOver(rowsReadFor, draftSettled, promptMatchesChatSnapshot, composerPromptRoot);
+  const draftWaitOver = useDraftWaitOver(
+    rowsReadFor,
+    draftSettled,
+    promptMatchesChatSnapshot,
+    composerPromptRoot,
+    noteDraftWaitEnd,
+  );
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
