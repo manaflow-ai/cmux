@@ -1651,6 +1651,12 @@ carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_start
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band
 (`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
+A turn whose sign-in cannot use its model (the ChatGPT Codex backend's 400 `model_not_found`) marks
+that model refused: `_acpmux/models` says so (`unavailable`), pickers are told to read it again,
+and no new chat starts on it. When another model is known and the chat took it before the turn's
+end was written, that `turn_result` has `errorCode: "model_unavailable"` and `modelFallback {from,
+model, name}`, and the chat runs that model from its next prompt. A Codex whose config.toml names a model catalog of its own on a ChatGPT sign-in has the models
+that sign-in is not served marked the same way before any turn (`live_models/account_models.rs`).
 Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed, and
 `--print` then prints that turn's error (`error` under `--json`), never the reply of the turn
 before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when

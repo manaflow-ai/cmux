@@ -173,11 +173,15 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
 /// The harness's current models: its report without the ones its live catalog moves to
 /// another model (Codex's `upgrade`: gpt-5.6-terra and gpt-5.5 name gpt-6-sol). Pickers list
 /// those under Legacy (`topModels` leaves them out), so current and legacy follow the CLI's
-/// own catalog rather than its order (#38044).
+/// own catalog rather than its order (#38044). Nor the ones its sign-in is not served
+/// (`live_models::account_models`): no picker offers them.
 fn current(reported: &[(String, String)], live: Option<&[LiveModel]>) -> Vec<(String, String)> {
-    let upgraded =
-        |id: &str| live.is_some_and(|live| live.iter().any(|m| m.id == id && m.upgrade.is_some()));
-    reported.iter().filter(|(id, _)| !upgraded(id)).cloned().collect()
+    let left_out = |id: &str| {
+        live.is_some_and(|live| {
+            live.iter().any(|m| m.id == id && (m.upgrade.is_some() || m.unavailable.is_some()))
+        })
+    };
+    reported.iter().filter(|(id, _)| !left_out(id)).cloned().collect()
 }
 
 /// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and

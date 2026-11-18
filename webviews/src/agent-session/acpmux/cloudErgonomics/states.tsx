@@ -269,7 +269,15 @@ function cloudChatSends(record: Recorder): FailedSends {
   return { runs: new Map(), trustFolder: () => record({ kind: "in-place", what: "trust the folder" }) };
 }
 
-type TurnFailureFixture = { id: string; kind: FailureKind; error: string; code?: string; teamMachine?: true };
+type TurnFailureFixture = {
+  id: string;
+  kind: FailureKind;
+  error: string;
+  code?: string;
+  teamMachine?: true;
+  /// The model acpmux moved the chat to (`modelFallback`).
+  fallback?: string;
+};
 
 /// One per kind (failureCopy.ts `FailureKind`; KINDS below makes a new kind fail typecheck until it has one).
 const TURN_FAILURES: readonly TurnFailureFixture[] = [
@@ -329,6 +337,15 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     error:
       'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}',
   },
+  // The ChatGPT Codex backend refused the chat's model for its ChatGPT sign-in; acpmux moved the chat.
+  {
+    id: "model-unavailable",
+    kind: "model-unavailable",
+    code: "model_unavailable",
+    fallback: "GPT-5.6-Sol",
+    error:
+      'unexpected status 400 Bad Request: {"type":"error","status":400,"error":{"type":"invalid_request_error","code":"model_not_found","message":"The \'gpt-6.1-sol\' model is not supported when using Codex with a ChatGPT account."}}',
+  },
   {
     id: "codex-config",
     kind: "codex-config",
@@ -376,6 +393,7 @@ export const KINDS: { [kind in FailureKind]: true } = {
   auth: true,
   "disk-full": true,
   "context-full": true,
+  "model-unavailable": true,
   "codex-config": true,
   tailscale: true,
   "agent-exited": true,
@@ -396,6 +414,7 @@ const TURN_FAILURE_STATES: ErgoState[] = TURN_FAILURES.map((fixture) => {
     status: "failed",
     error: fixture.error,
     ...(fixture.code ? { errorCode: fixture.code } : {}),
+    ...(fixture.fallback ? { modelFallback: fixture.fallback } : {}),
     prompt: PROMPT,
     retryRowId: "prompt-1",
     retryable: true,

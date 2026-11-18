@@ -235,6 +235,7 @@ fn a_cached_list_lasts_until_its_program_changes() {
         fast: Some(true),
         is_default: false,
         upgrade: None,
+        unavailable: None,
     }];
     let key = CacheKey::of(&program).unwrap();
     cache.store("claude", &key, &models).unwrap();

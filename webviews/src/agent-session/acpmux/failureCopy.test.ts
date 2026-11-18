@@ -340,3 +340,26 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   expect(copy).toContain("spending cap");
   expect(copy).toContain("team admin");
 });
+
+test("a model the ChatGPT sign-in cannot use reads as that, naming the model the chat moved to", () => {
+  // The ChatGPT Codex backend's 400, as Codex ends the turn with it.
+  const body =
+    'unexpected status 400 Bad Request: {"type":"error","status":400,"error":{"type":"invalid_request_error","code":"model_not_found","message":"The \'gpt-6.1-sol\' model is not supported when using Codex with a ChatGPT account."}}';
+  const en = translatorFor("en");
+  const route = { name: "Codex", harness: "codex" };
+  expect(failureKind(body, route)).toBe("model-unavailable");
+  expect(failureKind(body, route, "model_unavailable")).toBe("model-unavailable");
+  expect(failureKind("The model `gpt-x` does not exist or you do not have access to it.")).toBe("model-unavailable");
+  // Retry runs on the model acpmux moved the chat to; Switch model is offered beside it.
+  expect(failureRecovery("model-unavailable")).toBe("retry");
+  const switched = failureCopy(en, body, route, "model_unavailable", "GPT-5.6-Sol");
+  expect(switched).toBe(
+    "This model isn’t available with your ChatGPT sign-in, so the chat switched to GPT-5.6-Sol. Retry sends the prompt there.",
+  );
+  expect(switched).not.toContain("{");
+  // Another backend's refusal names no ChatGPT sign-in; with no model to move to, Switch model is the way on.
+  expect(failureCopy(en, "400 model_not_found", route, undefined, "GPT-5.6-Sol")).toBe(
+    "Codex can’t use this model with its sign-in, so the chat switched to GPT-5.6-Sol. Retry sends the prompt there.",
+  );
+  expect(failureCopy(en, body, route)).toBe("Codex can’t use this model with its sign-in. Switch model to go on.");
+});

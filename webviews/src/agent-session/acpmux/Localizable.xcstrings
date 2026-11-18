@@ -234233,6 +234233,402 @@
         }
       }
     },
+    "turn.failure.modelUnavailable": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the agent's sign-in or key cannot use the chat's model (for example a model a ChatGPT sign-in is not served); its button is Switch model; {harness} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لـ {harness} استخدام هذا النموذج بتسجيل الدخول الحالي. بدّل النموذج للمتابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ne može koristiti ovaj model s ovom prijavom. Promijenite model da nastavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kan ikke bruge denne model med sit login. Skift model for at fortsætte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kann dieses Modell mit seiner Anmeldung nicht verwenden. Wechsle das Modell, um weiterzumachen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} can’t use this model with its sign-in. Switch model to go on."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} no puede usar este modelo con su inicio de sesión. Cambia de modelo para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ne peut pas utiliser ce modèle avec sa connexion. Changez de modèle pour continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} non può usare questo modello con il suo accesso. Cambia modello per continuare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} は現在のサインインではこのモデルを使えません。続けるにはモデルを切り替えてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} មិនអាចប្រើម៉ូដែលនេះជាមួយការចូលគណនីរបស់វាបានទេ។ សូមប្ដូរម៉ូដែលដើម្បីបន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}은(는) 현재 로그인으로 이 모델을 사용할 수 없습니다. 계속하려면 모델을 바꾸세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kan ikke bruke denne modellen med innloggingen sin. Bytt modell for å fortsette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} nie może używać tego modelu przy tym logowaniu. Zmień model, aby kontynuować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} não pode usar este modelo com o login atual. Troque de modelo para continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не может использовать эту модель с текущим входом. Смените модель, чтобы продолжить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้โมเดลนี้กับการลงชื่อเข้าใช้ปัจจุบันไม่ได้ เปลี่ยนโมเดลเพื่อทำต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} bu modeli mevcut oturumuyla kullanamıyor. Devam etmek için modeli değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не може використовувати цю модель із поточним входом. Змініть модель, щоб продовжити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} không thể dùng mô hình này với phiên đăng nhập hiện tại. Hãy đổi mô hình để tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 无法通过当前登录使用此模型。请切换模型以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 無法透過目前的登入使用此模型。請切換模型以繼續。"
+          }
+        }
+      }
+    },
+    "turn.failure.modelSwitched": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the agent's sign-in or key cannot use the chat's model and cmux moved the chat to another model; its button is Retry, which sends the prompt again on the new model; {harness} is the agent's name, {model} the new model's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لـ {harness} استخدام هذا النموذج بتسجيل الدخول الحالي، لذا انتقلت المحادثة إلى {model}. تعيد إعادة المحاولة إرسال الطلب إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ne može koristiti ovaj model s ovom prijavom, pa je razgovor prebačen na {model}. Ponovi šalje upit tamo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kan ikke bruge denne model med sit login, så chatten skiftede til {model}. Prøv igen sender prompten dertil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kann dieses Modell mit seiner Anmeldung nicht verwenden, daher wurde der Chat auf {model} umgestellt. Erneut versuchen sendet den Prompt dorthin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} can’t use this model with its sign-in, so the chat switched to {model}. Retry sends the prompt there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} no puede usar este modelo con su inicio de sesión, así que el chat cambió a {model}. Reintentar envía el mensaje allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ne peut pas utiliser ce modèle avec sa connexion : la conversation est passée à {model}. Réessayer y envoie le message."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} non può usare questo modello con il suo accesso, quindi la chat è passata a {model}. Riprova invia lì il prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} は現在のサインインではこのモデルを使えないため、チャットを {model} に切り替えました。再試行するとそちらにプロンプトを送ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} មិនអាចប្រើម៉ូដែលនេះជាមួយការចូលគណនីរបស់វាបានទេ ដូច្នេះការជជែកបានប្ដូរទៅ {model}។ ព្យាយាមម្ដងទៀត ផ្ញើសំណើទៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness}은(는) 현재 로그인으로 이 모델을 사용할 수 없어 채팅을 {model}(으)로 바꿨습니다. 다시 시도하면 프롬프트를 그쪽으로 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} kan ikke bruke denne modellen med innloggingen sin, så chatten byttet til {model}. Prøv igjen sender ledeteksten dit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} nie może używać tego modelu przy tym logowaniu, więc czat przełączono na {model}. Ponów wyśle tam polecenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} não pode usar este modelo com o login atual, então a conversa mudou para {model}. Tentar de novo envia o prompt para lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не может использовать эту модель с текущим входом, поэтому чат переключён на {model}. «Повторить» отправит запрос туда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ใช้โมเดลนี้กับการลงชื่อเข้าใช้ปัจจุบันไม่ได้ แชทจึงเปลี่ยนไปใช้ {model} กดลองอีกครั้งเพื่อส่งพรอมต์ไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} bu modeli mevcut oturumuyla kullanamıyor, bu yüzden sohbet {model} modeline geçti. Yeniden dene istemi oraya gönderir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} не може використовувати цю модель із поточним входом, тому чат переключено на {model}. «Повторити» надішле запит туди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} không thể dùng mô hình này với phiên đăng nhập hiện tại, nên cuộc trò chuyện đã chuyển sang {model}. Thử lại sẽ gửi lời nhắc tới đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 无法通过当前登录使用此模型，因此聊天已切换到 {model}。重试会把提示发送到那里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 無法透過目前的登入使用此模型，因此聊天已切換到 {model}。重試會把提示傳送到那裡。"
+          }
+        }
+      }
+    },
+    "turn.failure.modelSwitchedChatgpt": {
+      "comment": "Agent pane: a failed turn's error card (the cause in one line) when the ChatGPT Codex backend refused the chat's model for the person's ChatGPT sign-in and cmux moved the chat to a model that sign-in is served; its button is Retry, which sends the prompt again on the new model; {model} is the new model's name. 'ChatGPT' is a product name, not translated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا النموذج غير متاح بتسجيل دخولك إلى ChatGPT، لذا انتقلت المحادثة إلى {model}. تعيد إعادة المحاولة إرسال الطلب إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj model nije dostupan uz vašu ChatGPT prijavu, pa je razgovor prebačen na {model}. Ponovi šalje upit tamo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne model er ikke tilgængelig med dit ChatGPT-login, så chatten skiftede til {model}. Prøv igen sender prompten dertil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieses Modell ist mit deiner ChatGPT-Anmeldung nicht verfügbar, daher wurde der Chat auf {model} umgestellt. Erneut versuchen sendet den Prompt dorthin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model isn’t available with your ChatGPT sign-in, so the chat switched to {model}. Retry sends the prompt there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este modelo no está disponible con tu inicio de sesión de ChatGPT, así que el chat cambió a {model}. Reintentar envía el mensaje allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce modèle n’est pas disponible avec votre connexion ChatGPT : la conversation est passée à {model}. Réessayer y envoie le message."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo modello non è disponibile con il tuo accesso ChatGPT, quindi la chat è passata a {model}. Riprova invia lì il prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このモデルはお使いの ChatGPT サインインでは利用できないため、チャットを {model} に切り替えました。再試行するとそちらにプロンプトを送ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ូដែលនេះមិនមានជាមួយការចូលគណនី ChatGPT របស់អ្នកទេ ដូច្នេះការជជែកបានប្ដូរទៅ {model}។ ព្យាយាមម្ដងទៀត ផ្ញើសំណើទៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 모델은 사용 중인 ChatGPT 로그인으로는 쓸 수 없어 채팅을 {model}(으)로 바꿨습니다. 다시 시도하면 프롬프트를 그쪽으로 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne modellen er ikke tilgjengelig med ChatGPT-innloggingen din, så chatten byttet til {model}. Prøv igjen sender ledeteksten dit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten model nie jest dostępny przy Twoim logowaniu do ChatGPT, więc czat przełączono na {model}. Ponów wyśle tam polecenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este modelo não está disponível com seu login do ChatGPT, então a conversa mudou para {model}. Tentar de novo envia o prompt para lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта модель недоступна при вашем входе в ChatGPT, поэтому чат переключён на {model}. «Повторить» отправит запрос туда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โมเดลนี้ใช้กับการลงชื่อเข้าใช้ ChatGPT ของคุณไม่ได้ แชทจึงเปลี่ยนไปใช้ {model} กดลองอีกครั้งเพื่อส่งพรอมต์ไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu model ChatGPT oturumunuzla kullanılamıyor, bu yüzden sohbet {model} modeline geçti. Yeniden dene istemi oraya gönderir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця модель недоступна з вашим входом у ChatGPT, тому чат переключено на {model}. «Повторити» надішле запит туди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mô hình này không khả dụng với phiên đăng nhập ChatGPT của bạn, nên cuộc trò chuyện đã chuyển sang {model}. Thử lại sẽ gửi lời nhắc tới đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 ChatGPT 登录无法使用此模型，因此聊天已切换到 {model}。重试会把提示发送到那里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 ChatGPT 登入無法使用此模型，因此聊天已切換到 {model}。重試會把提示傳送到那裡。"
+          }
+        }
+      }
+    },
     "turn.failure.tailscale": {
       "comment": "Agent pane: a failed turn's error card (the cause in one line); {harness} is the agent's name",
       "extractionState": "manual",

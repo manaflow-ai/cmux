@@ -10242,6 +10242,8 @@ export class AcpmuxDirectClient {
             // (acpmux fail_unstarted_turn): the row still names it, as the paused queue's note does.
             error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
             ...(typeof msg.errorCode === "string" && msg.errorCode ? { errorCode: msg.errorCode } : {}),
+            // acpmux moved the chat to a model its sign-in can use (hub/model_availability.rs).
+            ...modelFallbackField(msg.modelFallback),
             ...(checkpoint ? { checkpoint } : {}),
             // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). The turn reads
             // as any stop does; only the footer's tooltip says cmux ended it (Leo, 2026-11-03:
@@ -16667,4 +16669,13 @@ const probeRefusals = new Set(["remote.unsupported", "transport.method_refused",
 function refusedByHost(error: AcpmuxRpcError): boolean {
   const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
   return data?.origin === "native";
+}
+
+/// A failed turn's `modelFallback` (hub/model_availability.rs: `{from, model, name}`) as its row's
+/// `modelFallback`: the name of the model the chat runs now, else its id.
+function modelFallbackField(value: unknown): { modelFallback?: string } {
+  if (!value || typeof value !== "object") return {};
+  const { model, name } = value as { model?: unknown; name?: unknown };
+  const shown = typeof name === "string" && name ? name : typeof model === "string" && model ? model : undefined;
+  return shown ? { modelFallback: shown } : {};
 }

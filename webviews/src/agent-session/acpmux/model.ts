@@ -647,6 +647,9 @@ export type AcpmuxRow = {
   error?: string;
   /// acpmux's typed reason for a failed turn (`errorCode`, a string), for its card (failureCopy.ts).
   errorCode?: string;
+  /// The model acpmux moved a failed turn's chat to, by name, when its sign-in could not use the
+  /// turn's model (`turn_result` `modelFallback`, hub/model_availability.rs): the card says so.
+  modelFallback?: string;
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;

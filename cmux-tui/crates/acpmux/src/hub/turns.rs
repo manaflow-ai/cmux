@@ -1816,6 +1816,19 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // A turn that refused its model (`model_availability.rs`): noted, and a model the sign-in
+        // cannot use gives way to one it can before the turn's end is written, so its
+        // `turn_result` names the new model only once the chat runs it.
+        let refusal = match &result {
+            Ok(_) => self.note_reply_refusal(session),
+            Err(e) => self.note_model_refusal(session, &e.message),
+        };
+        let switched = match &refusal {
+            Some(refusal) => {
+                self.move_off_refused(session, refusal).await.map(|to| (refusal.model.clone(), to))
+            }
+            None => None,
+        };
         // The end is written from here with no wait, under the shutdown's lock: a shutdown that
         // settled the turn meanwhile wrote its end (Quit Everything) or handed it on, and its
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).
@@ -1852,7 +1865,6 @@ impl Hub {
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
-                    self.note_reply_refusal(session);
                     let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                     // Its last reply's claims, checked against its own runs (`claim_check.rs`).
                     self.append_claim_checks(session, turn_id);
@@ -1916,7 +1928,6 @@ impl Hub {
                         o.extend(crate::recovery::fields(e));
                     }
                     self.append(session, "mux", "turn_error", record);
-                    self.note_model_refusal(session, &e.message);
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
@@ -1931,6 +1942,13 @@ impl Hub {
                         o.extend(crate::recovery::fields(e));
                         if let Some(to) = carried_to() {
                             o.insert("carriedTo".into(), to);
+                        }
+                        // The sign-in cannot use the turn's model: typed, and naming the model
+                        // the chat runs from its next prompt, so the card says so and Retry runs
+                        // there (`model_availability.rs`).
+                        if let Some((from, to)) = &switched {
+                            o.insert("errorCode".into(), json!("model_unavailable"));
+                            o.insert("modelFallback".into(), to.to_json(from));
                         }
                         // Ended by acpmux, not the agent (`stalled_turn.rs`).
                         if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
