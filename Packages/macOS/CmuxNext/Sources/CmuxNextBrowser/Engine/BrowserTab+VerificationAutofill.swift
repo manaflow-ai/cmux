@@ -28,4 +28,11 @@ extension BrowserTab {
     public func fillVerificationCode(_ code: String) async -> Bool {
         (try? await evaluate(VerificationPageScripts.fillScript(code: code), world: .isolated, gesture: .cmux)) == .bool(true)
     }
+
+    /// Where the page's code field is now (``VerificationPageScripts/anchorScript``, geometry only,
+    /// from an isolated world); nil when the page shows none or the tab cannot run scripts.
+    public func verificationFieldAnchor() async -> VerificationFieldAnchor? {
+        guard let value = try? await evaluate(VerificationPageScripts.anchorScript, world: .isolated, gesture: .cmux) else { return nil }
+        return VerificationFieldAnchor(scriptResult: value)
+    }
 }

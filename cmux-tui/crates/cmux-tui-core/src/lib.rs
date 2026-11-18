@@ -33,6 +33,7 @@ pub mod remote_host;
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
+mod command_context;
 mod conversation_drafts;
 mod conversation_live;
 mod conversation_search;
@@ -43,6 +44,7 @@ use cmux_tui_util::debug_spans;
 pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
+pub mod device_setup;
 pub mod diagnostics;
 mod event_bus;
 pub mod feed_client;
@@ -53,6 +55,8 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+#[cfg(unix)]
+pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -78,6 +82,7 @@ pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+mod pty_write_marks;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
 use cmux_tui_util::published;
 mod terminal_title;
@@ -185,10 +190,10 @@ pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
-    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
+    DiagnosticReporter, Direction, FloatPaneError, FloatPaneOutcome, GraphicsStatus,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY,
+    NotificationEvent, NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
     ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,

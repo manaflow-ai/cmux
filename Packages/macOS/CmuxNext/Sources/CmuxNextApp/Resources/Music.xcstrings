@@ -662,91 +662,91 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Media card turned off. Turn it on again in Settings › Appearance › Show Now Playing, or run “Show Media Card” from the command palette."
+            "value": "Media card turned off."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "メディアカードをオフにしました。「設定 › 外観 › 再生中を表示」、またはコマンドパレットの「メディアカードを表示」で再びオンにできます。"
+            "state": "needs_review",
+            "value": "メディアカードをオフにしました。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم إيقاف بطاقة الوسائط. أعد تشغيلها من الإعدادات › المظهر › إظهار قيد التشغيل الآن، أو شغّل «إظهار بطاقة الوسائط» من لوحة الأوامر."
+            "value": "تم إيقاف بطاقة الوسائط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kartica medija je isključena. Ponovo je uključite u Postavke › Izgled › Prikaži Sada se reproducira ili pokrenite „Prikaži karticu medija” iz palete naredbi."
+            "value": "Kartica medija je isključena."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mediekortet er slået fra. Slå det til igen under Indstillinger › Udseende › Vis Afspilles nu, eller kør “Vis mediekort” fra kommandopaletten."
+            "value": "Mediekortet er slået fra."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Medienkarte ausgeschaltet. Unter Einstellungen › Erscheinungsbild › „Aktuelle Wiedergabe“ anzeigen wieder einschalten oder „Medienkarte anzeigen“ in der Befehlspalette ausführen."
+            "value": "Medienkarte ausgeschaltet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tarjeta multimedia desactivada. Vuelve a activarla en Ajustes › Apariencia › Mostrar En reproducción, o ejecuta «Mostrar tarjeta multimedia» desde la paleta de comandos."
+            "value": "Tarjeta multimedia desactivada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Carte multimédia désactivée. Réactivez-la dans Réglages › Apparence › Afficher À l’écoute, ou lancez « Afficher la carte multimédia » depuis la palette de commandes."
+            "value": "Carte multimédia désactivée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scheda multimediale disattivata. Riattivala in Impostazioni › Aspetto › Mostra In riproduzione, oppure esegui «Mostra scheda multimediale» dalla palette dei comandi."
+            "value": "Scheda multimediale disattivata."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានបិទកាតមេឌៀ។ បើកវាវិញនៅ ការកំណត់ › រូបរាង › បង្ហាញអ្វីដែលកំពុងចាក់ ឬដំណើរការ “បង្ហាញកាតមេឌៀ” ពីផ្ទាំងពាក្យបញ្ជា។"
+            "value": "បានបិទកាតមេឌៀ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "미디어 카드를 껐습니다. 설정 › 모양 › 지금 재생 중 보기에서 다시 켜거나 명령 팔레트에서 ‘미디어 카드 표시’를 실행하세요."
+            "value": "미디어 카드를 껐습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mediekortet er slått av. Slå det på igjen i Innstillinger › Utseende › Vis Spilles nå, eller kjør «Vis mediekort» fra kommandopaletten."
+            "value": "Mediekortet er slått av."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Karta multimediów wyłączona. Włącz ją ponownie w Ustawienia › Wygląd › Pokaż Teraz odtwarzane lub uruchom „Pokaż kartę multimediów” z palety poleceń."
+            "value": "Karta multimediów wyłączona."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cartão de mídia desativado. Ative de novo em Ajustes › Aparência › Mostrar Tocando Agora, ou execute “Mostrar cartão de mídia” na paleta de comandos."
+            "value": "Cartão de mídia desativado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Карточка медиа выключена. Включите её снова в Настройки › Оформление › Показывать «Сейчас играет» или выполните «Показать карточку медиа» в палитре команд."
+            "value": "Карточка медиа выключена."
           }
         },
         "th": {
@@ -758,31 +758,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Medya kartı kapatıldı. Ayarlar › Görünüm › Şimdi Çalıyor’u Göster’den yeniden açın veya komut paletinden “Medya Kartını Göster”i çalıştırın."
+            "value": "Medya kartı kapatıldı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Картку медіа вимкнено. Увімкніть її знову в Налаштування › Вигляд › Показувати «Зараз грає» або виконайте «Показати картку медіа» з палітри команд."
+            "value": "Картку медіа вимкнено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã tắt thẻ phương tiện. Bật lại trong Cài đặt › Giao diện › Hiện Đang phát, hoặc chạy “Hiện thẻ phương tiện” từ bảng lệnh."
+            "value": "Đã tắt thẻ phương tiện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已关闭媒体卡片。可在“设置 › 外观 › 显示正在播放”中重新打开，或在命令面板中运行“显示媒体卡片”。"
+            "value": "已关闭媒体卡片。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已關閉媒體卡片。可在「設定 › 外觀 › 顯示正在播放」中重新開啟，或在命令面板中執行「顯示媒體卡片」。"
+            "value": "已關閉媒體卡片。"
           }
         }
       }

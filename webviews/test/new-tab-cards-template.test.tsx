@@ -133,7 +133,7 @@ test("the Cards page: one field, a chip row under it, three chat cards", async (
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
     expect(toolbar!.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-location")).toBeNull();
-    // Return sends; the page draws no Send disc and no create row.
+    // Return sends; creation is available through search.
     expect(host.querySelector(".nt-send")).toBeNull();
     expect(host.querySelector(".nt-create")).toBeNull();
     // Three cards in a grid, "All Chats >" beside the Chats header.
@@ -229,7 +229,7 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(above.contains(strip)).toBe(true);
     expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.compareDocumentPosition(foot) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Cards draws no create row with the split either (u2851): the app always passes the chips.
+    // The split composer leaves creation in searchable suggestions.
     expect(host.querySelector(".nt-create")).toBeNull();
     const mic = box.querySelector<HTMLElement>(".acpmux-mic");
     expect(mic).not.toBeNull();

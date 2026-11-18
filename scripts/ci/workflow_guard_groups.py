@@ -189,6 +189,8 @@ PATH_OWNERS = {
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it before the build.
+    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),

@@ -546,9 +546,13 @@ fn gemini_and_grok_stores() {
 /// sign-in: the person's key would go to the team's edge (hq#11225).
 #[test]
 fn the_gateway_endpoints_of_gemini_and_grok_never_reach_a_sign_in() {
-    for key in
-        ["GOOGLE_GEMINI_BASE_URL", "GEMINI_API_KEY", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL"]
-    {
+    for key in [
+        "GOOGLE_GEMINI_BASE_URL",
+        "GEMINI_API_KEY",
+        "GROK_MODELS_BASE_URL",
+        "GROK_MODELS_LIST_URL",
+        "GROK_XAI_API_BASE_URL",
+    ] {
         assert!(MODEL_PLANE_ENV.contains(&key), "{key}");
     }
 }

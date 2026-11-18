@@ -43,12 +43,20 @@ test("the categories are the approved ones, in order", () => {
     "browser",
     "chat",
     "agents",
+    // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
+    "mcpServers",
+    // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
+    "models",
+    // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
+    "cloud",
     "chief",
     "notifications",
     "keyboard",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
     "accounts",
+    // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
+    "keys",
     // Mobile stays its own page (Lucas 2026-11-11); Devices holds what Server showed, and its old
     // id opens it (next test).
     "mobile",
