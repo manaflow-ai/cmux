@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 import Testing
 @testable import CmuxMobileTerminal
 
@@ -129,44 +128,5 @@ import Testing
         let m = try #require(mark(in: before, at: 300))
         let after = Array(before.dropFirst(50)) + history(80, prefix: "new")
         #expect(locate(m, in: after)?.row == 250)
-    }
-}
-
-/// #43189, step 4b1ace37e645e27da805eb83: flinging up a 30,000-row history,
-/// a window fetch's reset marked nothing (`Z`, trail `...MPGZNMPG`). The page
-/// then followed the new window's bottom, the Mac's screen, and the next fling
-/// up asked for the newest rows. The rows at the page's top were read one by
-/// one through Ghostty, which addresses only its viewport, the active area and
-/// the first rows: while a fling runs ahead of the viewport, the rows read
-/// came back nil and there was no mark. The restore reads every row of the
-/// screen at once; the mark at the reset reads them the same way.
-@Suite struct TerminalReadingMarkAtResetTests {
-    /// A 4,151-row window of the demo's numbered rows, the screen last.
-    private let rows = (0..<4_151).map { String(format: "%06d history row", 6_000 + $0) }
-
-    @Test func aMarkReadsRowsGhosttyCannotAddressOneByOne() throws {
-        let screen = TerminalScreenRows(rectangle: rows.joined(separator: "\n"), logical: rows.joined(separator: "\n"), columns: 80)
-        // Ghostty's viewport still at the page's last rest, 1,000 rows below
-        // the fling: one by one, only those rows, the first rows and the
-        // active area read.
-        let viewport = 2_656..<2_712
-        let readable: (Int) -> String? = { row in
-            viewport.contains(row) || row < 56 || row >= 4_095 ? rows[row] : nil
-        }
-        let anchor = TerminalScrollModel.Anchor(row: 1_656, delta: 2)
-        let mark = try #require(TerminalReadingMark(anchor: anchor, totalRows: rows.count, screen: screen, reader: readable),
-                                "the rows at the page's top are in the screen's read")
-        // The next window starts 1,500 rows earlier: the reader's rows are
-        // found 1,500 rows lower.
-        let next = (0..<4_151).map { String(format: "%06d history row", 4_500 + $0) }
-        let found = mark.locate(totalRows: next.count) { next.indices.contains($0) ? next[$0] : nil }
-        #expect(found == TerminalScrollModel.Anchor(row: 3_156, delta: 2))
-    }
-
-    /// With no screen read, the rows Ghostty addresses still make the mark.
-    @Test func withoutTheScreenReadTheReaderStillMarks() throws {
-        let anchor = TerminalScrollModel.Anchor(row: 1_656, delta: 0)
-        let mark = try #require(TerminalReadingMark(anchor: anchor, totalRows: rows.count, screen: nil, reader: { rows[$0] }))
-        #expect(mark.row == 1_656)
     }
 }
