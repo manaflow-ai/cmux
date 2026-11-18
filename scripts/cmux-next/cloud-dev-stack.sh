@@ -68,7 +68,10 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument $1 (journey arguments go after --)" ;;
   esac
 done
-case "$cmd" in up|down|journey|logs|touch) case "$tag" in ""|*[!a-z0-9-]*) die "--tag NAME: lowercase letters, digits and -" ;; esac ;; esac
+case "$cmd" in up|down|journey|logs|touch) [ -n "$tag" ] || die "--tag NAME is required" ;; esac
+case "$tag" in *[!a-z0-9-]*|-*) die "--tag NAME: lowercase letters, digits and -" ;; esac
+case "$lines" in ""|*[!0-9]*) die "-n LINES: a number" ;; esac
+case "$idle_min" in ""|*[!0-9]*) die "--idle-min N: minutes" ;; esac
 case "$db_mode" in auto|shared|branch) ;; *) die "--db auto|shared|branch" ;; esac
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "$VM_USER@$HOST")
@@ -114,12 +117,13 @@ migration_kinds() {  # prints pg and/or mysql when this branch changes that data
 
 stack_entry() { vm status --tag "$tag" | json "s=d['stacks']; print(json.dumps(s[0] if s else {}))"; }
 
-cred_fresh() {  # cred_fresh KIND MODE: the stack already holds a credential of that mode valid for 2 h more
+cred_fresh() {  # cred_fresh KIND MODE: the VM still holds a credential of that mode valid for 2 h more
   stack_entry | python3 -c "
 import json,sys,datetime
 e=json.load(sys.stdin); c=(e.get('db') or {}).get('$1') or {}
 exp=c.get('expires_at') or ''
-ok=c.get('mode')=='$2' and exp and datetime.datetime.fromisoformat(exp.replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=2)
+# The file can be gone while the entry remains (a reaped stack's files are deleted).
+ok=(e.get('secrets') or {}).get('$1') and c.get('mode')=='$2' and exp and datetime.datetime.fromisoformat(exp.replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(hours=2)
 sys.exit(0 if ok else 1)"
 }
 
@@ -145,13 +149,24 @@ give_db() {  # give_db KIND MODE
   if [ "$kind" = pg ]; then
     local roles=pg_read_all_data,pg_write_all_data
     [ "$mode" = branch ] && roles=postgres   # the migration runner creates tables
-    ps role create "$db" "$branch" "$name" --inherited-roles "$roles" --ttl "$CRED_TTL" \
-      | vm put-cred --tag "$tag" --kind pg --db-name "$db" --branch "$branch" --mode "$mode" >/dev/null
+    stored="$(ps role create "$db" "$branch" "$name" --inherited-roles "$roles" --ttl "$CRED_TTL" \
+      | vm put-cred --tag "$tag" --kind pg --db-name "$db" --branch "$branch" --mode "$mode")"
   else
     local role=readwriter
     [ "$mode" = branch ] && role=admin
-    ps password create "$db" "$branch" "$name" --role "$role" --ttl "$CRED_TTL" \
-      | vm put-cred --tag "$tag" --kind mysql --db-name "$db" --branch "$branch" --database "$MYSQL_DB" --mode "$mode" >/dev/null
+    stored="$(ps password create "$db" "$branch" "$name" --role "$role" --ttl "$CRED_TTL" \
+      | vm put-cred --tag "$tag" --kind mysql --db-name "$db" --branch "$branch" --database "$MYSQL_DB" --mode "$mode")"
+  fi
+  # The credential this one replaced (an expiring one, or a mode change): delete it now, not at its TTL,
+  # and a branch the stack no longer uses (it dropped its migration). The branch in use stays.
+  local old_db old_branch old_mode old_id
+  read -r old_db old_branch old_mode old_id < <(json "r=d.get('replaced') or {}; print(r.get('database') or '-', r.get('branch') or '-', r.get('mode') or '-', r.get('cred_id') or '-')" <<<"$stored")
+  if [ "$old_mode" = branch ] && [ "$old_branch" != "$branch" ] && [[ "$old_branch" == lane-wd-* ]]; then
+    if ps branch delete "$old_db" "$old_branch" --force >/dev/null 2>&1; then echo "   deleted unused branch $old_db/$old_branch"; fi
+  elif [ "$old_id" != - ]; then
+    if [ "$kind" = pg ]; then ps role delete "$old_db" "$old_branch" "$old_id" --force >/dev/null 2>&1 || true
+    else ps password delete "$old_db" "$old_branch" "$old_id" --force >/dev/null 2>&1 || true; fi
+    echo "   deleted the credential it replaces ($old_id)"
   fi
   echo "   $db/$branch: credential $name (TTL $CRED_TTL, on the VM only)"
 }
@@ -177,7 +192,7 @@ for kind,c in (e.get('db') or {}).items():
 }
 
 do_gc() {  # do_gc [TAG TO SPARE]: up spares its own tag, whose branch and credentials it reuses
-  local entries live spare="${1:-}"
+  local entries live spare="${1:-}" cutoff
   entries="$(vm status)"
   # Stacks the VM stopped (idle, expired) or a down that did not finish: release, then forget. A failed
   # start is kept for an hour, for the agent's next up.
@@ -188,8 +203,11 @@ do_gc() {  # do_gc [TAG TO SPARE]: up spares its own tag, whose branch and crede
   done
   # Branches with no stack behind them (a VM that lost its registry, a crash between create and start).
   live="$(json "print(' '.join('lane-wd-'+s['tag'] for s in d['stacks'] if s['state'] in ('running','starting','preparing','failed') or s['tag'] == '$spare'))" <<<"$entries")"
+  # Only branches a day old: one being made right now by an up on another Mac has no entry yet here,
+  # and a stack on another host (--host) is not in this host's registry.
+  cutoff="$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S"))')"
   for db in "$PG_DB" "$MYSQL_DB"; do
-    for br in $(ps branch list "$db" | json "print(' '.join(b['name'] for b in d if b['name'].startswith('lane-wd-')))"); do
+    for br in $(ps branch list "$db" | json "print(' '.join(b['name'] for b in d if b['name'].startswith('lane-wd-') and (b.get('created_at') or '9')[:19] < '$cutoff'))"); do
       case " $live " in *" $br "*) ;; *) ps branch delete "$db" "$br" --force >/dev/null && echo "   gc: deleted orphan branch $db/$br" ;; esac
     done
   done

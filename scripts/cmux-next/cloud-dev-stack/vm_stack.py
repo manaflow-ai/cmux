@@ -184,7 +184,7 @@ def classic_ports() -> set[int]:
 def pick_port(tag: str, previous: int | None, taken_by_us: set[int], classic: set[int], serve: dict[str, Any], listening: set[int]) -> int:
     """Our previous port when it is still ours, else the highest port free on every account."""
     own_target = lambda p: f"http://127.0.0.1:{p}"
-    if previous and previous not in classic and serve_target(serve, previous) in (None, own_target(previous)):
+    if previous and previous not in classic and previous not in taken_by_us and serve_target(serve, previous) in (None, own_target(previous)):
         return previous
     serve_ports = {int(k) for k in (serve.get("TCP") or {}).keys() if str(k).isdigit()}
     for port in range(PORT_MAX, PORT_MIN - 1, -1):
@@ -192,6 +192,15 @@ def pick_port(tag: str, previous: int | None, taken_by_us: set[int], classic: se
             continue
         return port
     raise Refused(f"no free port in {PORT_MIN}-{PORT_MAX}")
+
+
+HOLDS_PORT = ("preparing", "starting", "running", "failed")
+
+
+def ports_held(except_tag: str) -> set[int]:
+    """Ports of our other stacks that are not gone: a starting stack is not listening yet, a failed one
+    keeps its port for its next up."""
+    return {e["port"] for e in all_entries() if e["tag"] != except_tag and e.get("state") in HOLDS_PORT and e.get("port")}
 
 
 def unit(tag: str) -> str:
@@ -426,6 +435,13 @@ def cmd_prepare(args) -> dict[str, Any]:
         d = stack_dir(tag)
         for sub in ("src", "platform", "state", "logs", "secrets"):
             (d / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Recorded before the sync and the branch creation: gc and the reaper leave a young
+        # preparing entry alone, so an up in progress is never cleaned up under it.
+        entry = entry or {"tag": tag, "created_at": int(time.time())}
+        if entry.get("state") in ("down", "reaped"):
+            entry.pop("port", None)
+        entry.update({"state": "preparing", "last_up_at": int(time.time())})
+        write_entry(entry)
     return {"dir": str(d)}
 
 
@@ -470,10 +486,12 @@ def cmd_put_cred(args) -> dict[str, Any]:
     with registry_lock():
         entry = read_entry(tag) or {"tag": tag, "state": "preparing", "created_at": int(time.time())}
         db = entry.setdefault("db", {})
+        replaced = db.get(args.kind) or {}
         db[args.kind] = {"database": args.db_name, "branch": args.branch, "cred_id": raw.get("id"), "cred_name": raw.get("name"),
                          "expires_at": raw.get("expires_at"), "mode": args.mode}
         write_entry(entry)
-    return {"stored": args.kind, "cred_id": raw.get("id")}
+    old = {k: replaced.get(k) for k in ("database", "branch", "cred_id", "mode")} if replaced.get("cred_id") not in (None, raw.get("id")) else None
+    return {"stored": args.kind, "cred_id": raw.get("id"), "replaced": old}
 
 
 def run_quiet(cmd: list[str], cwd: Path, env: dict[str, str], what: str) -> str:
@@ -588,7 +606,7 @@ def cmd_start(args) -> dict[str, Any]:
         entry = read_entry(tag) or {"tag": tag, "created_at": int(time.time())}
         if entry.get("state") != "running":
             admit(tag)
-        taken = {e["port"] for e in all_entries() if e["tag"] != tag and e.get("state") == "running" and e.get("port")}
+        taken = ports_held(tag)
         with serve_lock():
             port = pick_port(tag, entry.get("port"), taken, classic_ports(), serve_config(), listening_ports() - ({entry["port"]} if entry.get("port") and unit_active(tag) else set()))
         host = dns_name()
@@ -652,7 +670,8 @@ def cmd_start(args) -> dict[str, Any]:
                     break
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/health", timeout=5) as r:
-                last = r.read().decode()[:400]
+                body = r.read().decode()
+                last = body[:400]
                 ok = r.status == 200
                 if ok:
                     break
@@ -670,7 +689,15 @@ def cmd_start(args) -> dict[str, Any]:
 
     with serve_lock():
         target = f"http://127.0.0.1:{port}"
-        if serve_target(serve_config(), port) != target:
+        current = serve_target(serve_config(), port)
+        if port in classic_ports() or current not in (None, target):
+            stop_stack(tag, keep_files=True, serve=False)
+            with registry_lock():
+                entry = read_entry(tag) or entry
+                entry.update({"state": "failed", "port": None})
+                write_entry(entry)
+            raise Refused(f"port {port} was taken by a classic stack while this one booted; run up again for another port")
+        if current != target:
             out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
             if out.returncode != 0:
                 raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
@@ -679,10 +706,14 @@ def cmd_start(args) -> dict[str, Any]:
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
         write_entry(entry)
-    return {"tag": tag, "url": origin, "port": port, "health": json.loads(last)}
+    try:
+        health = json.loads(body)
+    except ValueError:
+        health = last
+    return {"tag": tag, "url": origin, "port": port, "health": health}
 
 
-def stop_stack(tag: str, keep_files: bool) -> list[str]:
+def stop_stack(tag: str, keep_files: bool, serve: bool = True) -> list[str]:
     actions = []
     if systemctl("is-active", "--quiet", unit(tag), check=False).returncode == 0 or systemctl("is-failed", "--quiet", unit(tag), check=False).returncode == 0:
         systemctl("stop", unit(tag), check=False)
@@ -690,7 +721,7 @@ def stop_stack(tag: str, keep_files: bool) -> list[str]:
         actions.append("unit stopped")
     entry = read_entry(tag) or {}
     port = entry.get("port")
-    if port:
+    if serve and port and port not in ports_held(tag):
         with serve_lock():
             if serve_target(serve_config(), port) == f"http://127.0.0.1:{port}":  # ours only, never a classic stack's
                 subprocess.run(["sudo", "-n", "tailscale", "serve", f"--https={port}", "off"], capture_output=True, text=True, timeout=60)
@@ -719,9 +750,13 @@ def cmd_down(args) -> dict[str, Any]:
 def cmd_forget(args) -> dict[str, Any]:
     tag = check_tag(args.tag)
     entry = read_entry(tag)
-    if entry and entry.get("state") == "running":
-        raise Refused(f"{tag} is running; run down first")
-    entry_path(tag).unlink(missing_ok=True)
+    with registry_lock():
+        entry = read_entry(tag)
+        if entry and entry.get("state") in ("running", "starting", "preparing"):
+            raise Refused(f"{tag} is {entry['state']}; run down first")
+        if entry:
+            stop_stack(tag, keep_files=False)  # a failed stack's files, if the reaper has not cleaned them yet
+        entry_path(tag).unlink(missing_ok=True)
     return {"tag": tag, "forgotten": bool(entry)}
 
 
@@ -758,38 +793,47 @@ def idle_verdict(entry: dict[str, Any], now: int, heartbeat: float | None, activ
     return None
 
 
-def cmd_reap(_args) -> dict[str, Any]:
-    now = int(time.time())
-    out = []
-    for entry in all_entries():
-        tag = entry["tag"]
-        if entry.get("state") in ("down", "reaped", "failed"):
-            if now - entry.get("down_at", entry.get("reaped_at", entry.get("last_up_at", now))) > REAPED_KEEP_SECS:
+def reap_one(tag: str, now: int) -> dict[str, Any] | None:
+    """One entry, decided and acted on under the registry lock, so an up that starts meanwhile (prepare
+    marks it preparing with a fresh last_up_at) is never cleaned up under it."""
+    with registry_lock():
+        entry = read_entry(tag)
+        if not entry:
+            return None
+        state = entry.get("state")
+        if state in ("down", "reaped", "failed"):
+            since = entry.get("down_at") or entry.get("reaped_at") or entry.get("last_up_at") or now
+            if now - since > REAPED_KEEP_SECS:
                 stop_stack(tag, keep_files=False)
                 entry_path(tag).unlink(missing_ok=True)
-                out.append({"tag": tag, "action": "purged old entry"})
-            elif entry.get("state") == "failed" and now - entry.get("last_up_at", now) > 3600:
-                stop_stack(tag, keep_files=False)
-            continue
-        if entry.get("state") != "running":
+                return {"tag": tag, "action": "purged old entry"}
+            if state == "failed" and not entry.get("cleaned") and now - entry.get("last_up_at", now) > 3600:
+                steps = stop_stack(tag, keep_files=False)
+                entry.update({"cleaned": True, "port": None})  # its port goes back to the pool
+                write_entry(entry)
+                return {"tag": tag, "action": "cleaned failed stack", "steps": steps}
+            return None
+        if state != "running":
             if now - entry.get("last_up_at", entry.get("created_at", now)) < 1800:
-                continue  # a start in progress
+                return None  # an up in progress
             reason = "never started"
         else:
-            with registry_lock():
-                entry = read_entry(tag) or entry
-                scan_requests(entry)
-                write_entry(entry)
+            scan_requests(entry)
+            write_entry(entry)
             hb = stack_dir(tag) / "heartbeat"
             reason = idle_verdict(entry, now, hb.stat().st_mtime if hb.exists() else None, unit_active(tag))
-        if reason:
-            actions = stop_stack(tag, keep_files=False)
-            with registry_lock():
-                entry = read_entry(tag) or entry
-                entry.update({"state": "reaped", "reaped_at": now, "reason": reason})
-                write_entry(entry)
-            out.append({"tag": tag, "action": "reaped", "reason": reason, "steps": actions})
-            print(f"reaped {tag}: {reason}", file=sys.stderr)
+        if not reason:
+            return None
+        steps = stop_stack(tag, keep_files=False)
+        entry.update({"state": "reaped", "reaped_at": now, "reason": reason})
+        write_entry(entry)
+        print(f"reaped {tag}: {reason}", file=sys.stderr)
+        return {"tag": tag, "action": "reaped", "reason": reason, "steps": steps}
+
+
+def cmd_reap(_args) -> dict[str, Any]:
+    now = int(time.time())
+    out = [r for r in (reap_one(e["tag"], now) for e in all_entries()) if r]
     return {"reaped": out}
 
 
@@ -814,6 +858,7 @@ def cmd_status(args) -> dict[str, Any]:
                     | {"active": unit_active(e["tag"]) if e.get("state") == "running" else False,
                        "idle_min": (now - last) // 60 if last else None, "idle_limit_min": e.get("idle_secs", IDLE_SECS_DEFAULT) // 60,
                        "mem_mib": unit_memory_mib(e["tag"]) if e.get("state") == "running" else None,
+                       "secrets": {k: (stack_dir(e["tag"]) / "secrets" / f"{k}.url").exists() for k in (e.get("db") or {})},
                        "db": {k: {kk: v.get(kk) for kk in ("mode", "database", "branch", "cred_id", "cred_name", "expires_at")} for k, v in (e.get("db") or {}).items()}})
     return {"capacity": cmd_capacity(None), "stacks": rows}
 

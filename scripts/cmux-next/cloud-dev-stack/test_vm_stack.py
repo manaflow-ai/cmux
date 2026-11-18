@@ -2,6 +2,7 @@
 """Unit tests for vm_stack.py (no VM needed): python3 scripts/cmux-next/cloud-dev-stack/test_vm_stack.py"""
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -69,6 +70,50 @@ class PortTests(unittest.TestCase):
         serve = {"TCP": {"4700": {}}, "Web": {"h:4700": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8478"}}}}}
         self.assertNotEqual(v.pick_port("t", 4700, set(), set(), serve, set()), 4700)
         self.assertNotEqual(v.pick_port("t", 4700, set(), {4700}, {"TCP": {}, "Web": {}}, set()), 4700)
+
+
+    def test_previous_port_dropped_when_another_of_our_stacks_holds_it(self):
+        self.assertNotEqual(v.pick_port("t", 4700, {4700}, set(), {"TCP": {}, "Web": {}}, set()), 4700)
+
+
+class RegistryTests(unittest.TestCase):
+    """reap_one and ports_held against a temporary registry; systemd and Serve are stubbed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved = (v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack)
+        v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
+        self.stopped = []
+        v.unit_active = lambda tag: True
+        v.stop_stack = lambda tag, keep_files, serve=True: self.stopped.append(tag) or ["stopped"]
+
+    def tearDown(self):
+        v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack = self.saved
+        self.tmp.cleanup()
+
+    def test_ports_held_counts_starting_and_failed_stacks(self):
+        for tag, state, port in (("a", "starting", 4799), ("b", "failed", 4798), ("c", "reaped", 4797), ("d", "running", 4796)):
+            v.write_entry({"tag": tag, "state": state, "port": port})
+        self.assertEqual(v.ports_held("d"), {4799, 4798})
+
+    def test_young_preparing_entry_is_left_alone(self):
+        v.write_entry({"tag": "p", "state": "preparing", "last_up_at": 1000})
+        self.assertIsNone(v.reap_one("p", 1000 + 600))
+        self.assertEqual(self.stopped, [])
+
+    def test_idle_running_entry_is_reaped_and_kept_for_gc(self):
+        v.write_entry({"tag": "r", "state": "running", "port": 4799, "last_up_at": 1000, "started_at": 1000, "last_request_at": 1000, "idle_secs": 60, "max_secs": 43200})
+        out = v.reap_one("r", 1000 + 61)
+        self.assertEqual(out["action"], "reaped")
+        self.assertEqual(v.read_entry("r")["state"], "reaped")
+        self.assertEqual(self.stopped, ["r"])
+
+    def test_failed_entry_is_cleaned_once(self):
+        v.write_entry({"tag": "f", "state": "failed", "port": 4799, "last_up_at": 1000})
+        self.assertEqual(v.reap_one("f", 1000 + 3601)["action"], "cleaned failed stack")
+        self.assertIsNone(v.reap_one("f", 1000 + 3901))
+        self.assertIsNone(v.read_entry("f")["port"])
+        self.assertEqual(self.stopped, ["f"])
 
 
 class IdleTests(unittest.TestCase):
