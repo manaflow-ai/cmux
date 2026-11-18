@@ -7679,6 +7679,157 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFleetRun(unittest.TestCase):
+    """2026-11-18: leo-workspace#5962 at 60199fb5. The lane-gh broker moved its ws-check to the build fleet's Linux
+    pool (hq#12237): Actions run 44400654026's one job, 135142434118, was cancelled before any runner took it (runner_id
+    0, no steps), and fleet job 78ae6c6073141385ddcecd04 ran the snapshot and printed the WS_CHECK_RESULT and the
+    receipt naming that run. The status linked the cancelled run, so ws_check_verdict read "job 'checks' in run
+    44400654026 is completed/cancelled: no result to read" and no pool-run verdict counted, red or green. The broker's
+    failure link names the fleet job now (WS_CHECK_FLEET_JOB), and its log is read from the controller as strictly as
+    an Actions log."""
+    RELAY, ROOT, VIOLATION = WsCheckPerTest.RELAY, WsCheckPerTest.ROOT, WsCheckPerTest.VIOLATION
+    SQUASHED = WsCheckPerTest.SQUASHED
+    relay_lint = WsCheckPerTest.relay_lint
+    snapshot_runs = WsCheckPerTest.snapshot_runs
+    JID = "9e57810da77d4633953007317e90e344"
+    FLEET = {1: "78ae6c6073141385ddcecd04", 2: "0123456789abcdef01234567"}
+    WORKER = "cmux-linux-pool-1118-204234-61f7c344"
+    REAL_FLEET_READ = staticmethod(getattr(excuse, "fleet_read", lambda op, job_id: None))
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+        self.snapshot = self.snapshot_runs()
+        self.controller, self.reads = {}, []
+        for run_id in (1, 2):
+            self.to_fleet(run_id)
+        patch = unittest.mock.patch.object(excuse, "fleet_read", self.fleet_read, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        getattr(excuse, "FLEET_READS", {}).clear()
+        self.addCleanup(getattr(excuse, "FLEET_READS", {}).clear)
+
+    def to_fleet(self, run_id):
+        """Run RUN_ID as the broker's move makes it: its Actions job cancelled before a runner, its log the fleet
+        job's (raw lines, no Actions stamps), its receipt saying build-fleet on the job's worker."""
+        fleet = self.FLEET[run_id]
+        sha = HEAD if run_id == 1 else self.gh.TIP
+        status = self.gh.statuses[sha][0]
+        status["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/{run_id}?fleet_job={fleet}"
+        self.gh.runs[run_id]["display_title"] = f"Fast checks {self.snapshot} job {self.JID}"
+        self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][0], name="checks", conclusion="cancelled", runner_id=0,
+                                     steps=[])]
+        lines = []
+        for line in self.gh.logs.pop(run_id * 10 + 1).splitlines():
+            text = line.split(" ", 1)[1]
+            if text.startswith("FAST_CHECKS_RECEIPT="):
+                receipt = json.loads(text.split("=", 1)[1])
+                receipt.update(ran_on="build-fleet", fleet_host=self.WORKER, fleet_job=fleet)
+                text = "FAST_CHECKS_RECEIPT=" + json.dumps(receipt)
+            lines.append(text)
+        self.controller[fleet] = {
+            "status": {"id": fleet, "kind": "fast-checks", "state": "failed", "worker": self.WORKER,
+                       "workspace": f"fast-checks-{self.JID}",
+                       "command": f"exec /bin/bash -c '... \"$took\" {self.snapshot} {self.snapshot} {run_id} "
+                                  "'python3 tools/ws_check_run.py' \"$root\"'"},
+            "log": "\n".join([f"job {fleet}: nofile=65536", *lines, "command failed: exit status 1",
+                              f"job {fleet} failed: exit status 1"])}
+
+    def fleet_read(self, op, job_id):
+        self.reads.append((op, job_id))
+        if job_id not in self.controller:
+            raise excuse.Refused(f"cmux-ci {op} {job_id} exited 1: no such job")
+        found = self.controller[job_id][op]
+        return json.dumps(found) if op == "status" else found
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_red_the_pool_ran_is_read_from_its_fleet_job_and_excused(self):
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "fail")
+        self.assertEqual(set(verdict["steps"]), {self.RELAY})
+        self.assertEqual(verdict["snapshot"], {"run": "1", "tree": self.SQUASHED})
+        self.assertIn(("log", self.FLEET[1]), self.reads)
+        # The Actions job's own log is never read: it has none.
+        self.assertFalse(any(route.endswith("/logs") for route in self.gh.routes))
+
+    def test_a_cancelled_run_whose_link_names_no_fleet_job_stays_no_result(self):
+        self.gh.statuses[HEAD][0]["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/1"
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "none")
+        self.assertEqual(verdict["why"], "job 'checks' in run 1 is completed/cancelled: no result to read")
+        self.assertEqual(self.reads, [])
+
+    def refused(self, pattern):
+        with self.assertRaisesRegex(excuse.Refused, pattern):
+            excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+
+    def test_a_fleet_link_on_an_actions_job_that_ran_is_refused(self):
+        for change in ({"runner_id": 7}, {"steps": [{"name": "Run fast checks"}]}, {"conclusion": "failure"}):
+            with self.subTest(change):
+                self.setUp()
+                self.gh.jobs[1][0].update(change)
+                self.refused("only a run cancelled before any runner took it moves to the fleet")
+
+    def test_a_fleet_job_that_is_not_this_runs_failed_fast_checks_job_is_refused(self):
+        fleet = self.FLEET[1]
+        for field, value in (("state", "done"), ("kind", "build"), ("workspace", "fast-checks-" + "0" * 32),
+                             ("workspace", "lw-5962"),
+                             ("command", f"exec /bin/bash -c '{self.snapshot} {self.snapshot} 2 run'")):
+            with self.subTest(field=field, value=value):
+                self.setUp()
+                self.controller[fleet]["status"][field] = value
+                self.refused(f"fleet job {fleet} .* is no failed fast-checks job of run 1")
+        self.setUp()
+        self.controller[fleet]["status"]["id"] = self.FLEET[2]
+        self.refused(f"the controller's answer for fleet job {fleet} is not that job")
+
+    def test_a_fleet_log_held_to_the_same_rules_as_an_actions_log(self):
+        fleet = self.FLEET[1]
+        log = self.controller[fleet]["log"]
+        cases = (
+            (log.replace("WS_CHECK_RESULT=", "WS_CHECK_RESULT=not json "), "no WS_CHECK_RESULT line listing"),
+            (log.replace('"run_id": "1"', '"run_id": "2"'), "is from another checkout"),
+            ("\n".join(line for line in log.splitlines() if not line.startswith("FAST_CHECKS_RECEIPT=")),
+             "is from another checkout"),
+            (log.replace(self.WORKER, "cmux-linux-pool-other"), "not on that job's worker"),
+            (log.replace('"ran_on": "build-fleet"', '"ran_on": "actions"'), "not on that job's worker"),
+            (log.replace("ws-check step FAILED:", "ws-check step ok:"), "has no 'ws-check step FAILED: "),
+        )
+        for text, pattern in cases:
+            with self.subTest(pattern):
+                self.setUp()
+                self.controller[fleet]["log"] = text
+                self.refused(pattern)
+
+    def test_a_fleet_job_this_host_cannot_read_is_refused_never_guessed(self):
+        del self.controller[self.FLEET[1]]
+        self.refused(f"cmux-ci status {self.FLEET[1]} exited 1")
+
+    def test_the_fleet_read_runs_the_hosts_cmux_ci_client(self):
+        with tempfile.TemporaryDirectory() as root:
+            client = Path(root) / "cmux-ci"
+            client.write_text("#!/bin/sh\n[ \"$1\" = log ] && [ \"$2\" = abc ] && echo the-log && exit 0\n"
+                              "echo refused >&2; exit 3\n")
+            client.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": str(client)}):
+                self.assertEqual(self.REAL_FLEET_READ("log", "abc"), "the-log\n")
+                with self.assertRaisesRegex(excuse.Refused, "cmux-ci status abc exited 3: refused"):
+                    self.REAL_FLEET_READ("status", "abc")
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": "", "PATH": root + "/none"}):
+                with self.assertRaisesRegex(excuse.Refused, "no cmux-ci client"):
+                    self.REAL_FLEET_READ("log", "abc")
+
+    def test_a_pass_never_needs_the_fleet(self):
+        self.gh.statuses[HEAD][0].update(state="success", description="770 tests passed in 77 steps")
+        self.assertEqual(excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)[0], "pass")
+        self.assertEqual(self.reads, [])
+
+
 class WsCheckFailureText(unittest.TestCase):
     """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
     as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
