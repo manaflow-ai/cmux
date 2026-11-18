@@ -9,7 +9,7 @@
 //   rule 2  per event (one item change, a one-row scroll, a hover, a select, a clock tick, a 20 px
 //           width change) no row whose DOM did not change rendered, and at most: change 1, scroll 0,
 //           hover 1, select 1 row; width at most once per mounted row. Renders come from React's
-//           commit hook (installListProbes), charged to the row whose DOM the fiber is in, so a list
+//           commit hook (commitRenders.ts), charged to the row whose DOM the fiber is in, so a list
 //           needs no counters of its own.
 //   rule 3  per event, flat in N: layout reads on the main thread (getBoundingClientRect, offset*,
 //           client*, scroll*, getComputedStyle) and, on Chromium, elements restyled and objects laid
@@ -18,6 +18,7 @@
 import type { Browser, Page } from "playwright";
 import type { ListEvent } from "../list-contract/listFixture";
 import type { ListPage } from "../browser/list-contract.harness";
+import { installRowRenderCounter, type RowRenderCount, type RowRenderCounter } from "./commitRenders";
 
 export const LIST_SIZES = [1_000, 10_000] as const;
 export const LIST_EVENTS: readonly ListEvent[] = ["change", "scroll", "hover", "select", "tick", "width"];
@@ -32,15 +33,7 @@ const RENDER_LIMIT: Record<Exclude<ListEvent, "width">, number> = {
 const NARROWER_PX = 20;
 
 /// What the probes saw over one event.
-export type EventCount = {
-  /// Rows mounted before the event that rendered in it.
-  rerendered: number;
-  /// Of those, rows whose DOM is the same after the event: renders for nothing.
-  wasted: number;
-  /// Rows the event mounted (a scroll brings rows in).
-  added: number;
-  /// The most commits any one row rendered in.
-  maxRenders: number;
+export type EventCount = RowRenderCount & {
   /// Layout reads on the main thread.
   reads: number;
 };
@@ -71,99 +64,13 @@ type Probe = {
 };
 
 /**
- * Installed before the page's scripts (page.addInitScript): a React DevTools hook whose commit
- * callback charges every fiber that rendered to the row its DOM is in, and counters for layout
- * reads and observed elements. Self-contained: Playwright serializes it into the page.
+ * Installed before the page's scripts (page.addInitScript), after installRowRenderCounter
+ * (commitRenders.ts, the row renders): counters for layout reads and observed elements.
+ * Self-contained: Playwright serializes it into the page.
  */
 export function installListProbes() {
-  type Fiber = {
-    tag: number;
-    flags: number;
-    child: Fiber | null;
-    sibling: Fiber | null;
-    return: Fiber | null;
-    alternate: Fiber | null;
-    memoizedProps: unknown;
-    stateNode: unknown;
-  };
-  // FunctionComponent, ClassComponent, ForwardRef, MemoComponent, SimpleMemoComponent.
-  const COMPONENT = new Set([0, 1, 11, 14, 15]);
-  // HostComponent, HostHoistable, HostSingleton.
-  const HOST = new Set([5, 26, 27]);
-  const PERFORMED_WORK = 1;
   let counting = false;
-  let rowSelector = "";
-  let scroller: Element | null = null;
   let reads = 0;
-  let before = new Map<Element, string>();
-  let renders = new Map<Element, number>();
-  let touched = new Set<Element>();
-
-  const rowOf = (element: unknown): Element | null => {
-    if (!(element instanceof Element) || !scroller) return null;
-    const row = element.closest(rowSelector);
-    return row && scroller.contains(row) ? row : null;
-  };
-  const hostAbove = (fiber: Fiber): Element | null => {
-    for (let at = fiber.return; at; at = at.return) if (HOST.has(at.tag)) return at.stateNode as Element;
-    return null;
-  };
-  /// The host elements a component renders at its top level (up to two).
-  const hostsBelow = (fiber: Fiber, found: Element[] = []): Element[] => {
-    for (let child = fiber.child; child && found.length < 2; child = child.sibling) {
-      if (HOST.has(child.tag)) found.push(child.stateNode as Element);
-      else if (child.tag !== 4) hostsBelow(child, found);
-    }
-    return found;
-  };
-  /// The row a fiber's render is charged to: the row its DOM sits in, or the one row it renders.
-  const charge = (fiber: Fiber) => {
-    let row = HOST.has(fiber.tag) ? rowOf(fiber.stateNode) : rowOf(hostAbove(fiber));
-    if (!row && COMPONENT.has(fiber.tag)) {
-      const hosts = hostsBelow(fiber);
-      if (hosts.length === 1) row = rowOf(hosts[0]);
-    }
-    if (row) touched.add(row);
-  };
-  const rendered = (next: Fiber, prev: Fiber) =>
-    COMPONENT.has(next.tag)
-      ? (next.flags & PERFORMED_WORK) === PERFORMED_WORK
-      : HOST.has(next.tag) && next.memoizedProps !== prev.memoizedProps;
-  const mounted = (fiber: Fiber) => {
-    if (COMPONENT.has(fiber.tag) || HOST.has(fiber.tag)) charge(fiber);
-    for (let child = fiber.child; child; child = child.sibling) mounted(child);
-  };
-  // React DevTools' walk: a subtree whose child pointer did not move did not render.
-  const updated = (next: Fiber, prev: Fiber) => {
-    if (rendered(next, prev)) charge(next);
-    if (next.child === prev.child) return;
-    for (let child = next.child; child; child = child.sibling)
-      if (child.alternate) updated(child, child.alternate);
-      else mounted(child);
-  };
-
-  const hook = {
-    renderers: new Map<number, unknown>(),
-    supportsFiber: true,
-    inject(renderer: unknown) {
-      const id = hook.renderers.size + 1;
-      hook.renderers.set(id, renderer);
-      return id;
-    },
-    onScheduleFiberRoot() {},
-    onCommitFiberUnmount() {},
-    onPostCommitFiberRoot() {},
-    checkDCE() {},
-    onCommitFiberRoot(_id: number, root: { current: Fiber }) {
-      if (!counting) return;
-      touched = new Set();
-      const current = root.current;
-      if (current.alternate) updated(current, current.alternate);
-      else mounted(current);
-      for (const row of touched) renders.set(row, (renders.get(row) ?? 0) + 1);
-    },
-  };
-  (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
 
   // Layout reads: each of these lays out a dirty tree before it answers.
   const count = () => {
@@ -235,29 +142,17 @@ export function installListProbes() {
     };
   }
 
+  const renders = (globalThis as unknown as { __cmuxRowRenders: RowRenderCounter }).__cmuxRowRenders;
   const probe: Probe = {
     begin(rows, scrollerSelector) {
-      rowSelector = rows;
-      scroller = document.querySelector(scrollerSelector);
-      before = new Map([...(scroller?.querySelectorAll(rows) ?? [])].map((row) => [row, row.outerHTML]));
-      renders = new Map();
+      const scroller = document.querySelector(scrollerSelector);
+      if (scroller) renders.begin(scroller, rows);
       reads = 0;
       counting = true;
     },
     end() {
       counting = false;
-      let rerendered = 0;
-      let wasted = 0;
-      let added = 0;
-      for (const row of renders.keys()) {
-        const html = before.get(row);
-        if (html === undefined) added++;
-        else {
-          rerendered++;
-          if (row.isConnected && row.outerHTML === html) wasted++;
-        }
-      }
-      return { rerendered, wasted, added, maxRenders: Math.max(0, ...renders.values()), reads };
+      return { ...renders.end(), reads };
     },
     observed() {
       let total = 0;
@@ -311,6 +206,7 @@ export async function measureList(browser: Browser, base: string, name: string, 
   const engine = browser.browserType().name();
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   try {
+    await page.addInitScript(installRowRenderCounter);
     await page.addInitScript(installListProbes);
     await page.goto(`${base}/test/browser/list-contract.html?list=${name}&n=${n}`);
     await page.waitForFunction(() => "__list" in window, null, { timeout: 60_000 });
