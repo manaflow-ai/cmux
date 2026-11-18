@@ -43,7 +43,7 @@ export function useAgentServiceWait(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const askNow = () => {
       timer = undefined;
-      ask({ waitedMs: Math.max(0, Date.now() - since) })
+      void ask({ waitedMs: Math.max(0, Date.now() - since) })
         .then(
           (reply) => readAgentServiceWait(reply),
           () => undefined,
