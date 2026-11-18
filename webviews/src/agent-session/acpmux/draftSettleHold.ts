@@ -22,9 +22,10 @@ export const DRAFT_SETTLE_HOLD_MS = 2_000;
 
 /// The chat whose wait for its draft ran out: `rowsReadFor` (the chat whose rows are in) once
 /// DRAFT_SETTLE_HOLD_MS passed with `draftSettled` (the chat whose draft the composer read) not naming it.
-/// `promptShown` says whether the prompt already shows what the wait is for; the wait ends as soon as
-/// it does, checked once the rows are in and again as the prompt's text changes (`promptRoot`), until the
-/// hold runs out.
+/// `promptShown` says whether the composer already shows what the wait is for (its prompt, attachments,
+/// queued prompts and picks, at the copy's height: chatSnapshot/live.ts); the wait ends as soon as it
+/// does, checked once the rows are in and again as the composer changes (`promptRoot`), until the hold
+/// runs out.
 export function useDraftWaitOver(
   rowsReadFor: string | undefined,
   draftSettled: string | undefined,
@@ -53,7 +54,8 @@ export function useDraftWaitOver(
       watch = new Observer(() => {
         if (promptShown()) end();
       });
-      watch.observe(root, { childList: true, characterData: true, subtree: true });
+      // Attributes too: a chip that finishes loading, or a strip shown, changes a class or a style.
+      watch.observe(root, { childList: true, characterData: true, attributes: true, subtree: true });
     }
     return () => {
       watch?.disconnect();

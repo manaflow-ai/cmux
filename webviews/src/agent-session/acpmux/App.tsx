@@ -976,8 +976,9 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
 
 /// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
 /// session daemon's agent-session-start). A trust refusal has its own question.
-/// The live composer's box, whose prompt text the draft-settle hold watches (draftSettleHold.ts).
-const composerPromptRoot = (): Node | null => document.querySelector("#root .acpmux-composer-box");
+/// The live composer, which the draft-settle hold watches (draftSettleHold.ts): its prompt, and the
+/// attachments, queued prompts and picks around it that the live page restores after it.
+const composerPromptRoot = (): Node | null => document.querySelector("#root .acpmux-composer");
 
 function isStartRefusal(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;

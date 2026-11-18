@@ -34,20 +34,32 @@ export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
 }
 
-/// The composer's prompt text in an element (its editor's root; the placeholder lies beside it), spaces
-/// folded, or undefined when it has no prompt.
-function promptText(scope: ParentNode | null | undefined): string | undefined {
-  const field = scope?.querySelector(".acpmux-composer-box .acpmux-md-root");
-  return field ? (field.textContent ?? "").replace(/\s+/g, " ").trim() : undefined;
+/// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
+/// placeholder lies beside it). It holds:
+/// - the prompt's text;
+/// - the composer's whole text, spaces folded: attachment names, queued prompts and the pickers'
+///   labels, all of which the live page restores after the prompt's text;
+/// - how many attachment tiles and pictures it draws (an image chip has no text);
+/// - its height, whole pixels (a tall multi-line draft, a strip of chips).
+function composerShows(scope: ParentNode | null | undefined): string | undefined {
+  const composer = scope?.querySelector(".acpmux-composer");
+  const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  if (!composer || !field) return undefined;
+  const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+  const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
+  return [fold(field), fold(composer), tiles, Math.round(composer.getBoundingClientRect().height)].join("\u0000");
 }
 
-/// Whether the live page's prompt shows what the copy over it shows (draftSettleHold.ts): the draft
-/// is in already (none, or the one the page's own cache put back), so the swap steps nothing back.
+/// Whether the live page's composer shows what the copy over it shows (draftSettleHold.ts): the
+/// draft, its attachments, the queued prompts and the picks are in already (none, or what the page's
+/// own cache put back) and the composer is as tall, so the swap steps nothing back and moves nothing.
+/// Before, only the prompt's text was compared: an attachment-only draft read as empty on both sides,
+/// the copy went, and the composer grew when the chip came back (cmux#45669 review F1).
 /// False with no copy, or no prompt in either.
 export function promptMatchesChatSnapshot(): boolean {
   if (!showsChatSnapshot()) return false;
-  const copy = promptText(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
-  const live = promptText(document.getElementById("root"));
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
   return copy !== undefined && live !== undefined && copy === live;
 }
 
