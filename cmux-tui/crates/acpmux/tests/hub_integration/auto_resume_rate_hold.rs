@@ -146,3 +146,83 @@ async fn stop_ends_a_rate_limit_hold_and_the_queue_goes_on() {
     .await
     .unwrap();
 }
+
+/// Leo, 2026-11-18: "claude-sr2-coord fell into a weird "rate limited" loop again 429 and
+/// whatever". Six turns in a row that fail on the limit park the chat: its continuation waits,
+/// a message from another agent starts nothing, and the row says so. `_acpmux/retry` sends the
+/// waiting continuation on, and the message goes in with it as one turn.
+#[tokio::test]
+async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    // Six attempts, so a continuation still waits when the sixth turn fails.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20; 6]);
+    let id = new_session(&mut c, "parked").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("rate-fail-n:6:{LIMIT}")}],
+                "_meta": {"acpmux": {"promptId": "p-park"}}
+            }),
+        )
+        .await;
+    assert!(r.is_err());
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "rate_limit_parked")).await;
+    let parked = of_kind(&hub, &id, "rate_limit_parked");
+    assert_eq!(parked.len(), 1, "{k:?}");
+    assert_eq!(parked[0].msg["strikes"], 6, "{parked:?}");
+    assert_eq!(parked[0].msg["noticed"], true, "{parked:?}");
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 6, "{k:?}");
+    // Each continuation waited at least the chat's backoff: 20, 40, 80, 160, 320 ms.
+    let scheduled = of_kind(&hub, &id, "auto_resume_scheduled");
+    for (n, e) in scheduled.iter().take(5).enumerate() {
+        let floor = 20u64 << n;
+        assert!(e.msg["delayMs"].as_u64().unwrap() >= floor, "attempt {}: {e:?}", n + 1);
+    }
+
+    // Parked: another agent's message waits, and no timer sends the continuation.
+    let late =
+        c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 6, "{:?}", kinds(&hub, &id));
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row["rateLimitParked"].as_u64().is_some(), "{row}");
+    assert!(row.get("rateLimitedUntil").is_none(), "{row}");
+
+    // A retry sends the waiting continuation on: one turn, carrying the late message.
+    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 7).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(of_kind(&hub, &id, "turn_started").len(), 7, "{k:?}");
+    assert_eq!(of_kind(&hub, &id, "rate_limit_unparked").len(), 1, "{k:?}");
+    let last = user_messages(&hub, &id).pop().unwrap().to_string();
+    assert!(last.contains("late report"), "{last}");
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(row.get("rateLimitParked").is_none(), "{row}");
+    assert!(row.get("rateLimitedUntil").is_none(), "{row}");
+    drop(late);
+}
+
+/// A turn that ends well clears the strikes: the next 429 waits the first backoff again.
+#[tokio::test]
+async fn a_turn_that_ends_well_clears_the_strikes() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20; 4]);
+    let id = new_session(&mut c, "cleared").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("rate-fail-n:2:{LIMIT}")}],
+                "_meta": {"acpmux": {"promptId": "p-clear"}}
+            }),
+        )
+        .await;
+    assert!(r.is_err());
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 3).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!k.iter().any(|k| k == "rate_limit_parked"), "{k:?}");
+    assert_eq!(hub.resolve(&id).unwrap().rate_hold_strikes(), 0, "{k:?}");
+}

@@ -190,6 +190,13 @@ impl Hub {
         record_manual: bool,
     ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
+        // A parked chat (`rate_hold.rs`) goes on at a retry: its waiting continuation runs now,
+        // compacted first past the line; with none waiting, the hold ends and this retry runs.
+        if auto.is_none()
+            && let Some(cut_turn) = self.unpark_rate_hold(session)
+        {
+            return Ok(answer(format!("{cut_turn} (rate-limit continuation)"), None));
+        }
         // A person's or an agent's retry waits for the account's reset like every other turn.
         if auto.is_none()
             && let Some(until) = session.rate_hold.until().filter(|u| *u > crate::hub::now_ms())

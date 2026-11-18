@@ -586,10 +586,12 @@ impl Hub {
         }
         // The account's limit holds the whole chat from now on, a continuation or none: what comes
         // in meanwhile queues for the reset (`rate_hold.rs`).
+        // Its strikes grow its backoff; enough of them park it (no timer, one line to the
+        // session it reports to); its continuation then waits for a retry.
         if let (Some(cut), Some(RetryReason::RateLimit), Some(true)) =
             (cut.as_ref(), reason, ending)
         {
-            self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
+            let _parked = self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
         }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
@@ -640,8 +642,17 @@ impl Hub {
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
             let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
-            let next_at =
+            let mut next_at =
                 now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            // A rate limit's continuation waits out the chat's backoff, which grows with its
+            // strikes, however early its own attempt would come; a parked chat's waits for a
+            // retry (`rate_hold.rs`).
+            let parked = reason == RetryReason::RateLimit && session.rate_hold.parked().is_some();
+            if reason == RetryReason::RateLimit {
+                let base = super::rate_hold::backoff_base(&delays);
+                let backoff = super::rate_hold::backoff_ms(session.rate_hold.strikes(), base);
+                next_at = next_at.max(now.saturating_add(staggered(backoff, &session.id)));
+            }
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
@@ -657,6 +668,9 @@ impl Hub {
             msg.set("control", json!(control.as_str()));
             msg.set("trustGate", json!(trust_gate));
             msg.set("notBefore", json!(not_before));
+            if parked {
+                msg.set("parked", json!(true));
+            }
             if let Some(from) = &from {
                 msg.set("from", json!(from));
             }

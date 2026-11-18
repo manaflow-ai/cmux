@@ -1593,6 +1593,11 @@ impl Hub {
             }),
             _ => None,
         };
+        // A turn that ended well clears the chat's rate-limit strikes (`rate_hold.rs`).
+        if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.rate_turn_ok(session);
+        }
         self.schedule_auto_resume(session, &turn_id, cut);
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).

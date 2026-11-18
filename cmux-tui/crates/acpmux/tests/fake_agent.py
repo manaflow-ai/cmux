@@ -110,6 +110,9 @@ cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
+# "rate-fail-n:N:ERROR" fails the session's turns with ERROR until N of them failed, whatever
+# their text (acpmux's continuations included); the next one runs.
+rate_failures = {}
 # Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
 net_flaky = set()
 next_id = 100
@@ -646,6 +649,13 @@ def handle_prompt(rid, params):
         return
     # Recovery fixtures: preserve the session, fail the first turn with the supplied
     # provider error, then answer the continuation normally.
+    if text.startswith("rate-fail-n:") and sid not in rate_failures:
+        _, n, error = text.split(":", 2)
+        rate_failures[sid] = [int(n), error]
+    if sid in rate_failures and rate_failures[sid][0] > 0:
+        rate_failures[sid][0] -= 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
     if text.startswith("recover-once: ") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})

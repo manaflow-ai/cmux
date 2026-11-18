@@ -184,6 +184,12 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub rate_limited_until: Option<u64>,
+    /// Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+    /// it, so it starts nothing by itself until `acpmux retry` or Stop (`hub/rate_hold.rs`).
+    /// Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub rate_limit_parked: Option<u64>,
     /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
     /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
     /// otherwise, and from a peer on an older acpmux.
