@@ -619,6 +619,19 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         moveOffset(to: newestOffset)
     }
 
+    /// Keeps an `.up` list that follows its newest row on it after a layout pass. Riding the bottom
+    /// edge (the keyboard, a composer that grew) is the list's own move; the rest cancels what moved
+    /// the newest row (a page or a row above that changed the content's height), a correction: the
+    /// reader sees nothing move, so the shift measure counts nothing for it.
+    private func stayOnNewest(edgeMove: CGFloat?) {
+        // The edge moving up by d (d < 0) takes the rows up with it: an offset move of -d (or, for a
+        // short list sitting on the edge, its top inset's).
+        if let edgeMove { explained -= edgeMove }
+        let delta = newestOffset - collectionView.contentOffset.y
+        guard abs(delta) > 0.01 else { return }
+        correctOffset(by: delta)
+    }
+
     /// The newest-rows indicator's jump: a windowed model brings its newest rows back first.
     private func jumpToNewest() {
         showNewest?()
@@ -671,7 +684,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return
         }
         if direction == .up, followsNewest {
-            if !collectionView.isDecelerating, !spring.isRunning, !arriving { scrollToNewest() }
+            if !collectionView.isDecelerating, !spring.isRunning, !arriving { stayOnNewest(edgeMove: edgeMove) }
             kept = nil
         } else if let edgeMove, pinning == .ridesBottomEdge, !followsNewest, let kept, !keeping {
             // The bottom edge moved (the keyboard, a composer that grew): what the reader sees goes
@@ -799,9 +812,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let userMove = scrollView.isTracking || scrollView.isDecelerating || scrollingToTop
         if corrections > 0 {
             // Putting the reader back: not part of the scroll.
-        } else if pendingAdjustment != 0, abs(delta - pendingAdjustment) < 0.5 {
-            // The layout's own correction for a row above that changed height.
-            pendingAdjustment = 0
+        } else if pendingAdjustment != 0, delta * pendingAdjustment > 0, abs(delta) <= abs(pendingAdjustment) + 0.5 {
+            // The layout's own correction for a row above that changed height (UIKit may apply
+            // several rows' corrections one at a time or together).
+            pendingAdjustment = abs(pendingAdjustment - delta) < 0.5 ? 0 : pendingAdjustment - delta
         } else if ownMoves > 0 || userMove {
             explained += delta
         }

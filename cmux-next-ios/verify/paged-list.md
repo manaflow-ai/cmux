@@ -62,8 +62,9 @@ keyboard mid-slide retarget it with no seam. A touch stops it where it is. Reduc
 land out of view and the newest-rows indicator counts them.
 
 The indicator is the screen's own: `.pagedNewestIndicator { newest in ... }` draws from
-`PagedListNewest` (`unseen`, `isAway` with hysteresis, `jump`). `PagedListNewestPill` is a ready-made
-one; no screen uses it yet.
+`PagedListNewest` (`unseen`, `isAway` with hysteresis, `jump`). It sits at the newest end: above the
+bottom edge of an `.up` list, under the top edge of a `.down` one, so it never covers the older edge's
+spinner or Try Again. `PagedListNewestPill` is a ready-made one; no screen uses it yet.
 
 ## Memory
 
@@ -122,8 +123,9 @@ every direction (down, up) × speed (slow held drags, medium short flings, fast 
 
 The lab's probe measures, after every layout pass, how far the row being read moved on screen beyond
 what the scroll explains (the finger, a fling's deceleration, scroll to top, the list's own slide or
-ride). Corrections the list makes (anchoring, height changes) are not explanations: a frame where a
-correction left the row off its place is a shift. A case fails above 0.5 pt in any frame, or above
+ride). Corrections the list makes (anchoring, height changes, staying on the newest row when a page
+lands above it) are not explanations: a frame where a correction left the row off its place is a
+shift. The sample is taken once per update and once per layout pass, after the list's corrections. A case fails above 0.5 pt in any frame, or above
 10 ms of hitches per second. Each case prints `PAGEDLIST STRESS-<direction>-<speed>-<load> {…}`;
 `scripts/bench/cmux-bench ios-pagedlist --host fleet --arg ref=SHA` runs the suite on a fleet
 simulator and records the rows (frame_shift_pt, shifted_frames, landing_shift_pt, hitch_ms_per_s,

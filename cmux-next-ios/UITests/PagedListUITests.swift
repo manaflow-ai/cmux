@@ -92,7 +92,7 @@ final class PagedListUITests: XCTestCase {
         for _ in 0..<3 { lab.drag(by: 360) }
         lab.settle(lab.list.cells.firstMatch)
         let composer = lab.app.textFields["lab.composer"]
-        let row = lab.visibleRow()
+        let row = lab.visibleRow(nearFloor: true)
         let gap = composer.frame.minY - row.frame.maxY
         composer.tap()
         XCTAssertTrue(lab.app.keyboards.firstMatch.waitForExistence(timeout: 5), "no keyboard")
@@ -139,7 +139,8 @@ final class PagedListUITests: XCTestCase {
     @MainActor func testWindowedHugeListKeepsMemoryBounded() {
         continueAfterFailure = true
         let lab = PagedLabDriver.launch("down:normal", extra: ["-cmux-mobile-paged-lab-stress", "huge", "-cmux-mobile-paged-lab-window", "300"], test: self)
-        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 15))
+        // Any row: the load can move row 0 before the first look.
+        XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 15))
         for _ in 0..<40 { lab.scroll(towardOlder: true, direction: "down", speed: .fast) }
         lab.settle(lab.list.cells.firstMatch)
         lab.waitFor("rows spilled to disk", timeout: 5) { lab.reading.onDisk > 0 }

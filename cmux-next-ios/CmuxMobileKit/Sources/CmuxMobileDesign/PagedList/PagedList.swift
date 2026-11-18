@@ -439,7 +439,7 @@ struct PagedListHostRepresentable<Item: Identifiable & Equatable, Row: View>: UI
     func updateUIViewController(_ host: PagedListHostController, context: Context) {
         host.loadViewIfNeeded()
         host.setAccessory(accessory, background: accessoryBackground, followsKeyboard: followsKeyboard)
-        host.setIndicator(indicator)
+        host.setIndicator(indicator, direction: config.direction)
         host.setOverlay(overlay)
         config.apply(to: context.coordinator)
     }

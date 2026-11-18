@@ -10,7 +10,9 @@ import UIKit
 ///   in the keyboard's own animation and with the finger in an interactive dismissal. The list's
 ///   bottom inset is the accessory's top, set in the same layout pass, and the rows answer it as the
 ///   list's ``PagedListBottomPinning`` says;
-/// - a newest-rows indicator (the screen's own look), above the list's bottom edge;
+/// - a newest-rows indicator (the screen's own look) at the list's newest end: above the bottom
+///   edge of an `.up` list, under the top edge of a `.down` one (never over the older edge's
+///   spinner or Try Again);
 /// - the first page's states (loading, failed, empty) over the rows, so an accessory stays put
 ///   (and keeps its focus) while they show.
 ///
@@ -23,6 +25,7 @@ final class PagedListHostController: UIViewController {
     private let dock = PagedListDockView()
     private var indicatorHost: UIHostingController<AnyView>?
     private var indicatorBottom: NSLayoutConstraint?
+    private var indicatorTop: NSLayoutConstraint?
     private let overlayHost = UIHostingController(rootView: AnyView(EmptyView()))
     private var keyboardPin: NSLayoutConstraint?
     private var hasAccessory = false
@@ -118,7 +121,7 @@ final class PagedListHostController: UIViewController {
         })
     }
 
-    func setIndicator(_ make: ((PagedListNewest) -> AnyView)?) {
+    func setIndicator(_ make: ((PagedListNewest) -> AnyView)?, direction: PagedListDirection) {
         guard let make else {
             indicatorHost?.willMove(toParent: nil)
             indicatorHost?.view.removeFromSuperview()
@@ -129,6 +132,7 @@ final class PagedListHostController: UIViewController {
         let root = AnyView(PagedListIndicatorRoot(state: newest, content: make))
         if let indicatorHost {
             indicatorHost.rootView = root
+            placeIndicator(atTop: direction == .down)
             return
         }
         let host = UIHostingController(rootView: root)
@@ -138,11 +142,19 @@ final class PagedListHostController: UIViewController {
         host.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(host)
         view.insertSubview(host.view, belowSubview: dock)
-        let bottom = host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        NSLayoutConstraint.activate([host.view.centerXAnchor.constraint(equalTo: view.centerXAnchor), bottom])
+        host.view.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
+        indicatorBottom = host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        indicatorTop = host.view.topAnchor.constraint(equalTo: view.topAnchor)
         host.didMove(toParent: self)
         indicatorHost = host
-        indicatorBottom = bottom
+        placeIndicator(atTop: direction == .down)
+    }
+
+    /// The indicator sits at the newest end: the top of a `.down` list, the bottom of an `.up` one.
+    private func placeIndicator(atTop: Bool) {
+        guard indicatorTop?.isActive != atTop || indicatorBottom?.isActive != !atTop else { return }
+        indicatorTop?.isActive = atTop
+        indicatorBottom?.isActive = !atTop
         view.setNeedsLayout()
     }
 
@@ -187,6 +199,7 @@ final class PagedListHostController: UIViewController {
         }
         let adjusted = list.adjustedContentInset
         indicatorBottom?.constant = -(adjusted.bottom + 8)
+        indicatorTop?.constant = adjusted.top + 8
         if !overlayHost.view.isHidden {
             overlayHost.view.frame = CGRect(x: 0, y: adjusted.top, width: view.bounds.width,
                                             height: max(0, view.bounds.height - adjusted.top - adjusted.bottom))
