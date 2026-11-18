@@ -1280,6 +1280,9 @@ pub struct Hub {
     /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
     /// (`page_replies.rs`).
     pub(crate) page_replies: page_replies::PageReplies,
+    /// Machines whose own remote chain refused a start this daemon forwarded there, which the
+    /// automatic pick skips while fresh (`start_refusals.rs`).
+    pub(crate) start_refusals: crate::start_refusals::StartRefusals,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1572,6 +1575,7 @@ impl Hub {
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
+            start_refusals: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),

@@ -116,6 +116,30 @@ pub async fn resolve(
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
 }
 
+/// The most machines one automatic `new` starts on before it gives up: the pick, then the next
+/// candidates after a refusal by the pick's own remote chain (`try_next`).
+pub const PLACE_TRIES: usize = 3;
+
+/// Whether an automatic start (`placed`: the host came from the pick, not `--machine HOST`) that
+/// failed with `error` on `host` goes on to the next candidate: the host's own remote chain refused
+/// it (`start_refusals.rs`), so nothing started and the same start there is refused again. The
+/// daemon recorded the refusal, so the next `_acpmux/place` skips that host. `tried`: the hosts
+/// started on so far, this one included; at `PLACE_TRIES` it stops. A named machine is always
+/// tried, never moved off: that is how its record clears once it is fixed.
+pub fn try_next(placed: bool, host: Option<&str>, tried: usize, error: &anyhow::Error) -> bool {
+    placed
+        && host.is_some()
+        && tried < PLACE_TRIES
+        && error.downcast_ref::<crate::client::DaemonError>().is_some_and(|d| {
+            crate::start_refusals::reason(d.0.data.as_ref()) == Some(crate::start_refusals::REASON)
+        })
+}
+
+/// The line an automatic `new` prints when it moves on from `host` (`try_next`).
+pub fn next_line(host: &str) -> String {
+    format!("{host} refused the start (its remote chain): trying the next machine")
+}
+
 /// A verdict with no pick: an explicit `--host auto` stops with why; a `new` that named no host
 /// (`here_if_none`) starts here with a warning, unless the registry holds this machine (`held`).
 fn without_pick(v: &Value, here_if_none: bool, held: Option<String>) -> Result<Option<String>> {
@@ -245,6 +269,35 @@ mod tests {
             no_fleet_host(&none),
             "starting on this machine: no fleet host took it (no host has room for this); \
              `acpmux machine add` connects one"
+        );
+    }
+
+    /// An automatic start the pick's own remote chain refused goes on to the next machine, at
+    /// most `PLACE_TRIES` in all; a named machine is always started on, never moved off; any
+    /// other failure ends the start.
+    #[test]
+    fn an_automatic_start_tries_the_next_machine_after_a_chain_refusal() {
+        let error = |reason: &str| {
+            anyhow::Error::from(crate::client::DaemonError(
+                crate::rpc::RpcError::new(-32000, "refused by vm: remote chain refused: canary")
+                    .with_data(json!({"reason": reason, "host": "vm"})),
+            ))
+        };
+        let refused = error(crate::start_refusals::REASON);
+        assert!(try_next(true, Some("vm"), 1, &refused));
+        assert!(try_next(true, Some("vm"), PLACE_TRIES - 1, &refused));
+        assert!(!try_next(true, Some("vm"), PLACE_TRIES, &refused), "bounded");
+        assert!(!try_next(false, Some("vm"), 1, &refused), "a named machine is not moved off");
+        assert!(!try_next(true, None, 1, &refused), "this machine runs no remote chain");
+        assert!(!try_next(true, Some("vm"), 1, &error("remote.credential_expiring")));
+        assert!(!try_next(true, Some("vm"), 1, &anyhow::anyhow!("remote chain refused")));
+        // Through `new`'s own target: `--machine auto` places, `--machine vm` names the host.
+        let placed = |h: &str| matches!(new_target(Some(h), false, false), Target::Place(_));
+        assert!(try_next(placed("auto"), Some("vm"), 1, &refused));
+        assert!(!try_next(placed("vm"), Some("vm"), 1, &refused));
+        assert_eq!(
+            next_line("vm"),
+            "vm refused the start (its remote chain): trying the next machine"
         );
     }
 

@@ -524,7 +524,11 @@ async fn dispatch_brief(
             &mut params,
             crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
         );
-        let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
+        let sent = peer.request_on(method::MUX_DISPATCH, params, epoch).await;
+        // As for a forwarded `session/new`: the dispatch's start there is refused by that
+        // machine's own remote chain, or worked (`start_refusals.rs`).
+        hub.start_refusals.note(&peer_name, &sent, crate::store::now_ms());
+        let mut result = match sent {
             Ok(result) => result,
             Err(e) => {
                 if !durable {
@@ -1610,7 +1614,7 @@ async fn dispatch_request_with_identity(
                 // own chat, asking, as before the start level was carried (`Carried::Person`).
                 let asking = (carried == crate::hub::full_access_children::Carried::Person)
                     .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-                let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
+                let started = match super::remote_guard::hint::new_on(&peer, &params, p).await {
                     Err(e)
                         if asking.is_some()
                             && e.data
@@ -1618,10 +1622,14 @@ async fn dispatch_request_with_identity(
                                 .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
                     {
                         let asking = asking.unwrap_or_default();
-                        super::remote_guard::hint::new_on(&peer, &params, asking).await?
+                        super::remote_guard::hint::new_on(&peer, &params, asking).await
                     }
-                    r => r?,
+                    r => r,
                 };
+                // A refusal by its own remote chain keeps the machine out of the automatic pick
+                // for a while; a start that works there clears it (`start_refusals.rs`).
+                hub.start_refusals.note(&peer.name, &started, crate::store::now_ms());
+                let mut result = started?;
                 if let Some(approved) = &unattended {
                     let id = result.get("sessionId").and_then(Value::as_str);
                     hub.log_unattended_start(approved, &peer.name, conn.caller(), id);

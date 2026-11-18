@@ -656,10 +656,11 @@ fn the_lane_cap_is_counted_as_lane_admission_room_for_counts_it() {
             );
         }
     }
-    // No cap, or no count: unknown. A ceiling under max_lanes is no ceiling.
+    // No cap configured, or a cap with no count read. A ceiling under max_lanes is no ceiling.
     let none = Lanes::from_registry(&json!({"headroom_max_lanes": 12}));
-    assert_eq!(none.cap_state(Some(3), true), CapState::Unknown);
-    assert_eq!(lanes.cap_state(None, true), CapState::Unknown);
+    assert_eq!(none.cap_state(Some(3), true), CapState::NoCap);
+    assert_eq!(none.cap_state(None, true), CapState::NoCap);
+    assert_eq!(lanes.cap_state(None, true), CapState::NoCount);
     let low = Lanes::from_registry(&json!({"max_lanes": 6, "headroom_max_lanes": 4}));
     assert_eq!(low.cap_state(Some(6), true), CapState::Full);
 
@@ -722,4 +723,54 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(false)), "{v:#}");
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
+}
+
+#[test]
+fn a_cap_with_no_live_count_ranks_after_headroom_and_no_cap_ranks_with_under() {
+    // max_lanes 3, headroom_max_lanes 5 on light and small; desk has no max_lanes at all.
+    let mut reg = registry();
+    for name in ["light", "small", "big"] {
+        let lanes = &mut reg["machines"][name]["lanes"];
+        lanes["max_lanes"] = json!(3);
+        lanes["headroom_max_lanes"] = json!(5);
+    }
+    reg["machines"]["desk"]["lanes"].as_object_mut().unwrap().remove("max_lanes");
+    let no_live = |ram: f64| {
+        let mut h = health(ram, 12, 1.0, 300.0, 0);
+        h.as_object_mut().unwrap().remove("liveSessions");
+        h
+    };
+    // light has a cap and no count, with room for 11 (RAM); small is past max_lanes on headroom
+    // with room for 1. Where light stands against its cap is not known: headroom goes first.
+    let no_count = c("light", no_live(40.0));
+    let headroom = c("small", health(60.0, 16, 1.0, 300.0, 4));
+    let v = place(&[no_count.clone(), headroom.clone()], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v:#}");
+    assert_eq!(host(&v, "light")["room"], 11.0, "{v:#}");
+    // A host with no cap configured ranks with under: ahead of the headroom host.
+    let no_cap = c("desk", health(40.0, 16, 1.0, 300.0, 9));
+    let v = place(&[headroom, no_count, no_cap], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "desk", "{v:#}");
+    // With no room anywhere, the cap with no count still goes ahead of a full host.
+    let full = c("big", health(60.0, 32, 1.0, 400.0, 5));
+    let v = place(&[full, c("light", no_live(8.0))], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(true)), "{v:#}");
+}
+
+#[test]
+fn headroom_needs_ram_and_load_read() {
+    // light: max_lanes 3, headroom_max_lanes 5, 4 live. With RAM and load read it has headroom
+    // (room for 1); a reading missing either shows none, so 4 of 3 lanes is full.
+    let mut reg = registry();
+    reg["machines"]["light"]["lanes"]["headroom_max_lanes"] = json!(5);
+    let read = health(40.0, 12, 1.0, 300.0, 4);
+    let v = place(&[c("light", read.clone())], Some(&reg), Work::Agent);
+    assert_eq!((&host(&v, "light")["ok"], &host(&v, "light")["room"]), (&json!(true), &json!(1.0)));
+    for missing in ["ram", "load"] {
+        let mut h = read.clone();
+        h.as_object_mut().unwrap().remove(missing);
+        let v = place(&[c("light", h)], Some(&reg), Work::Agent);
+        assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{missing}: {v:#}");
+        assert!(host(&v, "light")["why"].as_str().unwrap().contains("4/3 lanes"), "{v:#}");
+    }
 }
