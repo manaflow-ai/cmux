@@ -543,3 +543,30 @@ fn mcp_connect_live_linear_401_names_its_metadata_and_scopes() {
     );
     assert_eq!(challenge_scopes(challenge), ["read", "write"]);
 }
+
+#[test]
+fn mcp_connect_shared_store_is_one_place_for_every_chief_and_agent() {
+    use cmux_mcp_connect::shared;
+    let acpmux_home = std::path::Path::new("/Users/p/acpmux-home");
+    let none = |_: &str| None;
+    assert_eq!(shared::dir(acpmux_home, &none), acpmux_home.join("mcp"));
+    let moved = |k: &str| (k == shared::HOME_ENV).then(|| "/tmp/m".to_owned());
+    assert_eq!(shared::dir(acpmux_home, &moved), std::path::PathBuf::from("/tmp/m"));
+    assert_eq!(shared::clean_name("Hugging Face"), "hugging_face");
+    let rec = shared::Remote {
+        name: "Linear",
+        url: "https://mcp.linear.app/mcp",
+        publisher: "linear.app",
+        verified: true,
+        added_by: "a chat",
+        added_ms: 1,
+        state: "needs sign-in",
+        scope: Some("agents"),
+        secret_names: &[],
+    }
+    .record();
+    assert_eq!(rec["name"], "linear");
+    assert_eq!(rec["transport"]["type"], "http");
+    assert_eq!(rec["scope"], "agents");
+    assert!(rec.get("secret_names").is_none());
+}
