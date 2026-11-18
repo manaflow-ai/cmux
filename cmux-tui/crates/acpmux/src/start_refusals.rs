@@ -96,8 +96,22 @@ impl StartRefusals {
     /// The outcome of a start forwarded to `host`: a chain refusal is recorded, a start that
     /// worked clears the record, any other failure leaves it as it was.
     pub fn note<T>(&self, host: &str, result: &Result<T, RpcError>, now_ms: u64) {
+        self.note_answer(host, result, true, now_ms);
+    }
+
+    /// `note` for an answer that may come before the start: `started` says whether an Ok means
+    /// the start there worked. A durable (workflow) dispatch answers once the peer took the
+    /// brief, before its session starts, so its Ok clears nothing; a refusal is still recorded.
+    pub fn note_answer<T>(
+        &self,
+        host: &str,
+        result: &Result<T, RpcError>,
+        started: bool,
+        now_ms: u64,
+    ) {
         match result {
-            Ok(_) => self.clear(host),
+            Ok(_) if started => self.clear(host),
+            Ok(_) => {}
             Err(e) if is_chain_refusal(e) => self.record(host, now_ms, core(host, &e.message)),
             Err(_) => {}
         }
@@ -166,6 +180,20 @@ mod tests {
                 .with_data(json!({"reason": START_REASON}));
         book.note::<()>("vm", &Err(start), t);
         assert_eq!(book.fresh("vm", t), None);
+    }
+
+    /// An answer that comes before the start (a durable dispatch) clears nothing, yet its
+    /// refusal is recorded.
+    #[test]
+    fn an_answer_before_the_start_clears_no_record() {
+        let book = StartRefusals::default();
+        book.record("box", 0, "remote chain refused: x");
+        book.note_answer("box", &Ok(()), false, 1);
+        assert!(book.fresh("box", 2).is_some(), "an Ok before the start cleared the record");
+        book.note_answer("vm", &Err::<(), _>(refused()), false, 3);
+        assert!(book.fresh("vm", 4).is_some());
+        book.note_answer("box", &Ok(()), true, 5);
+        assert_eq!(book.fresh("box", 6), None);
     }
 
     /// A record keeps a machine out for 30 minutes, then lapses by itself.

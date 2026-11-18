@@ -823,4 +823,7 @@ fn a_refusal_record_ranks_after_the_lane_cap_and_room_and_before_the_tier() {
     let v = place_demoting(&full(), &both, Some(&reg), Work::Agent);
     assert_eq!(v["pick"], place(&full(), Some(&reg), Work::Agent)["pick"], "{v:#}");
     assert!(v["pick"].is_string(), "{v:#}");
+    // Past the room too, the pick's why still says it has a record.
+    assert_eq!(v["overloaded"], true, "{v:#}");
+    assert!(v["why"].as_str().unwrap().contains("; picked although "), "{v:#}");
 }

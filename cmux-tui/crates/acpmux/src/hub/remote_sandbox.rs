@@ -512,25 +512,14 @@ fn linux_secure_path_with(
 
 /// Why a remote chain refused a start, by whose fault: the machine's own state (its sandbox
 /// canary, keeper, bwrap, platform), which every later start there meets too, or the start's own
-/// inputs (its folder, session id, a profile argument or env value, `sr` options), which every
-/// machine refuses the same way. The pickers record only the first against the machine
-/// (`start_refusals.rs`) and end a start at once on the second.
+/// inputs (the start's own folder, its session id, a profile argument or env value, `sr`
+/// options), which say nothing about the machine. The pickers record only the first against the
+/// machine (`start_refusals.rs`) and end a start at once on the second. There is no conversion
+/// into it: each refusal site says which it is.
 #[derive(Debug)]
 pub(super) enum Refused {
     Host(String),
     Start(String),
-}
-
-impl From<String> for Refused {
-    fn from(why: String) -> Self {
-        Refused::Host(why)
-    }
-}
-
-impl From<&str> for Refused {
-    fn from(why: &str) -> Self {
-        Refused::Host(why.to_owned())
-    }
 }
 
 impl Refused {
@@ -565,18 +554,19 @@ impl Bound {
     ) -> Result<Self, Refused> {
         let linux = cfg!(target_os = "linux");
         if !cfg!(target_os = "macos") && !linux {
-            return Err(
+            return Err(Refused::Host(
                 "a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into(),
-            );
+            ));
         }
         let canon =
             |p: &Path| std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()));
-        let home = canon(&dirs::home_dir().ok_or("no home directory")?)?;
-        let shared_tmp = canon(&std::env::temp_dir())?;
+        let home = dirs::home_dir().ok_or_else(|| Refused::Host("no home directory".into()))?;
+        let home = canon(&home).map_err(Refused::Host)?;
+        let shared_tmp = canon(&std::env::temp_dir()).map_err(Refused::Host)?;
         #[cfg(target_os = "linux")]
         if linux {
             crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap"))
-                .map_err(|e| format!("bwrap unavailable: {e}"))?;
+                .map_err(|e| Refused::Host(format!("bwrap unavailable: {e}")))?;
         }
         let cwd = canon(cwd).map_err(Refused::Start)?;
         let path_dirs: Vec<PathBuf> = crate::chats::login_var("PATH")
@@ -596,8 +586,8 @@ impl Bound {
         }
         let tmp = shared_tmp.join(format!("acpmux-remote-{safe}"));
         crate::home_fs::create_dir_all(&tmp, 0o700)
-            .map_err(|e| format!("{}: {e}", tmp.display()))?;
-        let tmp = canon(&tmp)?;
+            .map_err(|e| Refused::Host(format!("{}: {e}", tmp.display())))?;
+        let tmp = canon(&tmp).map_err(Refused::Host)?;
         // SAFETY: getuid has no preconditions and cannot fail.
         let uid = unsafe { libc::getuid() };
         let name = claude_project_name(&cwd);
@@ -609,22 +599,23 @@ impl Bound {
             PathBuf::from(format!("/private/tmp/claude-{uid}"))
         };
         let claude_tmp_project = root.join(&name);
-        own_dir(&root, uid)?;
-        own_dir(&claude_tmp_project, uid)?;
+        own_dir(&root, uid).map_err(Refused::Host)?;
+        own_dir(&claude_tmp_project, uid).map_err(Refused::Host)?;
         let claude_project = home.join(".claude/projects").join(&name);
         #[cfg(target_os = "linux")]
         if linux {
             let projects = home.join(".claude/projects");
-            own_dir(&home.join(".claude"), uid)?;
-            own_dir(&projects, uid)?;
-            own_dir(&claude_project, uid)?;
-            own_dir(&claude_project.join("memory"), uid)?;
+            own_dir(&home.join(".claude"), uid).map_err(Refused::Host)?;
+            own_dir(&projects, uid).map_err(Refused::Host)?;
+            own_dir(&claude_project, uid).map_err(Refused::Host)?;
+            own_dir(&claude_project.join("memory"), uid).map_err(Refused::Host)?;
             let cwd_boundary = if cwd.starts_with(&home) { &home } else { &shared_tmp };
             linux_secure_path(&cwd, cwd_boundary, uid, cwd_boundary == &shared_tmp)
                 .map_err(Refused::Start)?;
-            linux_secure_path(&tmp, &shared_tmp, uid, true)?;
-            linux_secure_path(&claude_tmp_project, &shared_tmp, uid, true)?;
-            linux_secure_path(&claude_project, &home, uid, false)?;
+            linux_secure_path(&tmp, &shared_tmp, uid, true).map_err(Refused::Host)?;
+            linux_secure_path(&claude_tmp_project, &shared_tmp, uid, true)
+                .map_err(Refused::Host)?;
+            linux_secure_path(&claude_project, &home, uid, false).map_err(Refused::Host)?;
         }
         Ok(Bound {
             cwd,
@@ -643,7 +634,7 @@ impl Bound {
         _session_id: &str,
         _endpoint: Option<Endpoint>,
     ) -> Result<Self, Refused> {
-        Err("a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into())
+        Err(Refused::Host("a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into()))
     }
 
     /// `sandbox-exec` arguments up to the command: the profile and its
@@ -922,7 +913,8 @@ fn linux_wrap(
     program: String,
     args: Vec<String>,
 ) -> Result<(String, Vec<String>), Refused> {
-    Ok(linux_keeper_args(bound, program, claude_args(bound.endpoint.as_ref(), profile, args)?)?)
+    let args = claude_args(bound.endpoint.as_ref(), profile, args)?;
+    linux_keeper_args(bound, program, args).map_err(Refused::Host)
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
@@ -1423,7 +1415,7 @@ impl Hub {
                 self.linux_bwrap_probe.lock().unwrap_or_else(|e| e.into_inner()).clone()
             {
                 crate::linux_sandbox::bwrap::probe(&path)
-                    .map_err(|e| format!("bwrap unavailable: {e}"))?;
+                    .map_err(|e| Refused::Host(format!("bwrap unavailable: {e}")))?;
             }
             let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
             let plan = if linux {
@@ -1433,7 +1425,9 @@ impl Hub {
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
-                    return Err(Refused::from("the Linux sandbox is unavailable on this platform"));
+                    return Err(Refused::Host(
+                        "the Linux sandbox is unavailable on this platform".into(),
+                    ));
                 }
             } else {
                 wrap(&exec, &bound, profile, program, args)?
@@ -1443,13 +1437,13 @@ impl Hub {
                 // Never use the configurable sandbox-exec test hook on Linux.
                 std::env::current_exe()
                     .and_then(std::fs::canonicalize)
-                    .map_err(|e| e.to_string())?
+                    .map_err(|e| Refused::Host(e.to_string()))?
             } else {
                 exec.clone()
             };
             #[cfg(not(target_os = "linux"))]
             let canary_exec = exec.clone();
-            canary(&canary_exec, &bound, linux).await?;
+            canary(&canary_exec, &bound, linux).await.map_err(Refused::Host)?;
             Ok::<_, Refused>(plan)
         }
         .await;
@@ -1606,7 +1600,7 @@ mod endpoint_tests {
         let sr = profile(&["sr", "claude", "proxy", "--extra"], &[]);
         start(Refused::Start(subrouter_plan(&sr, vec![], None, None).unwrap_err()));
         start(Refused::Start("a remote chain needs a session id".into()));
-        let host = Refused::from(format!("bwrap unavailable: {}", "bwrap not installed")).error();
+        let host = Refused::Host("bwrap unavailable: bwrap not installed".into()).error();
         assert_eq!(host.message, "remote chain refused: bwrap unavailable: bwrap not installed");
         assert!(crate::start_refusals::is_chain_refusal(&host), "{host:?}");
     }

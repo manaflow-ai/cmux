@@ -521,8 +521,10 @@ async fn dispatch_brief(
         crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
         let sent = peer.request_on(method::MUX_DISPATCH, params, epoch).await;
         // As for a forwarded `session/new`: the dispatch's start there is refused by that
-        // machine's own remote chain, or worked (`start_refusals.rs`).
-        hub.start_refusals.note(&peer_name, &sent, crate::store::now_ms());
+        // machine's own remote chain, or worked (`start_refusals.rs`). A durable dispatch
+        // answers once the peer holds the brief, before its session starts: that Ok says
+        // nothing about the chain, so it clears no record.
+        hub.start_refusals.note_answer(&peer_name, &sent, !durable, crate::store::now_ms());
         let mut result = match sent {
             Ok(result) => result,
             Err(e) => {

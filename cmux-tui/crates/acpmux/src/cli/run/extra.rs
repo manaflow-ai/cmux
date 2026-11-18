@@ -1108,9 +1108,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
-                PeerCmd::Place { build } => {
+                PeerCmd::Place { build, skip } => {
                     let work = if build { "build" } else { "agent" };
-                    let v = client.request("_acpmux/place", json!({"work": work})).await?;
+                    let mut params = json!({"work": work});
+                    if !skip.is_empty() {
+                        params["skip"] = json!(skip);
+                    }
+                    let v = client.request("_acpmux/place", params).await?;
                     if json_out {
                         print_json(&v);
                     } else {
