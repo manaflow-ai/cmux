@@ -10,6 +10,7 @@
 //   page bridge; a paste, or a drop with no path, still uploads through the bridge.
 import type { LinkItem } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
+import { translate } from "../i18n";
 
 /// The window event the host dispatches with a native drop's files (AgentPaneView+ContextMenu.swift).
 export const DROP_PUSH_EVENT = "cmux-files-dropped";
@@ -219,10 +220,13 @@ async function put(
   try {
     const reply = (await call("chat.upload.begin", { name: file.name, size: file.size, batchToken: token })) as {
       path?: unknown;
+      uploads?: { path?: unknown }[];
     } | null;
     if (cancelled(index)) return { path: "" };
-    const path = typeof reply?.path === "string" && reply.path.startsWith("/") ? reply.path : undefined;
-    if (!path) return { error: "The file did not reach the chat's machine." };
+    // As a staged upload's finish answers: `{path}` (a peer), or `{uploads: [{name, path}]}` (Cloud).
+    const found = reply?.path ?? (Array.isArray(reply?.uploads) ? reply.uploads[0]?.path : undefined);
+    const path = typeof found === "string" && found.startsWith("/") ? found : undefined;
+    if (!path) return { error: translate("upload.notCompleted") };
     progress?.(index, 1);
     return { path };
   } catch (error) {

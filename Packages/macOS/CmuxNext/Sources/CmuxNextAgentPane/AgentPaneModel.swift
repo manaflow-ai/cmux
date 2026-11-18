@@ -380,9 +380,6 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
-    /// The App's put of a native drop's file on this chat's machine from its path (a chat on another
-    /// machine), nil when it has none (``AgentPanePathPutter``).
-    @ObservationIgnored public var onPathPut: (@MainActor () -> AgentPanePathPutter?)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.

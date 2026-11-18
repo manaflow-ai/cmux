@@ -170,7 +170,7 @@ public final class AgentPaneDroppedPaths {
     /// oldest first; bounded to ``linkedLimit``. Only this pane's own native drop adds one.
     private var putTokens: [(token: String, url: URL)] = []
     /// The puts under way, by token: the tile's x cancels one (`chat.upload.cancel`).
-    var puts: [String: Task<AgentPanePathPutReply, Never>] = [:]
+    var puts: [String: Task<Void, Never>] = [:]
 
     /// The last native drop's files for the page, pushed with the drop (``pushScript(_:)``):
     /// `{local, items: [{path, folder, token?}]}`. `local`: the chat runs on this Mac, so each file

@@ -11,9 +11,10 @@ struct AgentPaneDroppedPushTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// The App's puts, as `[path, session]`.
-    private final class Puts {
-        var calls: [[String]] = []
+    /// The chat's staged upload, as each request reached it; it keeps the bytes it was sent.
+    private final class Stage {
+        var requests: [String] = []
+        var bytes = Data()
     }
 
     private static func items(_ payload: [String: Any]?) -> [[String: Any]] {
@@ -54,28 +55,45 @@ struct AgentPaneDroppedPushTests {
         #expect(paths.takePut(again, name: "clip.mov") == nil)
     }
 
-    @Test func aBeginNamingAPushedTokenPutsTheFileFromItsPath() async throws {
+    @Test func aBeginNamingAPushedTokenStagesTheFileFromItsPath() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pushed-\(UUID().uuidString).bin")
+        let bytes = Data((0..<(1_200 * 1024)).map { UInt8($0 % 251) })
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
         let model = AgentPaneModel(host: NoHost())
         model.adoptSession("peer-chat")
-        let put = Puts()
-        model.onPathPut = {
-            { file, session in
-                put.calls.append([file.path, session])
-                return .path("/srv/uploads/clip.mov")
+        let stage = Stage()
+        model.onUploadStage = {
+            { request, session in
+                switch request {
+                case .begin(let name, let size, _, _):
+                    stage.requests.append("begin \(name) \(size) \(session ?? "-")")
+                    return AgentPaneReply.success(["token": "s1", "size": size, "chunkSize": 512 * 1024])
+                case .chunk(_, let offset, let data):
+                    stage.requests.append("chunk \(offset)")
+                    stage.bytes.append(data)
+                    return AgentPaneReply.success(["offset": offset + data.count])
+                case .finish:
+                    stage.requests.append("finish")
+                    return AgentPaneReply.success(["path": "/srv/uploads/\(file.lastPathComponent)"])
+                case .cancel:
+                    stage.requests.append("cancel")
+                    return AgentPaneReply.success()
+                }
             }
         }
-        model.droppedPaths.stash([URL(fileURLWithPath: "/Users/you/clip.mov")], kind: .drop)
+        model.droppedPaths.stash([file], kind: .drop)
         let token = try #require(Self.items(model.droppedPaths.pushed(local: false)).first?["token"] as? String)
         let reply = await model.respond(to: AgentPaneRequest(body: [
-            "method": "chat.upload.begin", "params": ["name": "clip.mov", "size": 200 * 1024 * 1024, "batchToken": token],
+            "method": "chat.upload.begin", "params": ["name": file.lastPathComponent, "size": bytes.count, "batchToken": token],
         ]))
-        #expect((reply["value"] as? [String: Any])?["path"] as? String == "/srv/uploads/clip.mov")
-        #expect(put.calls == [["/Users/you/clip.mov", "peer-chat"]])
+        #expect((reply["value"] as? [String: Any])?["path"] as? String == "/srv/uploads/\(file.lastPathComponent)")
+        #expect(stage.requests == ["begin \(file.lastPathComponent) \(bytes.count) peer-chat", "chunk 0", "chunk 524288", "chunk 1048576", "finish"])
+        #expect(stage.bytes == bytes)
     }
 
-    @Test func aBeginWithNoAppPutIsUnsupportedSoThePageSendsTheBytes() async throws {
+    @Test func aBeginWithNoStageIsUnsupportedSoThePageSendsTheBytes() async throws {
         let model = AgentPaneModel(host: NoHost())
-        model.adoptSession("peer-chat")
         model.droppedPaths.stash([URL(fileURLWithPath: "/Users/you/clip.mov")], kind: .drop)
         let token = try #require(Self.items(model.droppedPaths.pushed(local: false)).first?["token"] as? String)
         let reply = await model.respond(to: AgentPaneRequest(body: [

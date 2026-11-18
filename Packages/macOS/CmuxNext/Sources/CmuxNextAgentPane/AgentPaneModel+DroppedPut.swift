@@ -1,46 +1,102 @@
-public import Foundation
+import Foundation
 
-/// What the App answers for one dropped file it put on a chat's machine from its path on this Mac
-/// (``AgentPanePathPutter``): where it went there, or why it did not.
-public nonisolated enum AgentPanePathPutReply: Sendable, Equatable {
-    case path(String)
-    case failure(code: String, message: String)
+/// Reads a dropped file a slice at a time, off the main actor.
+private actor AgentPaneDroppedFileReader {
+    private let handle: FileHandle
+
+    init?(_ file: URL) {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        self.handle = handle
+    }
+
+    func read(_ count: Int) -> Data? {
+        try? handle.read(upToCount: count)
+    }
+
+    func close() {
+        try? handle.close()
+    }
+
+    /// The size of the regular file at `file`; nil for a folder or a file that is not there.
+    nonisolated static func size(_ file: URL) -> Int? {
+        guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true else { return nil }
+        return values.fileSize
+    }
 }
 
-/// The App's put of the file at `file` (the person's own native drop on this Mac) on the machine
-/// that runs chat session `sessionId`: an ssh peer's acpmux (`_acpmux/file_put*`, streamed from the
-/// file) or a Cloud machine (`cmux link access upload` of the path). It runs off the main actor and
-/// reads the file once; nothing crosses the page bridge.
-public typealias AgentPanePathPutter = @MainActor (_ file: URL, _ sessionId: String) async -> AgentPanePathPutReply
+/// The answer a put of a dropped file gets, held for its awaiting request.
+@MainActor
+private final class AgentPaneDroppedPutAnswer {
+    var reply: [String: Any] = AgentPaneReply.failure(code: "cancelled", message: "The file could not be sent.")
+}
 
 extension AgentPaneModel {
     /// `chat.upload.begin {name, size, batchToken}` whose token is one this pane pushed with a native
-    /// drop on a chat on another machine (``AgentPaneDroppedPaths/pushed(local:)``): the App puts that
-    /// file there straight from its path, and this answers `{path}` once it is there. The page shows
-    /// the chip at once and a send waits for this only to deliver the file. Each token answers once,
-    /// only for the file it was made for; it needs no gesture, since only the person's own drop makes one.
+    /// drop on a chat on another machine (``AgentPaneDroppedPaths/pushed(local:)``): the host sends
+    /// that file to the chat's machine straight from its path, through the chat's own staged upload
+    /// (``onUploadStage``: an ssh peer's `_acpmux/file_put*`, a Cloud machine's
+    /// `cmux link access upload`), and answers as its finish does once it is there. The file is read
+    /// off the main actor, a slice at a time; no byte crosses the page bridge or is base64 encoded
+    /// for it. The page shows the chip at once and a send waits for this only to deliver the file.
+    /// Each token answers once, only for the file it was made for; only the person's own drop makes one.
     func putDropped(token: String, name: String) async -> [String: Any] {
         guard let file = droppedPaths.takePut(token, name: name) else {
             return AgentPaneReply.failure(code: "upload_failed", message: "The file could not be sent.")
         }
-        // No App put for this chat (a chat on this Mac, an older App): the page sends the bytes.
-        guard let session = sessionId, let put = onPathPut?() else { return Self.unsupported("chat.upload.path") }
+        // No staged upload for this chat (an older App): the page sends the bytes.
+        guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.path") }
+        let session = sessionId
+        let answer = AgentPaneDroppedPutAnswer()
         // task-owner: one put per pushed token, held in `droppedPaths.puts` so the tile's x
         // (`chat.upload.cancel`) or a session change cancels it, and awaited right here.
-        let task = Task { await put(file, session) }
+        let task = Task { answer.reply = await Self.stage(file, name: name, stager: stager, session: session) }
         droppedPaths.puts[token] = task
-        let reply = await task.value
-        droppedPaths.puts[token] = nil
-        if task.isCancelled { return AgentPaneReply.failure(code: "cancelled", message: "The file could not be sent.") }
-        switch reply {
-        case .path(let path): return AgentPaneReply.success(["path": path])
-        case .failure(let code, let message): return AgentPaneReply.failure(code: code, message: message)
-        }
+        await task.value
+        if droppedPaths.puts[token] == task { droppedPaths.puts[token] = nil }
+        return answer.reply
     }
 
-    /// `chat.upload.cancel {token}` for a put under way (``putDropped(token:name:)``): it stops.
+    /// `chat.upload.cancel {token}` for a put under way (``putDropped(token:name:)``): it stops, and
+    /// the chat's stage is dropped.
     func cancelDroppedPut(_ token: String) -> [String: Any] {
         droppedPaths.puts.removeValue(forKey: token)?.cancel()
         return AgentPaneReply.success()
+    }
+
+    /// `file` through `stager`: begin, each slice read off the main actor, finish. A cancel drops the stage.
+    private static func stage(_ file: URL, name: String, stager: AgentPaneUploadStager, session: String?) async -> [String: Any] {
+        let failed = AgentPaneReply.failure(code: "upload_failed", message: "The file could not be sent.")
+        guard let size = await Task.detached(priority: .userInitiated, operation: { AgentPaneDroppedFileReader.size(file) }).value,
+              let reader = AgentPaneDroppedFileReader(file) else { return failed }
+        let begun = await stager(.begin(name: name, size: size, batchToken: nil, batch: nil), session)
+        guard begun["ok"] as? Bool == true, let value = begun["value"] as? [String: Any],
+              let token = value["token"] as? String,
+              let chunk = (value["chunkSize"] as? NSNumber)?.intValue, chunk > 0 else {
+            await reader.close()
+            return begun["ok"] as? Bool == false ? begun : failed
+        }
+        var offset = 0
+        var refusal: [String: Any]?
+        while offset < size {
+            if Task.isCancelled { break }
+            guard let data = await reader.read(min(chunk, size - offset)), !data.isEmpty else {
+                refusal = failed
+                break
+            }
+            let answer = await stager(.chunk(token: token, offset: offset, data: data), session)
+            guard answer["ok"] as? Bool == true,
+                  ((answer["value"] as? [String: Any])?["offset"] as? NSNumber)?.intValue == offset + data.count else {
+                refusal = answer["ok"] as? Bool == false ? answer : failed
+                break
+            }
+            offset += data.count
+        }
+        await reader.close()
+        guard refusal == nil, !Task.isCancelled else {
+            _ = await stager(.cancel(token: token), session)
+            return refusal ?? AgentPaneReply.failure(code: "cancelled", message: "The file could not be sent.")
+        }
+        return await stager(.finish(token: token), session)
     }
 }
