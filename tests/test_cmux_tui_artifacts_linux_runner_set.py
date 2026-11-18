@@ -116,9 +116,9 @@ LINUX_RUNNER_VALUES = (
     HOSTED,
 )
 TRUSTED_RUNNER_VALUES = ("", "ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404")
-# The one job that runs on GitHub-hosted Ubuntu on purpose: it decides, before any job takes
-# a Blacksmith runner, whether a lane-branch push is superseded, so it never waits in the
-# queue it exists to keep short (tests/test_cmux_tui_superseded_gate.py pins it).
+# The one job outside this workflow's measured sizes on purpose: a ~20 s decision, before any
+# job takes a preflight-sized runner, whether a lane-branch push is superseded. It reads the
+# one-minute control pool, RUNNER_POOLS.linux_2 (tests/test_cmux_tui_superseded_gate.py pins it).
 HOSTED_GATE_JOBS = ("push-gate",)
 
 

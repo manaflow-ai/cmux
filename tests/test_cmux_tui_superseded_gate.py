@@ -9,10 +9,10 @@ superseded (a moved or deleted branch, or a head no open pull request had), whic
 tree-preflight's stale step finds only once it has that runner.
 
 1. push-gate runs the same superseded check (scripts/ci/cmux_tui_superseded_push.py,
-   the same command and environment as tree-preflight's stale step) on GitHub-hosted
-   Ubuntu, holding no secret, and never fails the run.
+   the same command and environment as tree-preflight's stale step) on the one-minute
+   control pool (RUNNER_POOLS.linux_2), holding no secret, and never fails the run.
 2. It runs only for lane-branch pushes: trunk and integration refs, which the check
-   never supersedes, skip it, so a hosted queue never delays them.
+   never supersedes, skip it.
 3. tree-preflight needs push-gate, still runs when the gate is skipped or failed
    (!cancelled()), and stops only on the gate's stale=true. Every other job hangs off
    tree-preflight, so a superseded push takes no Blacksmith runner at all.
@@ -68,10 +68,12 @@ def gate_runs(condition: str, event: str, ref: str, repository: str = "manaflow-
 
 
 class SupersededGateTest(unittest.TestCase):
-    def test_the_gate_runs_the_preflight_check_on_hosted_ubuntu_without_secrets(self) -> None:
+    def test_the_gate_runs_the_preflight_check_on_the_control_pool_without_secrets(self) -> None:
         all_jobs = jobs()
         gate, preflight = all_jobs["push-gate"], all_jobs["tree-preflight"]
-        self.assertEqual(gate["runs-on"], "ubuntu-24.04")
+        # The one-minute control pool, never GitHub-hosted (its queue waited hours on 2026-11-18).
+        self.assertEqual(gate["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
