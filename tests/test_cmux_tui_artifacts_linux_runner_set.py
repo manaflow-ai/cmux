@@ -116,6 +116,10 @@ LINUX_RUNNER_VALUES = (
     HOSTED,
 )
 TRUSTED_RUNNER_VALUES = ("", "ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404")
+# The one job that runs on GitHub-hosted Ubuntu on purpose: it decides, before any job takes
+# a Blacksmith runner, whether a lane-branch push is superseded, so it never waits in the
+# queue it exists to keep short (tests/test_cmux_tui_superseded_gate.py pins it).
+HOSTED_GATE_JOBS = ("push-gate",)
 
 
 def linux_routes() -> list[tuple[str, str]]:
@@ -126,6 +130,8 @@ def linux_routes() -> list[tuple[str, str]]:
         cells = workflow_jobs.runs_on_cells(job)
         if cells is None:
             raise AssertionError(f"{WORKFLOW.name}#{name}: runs-on has a matrix value nothing resolves")
+        if name in HOSTED_GATE_JOBS:
+            continue
         routes.extend((name, runs_on) for runs_on in cells if "ubuntu" in runs_on)
     return routes
 
