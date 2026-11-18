@@ -54,7 +54,8 @@ await requireBrowserLane("transcript-block-lines-window-browser.test.ts", async 
         ),
       [kind, lines, reveal] as const,
     );
-    await page.waitForSelector("[data-preview]");
+    // The handle would keep the box alive after it unmounts: let it go.
+    await (await page.waitForSelector("[data-preview]")).dispose();
     await frames(page, 3);
     return page;
   };
@@ -414,6 +415,134 @@ await requireBrowserLane("transcript-block-lines-window-browser.test.ts", async 
       expect(numbers[0]).toBe(2);
       expect(numbers.length).toBeGreaterThan(150);
       expect(numbers).toEqual(numbers.map((_, index) => 2 + index));
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("code: a screen reader meets one region named with the true count, Pierre's rows items placed in the whole", async () => {
+    const page = await open("code", 2_000);
+    try {
+      await painted(page);
+      await page.evaluate(async () => {
+        const box = document.querySelector<HTMLElement>("[data-preview]")!;
+        box.scrollTop = 1_000 * 20;
+        for (let index = 0; index < 4; index++) await new Promise((done) => requestAnimationFrame(done));
+      });
+      const dom = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>("[data-preview]")!;
+        const rows = [
+          ...box.querySelector("diffs-container")!.shadowRoot!.querySelectorAll<HTMLElement>("[data-line]"),
+        ];
+        return {
+          label: box.getAttribute("aria-label"),
+          role: box.getAttribute("role"),
+          tabindex: box.getAttribute("tabindex"),
+          list: rows[0]!.parentElement!.getAttribute("role"),
+          roles: [...new Set(rows.map((row) => row.getAttribute("role")))],
+          sizes: [...new Set(rows.map((row) => row.getAttribute("aria-setsize")))],
+          places: rows.map((row) => Number(row.getAttribute("aria-posinset"))),
+          lines: rows.map((row) => Number(row.dataset.line)),
+        };
+      });
+      expect(dom).toMatchObject({
+        label: "big.ts, 2,000 lines",
+        role: "region",
+        tabindex: "0",
+        list: "list",
+        roles: ["listitem"],
+        sizes: ["2000"],
+      });
+      // Each drawn row is at its own line's place in the whole read, in order, around line 1,000.
+      expect(dom.places).toEqual(dom.lines);
+      expect(dom.places).toEqual(dom.places.map((_, index) => dom.places[0]! + index));
+      expect(dom.places[0]!).toBeGreaterThan(960);
+
+      // The browser's own accessibility tree, across Pierre's shadow root: the region by its name,
+      // a list in it, and its items, as many as are drawn. (CDP lists no posinset or setsize for a
+      // listitem, a plain block's included; the attributes above carry them.)
+      const cdp = await page.context().newCDPSession(page);
+      const { nodes } = (await cdp.send("Accessibility.getFullAXTree")) as {
+        nodes: {
+          nodeId: string;
+          parentId?: string;
+          role?: { value: string };
+          name?: { value: string };
+          properties?: { name: string; value: { value: unknown } }[];
+        }[];
+      };
+      const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+      const region = nodes.find((node) => node.role?.value === "region" && node.name?.value === "big.ts, 2,000 lines");
+      expect(region).toBeDefined();
+      const inRegion = (node: (typeof nodes)[number]) => {
+        for (let at = node.parentId; at; at = byId.get(at)?.parentId) if (at === region!.nodeId) return true;
+        return false;
+      };
+      const items = nodes.filter((node) => node.role?.value === "listitem" && inRegion(node));
+      expect(items.length).toBe(dom.places.length);
+      expect(byId.get(items[0]!.parentId!)?.role?.value).toBe("list");
+      expect(await page.locator("[data-preview]").ariaSnapshot()).toContain(
+        `listitem: const line${dom.places[0]! - 1} =`,
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("code: drawn whole by Find's reveal, a highlighted read is the plain block it was: no region, no list", async () => {
+    const page = await open("code", 2_000, 1);
+    try {
+      await painted(page);
+      await frames(page, 3);
+      const roles = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>("[data-preview]")!;
+        const shadow = box.querySelector("diffs-container")!.shadowRoot!;
+        return {
+          box: box.getAttribute("role"),
+          label: box.getAttribute("aria-label"),
+          rows: shadow.querySelectorAll("[data-line][role]").length,
+          list: shadow.querySelectorAll("[data-content][role]").length,
+        };
+      });
+      expect(roles).toEqual({ box: null, label: null, rows: 0, list: 0 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("code: once a windowed read unmounts, nothing reachable from the page holds its virtualizer or its lines", async () => {
+    const page = await open("code", 2_000);
+    try {
+      await painted(page);
+      const before = await page.evaluate(() => {
+        const scope = window as unknown as { __INSTANCE?: object; __refs?: Record<string, WeakRef<object>> };
+        const host = document.querySelector("[data-preview] diffs-container")!;
+        const instance = scope.__INSTANCE;
+        scope.__refs = {
+          host: new WeakRef(host),
+          line: new WeakRef(host.shadowRoot!.querySelector("[data-line]")!),
+          ...(instance ? { virtualizer: new WeakRef(instance) } : {}),
+        };
+        return { instance: instance !== undefined };
+      });
+      // Pierre's virtualizer names itself on the page while the read is drawn.
+      expect(before.instance).toBe(true);
+      await page.evaluate(() => (window as unknown as { __blockLines: { clear(): void } }).__blockLines.clear());
+      await frames(page, 4);
+      // The browser's own full collection (DOM and JS heaps), in tasks after the one that made the refs.
+      const cdp = await page.context().newCDPSession(page);
+      for (let round = 0; round < 2; round++) await cdp.send("HeapProfiler.collectGarbage");
+      const after = await page.evaluate(() => {
+        const scope = window as unknown as { __refs: Record<string, WeakRef<object>> };
+        return {
+          instance: "__INSTANCE" in window,
+          toggle: "__TOGGLE" in window,
+          alive: Object.entries(scope.__refs)
+            .filter(([, ref]) => ref.deref() !== undefined)
+            .map(([name]) => name),
+        };
+      });
+      expect(after).toEqual({ instance: false, toggle: false, alive: [] });
     } finally {
       await page.close();
     }

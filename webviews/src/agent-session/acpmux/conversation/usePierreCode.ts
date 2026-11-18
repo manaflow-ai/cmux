@@ -29,11 +29,40 @@ export type DrawnLines = { from: number; to: number; before: number; after: numb
 /// have one height (the code line height; a read never wraps), so Pierre's buffers are exact and no
 /// line is measured. `whole` draws every line (Find in Chat opened the box). `onLines` hears what is
 /// drawn once painted, so the gutter numbers the same lines; undefined when Pierre draws nothing.
+/// `setsize`, while the box windows its lines, is the read's line count: each drawn row is then a
+/// listitem at its place in the whole (aria-posinset), their column the list, the box the region
+/// named with the count (lineWindow.ts `useLinesRegion`).
 export type PierreLineWindow = {
   box: RefObject<HTMLElement | null>;
   whole: boolean;
+  setsize?: number;
   onLines: (lines: DrawnLines | undefined) => void;
 };
+
+/// Pierre's drawn rows in `host`'s shadow root as items of a list of `setsize` (each at its line's
+/// place in the file), or plain rows again without one. Rows that already say so are left alone.
+function tagRows(host: HTMLElement, setsize: number | undefined) {
+  const shadow = host.shadowRoot;
+  if (!shadow) return;
+  const size = setsize === undefined ? undefined : String(setsize);
+  for (const column of shadow.querySelectorAll("[data-content]")) {
+    if (size) column.setAttribute("role", "list");
+    else column.removeAttribute("role");
+  }
+  for (const row of shadow.querySelectorAll<HTMLElement>("[data-line][data-line-index]")) {
+    if (!size) {
+      if (!row.hasAttribute("role")) continue;
+      row.removeAttribute("role");
+      row.removeAttribute("aria-posinset");
+      row.removeAttribute("aria-setsize");
+      continue;
+    }
+    if (row.getAttribute("aria-setsize") === size) continue;
+    row.setAttribute("role", "listitem");
+    row.setAttribute("aria-posinset", String(Number(row.dataset.lineIndex) + 1));
+    row.setAttribute("aria-setsize", size);
+  }
+}
 
 /// A window that holds every line: Pierre then draws the file from its first line to its last.
 const WHOLE = { top: 0, bottom: Number.MAX_SAFE_INTEGER };
@@ -59,6 +88,17 @@ class WindowedFile extends VirtualizedFile {
       after: range.bufferAfter,
     };
   }
+}
+
+/// Pierre's `Virtualizer.setup` (and `CodeView.setup`) puts the instance on `window.__INSTANCE`, with a
+/// `window.__TOGGLE` that closes over it, for debugging; neither one's `cleanUp` takes them off. While
+/// they still name this read's virtualizer, they go with it, so an unmounted read leaves nothing of
+/// itself reachable from the page. Another instance's are left alone.
+function releaseDebugGlobals(instance: Virtualizer) {
+  const globals = window as unknown as { __INSTANCE?: unknown; __TOGGLE?: unknown };
+  if (globals.__INSTANCE !== instance) return;
+  delete globals.__INSTANCE;
+  delete globals.__TOGGLE;
 }
 
 /// Whether the page's selection touches `host`'s lines: across it, or with an end inside its shadow
@@ -111,6 +151,9 @@ export function usePierreCode(
   wholeRef.current = whole;
   const onLines = useRef(lineWindow?.onLines);
   onLines.current = lineWindow?.onLines;
+  const setsize = lineWindow?.setsize;
+  const setsizeRef = useRef(setsize);
+  setsizeRef.current = setsize;
   useLayoutEffect(() => onHighlightTimeout(name, () => setTooSlow(true)), [name]);
   useLayoutEffect(() => {
     const el = host.current;
@@ -129,6 +172,7 @@ export function usePierreCode(
       queueMicrotask(() => {
         reported = false;
         if (view.current !== file || !el.shadowRoot?.querySelector("[data-line]")) return;
+        tagRows(el, setsizeRef.current);
         const lines = (file as WindowedFile).drawnLines();
         flushSync(() => {
           setPainted(true);
@@ -182,6 +226,7 @@ export function usePierreCode(
       virtualizer.current = undefined;
       file.cleanUp();
       boxVirtualizer?.cleanUp();
+      if (boxVirtualizer) releaseDebugGlobals(boxVirtualizer);
       el.shadowRoot?.replaceChildren();
       if (windowed) onLines.current?.(undefined);
     };
@@ -206,6 +251,11 @@ export function usePierreCode(
     boxVirtualizer.whole = whole;
     boxVirtualizer.instanceChanged(file as WindowedFile, false);
   }, [whole, workerAvailable, windowed, box, windowedCode]);
+  // The rows already drawn, when the box starts or stops windowing (Find's reveal).
+  useLayoutEffect(() => {
+    const el = host.current;
+    if (windowed && el) tagRows(el, setsize);
+  }, [windowed, setsize]);
   useLayoutEffect(() => {
     const el = host.current;
     if (!windowed || !el) return;

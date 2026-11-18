@@ -9,11 +9,15 @@ import { ShellBlock } from "../../src/agent-session/acpmux/conversation/ShellBlo
 import { ToolOutput } from "../../src/agent-session/acpmux/conversation/ToolOutputBody";
 import { FileResultCard } from "../../src/agent-session/acpmux/conversation/FileResultCard";
 import { paintFindHighlights } from "../../src/agent-session/acpmux/conversation/chatFind";
+import strings from "../../src/agent-session/acpmux/generated/strings.json";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
+
+// The pane's English strings, as its head installs them (i18n.ts): a windowed box's name.
+globalThis.__cmuxPaneStrings = { en: strings.en };
 
 export type BlockKind = "shell" | "output" | "read" | "code";
 
@@ -69,6 +73,10 @@ const root = createRoot(document.getElementById("root")!);
         </div>
       </div>,
     );
+  },
+  /// Unmounts the block and the column around it.
+  clear() {
+    root.render(null);
   },
   /// Paints Find's highlights for `query` over the column, as the transcript does once a row mounts;
   /// the active match's text, or null.

@@ -19,7 +19,7 @@ import { useMoreBelow } from "./moreBelow";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { highlightsCode } from "./highlightLimits";
-import { useLineWindow, WINDOW_FROM } from "./lineWindow";
+import { useLineWindow, useLinesRegion, WINDOW_FROM } from "./lineWindow";
 import type { DrawnLines, PierreLineWindow } from "./usePierreCode";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
@@ -91,10 +91,17 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const [drawn, setDrawn] = useState<DrawnLines | undefined>(undefined);
   const pierre = highlighted && drawn ? drawn : undefined;
   const lineWindow = useLineWindow(body, lines, preview.cut && !pierre, pathName(read.path));
+  const pierreWindows = highlighted && lines > WINDOW_FROM;
   const pierreWindow = useMemo<PierreLineWindow | undefined>(
-    () => (highlighted && lines > WINDOW_FROM ? { box: body, whole: !preview.cut, onLines: setDrawn } : undefined),
-    [highlighted, lines, body, preview.cut],
+    () =>
+      pierreWindows
+        ? { box: body, whole: !preview.cut, setsize: preview.cut ? lines : undefined, onLines: setDrawn }
+        : undefined,
+    [pierreWindows, lines, body, preview.cut],
   );
+  // While Pierre windows the lines, the box is the same named region (its list is in Pierre's shadow
+  // root, usePierreCode.ts), as lineWindow.ts makes it for the plain lines.
+  useLinesRegion(body, preview.cut && pierreWindows && Boolean(pierre), pathName(read.path), lines);
   const shown = pierre ?? lineWindow;
   const from = Math.min(lines, shown.from);
   const to = Math.min(lines, shown.to);
