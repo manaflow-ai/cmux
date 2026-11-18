@@ -135,6 +135,67 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
   return { vm, vmId, createMs, t0 };
 }
 
+/**
+ * Waits before each retry of a builder create the provider answered with a server error (HTTP 5xx). Image roll
+ * 44172829602 (2026-11-17) lost a whole bake to one: the app layer's create from the agents layer snapshotted a few
+ * seconds before answered 500 "Internal server error", and the next roll had to start over. 4 tries over 100 s.
+ */
+export const CREATE_SERVER_ERROR_RETRY_DELAYS_MS: readonly number[] = [10_000, 30_000, 60_000];
+
+export type CreateRetryDeps = { sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; delaysMs?: readonly number[] };
+
+const serverErrorStatus = (error: unknown): number | undefined => {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 500 && status <= 599 ? status : undefined;
+};
+
+/**
+ * A server error says nothing about whether the create ran, so before the retry this deletes, and records in the
+ * ledger, any VM booted from the same snapshot under the same name that this process does not already hold.
+ * Names carry the run id, so no other run's VM matches. A failed lookup is logged; the VM's idle timeout pauses it.
+ */
+async function deleteUnclaimedCreates(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string }, log: (line: string) => void): Promise<void> {
+  try {
+    const { vms } = await fs.vms.list({ snapshotId: options.snapshotId, limit: 100 });
+    for (const vm of vms) {
+      if (vm.displayName !== options.name || liveVms.has(vm.id)) continue;
+      ledger.record(vm.id, "vm", options.name);
+      await fs.vms.delete(vm.id);
+      ledger.record(vm.id, "vm", options.name, "deleted");
+      log(`PROVIDER ERROR: deleted ${vm.id}, a VM the failed create of ${options.name} made anyway`);
+    }
+  } catch (error) {
+    log(`PROVIDER ERROR: could not check for a VM the failed create of ${options.name} made: ${String(error).slice(0, 200)}`);
+  }
+}
+
+/**
+ * createVm for an image builder: a server error is retried (CREATE_SERVER_ERROR_RETRY_DELAYS_MS) after deleting any
+ * VM the failed create made; any other error goes to the caller at once. The smoke keeps plain createVm: it replaces
+ * an unfinished clone itself (smoke.ts measureCloneRetrying) and must not fold a retry into its create latency.
+ */
+export async function createVmRetrying(
+  fs: Freestyle,
+  ledger: Ledger,
+  options: { name: string; snapshotId: string; allowUnprefixed?: boolean },
+  deps: CreateRetryDeps = {},
+): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+  const delays = deps.delaysMs ?? CREATE_SERVER_ERROR_RETRY_DELAYS_MS;
+  const log = deps.log ?? ((line: string) => console.log(line));
+  const wait = deps.sleep ?? sleep;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await createVm(fs, ledger, options);
+    } catch (error) {
+      const status = serverErrorStatus(error);
+      if (status === undefined || attempt >= delays.length) throw error;
+      log(`PROVIDER ERROR: create ${options.name} from ${options.snapshotId} answered ${status} (${String(error).slice(0, 200)}); retry ${attempt + 1}/${delays.length} in ${(delays[attempt] / 1000).toFixed(0)}s`);
+      await deleteUnclaimedCreates(fs, ledger, options, log);
+      await wait(delays[attempt]);
+    }
+  }
+}
+
 export async function deleteVm(vm: Vm, vmId: string, name: string, ledger: Ledger): Promise<void> {
   try {
     await vm.delete();
