@@ -49,7 +49,11 @@ struct PointerMenuTrimTests {
             "tabGroup.addTab", "tabGroup.create", "tabGroup.removeTab",
             "toggleTabAudioMute",
         ]
-        #expect(shown == retained)
+        // cloud.team.copyLink: Copy Cloud Session Link, a tab-menu row from #40159. The catalog of the pinned
+        // library can be older than that change, so the test expects the id exactly when the catalog has it. When
+        // the pinned library has the row, a change puts the id into `retained` and takes these 2 lines out.
+        let pinned: Set<ActionID> = ActionCatalog.all.contains { $0.id == "cloud.team.copyLink" } ? ["cloud.team.copyLink"] : []
+        #expect(shown == retained.union(pinned))
         for id in Self.tabTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(!descriptor.surfacePlan.contextMenus.contains { $0.context == .tab })
@@ -66,7 +70,10 @@ struct PointerMenuTrimTests {
 
     @Test func thePaneMenuKeepsCommonAndConditionalActionsAndExemptsTheLongTail() throws {
         let catalog = ContextMenuCatalog.shared
-        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane)))
+        // The floating pane rows can be in the catalog before the App code that runs them (`FloatingPanePlaceholders`):
+        // no menu shows such a row, so it is not in this set. The change that binds their handlers puts each of them
+        // that the pane menu shows into `retained` and takes the subtraction out.
+        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane))).subtracting(FloatingPanePlaceholders.ids)
         let retained: Set<ActionID> = [
             "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane", "newColumnLeft",
             "newColumn", "newRow", "splitBrowserRight", "splitBrowserDown", "pane.moveToNewWorkspace", "pane.moveToNewWindow",

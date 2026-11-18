@@ -93,7 +93,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         isRendering = { [weak cache] key in cache?.isRendering(key) ?? true }
         pages.pairedFace = { [weak services, weak cache] key in // Toggle Terminal and Chat: a chat whose pane draws its terminal face
             guard let services, let cache, let (tab, pane) = services.locateTab(AgentTabKey(relaunchStorageKey: key).key), tab.kind != .pty,
-                  let session = TerminalChatHandler.facts(tab, services: services, membership: true).facts.session else { return false }
+                  let session = TerminalChatHandler.chatSession(of: tab, services: services)?.agentSessionId else { return false }
             return pane.tabs.contains { $0.kind == .pty && $0.agent?.harnessSessionID == session && cache.isRendering($0.id) }
         }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
