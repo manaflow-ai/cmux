@@ -11,9 +11,9 @@
 //! process stays behind as the folder's server, answering over the dial it opened, and dials
 //! again when the link drops (the machine never dials this Mac).
 //!
-//! Off by default: `cmux link project enable` (or `CMUX_PROJECTED_FOLDERS=1`) turns it on for
-//! chats started from a folder past the copy's limits ([`super::size_cap`]); every smaller folder
-//! is still copied. What the agent writes stays on the machine for now; bringing it back is the
+//! On by default for chats started from a folder past the copy's limits ([`super::size_cap`]);
+//! every smaller folder is still copied. `cmux link project disable` (or
+//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes stays on the machine for now; bringing it back is the
 //! next slice.
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
@@ -38,7 +38,7 @@ use super::local::{self, LocalFile, Rules};
 const START_WAIT: Duration = Duration::from_secs(120);
 /// How long the server keeps dialing a machine it cannot reach before it stops.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
-/// The env switch that turns projection on without the setting.
+/// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
 /// A start's outcome when the folder is not projected: it goes as a copy, as before.
@@ -95,29 +95,35 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected ([`ENV`], or `cmux link project enable`).
+/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
+/// turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
         Some("0" | "false") => return false,
         _ => {}
     }
-    setting_path().is_some_and(|path| path.exists())
+    !off_path().is_some_and(|path| path.exists())
 }
 
-fn setting_path() -> Option<PathBuf> {
+/// The opt-out marker: present only after `cmux link project disable`.
+fn off_path() -> Option<PathBuf> {
     Some(
-        cmux_tui_core::platform::workspace_state_dir()?.join("link-sync").join("projected-folders"),
+        cmux_tui_core::platform::workspace_state_dir()?
+            .join("link-sync")
+            .join("projected-folders-off"),
     )
 }
 
 fn set_enabled(on: bool) -> anyhow::Result<()> {
-    let path = setting_path().context("this Mac has no state folder")?;
+    let path = off_path().context("this Mac has no state folder")?;
     if on {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+    } else {
         std::fs::create_dir_all(path.parent().context("no state folder")?)?;
-        std::fs::write(&path, b"on\n")?;
-    } else if path.exists() {
-        std::fs::remove_file(&path)?;
+        std::fs::write(&path, b"off\n")?;
     }
     Ok(())
 }
