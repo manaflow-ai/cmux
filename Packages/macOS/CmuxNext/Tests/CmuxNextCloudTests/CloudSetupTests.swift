@@ -52,38 +52,25 @@ struct CloudSetupTests {
             #expect(await rule.decide(harness: family, model: "m") == .setup(family: family, model: "m"))
             #expect(await rule.choose(harness: family, model: "m", account: nil) == .setup(family: family, model: "m"))
         }
-        // A connection of the person's own still serves beside the team's key.
+        // Its refusal names the team's key.
+        #expect(await rule.sharedKeyOnly(harness: "claude"))
+        // A connection of the person's own still serves beside the team's key, and then nothing names the key.
         let own = setup(Connections(.init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: keys)))
         #expect(await own.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
-    }
-
-    /// cmux#45773: once a start found the team's shared key unrouted (no machine gets the Cloud service's edge), the key
-    /// is no longer chosen, so Set up Cloud waits for a connection of the person's own instead of starting on it again.
-    @Test func anUnroutedOrganizationKeyIsNotChosenAgain() async {
+        #expect(await !own.sharedKeyOnly(harness: "claude"))
+        // Nothing at all, or this Mac's connections unread: no key to name.
+        #expect(await !setup(Connections(.init(personal: [], organization: []))).sharedKeyOnly(harness: "claude"))
+        #expect(await !setup(Connections(.init(personal: nil, organization: ["claude"]))).sharedKeyOnly(harness: "claude"))
+        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).choose(harness: "claude", model: nil, account: nil) == .fallback)
+        // Set up Cloud's wait is not satisfied by the team's key: it waits for a connection of the person's own.
         let connections = Connections(.init(personal: [], organization: ["claude"]))
-        let rule = setup(connections)
-        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .organization(family: "claude"))
-        rule.organizationUnrouted("claude")
-        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .setup(family: "claude", model: nil))
-        let wait = Task { await rule.waitUntilServed(family: "claude") }
-        while connections.reads < 3 { await Task.yield() } // the wait read the team's key alone and parked
+        let waiting = setup(connections)
+        let wait = Task { await waiting.waitUntilServed(family: "claude") }
+        while connections.reads < 1 { await Task.yield() }
         await Task.yield()
         connections.snapshot = .init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: ["claude"])
-        rule.connectionsChanged()
+        waiting.connectionsChanged()
         #expect(await wait.value)
-        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token:1", family: "claude"))
-    }
-
-    /// cmux#45773: a start whose machine gave its agent no model shows Set up Cloud only when it ran on the team's key and
-    /// the next choice is that card; with this Mac's connections unread, or a connection of its own, it answers nil.
-    @Test func anUnroutedStartShowsSetUpCloudOnlyForTheTeamsKey() async {
-        let rule = setup(Connections(.init(personal: [], organization: ["claude"])))
-        let card = await rule.unrouted(harness: "claude", model: "opus", account: nil)
-        #expect(card?.family == "claude" && card?.model == "opus")
-        #expect(rule.unroutedOrganization == ["claude"])
-        #expect(await setup(Connections(.init(personal: nil, organization: ["claude"]))).unrouted(harness: "claude", model: nil, account: nil) == nil)
-        #expect(await setup(Connections(.init(personal: [], organization: nil))).unrouted(harness: "claude", model: nil, account: nil) == nil)
-        #expect(await rule.unrouted(harness: "gemini", model: nil, account: nil) == nil)
     }
 
     /// Revision 2's choice: the picker's account when it serves Cloud, else the first enabled

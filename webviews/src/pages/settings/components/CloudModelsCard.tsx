@@ -2,8 +2,8 @@
 // chat on Claude, on ChatGPT (Codex) or on an API key has a connection that serves it, one row each, so a
 // Mac login that shows healthy in Settings > Models but cannot reach Cloud (servesCloud false) no longer
 // reads as set up. A row is Connected for Cloud by the rule a Cloud start uses (CloudSetup.swift
-// `choice`): an enabled, signed-in personal connection that serves Cloud and the family, else the team's
-// shared key for it. Set Up opens Settings > Models' own Add a Connection steps (`claudeSetupToken` and
+// `choice`): an enabled, signed-in personal connection that serves Cloud and the family. The team's shared
+// key alone does not count: it never reaches this Mac, and no machine gets a model route to spend it. Set Up opens Settings > Models' own Add a Connection steps (`claudeSetupToken` and
 // `addClaudeToken`, `addKey`) and Continue with ChatGPT runs `connectChatGPT`; this card adds no second
 // way in. `?focus=cloud.claude`, `cloud.chatgpt` or `cloud.apiKey` (the chat's Set up Cloud card,
 // cmux://settings/cloud/...) opens the page on that row.
@@ -25,7 +25,6 @@ export type CloudRow = (typeof CLOUD_ROWS)[number];
 
 /** Product names, shown as they are in every language. */
 const ROW_NAMES: Record<Exclude<CloudRow, "apiKey">, string> = { claude: "Claude", chatgpt: "ChatGPT" };
-const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", codex: "Codex" };
 /** The API-key providers whose keys reach Cloud chats (acpmux connections.rs `serves_cloud`). */
 const CLOUD_KEY_PROVIDERS: ModelProvider[] = ["anthropic", "openai"];
 
@@ -56,9 +55,6 @@ export function cloudReadiness(models: ModelsState, row: CloudRow): CloudReadine
   const macOnly = connections.find((c) => !c.servesCloud && c.kind === `${family}-login`) ?? null;
   const ready = serving.find(works);
   if (ready) return { state: "ready", via: ready.label, macOnly };
-  const team = models.organization.team && models.organization.keys.some((key) => key.agent === family && key.set);
-  // The team's shared key serves the family after the person's own (Settings > Models' Organization).
-  if (team) return { state: "ready", via: t("settingsWindow.models.org.key", AGENT_NAMES[family]), macOnly };
   return { state: serving.length > 0 ? "off" : "missing", via: serving[0]?.label ?? null, macOnly };
 }
 

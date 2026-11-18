@@ -3,9 +3,10 @@ import os
 
 /// Cloud first use (cmux-tui/docs/model-connections.md, "Cloud first use" and Revision 2): before a
 /// Cloud chat starts, which connection serves the model the picker chose (``choose(harness:model:account:)``).
-/// A personal one (`_acpmux/connections` on this Mac, served straight to the machine) or the
-/// organization's shared key serving the picker's family starts the chat with no prompt; none shows
-/// the chat's Set up Cloud card, which starts the chat by itself once one appears (``waitUntilServed(family:)``).
+/// A personal one (`_acpmux/connections` on this Mac, served straight to the machine) serving the
+/// picker's family starts the chat with no prompt; none shows the chat's Set up Cloud card, which
+/// starts the chat by itself once one appears (``waitUntilServed(family:)``). The organization's
+/// shared key alone serves no Cloud chat (``Snapshot/sharedKeyOnly(_:)``).
 ///
 /// What it reads and how it connects are seams the App fills (``read``, ``run``): the Settings >
 /// Models ops own the connections; this holds only the rule and the wait. Every change to the
@@ -39,7 +40,8 @@ public final class CloudSetup {
     /// an acpmux before `_acpmux/connections`); `organization` nil: the team's could not be read.
     public struct Snapshot: Sendable, Equatable {
         public var personal: [Connection]?
-        /// The families the organization serves: the agents of its shared keys that are set.
+        /// The families the organization has a shared key for (the agents of its keys that are set); a key serves no
+        /// Cloud chat (``sharedKeyOnly(_:)``).
         public var organization: Set<String>?
 
         public init(personal: [Connection]?, organization: Set<String>?) {
@@ -53,22 +55,32 @@ public final class CloudSetup {
 
         /// The connection a Cloud chat on `family` uses (Revision 2): the picker's `account` when it
         /// serves Cloud for that family, else the first enabled Cloud-serving one of that family in
-        /// the daemon's order, else the organization's shared key. With this Mac's connections unread
-        /// (no daemon, an acpmux before `_acpmux/connections`) and no shared key the answer is
-        /// ``Choice/fallback``: the chat starts as before.
+        /// the daemon's order. With this Mac's connections unread (no daemon, an acpmux before
+        /// `_acpmux/connections`) the answer is ``Choice/fallback``: the chat starts as before.
+        ///
+        /// The organization's shared key is never the choice (cmux#40159: a Cloud chat runs on a model connection
+        /// the Mac sends with its `session/new`). The Cloud service keeps that key sealed and answers it to no client
+        /// (backend team-agent-keys.ts), and gives machines no model route to spend it through (cmux#45583), so a
+        /// start on it made a machine whose agent said "Not logged in". Such a start is ``Choice/setup(family:model:)``,
+        /// and its refusal names the key (``sharedKeyOnly(_:)``).
         public func choice(family: String, model: String?, account: String?) -> Choice {
-            if let personal {
-                let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
-                if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
-            }
-            if organization?.contains(family) == true { return .organization(family: family) }
-            return personal == nil ? .fallback : .setup(family: family, model: model)
+            guard let personal else { return .fallback }
+            let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
+            if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
+            return .setup(family: family, model: model)
+        }
+
+        /// Nothing of this Mac's serves `family` in Cloud and the organization has a shared key for it: the start's
+        /// refusal says that key does not serve Cloud chats, so the person is not left wondering why it was not used.
+        public func sharedKeyOnly(_ family: String) -> Bool {
+            guard case .setup = choice(family: family, model: nil, account: nil) else { return false }
+            return organization?.contains(family) == true
         }
 
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
-            case .connection, .organization: true
+            case .connection: true
             case .setup: false
             case .fallback: nil
             }
@@ -80,8 +92,6 @@ public final class CloudSetup {
         /// This Mac's connection `id` (an `_acpmux/connections` row): the start reads its credential
         /// (`_acpmux/connections/credential {id}`) and sends it with the agent launch to the machine.
         case connection(id: String, family: String)
-        /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
-        case organization(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
         /// Nothing to choose (an agent Cloud does not serve, or connections that could not be read):
@@ -177,37 +187,14 @@ public final class CloudSetup {
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
         guard let family = Self.family(of: harness), let read else { return .fallback }
-        return await routed(read()).choice(family: family, model: model, account: account)
+        return await read().choice(family: family, model: model, account: account)
     }
 
-    /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
-    public private(set) var unroutedOrganization: Set<String> = []
-
-    /// A start on the organization's shared key for `family` reached a machine with no model route: the key is served
-    /// only through the Cloud service's edge, which gives machines none now (cmux-platform#1489). For the rest of this
-    /// run a start no longer chooses that key, so Set up Cloud waits for a connection of the person's own
-    /// (``waitUntilServed(family:)``) instead of starting again on the same key (cmux#45773).
-    public func organizationUnrouted(_ family: String) {
-        unroutedOrganization.insert(family)
-        connectionsChanged()
-    }
-
-    /// A start on `harness`, `model` and `account` reached a machine whose agent reaches no model and carried no connection
-    /// (`CloudMachineRoute.NeedsConnection`): when it ran on the organization's shared key, that key is unrouted
-    /// (``organizationUnrouted(_:)``), and the answer is the Set up Cloud card's family and model where the next choice
-    /// is that card. Nil for anything else (connections unread, an agent Cloud does not serve): the card could never pass.
-    public func unrouted(harness: String?, model: String?, account: String?) async -> (family: String, model: String?)? {
-        guard case .organization(let family) = await choose(harness: harness, model: model, account: account) else { return nil }
-        organizationUnrouted(family)
-        guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
-        return (family, model)
-    }
-
-    /// `snapshot` without the organization families a start found unrouted.
-    private func routed(_ snapshot: Snapshot) -> Snapshot {
-        var snapshot = snapshot
-        snapshot.organization?.subtract(unroutedOrganization)
-        return snapshot
+    /// Whether a start on `harness` finds nothing of this Mac's serving its agent in Cloud while the organization has a
+    /// shared key for it (``Snapshot/sharedKeyOnly(_:)``): its refusal names the key.
+    public func sharedKeyOnly(harness: String?) async -> Bool {
+        guard let family = Self.family(of: harness), let read else { return false }
+        return await read().sharedKeyOnly(family)
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
@@ -230,7 +217,7 @@ public final class CloudSetup {
         guard let read else { return true } // nothing to read: every start goes as before
         guard !Task.isCancelled else { return false }
         let seen = changes
-        if await routed(read()).serves(family) != false { return true }
+        if await read().serves(family) != false { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
         return await waitUntilServed(family: family)
     }
