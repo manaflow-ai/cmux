@@ -10,3 +10,4 @@ export { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
 export { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
 export { WAITING_STEERS_SNAPSHOT, waitingSteersRows } from "./waitingSteersFixture";
 export { CAPPED_ID, subagentReportLog, subagentReportRows } from "./subagentReportFixture";
+export { imageRows } from "./imagesFixture";

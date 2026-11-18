@@ -40,7 +40,8 @@ export type AcpmuxDebug = {
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
   /// "waiting-steers", or with two finished subagents whose report cards a capture opens
-  /// (subagentReportFixture.ts) when it is "subagent-report".
+  /// (subagentReportFixture.ts) when it is "subagent-report", or with `count` synthetic rows whose
+  /// prompts each carry a screenshot (imagesFixture.ts) when it is "images".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -191,6 +192,7 @@ export function createAcpmuxDebug(
         subagentReportRows,
         subagentReportLog,
         CAPPED_ID,
+        imageRows,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -220,7 +222,9 @@ export function createAcpmuxDebug(
                           ? waitingSteersRows(Date.now() - 90_000)
                           : fixture === "subagent-report"
                             ? subagentReportRows(Date.now() - 5_000_000)
-                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                            : fixture === "images"
+                              ? imageRows(Math.max(3, Math.floor(count)))
+                              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
