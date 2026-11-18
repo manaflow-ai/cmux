@@ -444,6 +444,68 @@ struct SiteIconTableTests {
         #expect(Self.answers(services, [1], "its incognito window closed") == [Self.ownAddress(1)])
     }
 
+    /// Row 12, the question in the SAME TURN as the turn to incognito, on a table that a question started before it:
+    /// the site has its own address at once, as the walk gave it. No turn of the main actor is between the turn to
+    /// incognito and the question, so the table still has the page's icon: the right answer needs the question's own
+    /// read of that workspace's incognito facts. Two apps: the daemon's flag (the turn of row 9), then the window
+    /// registry's cell and that window's close (the turns of row 11). Each app's scene has one tab of the site.
+    @Test func inTheTurnOfTheTurnToIncognitoTheSiteHasItsOwnAddress() async throws {
+        let flagged = Self.app()
+        let secret = WorkspaceKey(rawValue: "site-icon-same-turn-flag")
+        var scene = Scene()
+        scene.addSpace()
+        scene.addSpace(key: secret)
+        scene.addPage(1, site: 1, icon: Self.iconAddress(1, "a"))
+        await Self.show(scene, in: flagged)
+        try #require(flagged.machines.local.store.workspaces.count == 2, "fixture: this Mac's store has \(flagged.machines.local.store.workspaces.count) workspaces, not 2")
+        try #require(Self.answers(flagged, [1], "before the flag") == [Self.iconAddress(1, "a")], "fixture: the table has no icon of the page before the flag")
+        await Self.drainMain()
+        try #require(flagged.daemon.store.workspace(id: secret.rawValue)).applyState(ephemeral: true, status: nil, screenGroups: nil)
+        #expect(Self.answers(flagged, [1], "in the turn of the daemon's flag") == [Self.ownAddress(1)])
+        await Self.drainMain()
+        #expect(Self.answers(flagged, [1], "after the daemon's flag and a run of the main actor") == [Self.ownAddress(1)])
+
+        let listed = Self.app()
+        let other = WorkspaceKey(rawValue: "site-icon-same-turn-listed")
+        var second = Scene()
+        second.addSpace()
+        second.addSpace(key: other)
+        second.addPage(1, site: 1, icon: Self.iconAddress(1, "a"))
+        await Self.show(second, in: listed)
+        try #require(listed.machines.local.store.workspaces.count == 2, "fixture: this Mac's store has \(listed.machines.local.store.workspaces.count) workspaces, not 2")
+        try #require(Self.answers(listed, [1], "before a window lists the workspace") == [Self.iconAddress(1, "a")], "fixture: the table has no icon of the page before the window")
+        await Self.drainMain()
+        _ = listed.windows.registry.apply {
+            $0.markIncognito("w-site-icon-same-turn")
+            return $0.openWindow(id: "w-site-icon-same-turn", workspaceIDs: [other.rawValue])
+        }
+        #expect(Self.answers(listed, [1], "in the turn in which an incognito window lists the workspace") == [Self.ownAddress(1)])
+        _ = listed.windows.registry.apply { $0.close("w-site-icon-same-turn") }
+        #expect(Self.answers(listed, [1], "in the turn of that window's close") == [Self.ownAddress(1)])
+        await Self.drainMain()
+        #expect(Self.answers(listed, [1], "after that window's close and a run of the main actor") == [Self.ownAddress(1)])
+    }
+
+    /// Row 13, 2 tabs of one site in ONE workspace: the first tab gives the site's icon. After it closes, the second
+    /// tab of the same workspace gives it. After that one closes, the site has its own address.
+    @Test func theSecondTabOfASiteInOneWorkspaceGivesTheIconAfterTheFirstCloses() async throws {
+        let services = Self.app()
+        var scene = Scene()
+        scene.addSpace()
+        scene.addSpace()
+        scene.addPage(1, site: 1, icon: Self.iconAddress(1, "a"))
+        scene.addPage(1, site: 1, icon: Self.iconAddress(1, "b"))
+        await Self.show(scene, in: services)
+        try #require(services.machines.local.store.workspaces.count == 2, "fixture: this Mac's store has \(services.machines.local.store.workspaces.count) workspaces, not 2")
+        #expect(Self.answers(services, [1], "at the start") == [Self.iconAddress(1, "a")])
+        scene.spaces[1].pages.removeFirst()
+        await Self.show(scene, in: services)
+        #expect(Self.answers(services, [1], "after the first tab of the workspace closed") == [Self.iconAddress(1, "b")])
+        scene.spaces[1].pages.removeAll()
+        await Self.show(scene, in: services)
+        #expect(Self.answers(services, [1], "after the second tab of the workspace closed") == [Self.ownAddress(1)])
+    }
+
     /// Row 10, the first question of an app comes from a reader inside observation tracking: no window and no
     /// question before it. The answer is the right icon. After a change of the icon the reader's change handler ran
     /// one time (a tracking calls its handler one time at most), and a new question gives the oracle's answer. The

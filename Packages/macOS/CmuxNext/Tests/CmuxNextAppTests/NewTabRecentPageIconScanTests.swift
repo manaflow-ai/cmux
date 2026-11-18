@@ -115,9 +115,11 @@ struct NewTabRecentPageIconScanTests {
             store.intend(.createTab(pane: pane.handle, provisional: ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)),
                          transaction: ClientTransactionID.generate())
             try #require(pane.tabs.count == before + 1, "fixture: the intent made \(pane.tabs.count - before) tabs in workspace \(number), not 1")
-            // The will-set of the write ran the tracking's `onChange` in the write: the flag is read with no turn between.
-            if flag.woke { woken += 1 }
+            // The will-set of a write runs a tracking's `onChange` in the write. A wake that comes through the kept
+            // table comes some turns later (the workspace's watch task, then a write of the table). The flag is read
+            // after the main actor ran, so it has each of the 2 kinds of wake.
             await drainMain()
+            if flag.woke { woken += 1 }
         }
         return woken
     }
