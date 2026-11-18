@@ -171,11 +171,13 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Launch: every Chromium start waits for `firstFrame`, and `preload` maps the framework early when a Chromium
-    /// page is likely. The hold does not depend on the preload: a restored tab keeps its own engine record, so a
-    /// visible Chromium tab starts Chromium as the window builds whatever `browser.defaultEngine` says.
-    public func launch(after firstFrame: FirstFrameGate, preload: Bool) {
-        initializeAfter(firstFrame)
-        if preload { self.preload() }
+    /// chat is likely. The hold does not depend on the preload: a restored tab keeps its own engine record, so a
+    /// visible Chromium tab starts Chromium as the window builds whatever `browser.defaultEngine` says. Only a likely
+    /// chat whose last quit left its page on screen (`prefetch`) skips the hold, since that page is part of the frame.
+    public func launch(after firstFrame: FirstFrameGate, preload: Bool, prefetch: CEFLaunchPrefetch? = nil) {
+        guard preload else { return initializeAfter(firstFrame) }
+        if let prefetch { initializeAfter(prefetch.initializeGate(firstFrame)) } else { initializeAfter(firstFrame) }
+        self.preload()
     }
 
     /// Runs `CefInitialize` before any Chromium tab needs it, when a caller

@@ -785,11 +785,33 @@ export function findTokenCopies(): Finding[] {
  *   number   a bare 80/120/180/240 bound to a name that reads as a length in ms (`FOLD_MS`,
  *            `durationMs`, `duration:`) or asserted against one (`expect(fold.durationMs).toBe(180)`).
  * A line marked `motion-allow: <reason>` is a reviewed exception (a value that only happens to equal a
- * step, such as a 120 ms debounce). The generated scale itself is not read.
+ * step, such as a 120 ms debounce). The generated scale itself is not scanned.
+ *
+ * The steps and curves come from schemas/motion-scale/motion-scale.json, the file a scale change edits,
+ * so the detector follows it: a new step value is flagged and a retired one stops being flagged with no
+ * edit here (cmux#44271 review).
  */
-const SCALE_MS = new Set([80, 120, 180, 240]);
+/** The parts of motion-scale.json the detector reads. */
+export type MotionScaleSource = {
+  steps: { ms: number }[];
+  easeOut: number[];
+  settle: { ms: number; bezier: number[] };
+  send: { ms: number; ease: number[] };
+};
+const MOTION_SCALE_JSON = join(ROOT, "..", "schemas", "motion-scale", "motion-scale.json");
+/** What a hand-typed copy of `scale` looks like: its durations (ms) and its curves. */
+export type MotionScaleMatchers = { ms: Set<number>; curve: RegExp };
+export function motionScaleMatchers(scale: MotionScaleSource): MotionScaleMatchers {
+  // A 0 ms send is "no motion", not a step anyone copies.
+  const ms = new Set(
+    [...scale.steps.map((step) => step.ms), scale.settle.ms, scale.send.ms].filter((value) => value > 0),
+  );
+  const curves = [scale.easeOut, scale.settle.bezier, scale.send.ease];
+  const points = (curve: number[]) => curve.map((point) => String(point).replace(".", "\\.")).join("\\s*,\\s*");
+  return { ms, curve: new RegExp(`cubic-bezier\\(\\s*(?:${[...new Set(curves.map(points))].join("|")})\\s*\\)`, "g") };
+}
+const SCALE = motionScaleMatchers(JSON.parse(readFileSync(MOTION_SCALE_JSON, "utf8")) as MotionScaleSource);
 const MOTION_TIME = /(?<![\w.$-])(\d*\.?\d+) ?(ms|s)\b/g;
-const MOTION_CURVE = /cubic-bezier\(\s*(?:0\.16\s*,\s*1\s*,\s*0\.3\s*,\s*1|0\s*,\s*0\s*,\s*0\.58\s*,\s*1)\s*\)/g;
 const SCALE_FALLBACK = /var\(\s*--cmux-(?:motion|ease|spinner)-[\w-]+\s*,(?:[^()]|\([^()]*\))*\)/g;
 const MS_NAME = /(?:^|_)MS$|[a-z]Ms$|^ms$|[Dd]uration$|DURATION$/;
 const MOTION_ALLOW = /motion(?::\s*allow|-allow:)\s*\S/;
@@ -810,14 +832,14 @@ function scriptFiles(): string[] {
 }
 
 /** The scale-named durations and curves `text` (a string's contents) types out. */
-export function motionLiteralsInText(text: string): string[] {
+export function motionLiteralsInText(text: string, scale: MotionScaleMatchers = SCALE): string[] {
   const bare = text.replace(SCALE_FALLBACK, "§");
   const found: string[] = [];
   for (const match of bare.matchAll(MOTION_TIME)) {
     const ms = Number(match[1]) * (match[2]!.toLowerCase() === "s" ? 1000 : 1);
-    if (SCALE_MS.has(Math.round(ms * 1000) / 1000)) found.push(match[0]);
+    if (scale.ms.has(Math.round(ms * 1000) / 1000)) found.push(match[0]);
   }
-  for (const match of bare.matchAll(MOTION_CURVE)) found.push(match[0].replace(/\s+/g, " "));
+  for (const match of bare.matchAll(scale.curve)) found.push(match[0].replace(/\s+/g, " "));
   return found;
 }
 
@@ -852,7 +874,7 @@ function bindingName(node: ts.Node): string | undefined {
   return undefined;
 }
 
-/** Hand-typed motion-scale literals in one script (see the header above `SCALE_MS`). */
+/** Hand-typed motion-scale literals in one script (see the header above `motionScaleMatchers`). */
 export function scriptMotionFindings(rel: string, source: string): Finding[] {
   const ast = ts.createSourceFile(
     rel,
@@ -878,7 +900,7 @@ export function scriptMotionFindings(rel: string, source: string): Finding[] {
       ts.isJsxText(node)
     ) {
       for (const value of motionLiteralsInText(node.text)) push(node, "string", value);
-    } else if (ts.isNumericLiteral(node) && SCALE_MS.has(Number(node.text))) {
+    } else if (ts.isNumericLiteral(node) && SCALE.ms.has(Number(node.text))) {
       const name = bindingName(node);
       if (name && MS_NAME.test(name)) push(node, "number", node.text);
     }
