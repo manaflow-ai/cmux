@@ -707,6 +707,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
+        // A hidden cmux page gets cheaper 10 s later: Chromium's memory purge, nothing reloaded (CEFHiddenPageTrim).
+        if !visible, CEFPageRendererGC.isCmuxPage(state.url) { runtime.hiddenPageTrim.pageHidden() }
         // A hidden page has no pointer over it (Chrome hides the bubble of a background tab).
         if !visible, linkStatus != nil { linkStatus = nil }
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility). A page whose view
