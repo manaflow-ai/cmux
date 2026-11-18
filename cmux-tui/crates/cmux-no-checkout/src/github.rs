@@ -284,7 +284,10 @@ impl GitHub {
         Ok(serde_json::from_value(v["tree"].clone())?)
     }
 
-    /// A blob's bytes.
+    /// A blob's bytes: every read of a file's bytes goes through here.
+    // TODO(lane/projected-fleet-checkouts): ask cmux-projection's machine-wide blob cache
+    // (`blob_cache::BlobSource`) first once that branch lands, so a blob read once on the machine
+    // is never fetched again.
     pub async fn blob(&self, sha: &str) -> anyhow::Result<Vec<u8>> {
         self.call(reqwest::Method::GET, &format!("/git/blobs/{}", escape(sha)), None, true).await
     }
