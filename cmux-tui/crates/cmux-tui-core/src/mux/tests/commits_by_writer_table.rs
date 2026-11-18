@@ -7,7 +7,9 @@
 //! its commits go through the journal writer thread, as in a daemon. The row
 //! reads the section as a client does (its JSON) after each step of the flow
 //! and prints the writers whose row moved, with the journal rows that the
-//! step added by kind.
+//! step added by kind. Under each step: one line for each commit that the
+//! step put in the WAL file, in the WAL's order, with its frames by the
+//! b-tree of their page (`dbstat`, read after the step).
 //!
 //! The flow: 2 agents with hooks (a session's start, a turn's start, 2 tools,
 //! one of them with a permission request, the turn's end, the session's end);
@@ -38,6 +40,84 @@ use crate::mux::resource_content::without_crosscheck;
 
 const PLUGIN: &str = "screen_table_test";
 const WORKSPACES: usize = 60;
+const FREE_PAGE: &str = "(no b-tree now: a free page)";
+const WAL_HEADER: usize = 32;
+const WAL_FRAME_HEADER: usize = 24;
+
+/// The frames that the registry's WAL file holds now.
+#[derive(Default)]
+struct Wal {
+    /// The 2 salts of the WAL's header. They change when the WAL starts
+    /// again from its first frame.
+    salts: Vec<u8>,
+    /// Each frame of this WAL: its page number, and if it ends a commit.
+    frames: Vec<(u32, bool)>,
+}
+
+/// Reads the WAL file: each frame after the header is 24 bytes and one page;
+/// its first 4 bytes are the page's number, the next 4 are not zero in the
+/// last frame of a commit, and bytes 8 to 16 are the salts of the header.
+fn read_wal(mux: &Mux) -> Wal {
+    let database = mux.journal_kernel.database_path().expect("an on-disk registry");
+    let mut path = database.as_os_str().to_owned();
+    path.push("-wal");
+    let bytes = std::fs::read(&path).unwrap_or_default();
+    let Some(header) = bytes.get(..WAL_HEADER) else { return Wal::default() };
+    let page = u32::from_be_bytes(header[8..12].try_into().unwrap()) as usize;
+    if page == 0 {
+        return Wal::default();
+    }
+    let salts = header[16..24].to_vec();
+    let mut frames = Vec::new();
+    for frame in bytes[WAL_HEADER..].chunks_exact(WAL_FRAME_HEADER + page) {
+        if frame[8..16] != salts[..] {
+            break;
+        }
+        let number = u32::from_be_bytes(frame[..4].try_into().unwrap());
+        frames.push((number, frame[4..8] != [0; 4]));
+    }
+    Wal { salts, frames }
+}
+
+/// The b-tree of each page of the registry, by `dbstat`.
+fn page_trees(mux: &Mux) -> BTreeMap<u32, String> {
+    let database = mux.journal_kernel.database_path().expect("an on-disk registry");
+    let reader = crate::workspace_registry::open_registry_database_read_only(database).unwrap();
+    let mut statement = reader.prepare("SELECT pageno, name, pagetype FROM dbstat").unwrap();
+    let pages = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        })
+        .unwrap()
+        .map(|row| {
+            let (page, name, kind) = row.unwrap();
+            let tree = if kind == "overflow" { format!("{name} (overflow)") } else { name };
+            (u32::try_from(page).unwrap(), tree)
+        })
+        .collect::<BTreeMap<_, _>>();
+    pages
+}
+
+/// One line for each commit of `frames`, in the WAL's order: its frames by
+/// the b-tree of their page.
+fn commit_lines(frames: &[(u32, bool)], trees: &BTreeMap<u32, String>) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut by_tree = BTreeMap::<&str, usize>::new();
+    let mut count = 0;
+    for (page, ends_a_commit) in frames {
+        *by_tree.entry(trees.get(page).map_or(FREE_PAGE, String::as_str)).or_default() += 1;
+        count += 1;
+        if *ends_a_commit {
+            lines.push(format!("    COMMIT {}: {count} frames: {by_tree:?}", lines.len() + 1));
+            by_tree.clear();
+            count = 0;
+        }
+    }
+    if count > 0 {
+        lines.push(format!("    {count} frames with no commit mark: {by_tree:?}"));
+    }
+    lines
+}
 
 /// The section's rows: writer -> (commits, WAL frames).
 type Rows = BTreeMap<String, (u64, u64)>;
@@ -109,16 +189,20 @@ struct Table<'a> {
     mux: &'a Arc<Mux>,
     rows: Rows,
     head: u64,
+    /// The WAL after the step before: its salts and the count of its frames.
+    wal: (Vec<u8>, usize),
     lines: Vec<String>,
 }
 
 impl<'a> Table<'a> {
     fn new(mux: &'a Arc<Mux>) -> Self {
         settled(mux);
+        let wal = read_wal(mux);
         Table {
             mux,
             rows: rows_of(&section(mux)),
             head: mux.session_journal_head().unwrap(),
+            wal: (wal.salts, wal.frames.len()),
             lines: Vec::new(),
         }
     }
@@ -131,12 +215,18 @@ impl<'a> Table<'a> {
         let now = rows_of(&section(self.mux));
         let head = self.mux.session_journal_head().unwrap();
         let kinds = kinds_after(self.mux, self.head);
+        let wal = read_wal(self.mux);
+        let same_wal = wal.salts == self.wal.0 && wal.frames.len() >= self.wal.1;
+        let frames = if same_wal { &wal.frames[self.wal.1..] } else { &wal.frames[..] };
+        let again = if same_wal { "" } else { " | THE WAL STARTED AGAIN: its frames from there" };
         self.lines.push(format!(
-            "STEP {name}{failure}: {} | journal rows: {kinds:?}",
+            "STEP {name}{failure}: {} | journal rows: {kinds:?}{again}",
             moved(&self.rows, &now)
         ));
+        self.lines.extend(commit_lines(frames, &page_trees(self.mux)));
         self.rows = now;
         self.head = head;
+        self.wal = (wal.salts, wal.frames.len());
     }
 }
 
