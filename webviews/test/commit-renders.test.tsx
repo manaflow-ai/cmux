@@ -5,7 +5,7 @@
 // whose rows take a fresh prop each render renders every row, and the counter says so.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, memo } from "react";
+import { act, createContext, memo, useContext, useState, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
 import { rowRenders } from "./support/commitRenders";
 import { teardownDom } from "./support/domTeardown";
@@ -73,4 +73,83 @@ test("a fresh prop per row renders every row, 49 of them for nothing", () => {
   renders.begin(host, ".row");
   act(() => root!.render(<List items={changed} fresh />));
   expect(renders.end()).toEqual({ rerendered: 50, wasted: 49, added: 0, maxRenders: 1 });
+});
+
+// Canaries: a row that re-renders from its own hooks keeps its props object, so a counter that
+// compares props reads 0. The commit hook sees the fiber's work, so each of these must count: one
+// state change, one context change and one store tick render every row, all for nothing.
+const Theme = createContext(0);
+let bump: Array<() => void> = [];
+const StateRow = memo(function StateRow({ item }: { item: Item }) {
+  const [, setTick] = useState(0);
+  bump.push(() => setTick((tick) => tick + 1));
+  return <li className="row">{item.text}</li>;
+});
+const ContextRow = memo(function ContextRow({ item }: { item: Item }) {
+  useContext(Theme);
+  return <li className="row">{item.text}</li>;
+});
+let version = 0;
+const listeners = new Set<() => void>();
+const store = {
+  subscribe: (listener: () => void) => (listeners.add(listener), () => listeners.delete(listener)),
+  get: () => version,
+};
+const StoreRow = memo(function StoreRow({ item }: { item: Item }) {
+  useSyncExternalStore(store.subscribe, store.get);
+  return <li className="row">{item.text}</li>;
+});
+const few = items.slice(0, 10);
+
+test("a row re-rendered by its own state counts, though its props did not change", () => {
+  bump = [];
+  act(() =>
+    root!.render(
+      <ul>
+        {few.map((item) => (
+          <StateRow key={item.id} item={item} />
+        ))}
+      </ul>,
+    ),
+  );
+  const renders = rowRenders();
+  renders.begin(host, ".row");
+  act(() => bump.forEach((each) => each()));
+  expect(renders.end()).toEqual({ rerendered: 10, wasted: 10, added: 0, maxRenders: 1 });
+});
+
+test("a row re-rendered by a context it reads counts", () => {
+  const view = (theme: number) => (
+    <Theme value={theme}>
+      <ul>
+        {few.map((item) => (
+          <ContextRow key={item.id} item={item} />
+        ))}
+      </ul>
+    </Theme>
+  );
+  act(() => root!.render(view(0)));
+  const renders = rowRenders();
+  renders.begin(host, ".row");
+  act(() => root!.render(view(1)));
+  expect(renders.end()).toEqual({ rerendered: 10, wasted: 10, added: 0, maxRenders: 1 });
+});
+
+test("a row re-rendered by a store it subscribes to counts", () => {
+  act(() =>
+    root!.render(
+      <ul>
+        {few.map((item) => (
+          <StoreRow key={item.id} item={item} />
+        ))}
+      </ul>,
+    ),
+  );
+  const renders = rowRenders();
+  renders.begin(host, ".row");
+  act(() => {
+    version++;
+    for (const listener of listeners) listener();
+  });
+  expect(renders.end()).toEqual({ rerendered: 10, wasted: 10, added: 0, maxRenders: 1 });
 });
