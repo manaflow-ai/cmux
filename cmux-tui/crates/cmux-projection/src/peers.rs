@@ -66,6 +66,15 @@ fn valid_id(oid: &str) -> bool {
         && oid.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+fn hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// What one source answered for one id.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Answer {
@@ -213,17 +222,31 @@ impl Chain {
     /// The remotes one blob is asked of, as indexes: at most [`PEERS_PER_BLOB`] peers (spread by
     /// the id, so one checkout's blobs spread over the peers), then every non-peer source in order.
     fn order(&self, oid: &str) -> Vec<usize> {
-        let peers: Vec<usize> =
-            (0..self.remotes.len()).filter(|&at| self.remotes[at].tier == "peer").collect();
+        let peers: Vec<usize> = self
+            .remotes
+            .iter()
+            .enumerate()
+            .filter_map(|(at, remote)| (remote.tier == "peer").then_some(at))
+            .collect();
         let mut order = Vec::new();
         if !peers.is_empty() {
-            let prefix = oid.get(..4).unwrap_or("0");
-            let start = usize::from_str_radix(prefix, 16).unwrap_or(0) % peers.len();
+            let prefix = oid
+                .bytes()
+                .take(4)
+                .try_fold(0usize, |value, byte| Some(value * 16 + usize::from(hex_digit(byte)?)));
+            let start = prefix.unwrap_or(0) % peers.len();
             for step in 0..PEERS_PER_BLOB.min(peers.len()) {
-                order.push(peers[(start + step) % peers.len()]);
+                if let Some(&at) = peers.get((start + step) % peers.len()) {
+                    order.push(at);
+                }
             }
         }
-        order.extend((0..self.remotes.len()).filter(|&at| self.remotes[at].tier != "peer"));
+        order.extend(
+            self.remotes
+                .iter()
+                .enumerate()
+                .filter_map(|(at, remote)| (remote.tier != "peer").then_some(at)),
+        );
         order
     }
 
@@ -236,23 +259,25 @@ impl Chain {
         rejected: &AtomicUsize,
     ) -> Option<(&'static str, Vec<u8>)> {
         for at in self.order(oid) {
-            if failures[at].load(Ordering::Relaxed) >= DEAD_AFTER {
+            let (Some(failure), Some(remote)) = (failures.get(at), self.remotes.get(at)) else {
+                continue;
+            };
+            if failure.load(Ordering::Relaxed) >= DEAD_AFTER {
                 continue;
             }
-            let remote = &self.remotes[at];
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
             match self.get.get(&url, remote.token.as_deref(), remote.deadline()) {
                 Answer::Found(bytes) if verify(oid, &bytes) => {
-                    failures[at].store(0, Ordering::Relaxed);
+                    failure.store(0, Ordering::Relaxed);
                     return Some((remote.tier, bytes));
                 }
                 Answer::Found(_) => {
                     rejected.fetch_add(1, Ordering::Relaxed);
-                    failures[at].fetch_add(1, Ordering::Relaxed);
+                    failure.fetch_add(1, Ordering::Relaxed);
                 }
-                Answer::Absent | Answer::Busy => failures[at].store(0, Ordering::Relaxed),
+                Answer::Absent | Answer::Busy => failure.store(0, Ordering::Relaxed),
                 Answer::Failed => {
-                    failures[at].fetch_add(1, Ordering::Relaxed);
+                    failure.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -298,7 +323,9 @@ impl Chain {
         let mut filled = Filled { rejected: rejected.into_inner(), dropped, ..Filled::default() };
         let mut have = vec![false; oids.len()];
         for (at, tier) in found {
-            have[at] = true;
+            if let Some(slot) = have.get_mut(at) {
+                *slot = true;
+            }
             match tier {
                 "peer" => filled.peer += 1,
                 "ssd" => filled.ssd += 1,
@@ -344,13 +371,16 @@ pub fn peer_list(text: &str) -> Vec<String> {
 /// through a temporary file and a rename, so a reader never sees half an object.
 pub fn write_loose(git_dir: &Path, oid: &str, bytes: &[u8]) -> anyhow::Result<()> {
     anyhow::ensure!(verify(oid, bytes), "{oid}: bytes do not hash to it");
-    let dir = git_dir.join("objects").join(&oid[..2]);
-    let file = dir.join(&oid[2..]);
+    let prefix: String = oid.chars().take(2).collect();
+    let suffix: String = oid.chars().skip(2).collect();
+    let dir = git_dir.join("objects").join(prefix);
+    let file = dir.join(&suffix);
     if file.exists() {
         return Ok(());
     }
     std::fs::create_dir_all(&dir)?;
-    let temp = dir.join(format!("tmp_obj_{}_{}", std::process::id(), &oid[2..10]));
+    let temp_suffix: String = suffix.chars().take(8).collect();
+    let temp = dir.join(format!("tmp_obj_{}_{}", std::process::id(), temp_suffix));
     {
         let mut encoder = flate2::write::ZlibEncoder::new(
             std::fs::File::create(&temp)?,
