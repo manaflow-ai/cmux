@@ -239,25 +239,26 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
     await show(page, [], true);
     await show(page, short.slice(2), true);
     await settle(page);
-    // The viewport top of every row drawn, after each painted frame, until the read has settled.
-    const tops = () =>
-      page.evaluate(() => {
-        const out: Record<string, number> = {};
-        for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row"))
-          out[node.dataset.rowId!] = Math.round(node.getBoundingClientRect().top);
-        return out;
-      });
-    const first = await tops();
-    expect(Object.keys(first).sort()).toEqual(["t3", "t4", "t5", "t6"]);
+    // Every drawn row's viewport top and height (`top+height`), the turn footers the transcript adds
+    // too, now and then after each painted frame until the read has settled.
+    const boxes = () => {
+      const out: Record<string, [number, number]> = {};
+      for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row")) {
+        const box = node.getBoundingClientRect();
+        out[node.dataset.rowId!] = [Math.round(box.top), Math.round(box.height)];
+      }
+      return out;
+    };
+    await page.evaluate(`window.__rowBoxes = ${boxes.toString()}`);
+    const first = await page.evaluate(() =>
+      (window as unknown as { __rowBoxes(): Record<string, [number, number]> }).__rowBoxes(),
+    );
+    expect(Object.keys(first)).toEqual(expect.arrayContaining(["t3", "t4", "t5", "t6"]));
     await page.evaluate(() => {
-      const frames: Record<string, number>[] = [];
-      const stopFrames = window.cmuxAfterPaint(() => {
-        const out: Record<string, number> = {};
-        for (const node of document.querySelectorAll<HTMLElement>(".acpmux-scroll article.acpmux-row"))
-          out[node.dataset.rowId!] = Math.round(node.getBoundingClientRect().top);
-        frames.push(out);
-      });
-      (window as unknown as { __stopTops(): unknown }).__stopTops = () => {
+      const read = (window as unknown as { __rowBoxes(): Record<string, [number, number]> }).__rowBoxes;
+      const frames: Record<string, [number, number]>[] = [];
+      const stopFrames = window.cmuxAfterPaint(() => void frames.push(read()));
+      (window as unknown as { __stopBoxes(): unknown }).__stopBoxes = () => {
         stopFrames();
         return frames;
       };
@@ -265,18 +266,19 @@ await requireBrowserLane("transcript-open-history-no-remount-browser.test.ts", a
     await show(page, short, false);
     await settle(page);
     const frames = await page.evaluate(() =>
-      (window as unknown as { __stopTops(): Record<string, number>[] }).__stopTops(),
+      (window as unknown as { __stopBoxes(): Record<string, [number, number]>[] }).__stopBoxes(),
     );
     expect(frames.length).toBeGreaterThan(0);
     const moved = frames.flatMap((frame, index) =>
-      Object.entries(first).flatMap(([id, top]) =>
-        frame[id] !== undefined && Math.abs(frame[id]! - top) >= 1
-          ? [`frame ${index}: ${id} ${top} -> ${frame[id]}`]
+      Object.entries(first).flatMap(([id, [top]]) =>
+        frame[id] !== undefined && Math.abs(frame[id]![0] - top) >= 1
+          ? [`frame ${index}: ${id} top ${top} -> ${frame[id]![0]}`]
           : [],
       ),
     );
-    expect(moved).toEqual([]);
-    expect(Object.keys(frames.at(-1)!).sort()).toEqual(["t1", "t2", "t3", "t4", "t5", "t6"]);
+    // On a failure, the rows before and after say which box changed.
+    expect({ moved, ...(moved.length && { before: first, after: frames.at(-1) }) }).toEqual({ moved: [] });
+    expect(Object.keys(frames.at(-1)!)).toEqual(expect.arrayContaining(["t1", "t2", "t3", "t4", "t5", "t6"]));
     await page.close();
   });
 });
