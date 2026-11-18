@@ -2328,6 +2328,7 @@ dependencies = [
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
+ "cmux-projfs",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",

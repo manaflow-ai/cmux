@@ -243,7 +243,12 @@ fn the_link_entry_gate_admits_only_the_fs_ops() {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "fetch_1" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
+    for cmd in cmux_tui_core::projfs_rendezvous::PROJFS_REMOTE_COMMANDS {
+        let frame = serde_json::json!({ "id": 1, "cmd": cmd, "mount": "m1" }).to_string();
+        assert!(gate.admit(&peer, &frame), "{cmd}");
+    }
     for frame in [
+        r#"{"id":1,"cmd":"projfs.fetch","mount":"m1","wants":[]}"#,
         r#"{"id":1,"cmd":"git.seed.cancel","job":"seed_1"}"#,
         r#"{"id":1,"cmd":"git.clone","url":"https://github.com/o/n.git"}"#,
         r#"{"id":1,"cmd":"identify"}"#,

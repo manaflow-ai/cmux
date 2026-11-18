@@ -36,9 +36,21 @@ pub(crate) fn early_unix_scope(raw_args: &[String]) -> Option<fn(&[String]) -> i
         Some(run_gitlab)
     } else if repo_requested(raw_args) {
         Some(super::repo_hold::run)
+    } else if raw_args.first().is_some_and(|first| first == "projfs") {
+        Some(run_projfs)
     } else {
         None
     }
+}
+
+/// `cmux-tui projfs mount|unmount|upper|status` (crate `cmux-projfs`): a projected folder's
+/// mount helper on a Cloud machine. It runs before the mux's signal handlers because it owns
+/// SIGTERM and SIGINT itself (they end its mount). The session daemon's socket, when neither
+/// `--socket` nor `CMUX_TUI_SOCKET` names one, is the Cloud session's, as `cmux link access
+/// request` resolves it.
+fn run_projfs(rest: &[String]) -> i32 {
+    let socket = cmux_tui_core::server::try_default_socket_path("cloud").ok();
+    cmux_projfs::helper::run_with(rest, socket, &mut std::io::stdout())
 }
 
 /// Only these two `team` verbs run here; every other `cmux team …` path
