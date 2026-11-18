@@ -189,7 +189,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxAppAttest"
+        "CmuxAppAttest",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextAgentPaneTests": {
@@ -213,7 +214,9 @@
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxVisibleRows"
+      ],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",

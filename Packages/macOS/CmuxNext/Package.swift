@@ -602,6 +602,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -629,6 +630,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
             ],
             swiftSettings: uiSwiftSettings
         ),
