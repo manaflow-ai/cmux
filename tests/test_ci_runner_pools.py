@@ -555,11 +555,14 @@ class Main(unittest.TestCase):
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
         self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
-        # The next pass reads it back unchanged (the writer used to reset any label outside the members).
+        # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
+        # variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
         self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]}, api=self.Api(None),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
-        self.assertEqual([name for name, _ in again.writes if name == "RUNNER_POOLS"], [])
+        kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
+        self.assertEqual((kept["linux_16"], kept["linux_32"]),
+                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"))
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
