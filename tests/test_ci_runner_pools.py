@@ -844,7 +844,7 @@ class CapBound(unittest.TestCase):
             with self.subTest(pool=name):
                 self.assertIsNone(runner_pools.grows_before_shrinking(runner_pools.members(spec)))
         grows = {"x": {"why": "x", "members": [self.SIXTEEN, self.THIRTY_TWO, self.EIGHT]}}
-        self.assertIn("fails over to blacksmith-8vcpu-ubuntu-2404 before a smaller size",
+        self.assertIn("lists blacksmith-8vcpu-ubuntu-2404 after a larger failover",
                       "\n".join(runner_pools.spec_problems(grows)))
         self.assertIsNone(runner_pools.grows_before_shrinking([self.SIXTEEN, self.EIGHT, self.FOUR, self.THIRTY_TWO]))
         self.assertEqual(runner_pools.grows_before_shrinking([self.SIXTEEN, self.FOUR, self.EIGHT]), self.EIGHT)

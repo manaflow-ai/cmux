@@ -234,7 +234,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
         grows = grows_before_shrinking(listed)
         if grows:
-            found.append(f"{where}: fails over to {grows} before a smaller size; Blacksmith caps the org on vCPUs at "
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
                          "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
     return found
 
