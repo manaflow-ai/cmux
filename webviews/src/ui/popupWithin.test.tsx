@@ -112,6 +112,18 @@ test("an opener marks its ancestors up to its row, and two openers clear only wh
   expect(marked()).toEqual([]);
 });
 
+test("an opener outside a transcript row (the composer's paste card) marks nothing", () => {
+  installDom();
+  const composer = document.createElement("div");
+  composer.className = "acpmux-composer";
+  composer.innerHTML = '<div contenteditable="true"><span class="chip"><button id="card"></button></span></div>';
+  document.body.appendChild(composer);
+  const clear = markPopupWithin(document.getElementById("card"));
+  expect(marked()).toEqual([]);
+  clear();
+  expect(marked()).toEqual([]);
+});
+
 test("a context menu in a row marks the row while open, and clears on dismiss and on unmount", async () => {
   let dismiss: ((reply: unknown) => void) | undefined;
   installNativeMenu(

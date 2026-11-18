@@ -10,15 +10,19 @@
 import { useLayoutEffect } from "react";
 
 export const POPUP_WITHIN = "data-popup-within";
-/// Where the marks stop going up: the transcript row (inclusive). Outside a row they go to the root.
+/// Where the marks stop going up: the transcript row (inclusive). Only row rules read them, so an opener
+/// outside a row marks nothing, and a popup opened in the composer (its paste card's menu) leaves the
+/// editor's own nodes alone.
 const STOP = ".acpmux-row";
 
 const marks = new WeakMap<Element, number>();
+const unmarked = () => {};
 
-/// Marks `opener`'s ancestors; returns the one function that clears them (idempotent).
+/// Marks `opener`'s ancestors up to its row; returns the one function that clears them (idempotent).
 export function markPopupWithin(opener: Element | null | undefined): () => void {
+  if (!opener?.parentElement?.closest(STOP)) return unmarked;
   const marked: Element[] = [];
-  for (let node = opener?.parentElement; node; node = node.parentElement) {
+  for (let node = opener.parentElement; node; node = node.parentElement) {
     const count = marks.get(node) ?? 0;
     marks.set(node, count + 1);
     if (count === 0) node.setAttribute(POPUP_WITHIN, "");
