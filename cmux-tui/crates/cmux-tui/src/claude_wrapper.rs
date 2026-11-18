@@ -811,7 +811,11 @@ mod tests {
         assert_eq!(launch(&[], None), "accept");
         assert_eq!(launch(&[], Some(Value::from("hold"))), "accept");
         assert_eq!(launch(&[r#"--settings={"crossSessionInbound":"hold"}"#], None), "accept");
-        assert_eq!(launch(&[], Some(Value::from("accept"))), "accept");
+        assert_eq!(
+            launch(&[], Some(Value::from("accept"))),
+            Value::Null,
+            "the person's accept applies"
+        );
         assert_eq!(
             launch(&[], Some(Value::from("refuse"))),
             Value::Null,
