@@ -18,11 +18,30 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     /// A middle-click on a row: close it, as Cmd-W does (Tab Search: the row's tab).
     var onMiddleClick: ((String) -> Void)?
 
-    private let table = PaletteTableView()
+    /// Internal for the render count tests.
+    let table = PaletteTableView()
     /// The row a middle press went down on (`onMiddleClick`).
     private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
+    /// What the list did: rows configured and heights asked (`PaletteListRenderCountTests`).
+    private(set) var counts = Counts()
+
+    struct Counts: Equatable {
+        /// `tableView(_:viewFor:row:)` calls: cell views configured.
+        var configures = 0
+        /// `tableView(_:heightOfRow:)` calls.
+        var heights = 0
+    }
+
+    func resetCounts() { counts = Counts() }
+
+    /// Row views mounted in the table now.
+    var mountedRowCount: Int {
+        var count = 0
+        table.enumerateAvailableRowViews { _, _ in count += 1 }
+        return count
+    }
     private var selectedID: String?
     private var hoveredID: String?
     /// No rubber band while every result fits.
@@ -177,6 +196,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        counts.heights += 1
         if case .header = rows[row] { return PaletteLayout.headerRowHeight }
         return PaletteLayout.rowHeight
     }
@@ -201,6 +221,7 @@ final class PaletteListView: OverlayScrollView, NSTableViewDataSource, NSTableVi
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        counts.configures += 1
         switch rows[row] {
         case .header(let title):
             let cell = tableView.makeView(withIdentifier: PaletteSectionHeaderCell.identifier, owner: nil) as? PaletteSectionHeaderCell
