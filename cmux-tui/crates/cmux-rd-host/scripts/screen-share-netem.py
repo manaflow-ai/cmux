@@ -95,6 +95,67 @@ def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
 
 
+STAGES = ("up", "inject", "draw_damage", "gate", "encode", "send", "down", "decode", "total")
+
+
+def stage_samples(samples, log_lines):
+    """Per key press, where its time went: the bench's sample_times (viewer, ns) joined with the
+    host's CMUX_RD_TIMING_LOG (µs) on the frame's encode start (`capture_us` == `release_us`).
+
+      up           key sent -> host read the input datagram
+      inject       read -> XTest injected
+      draw_damage  injected -> the session saw X damage (the app draws, the X server reports it)
+      gate         damage seen -> encode start (settle window, frame-rate cap, encoder busy)
+      encode       encode start -> bitstream (XShm readback, I420 convert and OpenH264)
+      send         bitstream -> last datagram handed to the carrier (pacer)
+      down         last datagram handed over -> frame complete on the viewer
+      decode       complete -> decoded
+    A sample gets a stage only when both ends are known; every value is in ms."""
+    frames = {d["release_us"]: d for d in log_lines if "release_us" in d}
+    injects = sorted((d for d in log_lines if "inject_us" in d and d.get("recv_us")),
+                     key=lambda d: d["recv_us"])
+    out = []
+    for s in samples:
+        sent_us = s["sent_ns"] / 1000
+        f = frames.get(s.get("capture_us"))
+        inj = next((d for d in injects if d["recv_us"] >= sent_us), None)
+        row = {"total": (s["decoded_ns"] - s["sent_ns"]) / 1e6}
+        if inj and (f is None or inj["inject_us"] <= f["release_us"]):
+            row["up"] = (inj["recv_us"] - sent_us) / 1000
+            row["inject"] = (inj["inject_us"] - inj["recv_us"]) / 1000
+            if f and f.get("damage_us"):
+                row["draw_damage"] = (f["damage_us"] - inj["inject_us"]) / 1000
+        if f:
+            if f.get("damage_us"):
+                row["gate"] = (f["release_us"] - f["damage_us"]) / 1000
+            row["encode"] = (f["encoded_us"] - f["release_us"]) / 1000
+            if f.get("sent_us"):
+                row["send"] = (f["sent_us"] - f["encoded_us"]) / 1000
+                if s.get("complete_ns"):
+                    row["down"] = (s["complete_ns"] / 1000 - f["sent_us"]) / 1000
+            row["idr"] = f.get("idr")
+            row["bytes"] = f.get("encoded_bytes")
+        if s.get("complete_ns"):
+            row["decode"] = (s["decoded_ns"] - s["complete_ns"]) / 1e6
+        out.append(row)
+    return out
+
+
+def stage_table(rows):
+    def pct(xs, q):
+        xs = sorted(xs)
+        return xs[min(len(xs) - 1, int(round(q / 100 * (len(xs) - 1))))] if xs else None
+    lines = ["| stage | n | p50 ms | p95 ms |", "| --- | --- | --- | --- |"]
+    for st in STAGES:
+        xs = [r[st] for r in rows if r.get(st) is not None]
+        if xs:
+            lines.append(f"| {st} | {len(xs)} | {pct(xs, 50):.2f} | {pct(xs, 95):.2f} |")
+    idr = sum(1 for r in rows if r.get("idr"))
+    sizes = [r["bytes"] for r in rows if r.get("bytes")]
+    lines.append(f"key frames that were IDR: {idr}/{len(rows)}; frame bytes p50 {pct(sizes, 50)}")
+    return "\n".join(lines)
+
+
 def attempt(args, n, drop_s=None):
     rec = {"attempt": n, "rtt_ms": args.rtt, "loss_pct": args.loss, "ok": False}
     rec["row"] = f"drop-{drop_s:g}s" if drop_s is not None else "baseline"
@@ -110,7 +171,8 @@ def attempt(args, n, drop_s=None):
     try:
         line = readline(viewer, time.time() + 10)
         viewer_key = json.loads(line)["key"]
-        host = subprocess.Popen(["ip", "netns", "exec", HOST_NS, *args.host_wrap.split(), args.bin, "serve", "--display",
+        timing_env = ["env", f"CMUX_RD_TIMING_LOG={args.timing_log}"] if args.timing_log else []
+        host = subprocess.Popen(["ip", "netns", "exec", HOST_NS, *timing_env, *args.host_wrap.split(), args.bin, "serve", "--display",
                                  args.display, "--profile", "baseline", *args.serve_arg],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, bufsize=1)
@@ -195,6 +257,9 @@ def attempt(args, n, drop_s=None):
             rec["frames_per_s"] = rep.get("frames_per_s")
             rec["mbit_per_s"] = rep.get("mbit_per_s")
             rec["ended"] = rep.get("ended")
+            rec["decode_ms"] = rep.get("decode_ms")
+            if args.timing_log:
+                rec["sample_times"] = rep.get("sample_times")
             rec["ok"] = bool(rep.get("g2g_ms")) and "connect_ms" in rec
             rec.pop("report")
         else:
@@ -247,6 +312,9 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--one-ns", action="store_true")
     ap.add_argument("--host-wrap", default="")
+    ap.add_argument("--timing-log", help="the host's CMUX_RD_TIMING_LOG; with it each attempt keeps "
+                    "the bench's sample_times and the run ends with the per-stage table (one machine, "
+                    "one CLOCK_MONOTONIC: the join needs no clock probe)")
     args = ap.parse_args()
     if args.drop_seconds is not None and args.blip_at is None:
         ap.error("--drop-seconds requires --blip-at")
@@ -260,17 +328,26 @@ def main():
         args.timeout = max(args.timeout, args.blip_at + max(drop_seconds) + 30)
     procs = setup(args)
     out = open(args.out, "a") if args.out else None
+    samples = []
     try:
         n = 0
         for drop_s in drop_seconds:
             for _ in range(args.attempts):
                 n += 1
                 rec = attempt(args, n, drop_s)
+                samples += rec.get("sample_times") or []
                 line = json.dumps(rec)
                 print(line, flush=True)
                 if out:
                     out.write(line + "\n")
                     out.flush()
+        if args.timing_log and samples:
+            with open(args.timing_log) as f:
+                log = [json.loads(line) for line in f if line.startswith("{")]
+            rows = stage_samples(samples, log)
+            print(stage_table(rows), flush=True)
+            if out:
+                out.write(json.dumps({"stages": rows}) + "\n")
     finally:
         for p in procs:
             p.terminate()
