@@ -26,10 +26,10 @@ public struct SetupFlow: View {
     /// when the account can't buy (on a paid plan, billed on the web or by a team, or the
     /// App Store sells nothing to this build).
     public struct PlanPage {
-        let view: (_ next: @escaping () -> Void) -> AnyView
-        let skips: () -> Bool
+        let view: @MainActor (_ next: @escaping () -> Void) -> AnyView
+        let skips: @MainActor () -> Bool
 
-        public init(skips: @escaping () -> Bool, view: @escaping (_ next: @escaping () -> Void) -> AnyView) {
+        public init(skips: @escaping @MainActor () -> Bool, view: @escaping @MainActor (_ next: @escaping () -> Void) -> AnyView) {
             self.view = view
             self.skips = skips
         }
@@ -819,9 +819,6 @@ private struct NotificationsStep: View {
         .accessibilityIdentifier("setup.notifications.allow")
         TextCTA("Not now", action: next)
             .accessibilityIdentifier("setup.notifications.not-now")
-    }
-}
-#endif
     }
 }
 #endif
