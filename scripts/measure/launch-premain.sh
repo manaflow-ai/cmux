@@ -86,6 +86,35 @@ gate() {
   echo "LP-GATE $what stapler rc=$rc $(printf '%s' "$text" | tail -1)"
 }
 
+# fetch_dmg DMG FILE: DMG (nightly: the newest the NIGHTLY feed offers; https://...; sha256:HEX) downloaded into FILE,
+# with its "LP dmg" line. Returns 2 for a malformed sha256:, 3 when nothing was downloaded (launch-reboot.sh uses it).
+fetch_dmg() {
+  local dmg="$1" file="$2"
+  if [[ "$dmg" == nightly ]]; then
+    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+  fi
+  if [[ "$dmg" == sha256:* ]]; then
+    [[ "$dmg" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "dmg=sha256: takes 64 lowercase hex" >&2; return 2; }
+    echo "LP dmg $dmg"
+    store_fetch "${dmg#sha256:}" "$file" || { echo "LP download failed"; return 3; }
+  else
+    [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; return 3; }
+    echo "LP dmg $dmg"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$file" "$dmg" || { echo "LP download failed"; return 3; }
+  fi
+}
+
+# copy_app DMG_FILE MOUNT DIR: the DMG's app copied (ditto) into DIR; prints the copy's path.
+copy_app() {
+  local found
+  hdiutil attach "$1" -nobrowse -readonly -mountpoint "$2" >/dev/null || { echo "LP attach failed" >&2; return 3; }
+  found="$(find "$2" -maxdepth 1 -name '*.app' | head -1)"
+  ditto "$found" "$3/$(basename "$found")" || return 3
+  hdiutil detach "$2" >/dev/null || hdiutil detach -force "$2" >/dev/null
+  echo "$3/$(basename "$found")"
+}
+
 main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" arg rc=0 rep arm
@@ -104,31 +133,14 @@ main() {
   sudo -n true 2>/dev/null && echo "LP root yes" || echo "LP root no (arms d and f need it: their rows say so)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LP probe build failed"; cat "$out/swiftc.log"; exit 3; }
-  if [[ "$dmg" == nightly ]]; then
-    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
-  fi
-  if [[ "$dmg" == sha256:* ]]; then
-    [[ "$dmg" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "dmg=sha256: takes 64 lowercase hex" >&2; exit 2; }
-    echo "LP dmg $dmg"
-    store_fetch "${dmg#sha256:}" "$out/app.dmg" || { echo "LP download failed"; exit 3; }
-  else
-    [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; exit 3; }
-    echo "LP dmg $dmg"
-    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$out/app.dmg" "$dmg" || { echo "LP download failed"; exit 3; }
-  fi
+  fetch_dmg "$dmg" "$out/app.dmg" || exit $?
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
-  local mount="$out/mnt" found
-  mkdir -p "$mount" "$out/copy" "$out/home" && chmod 0777 "$out/home"
+  mkdir -p "$out/mnt" "$out/copy" "$out/home" && chmod 0777 "$out/home"
   # The probe's home (launch-premain.swift's HOME_ROOT/h) gets a login keychain before any launch (fresh_keychain).
   OUT="$out" fresh_keychain "$out/home/h" || true
-  hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LP attach failed"; exit 3; }
-  found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
-  ditto "$found" "$out/copy/$(basename "$found")" || exit 3
-  hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
-  APP="$out/copy/$(basename "$found")"
+  APP="$(copy_app "$out/app.dmg" "$out/mnt" "$out/copy")" || exit 3
   gate app exec "$APP"
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
