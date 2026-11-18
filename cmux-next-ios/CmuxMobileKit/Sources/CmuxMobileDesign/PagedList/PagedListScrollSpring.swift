@@ -12,6 +12,9 @@ import UIKit
 final class PagedListScrollSpring {
     /// Where the offset is headed, read each frame.
     var target: () -> CGFloat = { 0 }
+    /// Where the offset is now, read each frame: a correction made between frames (the list keeping
+    /// its rows in place as another row lands) moves the spring with it instead of being undone.
+    var current: (() -> CGFloat)?
     /// Sets the offset (the list marks it as its own move).
     var apply: (CGFloat) -> Void = { _ in }
     /// The slide reached its target, after this many display frames.
@@ -55,6 +58,7 @@ final class PagedListScrollSpring {
         let dt = min(max(now - lastTime, 0), 1.0 / 20)
         lastTime = now
         frames += 1
+        if let current { position = current() }
         let goal = target()
         let omega = 2 * Double.pi / response
         let x = Double(position - goal)

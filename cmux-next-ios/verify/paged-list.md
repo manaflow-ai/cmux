@@ -57,7 +57,10 @@ offset to the new bottom; a `.down` list keeps the rows in place for that frame,
 new top. The spring is critically damped (no overshoot), its response is the theme's `smooth` motion
 (0.35 s), it runs on a `CADisplayLink` at up to 120 Hz and places the offset for each frame's
 `targetTimestamp`. The target is read every frame, so another arrival, a row that grows or the
-keyboard mid-slide retarget it with no seam. A touch stops it where it is. Reduce Motion, or
+keyboard mid-slide retarget it with no seam, and the spring starts each frame from where the list
+is, so the list keeping its rows in place as another row lands is not undone. A touch stops it where
+it is, and rows that arrive while a finger is on the list land out of view (the rows under the finger
+stay) and count on the indicator. Reduce Motion, or
 `.pagedAnimatesNewest(false)`, jumps instead. A reader away from the newest end is not moved: the rows
 land out of view and the newest-rows indicator counts them.
 

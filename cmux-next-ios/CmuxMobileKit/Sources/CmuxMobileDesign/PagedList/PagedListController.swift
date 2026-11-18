@@ -344,6 +344,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             }
         }
         spring.target = { [weak self] in self?.newestOffset ?? 0 }
+        spring.current = { [weak self] in self?.collectionView.contentOffset.y ?? 0 }
         spring.apply = { [weak self] y in self?.moveOffset(to: y) }
         spring.finished = { [weak self] frames in
             self?.newest.arrived = 0
@@ -412,11 +413,14 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
             arrivals = direction == .down ? at : newOrder.count - 1 - at
         }
-        let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled && !collectionView.isTracking
+        let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled
+        // A finger on the list holds the rows under it: rows that arrive then land out of view and
+        // count on the indicator, as for a reader away from the newest end.
+        let follows = followsNewest && !collectionView.isTracking
         // A `.down` list following its newest row keeps the rows in place too, then slides to the
         // new top; an `.up` one slides to the new bottom (the rows below the reader are new).
-        let slidesDown = direction == .down && followsNewest && arrivals > 0 && animates
-        let anchor = rowsChanged && loaded && (!followsNewest || slidesDown) ? captureAnchor() : nil
+        let slidesDown = direction == .down && follows && arrivals > 0 && animates
+        let anchor = rowsChanged && loaded && (!follows || slidesDown) ? captureAnchor() : nil
         items = next
         order = newOrder
         showsEdge = newShowsEdge
@@ -440,7 +444,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if newerEdgeChanged, present.contains(.newerEdge), newShowsNewerEdge { reconfigure.append(.newerEdge) }
         snapshot.reconfigureItems(reconfigure)
         applies += 1
-        arriving = direction == .up && followsNewest && arrivals > 0 && animates
+        arriving = direction == .up && follows && arrivals > 0 && animates
         updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
@@ -457,7 +461,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // The state this update leaves is what the next frame draws: measure it once, here.
         sampleShift(from: "update")
         if arrivals > 0 {
-            if followsNewest {
+            if follows {
                 if animates {
                     spring.run(from: collectionView.contentOffset.y)
                 } else {
