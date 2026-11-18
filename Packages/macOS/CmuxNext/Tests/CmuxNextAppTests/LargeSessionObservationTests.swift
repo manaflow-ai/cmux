@@ -132,7 +132,7 @@ struct LargeSessionFixture {
 /// tab. Each case starts one row's real observer over ``LargeSessionFixture``, changes the field it reads in one tab of
 /// each workspace in turn (``ObservationWakes``), and checks that (b) one tab's change wakes only that row's item and
 /// (c) no observer of the row is woken from more than one workspace. Deterministic: no GUI, no timing. Each case takes
-/// a ``SessionFixtureSize``: `large` by default, the person's 826 workspaces with `CMUX_TEST_SESSION_SIZES=real`.
+/// a ``SessionFixtureSize``: `large` by default, 826 workspaces with `CMUX_TEST_SESSION_SIZES=real`.
 @MainActor @Suite(.serialized)
 struct LargeSessionObservationTests {
     /// O2 `SidebarSessionTreeFeed.swift:59`: the session tree's pass walked every workspace, screen, pane and tab in one
