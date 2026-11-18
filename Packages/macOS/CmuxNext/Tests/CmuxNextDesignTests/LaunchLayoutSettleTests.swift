@@ -1,6 +1,5 @@
 import AppKit
-@testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import Testing
 
 /// A launch harness's settle marks (`layout.*`, LaunchLayoutSettle): the last change after the first frame, the

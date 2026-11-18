@@ -1,17 +1,15 @@
-import AppKit
-import CmuxNextControl
-import CmuxNextDesign
+public import AppKit
 import CmuxNextWakeups
 
 /// When a launch settles, for a launch harness: the last frame in which anything on screen moved, resized, appeared or
 /// went away after the first window's first frame, and the largest move, in points, with the view that made it. Leo,
 /// 2026-11-18: "well did you guys have more solution ideas tho for getting faster draws and settles?"
 ///
-/// Runs only while a harness reads the launch marks (``LaunchMarkSink/isActive``, `CMUX_NEXT_LAUNCH_MARKS_PATH`), so a
-/// person's launch pays nothing. Once a display frame of the app's clock it reads the front `ShellWindow`'s view geometry
-/// (``WindowViewGeometry``, what the Debug `--record-launch` recording reads) and compares it with the frame before. It
-/// stops after ``LaunchLayoutSettleTally/quietMs`` with no change, or ``LaunchLayoutSettleTally/capMs`` after the first
-/// frame, and then writes its marks once:
+/// The app makes one only while a harness reads the launch marks (`LaunchMarkSink.isActive`,
+/// `CMUX_NEXT_LAUNCH_MARKS_PATH`), so a person's launch pays nothing. Once a display frame of the app's clock it reads
+/// the front window's view geometry (``WindowViewGeometry``, what the Debug `--record-launch` recording reads) and
+/// compares it with the frame before. It stops after ``LaunchLayoutSettleTally/quietMs`` with no change, or
+/// ``LaunchLayoutSettleTally/capMs`` after the first frame, and then writes its marks once:
 ///
 ///   `layout.first_frame`        ms since the process started: the first frame it read
 ///   `layout.settle`             ms since the process started: the last frame that changed (the first frame when none did)
@@ -25,21 +23,29 @@ import CmuxNextWakeups
 /// A window that replaces the one being read (the launch window handed over to a restored one) is a change named
 /// `window`, and the reading goes on in the new window.
 @MainActor
-final class LaunchLayoutSettle {
+public final class LaunchLayoutSettle {
     private var client: FrameClient?
     private var window: NSWindow?
     private var geometry: WindowViewGeometry?
     private var tally = LaunchLayoutSettleTally()
     private var costMs = 0.0
-    private let sink: LaunchMarkSink
+    private let frontWindow: @MainActor () -> NSWindow?
+    private let now: () -> Double
+    private let write: (String, Double) -> Void
 
-    init(sink: LaunchMarkSink = .shared) {
-        self.sink = sink
+    /// - Parameters:
+    ///   - frontWindow: the window a person sees, or nil before the first one shows.
+    ///   - now: ms since the process started (the launch marks' clock).
+    ///   - write: writes one mark line (`LaunchMarkSink.write(name:ms:)`).
+    public init(frontWindow: @escaping @MainActor () -> NSWindow?, now: @escaping () -> Double, write: @escaping (String, Double) -> Void) {
+        self.frontWindow = frontWindow
+        self.now = now
+        self.write = write
     }
 
-    /// From the app delegate as soon as the services exist, before the first window is made. Nothing without a harness.
-    func start() {
-        guard sink.isActive, client == nil else { return }
+    /// Before the first window is made.
+    public func start() {
+        guard client == nil else { return }
         let client = FrameClient(owner: "launch.layout_settle", isAnimation: false, on: .app) { [weak self] _ in
             self?.frame() ?? false
         }
@@ -49,9 +55,9 @@ final class LaunchLayoutSettle {
 
     /// One display frame; false once the watch is over.
     private func frame() -> Bool {
-        let now = DebugTimings.millisecondsSinceProcessStart()
+        let now = now()
         // A launch that never shows a window stops looking after 30 s, and writes nothing.
-        guard let front = Self.frontWindow() else { return now < 30_000 }
+        guard let front = frontWindow() else { return now < 30_000 }
         let started = CACurrentMediaTime()
         let read = WindowViewGeometry(window: front)
         defer { costMs += (CACurrentMediaTime() - started) * 1_000 }
@@ -73,15 +79,11 @@ final class LaunchLayoutSettle {
         window = front
         geometry = read
         guard tally.isOver(at: now) else { return true }
-        finish()
-        return false
-    }
-
-    private func finish() {
-        for (name, value) in tally.marks() { sink.write(name: name, ms: value) }
-        sink.write(name: "layout.cost_ms", ms: costMs)
+        for (name, value) in tally.marks() { write(name, value) }
+        write("layout.cost_ms", costMs)
         geometry = nil
         window = nil
+        return false
     }
 
     /// A view's type as one word for a mark's name: up to its first space or generic argument
@@ -89,12 +91,6 @@ final class LaunchLayoutSettle {
     static func markName(_ name: String) -> String {
         let word = name.prefix { $0 != " " && $0 != "<" }
         return word.isEmpty ? "view" : String(word)
-    }
-
-    /// The window a person sees: the key `ShellWindow`, else the frontmost visible one.
-    private static func frontWindow() -> NSWindow? {
-        if let key = NSApp.keyWindow as? ShellWindow, key.isVisible { return key }
-        return NSApp.orderedWindows.first { $0 is ShellWindow && $0.isVisible }
     }
 }
 
