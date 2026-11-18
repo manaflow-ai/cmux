@@ -405,34 +405,58 @@ impl Hub {
     /// The answer of a release: the summary and the harness's resume command.
     async fn released(&self, session: &Session, family: &str, id: &str) -> Value {
         let meta = session.meta();
-        // The profile as the chat's own launch spawns it (defaults, preset, chat store, session
-        // env, `${home}` and `~/` expanded): the terminal runs the codex and the store it ran.
-        let resolved = {
-            let cfg = self.config.read().await;
-            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                .map(|profile| (profile, cfg.defaults_for(&meta.harness)))
-        };
-        let spawned = match resolved {
-            Ok((profile, defaults)) => {
-                self.spawn_profile_for(&meta, &profile, &defaults.env).await.ok()
-            }
-            Err(_) => None,
-        };
         let var = if family == "codex" { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" };
+        // A Codex chat: the profile as its own launch spawns it (defaults, preset, chat store,
+        // session env, route, `${home}` and `~/` expanded), so the terminal runs the codex, the
+        // config and the store the chat ran (`codex_app_server::launch_codex`).
+        let codex = if family == "codex" { self.codex_resume_profile(&meta).await } else { None };
         let mut env = serde_json::Map::new();
-        if let Some(store) = meta.chat_store.as_ref() {
-            env.insert(var.into(), json!(store));
-        } else if let Some(home) = spawned.as_ref().and_then(|p| p.env.get(var)) {
+        if let Some(home) = codex.as_ref().and_then(|p| p.env.get(var)) {
             env.insert(var.into(), json!(home));
+        } else if let Some(store) = meta.chat_store.as_ref() {
+            env.insert(var.into(), json!(store));
         } else if let Some(home) = self.harness_env(&meta).await.1.get(var) {
             env.insert(var.into(), json!(home));
         }
-        let argv =
-            resume_argv_for(family, id, spawned.as_ref(), crate::managed_codex::codex_binary);
+        let argv = resume_argv_for(family, id, codex.as_ref(), crate::managed_codex::codex_binary);
         json!({
             "session": self.session_summary(session),
             "resume": {"argv": argv, "cwd": meta.cwd, "env": env},
         })
+    }
+
+    /// The profile a Codex chat's resume command is read from: the spawned profile's program and
+    /// env (`spawn_profile_for`), with the configured profile's global options (the launch's
+    /// own; a Cloud machine's auth adds a provider global whose env changes the terminal never
+    /// gets) and `CODEX_PATH`'s `${env:X}` references resolved as the launch resolves them
+    /// (`agent::command`), from the environment only: a resume reads no Keychain item.
+    async fn codex_resume_profile(&self, meta: &SessionMeta) -> Option<HarnessProfile> {
+        let (configured, defaults) = {
+            let cfg = self.config.read().await;
+            let profile =
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .ok()?;
+            (profile, cfg.defaults_for(&meta.harness))
+        };
+        let mut spawned = self.spawn_profile_for(meta, &configured, &defaults.env).await.ok()?;
+        if let (Some(program), Some((_, globals))) =
+            (spawned.argv.first().cloned(), configured.argv.split_first())
+        {
+            spawned.argv = std::iter::once(program).chain(globals.iter().cloned()).collect();
+        }
+        if let Some(path) = spawned.env.get("CODEX_PATH").filter(|p| p.contains("${")) {
+            let mut only =
+                std::collections::BTreeMap::from([("CODEX_PATH".to_owned(), path.clone())]);
+            let resolved = crate::config::profiles::resolve_env_refs(
+                &mut only,
+                &|var| std::env::var(var).ok().or_else(|| crate::login_env::var(var)),
+                &|_, _| Err("a resume reads no Keychain item".to_owned()),
+            );
+            if resolved.is_ok() {
+                spawned.env.extend(only);
+            }
+        }
+        Some(spawned)
     }
 
     /// The transcript of `family` conversation `id` and the store it is in, as Take Over and

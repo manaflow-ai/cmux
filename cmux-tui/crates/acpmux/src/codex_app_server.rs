@@ -502,7 +502,8 @@ pub fn launch_globals(args: &[String]) -> &[String] {
 /// The bridge (`codex app-server`) runs `CODEX_PATH` when set, else its own argv0, with its
 /// globals (`agent::command`). An ACP adapter (codex-acp) runs `CODEX_PATH` when set, else
 /// `fallback` (codex on the login PATH, else the managed codex): its argv0 is the adapter.
-/// A `CODEX_PATH` that still holds an unresolved `${...}` reference is not a program yet.
+/// A bare argv0 resolves on the login PATH. A `CODEX_PATH` that still holds an unresolved
+/// `${...}` reference is not a program yet: callers resolve it first, as the launch does.
 pub fn launch_codex(
     argv: &[String],
     env: &std::collections::BTreeMap<String, String>,
@@ -511,7 +512,14 @@ pub fn launch_codex(
     let configured = env.get("CODEX_PATH").filter(|p| !p.is_empty() && !p.contains("${")).cloned();
     match argv.split_first() {
         Some((program, args)) if is_launch(program, args) => {
-            Some((configured.unwrap_or_else(|| program.clone()), launch_globals(args).to_vec()))
+            // A bare name runs from the daemon's login PATH (`config::which`), as the launch
+            // finds it, never from whatever PATH the other command's caller has.
+            let own = if Path::new(program).components().count() > 1 {
+                program.clone()
+            } else {
+                crate::config::which(program).unwrap_or_else(|| program.clone())
+            };
+            Some((configured.unwrap_or(own), launch_globals(args).to_vec()))
         }
         _ => configured.or_else(fallback).map(|program| (program, Vec::new())),
     }
