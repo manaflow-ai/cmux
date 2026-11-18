@@ -215,6 +215,7 @@ import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
 import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
+import { declareMove } from "../../layout/motionContract";
 import { type NativeRegistry, type OpenDiff, type RowProps } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
@@ -2162,6 +2163,13 @@ function TranscriptView({
   /// Until when (performance.now) the turn that just ended still draws its reply: the reveal drains
   /// what had arrived within StreamReveal.finishMs of the end, and those lines ride the chase.
   const chaseDrainUntil = useRef(Number.NEGATIVE_INFINITY);
+  // While a reply streams, the transcript grows at its end: its rows' declared layout move
+  // (schemas/layout-motion/contract.json `stream-append`), wherever this transcript is drawn (the pane,
+  // a guest's view, a replay). Declared in the commit that starts the turn, before its first frame paints.
+  useLayoutEffect(
+    () => (working ? declareMove({ event: "stream-append", scope: "all", by: "turn working" }) : undefined),
+    [working],
+  );
   /// When (performance.now) a row last arrived at the tail of a followed running turn
   /// (`arrivedAtTail`): the chase holds what it brings back up to the trail bound.
   const arrivedAt = useRef(Number.NEGATIVE_INFINITY);
