@@ -17,6 +17,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("menu-hover-snap.test.ts", async () => {
@@ -51,7 +52,7 @@ await requireBrowserLane("menu-hover-snap.test.ts", async () => {
   async function mount(body: string) {
     await page.setContent(
       `<!doctype html><html><head><style>${css}
-      :root { --agent-motion-hover: 80ms; --acpmux-motion-hover: 80ms; --cmux-motion-quick: 80ms;
+      :root { --agent-motion-hover: ${MOTION_MS.quick}ms; --acpmux-motion-hover: ${MOTION_MS.quick}ms; --cmux-motion-quick: ${MOTION_MS.quick}ms;
         --acpmux-menu-hover: ${LIT}; --acpmux-composer-hover: rgb(90, 90, 90); --agent-text: #000; --agent-muted: #444; }
       body { margin: 0; background: #fff; color: #000; }
       .row { display: block; height: 28px; width: 300px; }
