@@ -2,7 +2,6 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-// @ts-expect-error: a build script without type declarations
 import { packShikiModule } from "../scripts/packed-shiki-data.mjs";
 import { unpackJson } from "../src/shiki-packed/unpackJson";
 
