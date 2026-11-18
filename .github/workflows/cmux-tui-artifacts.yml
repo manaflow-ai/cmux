@@ -124,13 +124,19 @@ concurrency:
   # stops after the 3 min tree-preflight. Same-key pushes share one build
   # through the owner election, not a key concurrency group (a key group
   # replaced pending builds; see the build job).
-  # nightly-next pushes get the same per-commit group: every nightly build waits
+  # nightly-next pushes get their own per-commit group: every nightly build waits
   # (await-tree-client.sh, 45 min) for its own commit's tree. In a shared
   # branch group, run 44154640719 queued on a dead Linux pool held the group for
   # 8 hours, the newer commits' runs stayed pending, and every nightly in that
   # window failed at "Bundle the cmux-tui client" (#45792).
+  # The two branches never share a group, even for one commit: nightly-next
+  # pushes the feat-cmux-next tip it promotes, so a shared push-<sha> group held
+  # the nightly-next push run "pending" behind the feat-cmux-next push run of
+  # the same commit (44243166694 behind 44242726208, 2026-11-18). Leo: "why does
+  # cmux-tui artifacts keep sitting pending?" Both run at once; the same-SHA
+  # owner election makes one of them build.
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && format('nightly-push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
