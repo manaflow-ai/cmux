@@ -67,6 +67,10 @@ pub struct Server {
     /// The names (never the values) of the secret headers and env vars.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_names: Vec<String>,
+    /// Who may use it, as the person chose on a connect card (`chat`,
+    /// `chief`, `allChiefs`, `agents`, `everywhere`); none when a Chief added it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// The last tool list (cached so search and describe need no connect).
     #[serde(default)]
     pub tools: Vec<Value>,
@@ -205,14 +209,10 @@ pub struct OAuthTokens {
     pub resource: String,
 }
 
-/// The machine's shared MCP store: `$CMUX_MCP_HOME`, else `~/.cmux/mcp`.
+/// The machine's shared MCP store (cmux-mcp-connect's `shared`: one
+/// definition for the Chief and acpmux): `$CMUX_MCP_HOME`, else `~/.cmux/mcp`.
 pub fn shared_dir_from(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
-    if let Some(dir) = env("CMUX_MCP_HOME").filter(|d| !d.trim().is_empty()) {
-        return PathBuf::from(dir);
-    }
-    PathBuf::from(env("HOME").unwrap_or_else(|| "/tmp".into()))
-        .join(".cmux")
-        .join("mcp")
+    cmux_mcp_connect::shared::dir(env)
 }
 
 /// [`shared_dir_from`] with the process environment.
@@ -243,11 +243,11 @@ impl Dir {
     }
 
     pub fn server_path(&self, name: &str) -> PathBuf {
-        self.servers_dir().join(format!("{name}.json"))
+        cmux_mcp_connect::shared::server_path(&self.shared, name)
     }
 
     pub fn secrets_path(&self, name: &str) -> PathBuf {
-        self.shared.join("secrets").join(format!("{name}.json"))
+        cmux_mcp_connect::shared::secrets_path(&self.shared, name)
     }
 
     /// The code-mode declarations of one server (`api/<name>.d.ts`).

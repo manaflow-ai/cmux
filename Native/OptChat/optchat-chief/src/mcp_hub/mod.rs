@@ -142,23 +142,9 @@ fn arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-/// A server name: `[a-z0-9_]`, starting with a letter.
+/// A server name: `[a-z0-9_]`, starting with a letter (the shared store's rule).
 pub fn clean_name(raw: &str) -> String {
-    let mut s: String = raw
-        .trim()
-        .to_ascii_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    while s.contains("__") {
-        s = s.replace("__", "_");
-    }
-    let s = s.trim_matches('_').to_owned();
-    if s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
-        s
-    } else {
-        format!("s_{s}")
-    }
+    cmux_mcp_connect::shared::clean_name(raw)
 }
 
 /// The name a URL's server gets: the host's most telling label
@@ -2459,6 +2445,80 @@ fn check_dns(target: &cmux_mcp_connect::target::RemoteTarget) -> Result<(), Stri
             .map_err(|e| format!("{} resolves to {}: {e}", target.host, a.ip()))?;
     }
     Ok(())
+}
+
+/// `optchat-chief integrations ...`: the same hub on the machine's shared
+/// store, from a shell (what the person or another tool connected shows up
+/// for every Chief, and the other way round).
+///
+/// `list` | `add NAME|URL|-- COMMAND...` | `signin NAME` | `remove NAME` |
+/// `tools NAME` | `call NAME TOOL [ARGS_JSON]` | `JSON` (one hub action).
+/// A sign-in prints the page to open and waits (20 minutes) until it is done.
+pub fn cli(words: &[String]) -> i32 {
+    let shared = store::shared_dir();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let tx = Mutex::new(tx);
+    let hub = McpHub::new(
+        shared.join("cli"),
+        shared.clone(),
+        None,
+        Arc::new(move |t: String| {
+            let _ = tx.lock().unwrap().send(t);
+        }),
+    );
+    let word = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+    let args = match word(0) {
+        "" | "list" | "ls" => json!({"action": "list"}),
+        "add" | "connect" => {
+            let rest: Vec<&str> = words[1..]
+                .iter()
+                .map(String::as_str)
+                .filter(|w| *w != "--")
+                .collect();
+            json!({"action": "add", "target": rest.join(" ")})
+        }
+        "signin" | "auth" => json!({"action": "signin", "server": word(1)}),
+        "remove" | "rm" => json!({"action": "remove", "server": word(1)}),
+        "tools" | "describe" => json!({"action": "describe", "server": word(1)}),
+        "call" => {
+            let a: Value = serde_json::from_str(words.get(3).map(String::as_str).unwrap_or("{}"))
+                .unwrap_or(json!({}));
+            json!({"action": "call", "server": word(1), "tool": word(2), "args": a})
+        }
+        w if w.starts_with('{') => serde_json::from_str(w).unwrap_or(json!({})),
+        other => {
+            eprintln!(
+                "optchat-chief integrations: unknown {other:?}; use list, add, signin, remove, tools, call or one JSON action"
+            );
+            return 2;
+        }
+    };
+    let out = hub.handle(&args, &Caller::Chief);
+    let code = match &out {
+        Ok(text) => {
+            println!("{text}");
+            if text.starts_with("outcome: waiting") {
+                match rx.recv_timeout(oauth::SIGN_IN_WINDOW + Duration::from_secs(30)) {
+                    Ok(note) => {
+                        println!("{note}");
+                        i32::from(!note.contains("signed in and connected"))
+                    }
+                    Err(_) => {
+                        eprintln!("nobody finished the sign-in");
+                        1
+                    }
+                }
+            } else {
+                0
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    };
+    hub.stop();
+    code
 }
 
 #[cfg(test)]
