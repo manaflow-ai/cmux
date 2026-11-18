@@ -61,9 +61,10 @@ export function mountSidebarChats(
   // The slice the drawn rows were windowed by: measured on the drawn block, or on an earlier drawn block
   // (it holds across blocks until the next one; the host sends one after each push).
   let slice: SidebarChatsSlice | null = null;
-  // A slice naming a block not drawn yet; it windows only a block with exactly its revision, if that comes next,
-  // and (`surface`: null from the old wire) of its surface.
-  let early: { slice: SidebarChatsSlice; surface: string | null } | null = null;
+  // Slices naming a block not drawn yet, the latest per surface (null: the old wire, which names none); one windows
+  // only a block with exactly its revision, if that comes next, and of its surface. Before its first block the page
+  // hears both surfaces, so one slot for all would let the other surface's slice drop this page's own.
+  const early = new Map<string | null, SidebarChatsSlice>();
   // The surfaces a `cmux.page.visibleSlice` slice arrived for: the old wire's slices no longer window their block.
   const generic = new Set<string>();
   // Whether a slice from `surface` (null: the old wire, which names none) may window a block of `part`.
@@ -119,9 +120,11 @@ export function mountSidebarChats(
     // A block older than the one drawn (a reordered event) changes nothing.
     if (block && next.revision <= block.revision) return;
     block = next;
-    // A slice sent ahead of this block windows it only if it names this block; any other is dropped.
-    if (early?.slice.revision === next.revision && windows(early.surface, next.part)) slice = early.slice;
-    early = null;
+    // A slice sent ahead of this block windows it only if it names this block and its surface; every other is
+    // dropped. At most one matches: a surface with a generic slice held is in `generic`, so the old wire's does not.
+    for (const [surface, held] of early)
+      if (held.revision === next.revision && windows(surface, next.part)) slice = held;
+    early.clear();
     flushSync(render);
     scheduleReady();
   };
@@ -130,7 +133,7 @@ export function mountSidebarChats(
     // A slice windows only the block it was measured on. One for a block not drawn yet waits for exactly
     // that block (`show`); one for an older block changes nothing.
     if (!block || next.revision > block.revision) {
-      early = { slice: next, surface };
+      early.set(surface, next);
       return;
     }
     if (next.revision < block.revision) return;
