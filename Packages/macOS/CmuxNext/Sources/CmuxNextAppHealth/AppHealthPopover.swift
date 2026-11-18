@@ -112,7 +112,7 @@ enum AppHealthCard {
         return CmuxDialogSpec(title: title, lines: lines, buttons: buttons, identifier: "cmux.appHealth.card")
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS  // the same condition as its caller, `AppHealthFeeds.debugMethod`: a bench build has no DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// A snapshot with Agent chat `state` (failed, repairing) after three reloads, or all clear (quiet): the card's
     /// captures (`debug.app_health_card`).
     static func fixture(state: String) -> JSONValue {
