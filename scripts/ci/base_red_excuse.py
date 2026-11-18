@@ -1104,14 +1104,6 @@ GENERATED_NO_VERDICT = re.compile(
 # refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
 # script, which spells the same words).
 SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
-# The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one marker when
-# the Claude CLI's own result showed the API never served it: `agent.api-unavailable {json}`, the result's fields.
-# With zero recorded API usage (duration_api_ms 0 and input_tokens 0) nothing was judged and the red is the shared
-# account's, never the pull request's: gate run 43637095919 (job 132576237860), the account's weekly limit, reddened
-# every app PR. Only that marker, on the agent pass step alone, as the job's only error: failure text that names a
-# rate limit, a marker with API usage, or another red beside it stays the PR's.
-AGENT_PASS_STEP = "Agent reviewer pass"
-AGENT_API_UNAVAILABLE = re.compile(r"^##\[error\]agent\.api-unavailable (\{.*\})$")
 # The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
 # shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
 # match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
@@ -2858,36 +2850,6 @@ def summary_red(log: str) -> str | None:
 def summary_no_verdict(log: str) -> str | None:
     """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
     return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
-
-
-def agent_api_unavailable(job: dict, log: str) -> str | None:
-    """The evidence of an agent pass the API never served (AGENT_API_UNAVAILABLE) with zero recorded API usage, when
-    that marker is the job's only red: its one failed step is the agent pass and its one live error line (beside the
-    runner's exit line) is the marker. Else None."""
-    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
-              if step.get("conclusion") == "failure"]
-    if failed != [AGENT_PASS_STEP]:
-        return None
-    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
-              and not text.startswith("##[error]Process completed with exit code")]
-    if len(errors) != 1 or not (match := AGENT_API_UNAVAILABLE.match(errors[0].rstrip())):
-        return None
-    try:
-        evidence = json.loads(match.group(1).replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(evidence, dict):
-        return None
-    api_ms, tokens = evidence.get("duration_api_ms"), evidence.get("input_tokens")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value != 0 for value in (api_ms, tokens)):
-        return None
-    said = ["duration_api_ms=0", "input_tokens=0"]
-    for key in ("api_error_status", "api_error_type", "api_error", "limit"):
-        if isinstance(evidence.get(key), (str, int)) and not isinstance(evidence.get(key), bool):
-            said.append(f"{key}={evidence[key]}")
-    if isinstance(evidence.get("resets"), str):
-        said.append(f"resets {evidence['resets']}")
-    return ", ".join(said)[:300]
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -5850,6 +5812,110 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
             f"(the newest {base} verdict for it, {base_job.get('conclusion')}) ({url}): {'; '.join(sorted(charged))[:400]}")
 
 
+# The Cloud journey (cloud-journey-pr.yml's "journey" job: scripts/cmux-next/cloud-journey.ts through
+# cloud-journey-ci.sh, on staging, with the pull request's own cmux-tui). Each journey step prints one
+# `PASS|FAIL|SKIP <step> <ms> ms :: <detail>` line, each run closes with `PASS|FAIL <backend>: N passed, M failed, K
+# skipped, T s`, and a failed run is run once more after a `##[warning]... failed once; running it again` line: the
+# second run is the one judged (cloud-journey-ci.sh). 2026-11-17: no parser read a `FAIL <step>` line as a failing
+# test, so while feat-cmux-next's own journey was red ("stub: forwarded login and a tool round trip", base job
+# 134037946137 at de3b0eab) every PR whose journey ran was refused "its failed steps' own lines name no failing test
+# or error line ... nothing to compare with the base" (cmux#44814 at ed4e2af2, job 133995408217).
+JOURNEY_WORKFLOWS = {".github/workflows/cloud-journey-pr.yml": "journey"}
+JOURNEY_STEP = "Cloud journey (staging, this pull request's CLI)"
+JOURNEY_STEP_LINE = re.compile(r"^(PASS|FAIL|SKIP) (\S.*?) \d+ ms ::(?: (.*))?$")
+JOURNEY_SUMMARY = re.compile(r"^(PASS|FAIL) [\w.-]+: (\d+) passed, (\d+) failed, (\d+) skipped\b")
+JOURNEY_RETRIED = re.compile(r"^##\[warning\].* failed once; running it again\b")
+# The journey's own files: they decide its steps, their checks and the detail each prints, so a PR that changes one
+# owns every step's line, whatever the base prints.
+JOURNEY_OWN_FILES = ("scripts/cmux-next/cloud-journey", ".github/workflows/cloud-journey-pr.yml")
+# Run-to-run ids in a step's detail (vm_..., inst_..., host_..., a stub nonce): masked like numbers.
+JOURNEY_ID = re.compile(r"\b(?:[a-z]+_)?(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b")
+
+
+def journey_job(name: str, workflow_info: dict) -> bool:
+    """NAME is the Cloud journey job of a run of a JOURNEY_WORKFLOWS workflow (WORKFLOW_INFO, its run record)."""
+    return JOURNEY_WORKFLOWS.get(str(workflow_info.get("path") or "")) == name
+
+
+def journey_reds(text: str) -> tuple[Counter, str | None]:
+    """(Counter of (step, its detail with ids and numbers masked) for each FAIL line of the judged runs in TEXT, a
+    journey job's failed_view text; None, or why TEXT is no finished journey). A judged run is one closed by its
+    summary line and not followed by the retry warning; its FAIL lines must be as many as its summary counts. Step
+    lines after the last summary are a run cut short."""
+    lines = test_reds.log_lines(text)
+    skip = test_reds.echoed(lines)
+    runs: list[list] = []  # [FAIL keys, summary match, retried]
+    current: list[tuple[str, str]] = []
+    pending = False
+    for n, line in enumerate(lines):
+        if n in skip:
+            continue
+        if match := JOURNEY_STEP_LINE.match(line):
+            pending = True
+            if match[1] == "FAIL":
+                current.append((match[2], normalise_error(JOURNEY_ID.sub("<id>", match[3] or ""))))
+        elif match := JOURNEY_SUMMARY.match(line):
+            runs.append([current, match, False])
+            current, pending = [], False
+        elif JOURNEY_RETRIED.match(line):
+            # It names the run just closed: a failed one, not already retried. After a run cut short (step lines
+            # with no summary) or anything else, which run it retries is unknown, and so is which run is judged.
+            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2]:
+                return Counter(), f"a retry line that follows no closed failed run ({line[:200]})"
+            runs[-1][2] = True
+    if pending:
+        return Counter(), "journey step lines after its last closing summary (a run cut short)"
+    if not runs:
+        return Counter(), "no journey run with a closing summary"
+    found: Counter = Counter()
+    for fails, summary, retried in runs:
+        if len(fails) != int(summary[3]):
+            return Counter(), (f"a journey summary counts {summary[3]} failed and its run printed {len(fails)} FAIL "
+                               f"step lines ({summary[0][:200]})")
+        if not retried:
+            found.update(fails)
+    return found, None
+
+
+def journey(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict, base_job: dict,
+            github, sha: str, seen: dict) -> str:
+    """The audit line for a red Cloud journey job (journey_job) whose every failed journey step of its judged runs
+    fails, by step and masked detail, as often or less, on the newest red base verdict for it, BASE_JOB of BASE_RUN;
+    raises Refused naming what is not. Never excused: a failed job step besides JOURNEY_STEP (the build, setup), an
+    unplaced log, a run cut short or a count that disagrees, a run with no FAIL step line (it never ran, or failed
+    outside its steps), and any PR that changes a JOURNEY_OWN_FILES file (its steps and checks are the PR's own)."""
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") not in (None, "success", "skipped")}
+    if failed != {JOURNEY_STEP}:
+        raise Refused(f"'{name}': failed steps {sorted(failed)}, not only '{JOURNEY_STEP}'; nothing to compare "
+                      "step by step")
+    if head is UNPLACED:
+        raise Refused(f"'{name}': {UNPLACED_WHY}; its journey steps are not compared")
+    mine, why = journey_reds(view_text(head))
+    if why is not None:
+        raise Refused(f"'{name}': {why}; a journey that did not finish is never a base red")
+    if not mine:
+        raise Refused(f"'{name}': red, but its judged journey runs print no FAIL step line; nothing to compare with "
+                      "the base")
+    number, paths = pr_paths_once(repo, base, sha, github, seen)
+    if own := sorted(path for path in paths if path.startswith(JOURNEY_OWN_FILES)):
+        raise Refused(f"'{name}': #{number} changes {', '.join(own)[:300]}, which defines the journey's steps and "
+                      f"checks; its red step ({'; '.join(step for step, _ in sorted(mine))[:300]}) is never a base "
+                      "red, whatever the base prints")
+    _, view, _, _ = base_evidence(repo, base, name, base_run, base_job, github, seen)
+    theirs, why = journey_reds(view_text(view))
+    if why is not None:
+        raise Refused(f"'{name}': {base} run {base_run['id']} is no journey verdict ({why}) ({url})")
+    if more := sorted((mine - theirs).elements()):
+        raise Refused(f"'{name}': journey steps red on this change and not, that way, on {base} run "
+                      f"{base_run['id']} ({url}): {'; '.join(f'{step} :: {detail}' for step, detail in more)[:600]}")
+    at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+    return (f"excused '{name}': every failed journey step fails the same way on {base} run {base_run['id']}{at} (the "
+            f"newest {base} verdict for it) ({url}), and #{number} changes no journey file: "
+            f"{'; '.join(f'{step} :: {detail}' for step, detail in sorted(mine))[:400]}")
+
+
 class Final(Refused):
     """A refusal no older base verdict can lift: it is judged against the newest verdict alone."""
 
@@ -7357,9 +7423,6 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
-    if (said := agent_api_unavailable(job, head_log)) is not None:
-        return Head(f"excused '{name}': not this PR (agent API unavailable): the agent pass's CLI result showed {said} "
-                    f"(job {job.get('id')}); nothing was judged, so rerun it once the account recovers")
     if (said := summary_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                       "neither a pass nor this PR's own red; re-run it")
@@ -7972,6 +8035,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:
             audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
+            continue
+        if journey_job(name, workflow_info) and base_job.get("conclusion") == "failure":
+            audit.append(journey(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
             continue
 
         def by_step() -> str:

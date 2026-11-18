@@ -24,7 +24,8 @@ final class PaneHostView: NSView, RestingPlacement {
     private(set) var padding: CGFloat = 0
     private(set) var cornerRadius: CGFloat = 0
     /// Floating panes: the whole padded rect, header included, is the
-    /// rounded card the clip, border and ring trace (`LayoutStyle.floatingPanes`).
+    /// rounded card the clip rounds and the dim covers (`LayoutStyle.floatingPanes`);
+    /// the border and ring still trace only the content area below its tabs.
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     /// Whether the content draws its pane's outline and ring (`PaneContentChrome.paneFramesContent`):
@@ -157,7 +158,7 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
-    private func layOutLetGoContent() {
+    func layOutLetGoContent() {
         layoutClip()
         if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() }
     }
@@ -236,6 +237,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
+        // No card of the screen that it left is under it now, and none paints its ground: a card of this screen
+        // puts its mark on the clip again in its next pass.
+        clipView.hasSolidGroundUnder = false
+        clipView.onContentGroundChange = nil
+        clipView.ownsContentGround = false
     }
 
     /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
@@ -276,8 +282,9 @@ final class PaneHostView: NSView, RestingPlacement {
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
     /// Height of the content's footer (a tab strip at the bottom); 0 without one.
     var footerHeight: CGFloat { reporter?.paneFooterHeight ?? 0 }
-    /// The header and footer the rounding leaves out: none for a whole card.
-    private var roundedBands: (header: CGFloat, footer: CGFloat) { wholeCard ? (0, 0) : (headerHeight, footerHeight) }
+    /// Width of the content's vertical tab list on its leading edge: where its content area starts
+    /// (`NSView.paneGroundInsets`); 0 without one. The content reports a change of it as it does a header's.
+    var leadingWidth: CGFloat { reporter == nil ? 0 : content.paneGroundInsets?.leading ?? 0 }
 
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
@@ -289,10 +296,13 @@ final class PaneHostView: NSView, RestingPlacement {
         return convert(visible, to: nil)
     }
 
-    /// The rounded area the border and ring trace: between the content's
-    /// header and footer, or the whole padded rect for content without them.
+    /// The rounded area the border and ring trace: the content's own area, past its
+    /// header, footer and vertical tab list, or the whole padded rect for content
+    /// without them. A whole card too: its tabs are part of the card, not of the area
+    /// the ring marks (Lawrence 2026-11-17: "ring should only be around terminal area
+    /// not the full pane (top tabs)").
     var roundedRect: CGRect {
-        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: roundedBands.header, footerHeight: roundedBands.footer)
+        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: headerHeight, footerHeight: footerHeight, leadingWidth: leadingWidth)
     }
 
     /// Applies the pane padding and corner radius (live style values).
@@ -332,7 +342,7 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        let content = contentFrame(in: clipView.bounds)
+        let content = moveContentFrame ?? contentFrame(in: clipView.bounds)
         if self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
@@ -393,8 +403,9 @@ final class PaneHostView: NSView, RestingPlacement {
         style.panePadding = padding
         style.paneCornerRadius = framesContent || wholeCard ? cornerRadius : 0
         let rect = clipView.frame
-        let (header, footer) = roundedBands
-        let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
+        let (header, footer, leading) = (headerHeight, footerHeight, leadingWidth)
+        // A whole card rounds the card; any other pane rounds its content area.
+        let rounded = wholeCard ? rect : PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer, leadingWidth: leading)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
         if let reporter, !wholeCard {
             clipView.setCornerRadius(0)
@@ -407,7 +418,8 @@ final class PaneHostView: NSView, RestingPlacement {
             chrome.showsContentFrame = framesContent
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
-        chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius,
+                        bands: PaneOverlayView.Bands(header: header, footer: footer, leading: leading), wholeCard: wholeCard)
         applyLateGround()
         // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
         // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).

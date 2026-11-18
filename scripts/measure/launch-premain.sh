@@ -37,6 +37,24 @@
 # process is stopped at its main_start mark). Prints LP-RUN per launch (with arm and rep), LP-TABLE at the end.
 set -uo pipefail
 
+# console CMD...: CMD in the console user's GUI session, as the app the probe opens runs (console-session.sh).
+console() { GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$@"; }
+
+# fresh_keychain HOME: a login keychain in a launch's empty home, as a person's home has, made as the console user.
+# Without one, the app's Chromium makes "cmux Safe Storage" through a "Keychain Not Found" SecurityAgent panel nobody
+# answers (left after launch-fresh-install on cmux12s; three from this script's arms h,a,d on cmux-austin-mini-1,
+# 2026-11-18). CMUX_MOCK_KEYCHAIN is no way out: the app drops it from an inherited environment
+# (fresh_home_launch_smoke.py login_keychain, which this follows). Every call has the home's own HOME and
+# CFFIXED_USER_HOME, so the console user's own keychains and search list are untouched. Writes to $OUT/keychain.log.
+fresh_keychain() {
+  local home="$1" keychain="$1/Library/Keychains/login.keychain-db" step
+  console /bin/mkdir -p "$home/Library/Keychains"
+  for step in "create-keychain -p ''" "list-keychains -d user -s" "default-keychain -d user -s" "set-keychain-settings"; do
+    console /usr/bin/env HOME="$home" CFFIXED_USER_HOME="$home" /bin/sh -c "exec /usr/bin/security $step \"\$0\"" "$keychain" \
+      >>"$OUT/keychain.log" 2>&1 || { echo "LP keychain: security ${step%% *} failed in $home; a Keychain panel may show"; return 1; }
+  done
+}
+
 # store_fetch HEX FILE: the fleet artifact store's object sha256:HEX into FILE, through the controller's signed URL
 # (never printed), else its own GET; FILE must hash to HEX.
 store_fetch() {
@@ -68,6 +86,35 @@ gate() {
   echo "LP-GATE $what stapler rc=$rc $(printf '%s' "$text" | tail -1)"
 }
 
+# fetch_dmg DMG FILE: DMG (nightly: the newest the NIGHTLY feed offers; https://...; sha256:HEX) downloaded into FILE,
+# with its "LP dmg" line. Returns 2 for a malformed sha256:, 3 when nothing was downloaded (launch-reboot.sh uses it).
+fetch_dmg() {
+  local dmg="$1" file="$2"
+  if [[ "$dmg" == nightly ]]; then
+    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
+  fi
+  if [[ "$dmg" == sha256:* ]]; then
+    [[ "$dmg" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "dmg=sha256: takes 64 lowercase hex" >&2; return 2; }
+    echo "LP dmg $dmg"
+    store_fetch "${dmg#sha256:}" "$file" || { echo "LP download failed"; return 3; }
+  else
+    [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; return 3; }
+    echo "LP dmg $dmg"
+    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$file" "$dmg" || { echo "LP download failed"; return 3; }
+  fi
+}
+
+# copy_app DMG_FILE MOUNT DIR: the DMG's app copied (ditto) into DIR; prints the copy's path.
+copy_app() {
+  local found
+  hdiutil attach "$1" -nobrowse -readonly -mountpoint "$2" >/dev/null || { echo "LP attach failed" >&2; return 3; }
+  found="$(find "$2" -maxdepth 1 -name '*.app' | head -1)"
+  ditto "$found" "$3/$(basename "$found")" || return 3
+  hdiutil detach "$2" >/dev/null || hdiutil detach -force "$2" >/dev/null
+  echo "$3/$(basename "$found")"
+}
+
 main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-premain" dmg=nightly reps=5 arms="h,a,b,c,g,d,k,e,e2,x,f,t1,t3,t6" arg rc=0 rep arm
@@ -86,29 +133,14 @@ main() {
   sudo -n true 2>/dev/null && echo "LP root yes" || echo "LP root no (arms d and f need it: their rows say so)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LP probe build failed"; cat "$out/swiftc.log"; exit 3; }
-  if [[ "$dmg" == nightly ]]; then
-    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-      | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
-  fi
-  if [[ "$dmg" == sha256:* ]]; then
-    [[ "$dmg" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "dmg=sha256: takes 64 lowercase hex" >&2; exit 2; }
-    echo "LP dmg $dmg"
-    store_fetch "${dmg#sha256:}" "$out/app.dmg" || { echo "LP download failed"; exit 3; }
-  else
-    [[ "$dmg" == https://* ]] || { echo "LP no nightly DMG in the feed"; exit 3; }
-    echo "LP dmg $dmg"
-    curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-premain/1 -o "$out/app.dmg" "$dmg" || { echo "LP download failed"; exit 3; }
-  fi
+  fetch_dmg "$dmg" "$out/app.dmg" || exit $?
   gate dmg open "$out/app.dmg"
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
-  local mount="$out/mnt" found
-  mkdir -p "$mount" "$out/copy" "$out/home" && chmod 0777 "$out/home"
-  hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LP attach failed"; exit 3; }
-  found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
-  ditto "$found" "$out/copy/$(basename "$found")" || exit 3
-  hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
-  APP="$out/copy/$(basename "$found")"
+  mkdir -p "$out/mnt" "$out/copy" "$out/home" && chmod 0777 "$out/home"
+  # The probe's home (launch-premain.swift's HOME_ROOT/h) gets a login keychain before any launch (fresh_keychain).
+  OUT="$out" fresh_keychain "$out/home/h" || true
+  APP="$(copy_app "$out/app.dmg" "$out/mnt" "$out/copy")" || exit 3
   gate app exec "$APP"
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
@@ -116,6 +148,7 @@ main() {
   # executable's, so a run shows whether a scan moved onto it.
   FW="$APP/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
   [[ -e "$FW" ]] || FW=""
+  [[ -f "$APP/Contents/Info.plist" ]] || { echo "LP-FAIL $APP has no Contents/Info.plist"; exit 3; }
   echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB") framework_bytes=$([[ -n "$FW" ]] && stat -L -f %z "$FW")"
   OUT="$out"
   # The copy's first exec pays its first-look cost (3.4 to 4.4 s, not this study's subject); the priming launch makes

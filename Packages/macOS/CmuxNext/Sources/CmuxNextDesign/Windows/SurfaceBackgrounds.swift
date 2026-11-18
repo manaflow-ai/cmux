@@ -54,7 +54,9 @@ public nonisolated struct SurfaceBackground: Hashable, Sendable {
 /// window's backdrop:
 ///
 /// - With a color: that color, at the override's opacity (or the window's
-///   opacity when unset) times the color's own alpha.
+///   opacity when unset) times the color's own alpha. An owner that paints
+///   it over the window's one tint uses ``fill(for:tokens:windowTint:overSheet:)``,
+///   which compensates for that tint.
 /// - With only an opacity: the theme background, at the alpha that makes
 ///   the surface cover the backdrop exactly that much. The window's tint is
 ///   under every surface, so a surface can be more opaque than the window,
@@ -99,6 +101,24 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
         return tokens.surfaceBackground.withAlpha(alpha)
     }
 
+    /// ``fill(for:tokens:windowTint:)`` for an owner that paints it straight over the window's one tint (`sheet` at
+    /// `windowTint`, over the picture or the desktop): a color override more opaque than the window is compensated for
+    /// the tint under it, so the surface shows that color at exactly its opacity instead of over a second tint (user,
+    /// Nov 17: "we need to make sure custom bgs work properly"). Everything else is ``fill(for:tokens:windowTint:)``.
+    ///
+    /// - Parameter kind: The surface.
+    /// - Parameter tokens: The theme tokens of the surface's scope.
+    /// - Parameter windowTint: The tint the window shows under the surface; nil reads the tokens' own.
+    /// - Parameter sheet: The color of the window's tint under the surface, opaque. Nil (Liquid Glass, which tints
+    ///   itself rather than through an alpha layer, or an opaque window) skips the compensation.
+    /// - Returns: The color to paint, or nil when the surface has no override.
+    public func fill(for kind: SurfaceKind, tokens: ThemeTokens, windowTint: Double? = nil, overSheet sheet: ThemeRGB?) -> ThemeRGB? {
+        guard let plain = fill(for: kind, tokens: tokens, windowTint: windowTint) else { return nil }
+        guard let sheet, let color = overrides[kind]?.color else { return plain }
+        let window = windowTint ?? WindowBackdrop(tokens).tintOpacity
+        return compensatedFill(color.withAlpha(1), opacity: plain.alpha, sheet: sheet.withAlpha(1), windowTint: window)
+    }
+
     /// `fill(for:tokens:)` laid over an opaque `base`, for owners that
     /// must paint an opaque color (a docked column hides what scrolls under
     /// it); `base` itself without an override.
@@ -111,4 +131,30 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
     /// transparent default background in every window, so their owner's
     /// fill shows behind the cells (`GhosttyRuntimeSurfacePolicy`).
     public var overridesTerminal: Bool { overrides[.terminal] != nil }
+}
+
+/// What a surface paints over the window's one tint (`sheet` at alpha `windowTint`, over the picture or the desktop
+/// `P`) so it shows `ground` at `opacity`: `opacity * ground + (1 - opacity) * P`.
+///
+/// The tint is under every surface, so only a surface more opaque than the window can be exact: alpha
+/// `x = (opacity - windowTint) / (1 - windowTint)` keeps `P`'s share at `1 - opacity`, and the color
+/// `(opacity * ground - (1 - x) * windowTint * sheet) / x` cancels the tint. Where that color leaves the gamut (a dark
+/// ground on a light sheet, a light one on a dark sheet) the alpha rises to the least that keeps every channel in it:
+/// `opacity * ground` stays exact and only `P`'s share shrinks, never the hue (Fable 5.2 review). At or below the
+/// window's opacity the result is `ground` at `opacity` over the tint, as before (a ground that differs from the
+/// sheet cannot show more of `P` than the tint lets through). An opaque window has no `P`: `ground` at `opacity`.
+private nonisolated func compensatedFill(_ ground: ThemeRGB, opacity: Double, sheet: ThemeRGB, windowTint: Double) -> ThemeRGB {
+    guard windowTint < 1, opacity > windowTint else { return ground.withAlpha(opacity) }
+    let pairs = [(ground.red, sheet.red), (ground.green, sheet.green), (ground.blue, sheet.blue)]
+    var x = (opacity - windowTint) / (1 - windowTint)
+    for (g, s) in pairs {
+        let under = windowTint * s
+        // F >= 0 needs x >= 1 - opacity*g / under; F <= 1 needs x >= (opacity*g - under) / (1 - under).
+        if under > 0 { x = max(x, 1 - opacity * g / under) }
+        if under < 1 { x = max(x, (opacity * g - under) / (1 - under)) }
+    }
+    x = min(x, 1)
+    func channel(_ g: Double, _ s: Double) -> Double { min(max((opacity * g - (1 - x) * windowTint * s) / x, 0), 1) }
+    return ThemeRGB(red: channel(pairs[0].0, pairs[0].1), green: channel(pairs[1].0, pairs[1].1),
+                    blue: channel(pairs[2].0, pairs[2].1), alpha: x)
 }
