@@ -43,7 +43,7 @@ WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
 # PR size answers on every push: a base-only skip would keep an older answer.
-SKIPPED_ON_BASE_ONLY = ("link", "split", "ui-review")
+SKIPPED_ON_BASE_ONLY = ("link", "swift-logic", "split", "ui-review")
 ALWAYS = ("size",)
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))

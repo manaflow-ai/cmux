@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -32,6 +34,8 @@ enum AgentSessionBindOutcome: Equatable {
 }
 
 extension AgentTabStore {
+    func shareScreen(of key: AgentTabKey, session: String?) -> AgentPaneActionRun { guard let registry = actionRegistry, let session, let (record, _) = record(for: key), let daemon = daemon(for: key) else { return .refused(Self.screenShareUnavailable) }; let host = hostKind(record, listedHere: daemon.isLocal); let lanes = AgentLaneStore.shared; let links = lanes.links(session); let kind = host == .local ? "local" : host == .chief ? "unsupported" : daemon.isLocal ? "remote" : MachineRegistry.isCloudMachineID(daemon.machineID) ? "cloud" : "remote"; return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).run(registry: registry, session: session, actualSession: sessions[key] ?? record.session ?? "", machineID: daemon.machineID, kind: kind, host: record.host, hostKind: host == .local ? "local" : host == .chief ? "chief" : "remote", peer: links?.peer, registryHost: Self.registryHost(of: daemon), localSummaryCurrent: lanes.live && links != nil, unavailable: Self.screenShareUnavailable) }
+    private static var screenShareUnavailable: String { String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "MiscHandlers", bundle: .module) }
     static let showcaseMachineName = MacName.captureName
 
     static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
@@ -222,6 +226,8 @@ final class AgentTabStore {
     var onTabSession: @MainActor () -> Void = {}
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
+    /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
+    var cloudCredentials: CloudAgentCredentials?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: AgentTabMap<AgentPaneSeedSource> = .init()
@@ -248,6 +254,8 @@ final class AgentTabStore {
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
+    /// The person's `agents.defaultPermissionMode`, which a new chat on their own Cloud machine starts in as a local one does.
+    var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
@@ -341,7 +349,6 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
-    var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
@@ -383,7 +390,7 @@ final class AgentTabStore {
         // the authenticated WebSocket handshake and session selection. Then
         // other machines' daemons get this build, in the background (DaemonUpdates).
         Task {
-            try? await resolvedHost.prewarm()
+            try? await resolvedHost.prewarmForRestoredChats()
             guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
             updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
@@ -547,7 +554,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page)
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
@@ -581,7 +588,7 @@ final class AgentTabStore {
             sessionId: sessions[tabKey] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
-            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey]?.page : nil,
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.places(tabKey.key)) } : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn
@@ -597,7 +604,7 @@ final class AgentTabStore {
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
                 let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
+                let folders = AgentRemoteStartFolders(listed: listed, machine: machine).merged
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
@@ -646,13 +653,6 @@ final class AgentTabStore {
             if bindsHere(key, machine: scoped.machine) { sendSession(session, for: key, machine: scoped.machine) }
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional, machine: scoped.machine), machine: scoped.machine) } }
-        model.onCloudCredentialTransfer = { [weak self, weak model] request in
-            guard let self, let model, model.sessionId == request.sessionID,
-                  let record = self.record(for: self.resolvedKey(scoped))?.record,
-                  AgentPaneCloudCredentialTransferRequest.Provider(harnessID: record.harness) == request.provider,
-                  let transfer = self.cloudCredentialTransfer else { return false }
-            return await transfer(self.resolve(provisional, machine: scoped.machine), request)
-        }
         model.onTryAnotherApproach = { [weak self] throughSeq, session in
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional, machine: scoped.machine), session, throughSeq)
@@ -681,16 +681,7 @@ final class AgentTabStore {
         model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self, let registry = actionRegistry else { return .notRun }
-            // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
-            // on the machine this tab's chat runs on, resolved here: the page never names a machine.
-            let target: ActionTargetRef
-            if id == "machine.reconnect" {
-                guard let machine = remoteMachineID(of: provisional, machine: scoped.machine) else { return .notRun }
-                target = ActionTargetRef(kind: .machine, id: machine)
-            } else {
-                target = ActionTargetRef(kind: .tab, id: resolve(provisional, machine: scoped.machine))
-            }
-            return registry.runPageAction(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user).onMachine(target.kind == .tab ? scoped.machine : nil), showsInApp: CmuxSignInOffer.signInReasons.contains)
+            return ScreenShareAction(localMachineID: MachineRegistry.localID, showsInApp: CmuxSignInOffer.signInReasons.contains).runPageAction(registry: registry, id: id, arguments: arguments, machine: scoped.machine, target: { if id == "machine.reconnect" { return self.remoteMachineID(of: provisional, machine: scoped.machine).map { ActionTargetRef(kind: .machine, id: $0) } }; return ActionTargetRef(kind: .tab, id: self.resolve(provisional, machine: scoped.machine)) }, screenShare: { self.shareScreen(of: self.resolvedKey(scoped), session: arguments["session"]) })
         }
         model.onShareOp = { [weak self] op, session in guard let self else { return nil }; return await shareOp?(resolve(provisional, machine: scoped.machine), op, session) }
         wireHeader(model, key: provisional, machine: scoped.machine)

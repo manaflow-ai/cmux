@@ -29,10 +29,26 @@ public struct ContextMenusSettingsPage {
     /// The host lists' `context_menus`. It reads the registry's layouts, so the page's host-lists
     /// watch re-sends it after cmux.json changes.
     public var hostJSON: JSONValue {
-        [
-            "show_customize_item": .bool(registry.showsCustomizeMenuItem),
-            "menus": .array(registry.contextMenuEditorMenus().map(Self.menuJSON)),
-        ]
+        hostJSON(reusing: HostCache())
+    }
+
+    /// ``hostJSON``, the menus' JSON taken from `cache` while the registry's menus are the ones it
+    /// was made from (``ActionRegistry/contextMenuEditorState()``).
+    public func hostJSON(reusing cache: HostCache) -> JSONValue {
+        let (menus, generation) = registry.contextMenuEditorState()
+        if cache.generation != generation || cache.registry !== registry {
+            (cache.menus, cache.generation, cache.registry) = (.array(menus.map(Self.menuJSON)), generation, registry)
+        }
+        return ["show_customize_item": .bool(registry.showsCustomizeMenuItem), "menus": cache.menus]
+    }
+
+    /// The menus' JSON from one build of the registry's menus (``hostJSON(reusing:)``).
+    @MainActor public final class HostCache {
+        var menus: JSONValue = .null
+        var generation: UInt64 = 0
+        weak var registry: ActionRegistry?
+
+        public init() {}
     }
 
     /// Whether `op` is one of this page's ops.

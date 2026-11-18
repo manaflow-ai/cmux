@@ -99,6 +99,10 @@ pub struct Ask {
     pub text: String,
     pub at_ms: u64,
     pub origin: String,
+    /// A profile's own description, for the ask that used it: what the
+    /// library entry it becomes says it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// The open draft: what is live and not yet applied or discarded.
@@ -115,6 +119,10 @@ pub struct Draft {
     /// it now was edited by hand since, and the agent re-reads it first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_tree: Option<Tree>,
+    /// The folders a customization writes into that were not there when the
+    /// draft began: the library takes away the ones it leaves empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub absent_dirs: Vec<PathBuf>,
 }
 
 /// A try-on: a generation applied for a while. Unless someone keeps it, it

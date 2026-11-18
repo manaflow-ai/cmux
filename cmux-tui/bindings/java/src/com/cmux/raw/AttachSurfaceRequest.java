@@ -15,6 +15,8 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<Integer> cols;
     private final Field<String> expectedGeneration;
     private final Field<String> expectedTerminalId;
+    private final Field<UInt64> hybridFrame;
+    private final Field<String> hybridStream;
     private final Field<AttachSurfaceRequestMode> mode;
     private final Field<Long> outputCoalesceMs;
     private final Field<Long> replayHistoryRows;
@@ -31,6 +33,8 @@ public final class AttachSurfaceRequest implements WireValue {
         this.cols = builder.cols;
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedTerminalId = builder.expectedTerminalId;
+        this.hybridFrame = builder.hybridFrame;
+        this.hybridStream = builder.hybridStream;
         this.mode = builder.mode;
         this.outputCoalesceMs = builder.outputCoalesceMs;
         this.replayHistoryRows = builder.replayHistoryRows;
@@ -49,6 +53,8 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<Integer> cols() { return cols; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<String> expectedTerminalId() { return expectedTerminalId; }
+    public Field<UInt64> hybridFrame() { return hybridFrame; }
+    public Field<String> hybridStream() { return hybridStream; }
     public Field<AttachSurfaceRequestMode> mode() { return mode; }
     public Field<Long> outputCoalesceMs() { return outputCoalesceMs; }
     public Field<Long> replayHistoryRows() { return replayHistoryRows; }
@@ -75,6 +81,14 @@ public final class AttachSurfaceRequest implements WireValue {
         Object rawExpectedTerminalId = Wire.optional(object, "expected_terminal_id");
         if (!Wire.isMissing(rawExpectedTerminalId)) {
             builder.expectedTerminalId(rawExpectedTerminalId == null ? null : Wire.string(rawExpectedTerminalId, "AttachSurfaceRequest.expected_terminal_id"));
+        }
+        Object rawHybridFrame = Wire.optional(object, "hybrid_frame");
+        if (!Wire.isMissing(rawHybridFrame)) {
+            builder.hybridFrame(rawHybridFrame == null ? null : Wire.uint64(rawHybridFrame, "AttachSurfaceRequest.hybrid_frame"));
+        }
+        Object rawHybridStream = Wire.optional(object, "hybrid_stream");
+        if (!Wire.isMissing(rawHybridStream)) {
+            builder.hybridStream(rawHybridStream == null ? null : Wire.string(rawHybridStream, "AttachSurfaceRequest.hybrid_stream"));
         }
         Object rawMode = Wire.optional(object, "mode");
         if (!Wire.isMissing(rawMode)) {
@@ -129,6 +143,8 @@ public final class AttachSurfaceRequest implements WireValue {
         Wire.put(object, "cols", cols);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_terminal_id", expectedTerminalId);
+        Wire.put(object, "hybrid_frame", hybridFrame);
+        Wire.put(object, "hybrid_stream", hybridStream);
         Wire.put(object, "mode", mode);
         Wire.put(object, "output_coalesce_ms", outputCoalesceMs);
         Wire.put(object, "replay_history_rows", replayHistoryRows);
@@ -146,11 +162,11 @@ public final class AttachSurfaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AttachSurfaceRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(replayHistoryStart, that.replayHistoryStart) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
+        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(hybridFrame, that.hybridFrame) && Objects.equals(hybridStream, that.hybridStream) && Objects.equals(mode, that.mode) && Objects.equals(outputCoalesceMs, that.outputCoalesceMs) && Objects.equals(replayHistoryRows, that.replayHistoryRows) && Objects.equals(replayHistoryStart, that.replayHistoryStart) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, outputCoalesceMs, replayHistoryRows, replayHistoryStart, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
+    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, hybridFrame, hybridStream, mode, outputCoalesceMs, replayHistoryRows, replayHistoryStart, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
 
     @Override
     public String toString() { return "AttachSurfaceRequest" + toWire(); }
@@ -159,6 +175,8 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<Integer> cols = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<String> expectedTerminalId = Field.omitted();
+        private Field<UInt64> hybridFrame = Field.omitted();
+        private Field<String> hybridStream = Field.omitted();
         private Field<AttachSurfaceRequestMode> mode = Field.omitted();
         private Field<Long> outputCoalesceMs = Field.omitted();
         private Field<Long> replayHistoryRows = Field.omitted();
@@ -181,6 +199,14 @@ public final class AttachSurfaceRequest implements WireValue {
         }
         public Builder expectedTerminalId(String value) {
             this.expectedTerminalId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder hybridFrame(UInt64 value) {
+            this.hybridFrame = Field.ofNullable(value);
+            return this;
+        }
+        public Builder hybridStream(String value) {
+            this.hybridStream = Field.ofNullable(value);
             return this;
         }
         public Builder mode(AttachSurfaceRequestMode value) {

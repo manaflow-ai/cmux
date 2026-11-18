@@ -41,7 +41,7 @@ pub const SERVERS: [(&str, &str); 5] = [
     (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
     (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
     (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
-    (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+    (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
 ];
 
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
@@ -132,32 +132,6 @@ where
 /// The one server `served` makes, on stdin and stdout with a daemon connection of its own.
 pub(crate) async fn serve_one(served: fn(&Arc<Daemon>) -> Result<Served>) -> Result<()> {
     serve(vec![served(&Arc::default())?]).await
-}
-
-/// Runs every server of [`SERVERS`] whose session this process's env names, over one daemon
-/// connection.
-pub async fn run() -> Result<()> {
-    let daemon = Arc::<Daemon>::default();
-    let makers: [fn(&Arc<Daemon>) -> Result<Served>; 5] = [
-        crate::secret_mcp::served,
-        crate::offer_mcp::served,
-        crate::subsession_mcp::served,
-        crate::forum_mcp::served,
-        crate::acpmux_mcp::served,
-    ];
-    let mut servers = Vec::new();
-    for make in makers {
-        // A server whose session the env does not name (the secret tools without the card)
-        // is not asked for: `cmux mcp serve` asks only for the servers acpmux gave it.
-        match make(&daemon) {
-            Ok(served) => servers.push(served),
-            Err(e) => tracing::debug!("tools-mcp: a server is left out: {e:#}"),
-        }
-    }
-    if servers.is_empty() {
-        return Err(anyhow!("tools-mcp: the env names no session for any server"));
-    }
-    serve(servers).await
 }
 
 /// The server a request with `params` is for, and the params without the [`SERVER_META`] it

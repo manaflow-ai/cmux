@@ -251,7 +251,12 @@
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
         "appearance.background",
-        "appearance.backgroundRotation"
+        "appearance.backgroundRotation",
+        "appearance.backgroundLight",
+        "appearance.backgroundDark",
+        "appearance.backgroundSchedule",
+        "appearance.backgroundDynamic",
+        "appearance.backgroundLocation"
       ]
     },
     {
@@ -276,6 +281,7 @@
         "appearance.customDensity",
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
+        "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
@@ -931,14 +937,6 @@
       "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
       "keys": [
         "cloud.turnCheckpoints"
-      ]
-    },
-    {
-      "agent": "privacy",
-      "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
-      "keys": [
-        "cloud.useMyClaudeLoginOnMyCloudMachines",
-        "cloud.useMyCodexLoginOnMyCloudMachines"
       ]
     },
     {
@@ -1619,7 +1617,15 @@
       "agent": "privacy",
       "why": "The person decides whether cmux reads verification emails.",
       "keys": [
-        "browser.verificationAutofill.enabled"
+        "browser.verificationAutofill.enabled",
+        "browser.verificationAutofill.accounts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.",
+      "keys": [
+        "models.spreadUsage"
       ]
     }
   ]

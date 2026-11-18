@@ -18,6 +18,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => {
   setDefaultTimeout(200_000);
@@ -232,93 +233,97 @@ await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => 
 
   /// Starts reading, after every painted frame, each box of Session Info and the chat header.
   const startSampling = (page: Page) =>
-    page.evaluate(() => {
-      type Box = { el: number; x: number; y: number; w: number; h: number; o: string; v: string; text: boolean };
-      const w = window as unknown as {
-        __flicker: { frames: Map<string, Box>[]; animations: string[]; removed: string[]; stop: () => void };
-      };
-      const ids = new WeakMap<Element, number>();
-      let next = 1;
-      const idOf = (el: Element) => {
-        if (!ids.has(el)) ids.set(el, next++);
-        return ids.get(el)!;
-      };
-      const panel = () => document.querySelector<HTMLElement>("aside.acpmux-session-info");
-      const header = () => document.querySelector<HTMLElement>(".acpmux-header");
-      const label = (el: Element) => {
-        const section = (el as HTMLElement).dataset?.section;
-        const classes = (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
-        return `${el.tagName.toLowerCase()}${classes ? `.${classes}` : ""}${section ? `[${section}]` : ""}`;
-      };
-      const inside = (node: Node | null) => !!node && (!!panel()?.contains(node) || !!header()?.contains(node));
-      const read = () => {
-        const frame = new Map<string, Box>();
-        const put = (key: string, el: Element) => {
-          const rect = el.getBoundingClientRect();
-          const style = getComputedStyle(el);
-          frame.set(key, {
-            el: idOf(el),
-            x: rect.x,
-            y: rect.y,
-            w: rect.width,
-            h: rect.height,
-            o: style.opacity,
-            v: style.visibility,
-            text: (el.textContent ?? "").trim().length > 0,
-          });
+    page.evaluate(
+      ({ SESSION_INFO }) => {
+        type Box = { el: number; x: number; y: number; w: number; h: number; o: string; v: string; text: boolean };
+        const w = window as unknown as {
+          __flicker: { frames: Map<string, Box>[]; animations: string[]; removed: string[]; stop: () => void };
         };
-        const p = panel();
-        if (p) {
-          put("session-info", p);
-          p.querySelectorAll("[data-section]").forEach((el, i) => put(`session-info ${label(el)} #${i}`, el));
-        }
-        const h = header();
-        if (h) {
-          put("header", h);
-          [...h.children].forEach((el, i) => put(`header ${label(el)} #${i}`, el));
-          h.querySelectorAll(".acpmux-header-tool").forEach((el, i) => put(`header ${label(el)} tool #${i}`, el));
-        }
-        w.__flicker.frames.push(frame);
-      };
-      const animations: string[] = [];
-      const removed: string[] = [];
-      // globalThis.Event: the file's own `Event` (the acpmux event, above) would shadow the DOM one here.
-      const onAnimation = (event: globalThis.Event) => {
-        if (!inside(event.target as Node)) return;
-        const name = (event as AnimationEvent).animationName ?? (event as TransitionEvent).propertyName;
-        animations.push(`${event.type} ${name} on ${label(event.target as Element)}`);
-      };
-      for (const kind of ["animationstart", "transitionstart", "transitionrun"])
-        document.addEventListener(kind, onAnimation, true);
-      const observer = new MutationObserver((records) => {
-        for (const record of records)
-          for (const node of record.removedNodes)
-            if (node.nodeType === 1) removed.push(`${label(node as Element)} from ${label(record.target as Element)}`);
-      });
-      for (const root of [panel(), header()]) if (root) observer.observe(root, { subtree: true, childList: true });
-      let on = true;
-      w.__flicker = {
-        frames: [],
-        animations,
-        removed,
-        stop: () => {
-          on = false;
-          for (const record of observer.takeRecords())
+        const ids = new WeakMap<Element, number>();
+        let next = 1;
+        const idOf = (el: Element) => {
+          if (!ids.has(el)) ids.set(el, next++);
+          return ids.get(el)!;
+        };
+        const panel = () => document.querySelector<HTMLElement>(SESSION_INFO);
+        const header = () => document.querySelector<HTMLElement>(".acpmux-header");
+        const label = (el: Element) => {
+          const section = (el as HTMLElement).dataset?.section;
+          const classes = (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean).slice(0, 2).join(".");
+          return `${el.tagName.toLowerCase()}${classes ? `.${classes}` : ""}${section ? `[${section}]` : ""}`;
+        };
+        const inside = (node: Node | null) => !!node && (!!panel()?.contains(node) || !!header()?.contains(node));
+        const read = () => {
+          const frame = new Map<string, Box>();
+          const put = (key: string, el: Element) => {
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            frame.set(key, {
+              el: idOf(el),
+              x: rect.x,
+              y: rect.y,
+              w: rect.width,
+              h: rect.height,
+              o: style.opacity,
+              v: style.visibility,
+              text: (el.textContent ?? "").trim().length > 0,
+            });
+          };
+          const p = panel();
+          if (p) {
+            put("session-info", p);
+            p.querySelectorAll("[data-section]").forEach((el, i) => put(`session-info ${label(el)} #${i}`, el));
+          }
+          const h = header();
+          if (h) {
+            put("header", h);
+            [...h.children].forEach((el, i) => put(`header ${label(el)} #${i}`, el));
+            h.querySelectorAll(".acpmux-header-tool").forEach((el, i) => put(`header ${label(el)} tool #${i}`, el));
+          }
+          w.__flicker.frames.push(frame);
+        };
+        const animations: string[] = [];
+        const removed: string[] = [];
+        // globalThis.Event: the file's own `Event` (the acpmux event, above) would shadow the DOM one here.
+        const onAnimation = (event: globalThis.Event) => {
+          if (!inside(event.target as Node)) return;
+          const name = (event as AnimationEvent).animationName ?? (event as TransitionEvent).propertyName;
+          animations.push(`${event.type} ${name} on ${label(event.target as Element)}`);
+        };
+        for (const kind of ["animationstart", "transitionstart", "transitionrun"])
+          document.addEventListener(kind, onAnimation, true);
+        const observer = new MutationObserver((records) => {
+          for (const record of records)
             for (const node of record.removedNodes)
               if (node.nodeType === 1)
                 removed.push(`${label(node as Element)} from ${label(record.target as Element)}`);
-          observer.disconnect();
-          for (const kind of ["animationstart", "transitionstart", "transitionrun"])
-            document.removeEventListener(kind, onAnimation, true);
-        },
-      };
-      read();
-      window.cmuxAfterPaint(() => {
-        if (!on) return false;
+        });
+        for (const root of [panel(), header()]) if (root) observer.observe(root, { subtree: true, childList: true });
+        let on = true;
+        w.__flicker = {
+          frames: [],
+          animations,
+          removed,
+          stop: () => {
+            on = false;
+            for (const record of observer.takeRecords())
+              for (const node of record.removedNodes)
+                if (node.nodeType === 1)
+                  removed.push(`${label(node as Element)} from ${label(record.target as Element)}`);
+            observer.disconnect();
+            for (const kind of ["animationstart", "transitionstart", "transitionrun"])
+              document.removeEventListener(kind, onAnimation, true);
+          },
+        };
         read();
-        return true;
-      });
-    });
+        window.cmuxAfterPaint(() => {
+          if (!on) return false;
+          read();
+          return true;
+        });
+      },
+      { SESSION_INFO },
+    );
 
   const stopSampling = (page: Page): Promise<Report> =>
     page.evaluate(() => {
@@ -395,11 +400,12 @@ await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => 
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
-        const toggle = page.locator("button.acpmux-session-info-toggle").first();
+        const toggle = page.locator(SESSION_INFO_TOGGLE).first();
         await toggle.waitFor({ timeout: 10_000 });
         if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
         await page.waitForFunction(
-          () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+          ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+          { SESSION_INFO },
         );
         await page.locator(".acpmux-header").waitFor();
         // The first streamed update draws what a streaming chat shows; then the panel's enter settles.

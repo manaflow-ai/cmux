@@ -122,8 +122,10 @@ public final class OverflowButton: ClickableButton {
 
     override public func updateLayer() {
         let side = min(bounds.width, bounds.height)
-        // The opt-in circle look (ChromeHoverStyle.circle) is a circle; every other plate rounds as a tab.
-        layer?.cornerRadius = hoverStyle == .circle ? side / 2 : min(plateCornerRadius ?? Metrics.buttonCornerRadius, side / 2) // radius-allow: circle look
+        // The opt-in circle look (ChromeHoverStyle.circle) is a circle; every other plate takes the tab's ratio on its
+        // own side (Lucas 2026-11-15: one shape at every density), or the concentric plate a set corner gives it.
+        layer?.cornerRadius = hoverStyle == .circle ? side / 2 // radius-allow: circle look
+            : min(plateCornerRadius ?? Metrics.buttonCornerRadius(proportionalTo: side), side / 2)
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary

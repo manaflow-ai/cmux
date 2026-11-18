@@ -132,6 +132,34 @@ export function isCommandLabel(value: unknown): boolean {
   return rule.program !== undefined || rule.match !== undefined;
 }
 
+/**
+ * A fixed picture (`appearance.backgroundLight` / `backgroundDark`, a Time of Day entry): a listed
+ * painting or `desktop`, or a macOS wallpaper or image by absolute path; never a shuffle or none.
+ * The Swift rule is `BackdropSelectionSetting.picture`; this is its portable shape.
+ */
+export function isBackdropPicture(value: unknown, choices: readonly string[] = []): boolean {
+  if (typeof value !== "string") return false;
+  if (["none", "daily", "appearance", "schedule"].includes(value)) return false;
+  return choices.includes(value) || /^(system|file):\/./.test(value) || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
+}
+
+/** A Time of Day time: `H:MM` / `HH:MM`, or a sun event with an optional `±Nm` (≤1440) / `±Nh` (≤24) offset. */
+export function isBackdropTime(key: string): boolean {
+  const clock = /^(\d{1,2}):(\d{2})$/.exec(key);
+  if (clock) return Number(clock[1]) < 24 && Number(clock[2]) < 60;
+  const sun = /^(dawn|sunrise|noon|sunset|dusk)(?:[+-](\d+)([mh]))?$/.exec(key);
+  if (!sun) return false;
+  return sun[2] === undefined || Number(sun[2]) <= (sun[3] === "m" ? 1440 : 24);
+}
+
+/** `appearance.backgroundLocation`: `LAT,LON`, latitude -90...90 and longitude -180...180. */
+export function isBackdropLocation(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 2 || parts.some((part) => part === "" || !Number.isFinite(Number(part)))) return false;
+  return Math.abs(Number(parts[0])) <= 90 && Math.abs(Number(parts[1])) <= 180;
+}
+
 /** Returns null when `value` is valid for `row`, otherwise a short English reason. */
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
@@ -143,6 +171,22 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     )
       return null;
     return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_picture") {
+    return isBackdropPicture(value, choices)
+      ? null
+      : "expected desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_schedule") {
+    const ok =
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([time, picture]) => isBackdropTime(time) && isBackdropPicture(picture));
+    return ok ? null : 'expected {"07:00" | "sunset-30m": picture, ...}';
+  }
+  if (row.validation === "domain:backdrop_location") {
+    return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";
   }
   if (row.validation === "domain:custom_densities") {
     return Array.isArray(value) && value.every(isCustomDensity)

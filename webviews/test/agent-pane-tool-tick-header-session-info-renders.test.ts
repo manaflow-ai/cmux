@@ -19,6 +19,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-tool-tick-header-session-info-renders.test.ts", async () => {
   setDefaultTimeout(280_000);
@@ -55,11 +56,12 @@ await requireBrowserLane("agent-pane-tool-tick-header-session-info-renders.test.
     )) as Record<string, any>;
     expect(seeded.error).toBeUndefined();
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-    const toggle = page.locator("button.acpmux-session-info-toggle").first();
+    const toggle = page.locator(SESSION_INFO_TOGGLE).first();
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.waitForFunction(
-      () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+      ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+      { SESSION_INFO },
     );
     return { page, rows: seeded.rows as number };
   }

@@ -107,8 +107,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
-    // `--on=cloud` (or `--on cloud`) opens a new Cloud chat with the prompt (commandPlace.ts).
-    hint: "[--on=cloud] <prompt>",
+    // No argument hint: the row reads as /fork's does (#43977). `--on=cloud` (or `--on cloud`)
+    // still opens a new Cloud chat with the prompt (commandPlace.ts).
     source: "cmux",
     action: "side",
   },

@@ -25,17 +25,6 @@ pub(crate) fn router_owner_fifo() -> PathBuf {
     home().join("router").join("owner.fifo")
 }
 
-/// An agent host's owner end of the local router: held for the host's
-/// whole life (close-on-exec, so the harness never inherits it). None when
-/// no router runs (no reader: the open fails at once) or there is no FIFO.
-pub(crate) fn open_router_owner(fifo: &std::path::Path) -> Option<std::fs::File> {
-    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-    if !std::fs::symlink_metadata(fifo).ok()?.file_type().is_fifo() {
-        return None;
-    }
-    std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(fifo).ok()
-}
-
 /// How long the shutdown path waits for a router it started to exit after
 /// `shutdown`, before it kills that child.
 const ROUTER_STOP_BUDGET: Duration = Duration::from_secs(2);

@@ -350,10 +350,12 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.uturn.backward.circle",
         surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        // Not destructive: it quits into the build this Mac kept, and updating again undoes it
+        // (terminals and agents keep running), so a pick runs it. `--confirm` is still taken and
+        // changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         cli_name: "settings rollback-update",
         main_menu: Some("app"),
-        is_destructive: true,
         ..Action::DEFAULT
     },
     Action {
@@ -367,6 +369,18 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "settings install-earlier-nightly",
         main_menu: Some("app"),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "updates.snooze",
+        group: GROUP,
+        title: t("ActionCatalog", "action.updates.snooze", "Snooze Update Card…"),
+        keywords: &["update", "snooze", "remind", "remind me later", "later", "hide", "dismiss", "close", "card", "nightly", "version"],
+        category: "settings",
+        symbol: "clock.badge.xmark",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::UPDATE_SNOOZE],
+        cli_name: "action updates-snooze",
         ..Action::DEFAULT
     },
     Action {
@@ -948,6 +962,20 @@ pub static ACTIONS: &[Action] = &[
         symbol: "rectangle.stack.badge.play",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action debug-toast-playground",
+        is_debug_only: true,
+        ..Action::DEFAULT
+    },
+    // Every dialog keycap style on a real dialog card's buttons, rest, hover and pressed, light and dark (Lawrence
+    // 2026-11-16 on the quit dialog's esc and return chips: "come up with more variations").
+    Action {
+        id: "debug.keycapPlayground",
+        group: GROUP,
+        title: t("ActionCatalog", "action.debug.keycapPlayground", "Keycap Playground"),
+        keywords: &["keycap", "keycaps", "shortcut", "key hint", "dialog", "button", "variants", "gallery", "playground", "debug"],
+        category: "settings",
+        symbol: "keyboard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action debug-keycap-playground",
         is_debug_only: true,
         ..Action::DEFAULT
     },

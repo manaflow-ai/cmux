@@ -17,7 +17,8 @@
 //! on. `library off NAME` puts back what was under it. `library refresh`
 //! follows each entry: a newer head (a PR's push, a branch's tip) is fetched,
 //! code that is in this app's build turns the entry off, a web ABI the app no
-//! longer has turns it off and says so.
+//! longer has turns it off and says so. A fork's newer layer is only named:
+//! fork code changes in someone's cmux when they run `use` again.
 //!
 //! What the code changes that a running app cannot take (Swift, resources,
 //! Rust the app links) is listed on the entry as "needs a build".
@@ -745,6 +746,22 @@ fn contains(http: &Http, repo: &str, merge: &str, commit: &str) -> Option<bool> 
     Some(matches!(value.get("status").and_then(Value::as_str), Some("ahead" | "identical")))
 }
 
+/// What refresh says instead of installing a fork's newer layer. Someone who
+/// ran `use OWNER/REPO@REF` agreed to the code they got then; the fork's owner
+/// can publish anything later (its layer.json and archive are the fork's own),
+/// so new fork code goes in only when the person runs `use` again. Our own
+/// PRs, branches and commits come from people with write access here and
+/// follow their head.
+fn fork_update_waits(published: &Published, layer: &CodeLayer) -> Option<String> {
+    let Published::Fork { .. } = published else { return None };
+    Some(format!(
+        "the fork published {} (on {}); fork code changes only when you take it: `cmux customize use {}`",
+        short(&layer.head),
+        short(&layer.base),
+        published.source_text()
+    ))
+}
+
 /// `cmux customize library refresh`: every code entry against what is
 /// published (a folder: built again) and what this app is.
 pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
@@ -794,10 +811,13 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 Published::Ref { kind: CodeKind::Branch, name } => branch_tip(&http, name),
                 _ => None,
             };
+            let changed = !layer.same(&code) || layer.base != code.base || layer.web != code.web;
             if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
                 let asked = request_publish(&published, app.commit.as_deref()).unwrap_or_default();
                 (format!("the branch is at {}; {asked}", short(&tip)), None)
-            } else if !layer.same(&code) || layer.base != code.base || layer.web != code.web {
+            } else if changed && let Some(waits) = fork_update_waits(&published, &layer) {
+                (waits, None)
+            } else if changed {
                 install(customize, &http, &layer)?;
                 customize.library_update_code(layer.clone(), origin, now_ms)?;
                 (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
@@ -878,6 +898,23 @@ mod tests {
         );
         let none = layer_of(&pointer_json(false, 3), &app).unwrap();
         assert!(!none.has_web());
+    }
+
+    #[test]
+    fn refresh_takes_a_new_fork_layer_only_through_use() {
+        let app = App { path: None, commit: None, abi: Some(3) };
+        let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+        let layer = layer_from(&pointer_json(true, 3), &app, Some(&fork)).unwrap();
+        let note = fork_update_waits(&fork, &layer).unwrap();
+        assert!(note.contains("cmux customize use someone/cmux@theme"), "{note}");
+        assert!(note.contains(short(&layer.head)), "{note}");
+        for ours in [
+            Published::Pr(7),
+            Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() },
+            Published::Ref { kind: CodeKind::Sha, name: "a".repeat(40) },
+        ] {
+            assert_eq!(fork_update_waits(&ours, &layer), None, "{ours:?}");
+        }
     }
 
     #[test]

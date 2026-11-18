@@ -7,9 +7,9 @@ import CmuxNextWakeups
 @MainActor
 public final class SidebarPlaceholderGrace {
     public static let delay: Duration = .milliseconds(300)
-    /// The wait before one list names "Connecting…": the daemon's startup deadline
-    /// (`DaemonStartup.defaultDeadline`, which the store's drop grace uses too).
-    public static let connectingDelay: Duration = .seconds(10)
+    /// The wait before one list names "Connecting…": the shared connection quiet time
+    /// (``QuietHold/connectionDelay``: the daemon's startup deadline, which the store's drop grace uses too).
+    public static let connectingDelay: Duration = QuietHold.connectionDelay
 
     /// Runs when a section's wait ends (the bridge runs its rows pass again).
     public var onEnd: (@MainActor () -> Void)?
