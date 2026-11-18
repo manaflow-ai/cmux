@@ -125,8 +125,16 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
 
     const settle = () =>
       page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await settle();
-    await page.waitForTimeout(300);
+    // The streamed turn drawn and followed: the view sits at the end before the reader scrolls away.
+    await page.waitForFunction(
+      () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+        return (window as any).__settleClient.following === true && Math.abs(distance) < 1;
+      },
+      null,
+      { timeout: 10_000, polling: "raf" },
+    );
     await settle();
 
     // The reader scrolls up a screen and a half; the turn streams on while they read, past what the client holds
