@@ -45,8 +45,10 @@ app's call goes on after the reply: it uses the processor and the app's one list
 time has numbers of 2 calls. The app has no call that says when frame_strip ended; its last act is the file
 `strip.png` in the recording's folder. So the tool waits for that file (up to `CALL_END_PAUSES` pauses of 0.5 s)
 before it removes the folder and sends a key, ends that case (`ended_early` in the case, `call_went_on` in the
-row), and goes on with the next case. A call whose file did not come stops the run (`stopped` in the report): no
-later key. A call that made no frame writes no such file and reads as one that did not end.
+row), and goes on with the next case. A call whose file did not come stops the run: no later recording, `stopped`
+in the report and in the last printed line, and the driver's exit code is `STOPPED_EXIT`. A call that made no frame
+writes no such file and reads as one that did not end. The row's folder is removed before each call, so a file of
+an earlier run is not read as this call's.
 """
 import json
 import os
@@ -67,6 +69,7 @@ MARK = "NEW-SURFACE-SCREEN"
 OPENINGS_LIMIT = 60  # the app's list of opening records has 64 places (NewTabSparePool.maximumOpenings)
 LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
 CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
+STOPPED_EXIT = 3  # the driver's exit code for a run that stopped before its last case
 
 
 def goes_on(reply):
@@ -224,6 +227,8 @@ class Screen:
                   "scale": opts.scale, "tolerance": opts.tolerance, "duration_ms": opts.duration_ms + gap}
         if gap:
             params.update({"repeat": 2, "repeat_interval_ms": gap})
+        # No file of an earlier run in the row's folder (`--out` has a fixed default): an old last file is no call's end.
+        shutil.rmtree(folder, ignore_errors=True)
         watched, watcher = {}, None
         asked = time.monotonic()
         if run >= opts.runs - opts.page_watch:
@@ -238,8 +243,9 @@ class Screen:
             if goes_on(reply):
                 row["call_went_on"] = self.call_end(folder)
             shutil.rmtree(folder, ignore_errors=True)
-            # Cmd-W only for what the keys opened: a call that the app refused sent no key.
-            self.close(max(0, self.count(key) - before_count), own_tabs)
+            # Cmd-W only for what the keys opened: a call that the app refused sent no key, and a thing that another
+            # actor opened in the wait is not the tool's (never more Cmd-W than keys).
+            self.close(min(keys_sent, max(0, self.count(key) - before_count)), own_tabs)
             return row
         records = self.opened()
         row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
@@ -336,12 +342,12 @@ class Screen:
                     if row.get("call_went_on"):
                         break
                 report["cases"][case] = frames_of.summarize(rows)
-                went_on = rows[-1].get("call_went_on")
+                went_on = rows[-1].get("call_went_on") if rows else None
                 if went_on:
                     report["cases"][case]["ended_early"] = f"after {len(rows)} of {opts.runs} rows: frame_strip answered `timeout` and the app's call went on"
                     if not went_on["ended"]:
                         report["stopped"] = (f"after {rows[-1]['label']}: the app's frame_strip call did not end in "
-                                             f"{went_on['pauses']} pauses of 0.5 s: no later key")
+                                             f"{went_on['pauses']} pauses of 0.5 s: no later recording")
                 early = report["cases"][case].get("ended_early")
                 print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}{' (THE CASE ENDED EARLY ' + early + ')' if early else ''}", flush=True)
                 if report.get("stopped"):
@@ -349,6 +355,8 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
+        # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
+        report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0
         if opts.json:
             with open(opts.json, "w", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=1)
@@ -359,7 +367,7 @@ class Screen:
             with tarfile.open(opts.screen_tgz, "w:gz") as archive:
                 archive.add(self.keep, arcname="new-surface-screen")
         print(f"{MARK} report only: {len(self.rows)} rows, {sum(1 for row in self.rows if row['invalid'])} INVALID, "
-              f"{self.kept} pictures kept", flush=True)
+              f"{self.kept} pictures kept" + (f"; STOPPED {report['stopped']}" if report.get("stopped") else ""), flush=True)
         return report
 
 

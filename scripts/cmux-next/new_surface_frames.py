@@ -41,6 +41,8 @@ after it) and in ms:
                  row has no `final`, a row with the page new and the strip old is a changed frame with its number,
                  and the reply's count of strip frames at neither picture (`strip_intermediate`), less the rows up
                  to `content_first`, is the lowest count of changed frames after it: a run with no frame number.
+                 With 2 keys the reply counts from the first key: its rows up to the second key's due time (the
+                 strip then has the first key's tab: neither picture) are taken off that count too.
                  `first_is_final` is then False, or not known when that count is 0: never True.
 
 The frame number of a row is its time over the display's frame time, counted up for the first row and by the rows'
@@ -306,8 +308,10 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
                 runs[-1]["count"] += 1
             else:
                 runs.append({"frames": [frame, frame], "ms": [row["ms"], row["ms"]], "count": 1, "state": state, "file": row.get("file")})
-        # The strip's frames at neither picture: the rows up to content_first can be `first + 1` of them at most.
-        later = max(0, int(slid) - first - 1)
+        # The strip's frames at neither picture: the rows up to content_first can be `first + 1` of them at most, and
+        # each row from the reply's zero to the judged key (a gap recording: the first key's tab is in the strip) can be one.
+        skipped = sum(1 for f in reply.get("frames") or [] if _number(f.get("ms")) and f["ms"] >= 0 and f["ms"] + shift <= 0)
+        later = max(0, int(slid) - skipped - first - 1)
         if later:
             runs.append({"frames": None, "ms": None, "count": later, "state": {"strip": "between"}, "file": None,
                          "source": "the reply's strip_intermediate, less the rows up to content_first: the rows carry no "
@@ -360,7 +364,8 @@ def summarize(rows):
            "tab_known": sum(1 for row in good if row.get("tab")), "blinks": sum(1 for row in good if row.get("blinks")),
            "blank_frames": sum(row.get("blank_frames") or 0 for row in good),
            "refresh_ms": _spread([row.get("refresh_ms") for row in good]),
-           "key_work_ms": _spread([row.get("key_work_ms") for row in good])}
+           "key_work_ms": _spread([row.get("key_work_ms") for row in good]),
+           "zero": sorted({row["zero"] for row in good if row.get("zero")})}
     for name in ("tab", "content_first", "content_final", "final"):
         out[name] = {unit: _spread([(row.get(name) or {}).get(unit) for row in good]) for unit in ("frame", "ms")}
     return out
@@ -370,7 +375,7 @@ def cell(summary):
     def said(name):
         frames, ms = summary[name]["frame"], summary[name]["ms"]
         return "none" if not frames else f"frame {frames['p50']:g} (max {frames['max']:g}), {ms['p50']:g} ms (max {ms['max']:g})"
-    changes, work = summary["changes_after_content"], summary["key_work_ms"]
+    changes, work, zeros = summary["changes_after_content"], summary["key_work_ms"], summary.get("zero") or []
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + f"; tab {said('tab')} [known {summary['tab_known']}/{summary['valid']}]; content_first {said('content_first')}; "
             f"content_final {said('content_final')}; final {said('final')}; first=final {summary['first_is_final']}/{summary['valid']} "
@@ -379,4 +384,5 @@ def cell(summary):
             + "; "
             f"frames changed after content p50 {changes['p50'] if changes else 'n/a'} max {changes['max'] if changes else 'n/a'}; "
             f"the key's own work p50 {work['p50'] if work else 'n/a'} ms max {work['max'] if work else 'n/a'}; "
-            f"blank {summary['blank_frames']}; caret rows {summary['blinks']}")
+            f"blank {summary['blank_frames']}; caret rows {summary['blinks']}"
+            + ("" if not zeros else f"; zero: {zeros[0]}" if len(zeros) == 1 else f"; ROWS OF {len(zeros)} ZEROS (their times are not one table): {' / '.join(zeros)}"))
