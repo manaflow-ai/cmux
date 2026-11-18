@@ -277,6 +277,16 @@ export const TOKEN_ONLY_FILES: readonly string[] = [
   "agent-session/acpmux/conversation/unread.css",
   "agent-session/acpmux/conversation/SinceDivider.tsx",
   "agent-session/acpmux/jumpPair.css",
+  // The public kit (kit/index.ts): what customization pages, plugins and web pages compose.
+  "kit/kit.css",
+  "kit/Row.tsx",
+  "kit/List.tsx",
+  "kit/Pill.tsx",
+  "kit/Avatar.tsx",
+  "kit/Field.tsx",
+  "kit/GlassMenu.tsx",
+  "kit/PopoverButton.tsx",
+  "kit/presets/SessionList.tsx",
 ];
 const ANY_DURATION = /(?<![\w.-])\d*\.?\d+m?s\b/i;
 const ANY_EASING = /\bcubic-bezier\(|\bsteps\(|\blinear\(|(?<![\w-])ease(?:-in|-out|-in-out)?(?![\w-])/i;
