@@ -400,6 +400,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's buttons show only while the pointer is over it. |
 | `sidebar.floatOnHover` | boolean | `true` |  | Float Hidden Sidebar on Hover. With the sidebar hidden, point at the window's edge to show it over your work. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Sidebar and tab bar buttons show only while the pointer is over them. |
+| `sidebar.look` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio` | Sidebar Look. Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a strip; point at it to open the full sidebar. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Expanded shows status, age, pull request and computer under each name. |
 | `sidebar.textSize` | string | `"default"` | `default`, `large`, `larger` | Sidebar Text Size. Makes the sidebar's names, icons and rows larger together. |
@@ -598,7 +599,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
 | `home.chiefPanel.seesScreen` | boolean | `true` |  | Chief Sees Your Screen When It Opens. The floating Chief takes one look at your screen when it opens. The eye turns it off. |
-| `home.chiefDock.openBeside` | boolean | `true` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
+| `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Auto uses this Mac's Chief while it runs, else the Hosted Chief. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction on a Chief message can start a turn, such as ? on a question. |
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent that reads reactions, such as claude or codex. Empty uses the Chief's. |
