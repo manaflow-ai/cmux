@@ -68,26 +68,84 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-test("a Claude composer picked before a restart is the look after it", async () => {
+/// Another agent page of the same launch: a new workspace's chat, a new chat, a chat on another
+/// harness. Its storage is the launch's (one data store), its modules start fresh, and the host sends
+/// it the same user-level `display` value it sends every page: nothing about the chat picks the look.
+function openAnotherPage() {
+  resetChatDisplayForTests();
+  hostSendsDisplay();
+}
+
+test("with no saved choice the composer is Claude's, before and after the host's value (Leo, 2026-11-18)", () => {
+  // Leo, 2026-11-18: "plus, we wanted to have the claude style by default..."
+  launch();
+  expect(shownLook()).toBe("<span>claude</span>");
+  hostSendsDisplay();
+  expect(shownLook()).toBe("<span>claude</span>");
+  expect(COMPOSER_LOOK_KEY in file).toBe(false);
+  openAnotherPage();
+  expect(shownLook()).toBe("<span>claude</span>");
   launch();
   hostSendsDisplay();
+  expect(shownLook()).toBe("<span>claude</span>");
+});
+
+test("a Claude composer picked before a restart is the look after it, in a new workspace and a new chat", async () => {
+  launch();
+  hostSendsDisplay();
+  // A Codex viewer switches to Claude (the file held Codex from an earlier pick).
+  setComposerLook("codex");
+  await writesSettle();
   expect(shownLook()).toBe("<span>codex</span>");
   setComposerLook("claude");
   expect(shownLook()).toBe("<span>claude</span>");
   await writesSettle();
+  // Written explicitly, so a later change of the default never moves it.
   expect(file[COMPOSER_LOOK_KEY]).toBe("claude");
 
   // Restart: the page's storage is gone; the host sends what the file kept.
   launch();
   hostSendsDisplay();
   expect(shownLook()).toBe("<span>claude</span>");
+  // A new workspace, a new chat, a chat on another harness: each page reads the same setting.
+  for (let page = 0; page < 3; page += 1) {
+    openAnotherPage();
+    expect(shownLook()).toBe("<span>claude</span>");
+  }
+});
 
-  // And back to Codex is kept as explicitly.
-  setComposerLook("codex");
-  await writesSettle();
+test("an explicit Codex choice stays Codex across a restart, a new workspace and a new chat", async () => {
   launch();
   hostSendsDisplay();
+  expect(shownLook()).toBe("<span>claude</span>");
+  setComposerLook("codex");
+  expect(shownLook()).toBe("<span>codex</span>");
+  await writesSettle();
+  // Codex is not the default any more, and the pick is written as itself, never dropped.
   expect(file[COMPOSER_LOOK_KEY]).toBe("codex");
+
+  launch();
+  // Before the host's value comes, a fresh launch's copy is empty: the host's value then wins.
+  hostSendsDisplay();
+  expect(shownLook()).toBe("<span>codex</span>");
+  for (let page = 0; page < 3; page += 1) {
+    openAnotherPage();
+    expect(shownLook()).toBe("<span>codex</span>");
+  }
+  launch();
+  hostSendsDisplay();
+  expect(shownLook()).toBe("<span>codex</span>");
+});
+
+test("a pick in one page reaches a page opened next in the same launch from its first frame", async () => {
+  launch();
+  hostSendsDisplay();
+  setComposerLook("codex");
+  await writesSettle();
+  // The next page draws the launch's copy before the host's value comes, then the host's (the same).
+  resetChatDisplayForTests();
+  expect(shownLook()).toBe("<span>codex</span>");
+  hostSendsDisplay();
   expect(shownLook()).toBe("<span>codex</span>");
 });
 

@@ -35,8 +35,9 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, "localStorage");
 });
 
-test("a composer with no saved choice uses Codex without writing a preference", () => {
-  expect(currentLook()).toBe("<span>codex</span>");
+test("a composer with no saved choice uses Claude without writing a preference", () => {
+  // Leo, 2026-11-18: "plus, we wanted to have the claude style by default..."
+  expect(currentLook()).toBe("<span>claude</span>");
   expect(values.size).toBe(0);
 });
 
@@ -48,12 +49,12 @@ test("both explicit saved looks survive the default changing", () => {
   }
 });
 
-test("an unknown stored look uses Codex and an explicit choice still persists", () => {
+test("an unknown stored look uses Claude and an explicit choice still persists", () => {
   values.set("cmux.composer.look", "retired-look");
-  expect(currentLook()).toBe("<span>codex</span>");
-  setComposerLook("claude");
   expect(currentLook()).toBe("<span>claude</span>");
-  expect(values.get("cmux.composer.look")).toBe("claude");
+  setComposerLook("codex");
+  expect(currentLook()).toBe("<span>codex</span>");
+  expect(values.get("cmux.composer.look")).toBe("codex");
 });
 
 test("a look selection remains usable when preference storage is unavailable", () => {

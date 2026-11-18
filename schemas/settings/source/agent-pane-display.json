@@ -1162,7 +1162,7 @@
         },
         {
           "key": "agentPane.display.composerLook",
-          "note": "The composer's look (webviews composerLook.ts): Claude's quiet row under the box or Codex's row inside it. The look dots in the composer and on New Tab write it; the agent pages' storage ends with the launch, so the pick lives here (Leo, 2026-11-14: \"if i picked the claude style composer it should remember it after restart instead of always only going to the codex mode\").",
+          "note": "The composer's look (webviews composerLook.ts): Claude's quiet row under the box or Codex's row inside it, one user-level choice for every chat on every harness and workspace. The look dots under the composer write it; the agent pages' storage ends with the launch, so the pick lives here (Leo, 2026-11-14: \"if i picked the claude style composer it should remember it after restart instead of always only going to the codex mode\"). Claude by default (Leo, 2026-11-18: \"plus, we wanted to have the claude style by default...\"); an explicit pick, Codex included, is written as itself.",
           "title": {
             "key": "settings.agentPane.display.composerLook",
             "text": "Composer Style"
@@ -1188,7 +1188,7 @@
               }
             }
           ],
-          "default": "codex",
+          "default": "claude",
           "keywords": [
             "agent",
             "chat",
