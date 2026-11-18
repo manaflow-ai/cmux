@@ -39,7 +39,7 @@ await requireBrowserLane("newtab-widget-gallery-short-window-browser.test.ts", a
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "rows-light" } });
+    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "rows", colorScheme: "light" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -55,7 +55,9 @@ await requireBrowserLane("newtab-widget-gallery-short-window-browser.test.ts", a
           page.on("pageerror", (error) => errors.push(error.message));
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(base + galleryFrame(ENTRY, { variant: "rows-light", width: WIDTH, height }));
+            await page.goto(
+              base + galleryFrame(ENTRY, { variant: "rows", colorScheme: "light", width: WIDTH, height }),
+            );
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
