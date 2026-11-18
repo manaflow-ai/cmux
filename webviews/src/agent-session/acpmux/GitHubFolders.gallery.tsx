@@ -96,7 +96,7 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     ready: {
-      note: "Installed for selected repositories: a GitHub group under the folders, a lock on private ones, then Choose more repositories….",
+      note: "Installed for selected repositories: a GitHub group in the list, a lock on private ones; Choose more repositories… sits with the fixed actions under Add folder….",
       props: { ...base, github: picker({ status: { state: "ready", reposScope: "selected" }, repos: REPOS }) },
       play: openFolder,
     },

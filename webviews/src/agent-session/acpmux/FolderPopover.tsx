@@ -117,8 +117,10 @@ export function FolderPopover({
       // Each open reads whether GitHub is connected, and its repositories once it is.
       if (!open) github?.onOpen();
     }
-    // The side fits the rows and actions the menu has now (they are counted below, before any press).
-    setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, pinned.length));
+    // The side fits the rows and actions the menu has now (they are counted below, before any press),
+    // the GitHub row its status may still add, and the chat's extra folders listed under the actions.
+    const below = pinned.length + (github && !githubAction && !addingExtra ? 1 : 0) + (extra?.folders.length ?? 0);
+    setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, below));
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -244,8 +246,9 @@ export function FolderPopover({
   // The menu is as wide as its fullest listed row needs (composerLocation.css `.acpmux-folder-fit`).
   // The list mounts only the rows in view and places them itself, so the rows give the popup no
   // width: the longest rows' words are listed once more, unseen, and the browser measures those.
+  // Only while open: a closed menu measures nothing, whatever re-renders its composer.
   const fit = widestLines(
-    suggestions.slice(pinned.length).map((value): FitLine => {
+    (open ? suggestions.slice(pinned.length) : []).map((value): FitLine => {
       const place = shown.get(value);
       if (!place) {
         const repo = repoRows.get(value);
@@ -270,10 +273,9 @@ export function FolderPopover({
   };
   const submit = (value: string) => {
     // Connect to GitHub connects from the row in one click (the host opens the install page, or
-    // sign-in), the menu still open; a click while it waits opens the page again. Until the status
-    // answers a click does nothing: the connect reply would race the first status.
+    // sign-in), the menu still open; a click while it waits opens the page again.
     if (value === GITHUB_ADD) {
-      if (githubStatus !== undefined) github?.onConnect();
+      github?.onConnect();
       return;
     }
     // Retry reads the repositories again, the menu still open; they are listed once they load.
@@ -600,7 +602,7 @@ export function FolderPopover({
 }
 
 /// One listed row's words and what its row draws beside them (a worktree count, a worktree's
-/// indent, a private repository's lock), for the menu's width.
+/// indent, a private repository's lock glyph), for the menu's width.
 export type FitLine = { text: string; kind: "row" | "count" | "worktree" | "lock" };
 
 /// The few lines that can be the widest: the longest by their letters, the room beside them counted
@@ -620,7 +622,7 @@ export function widestLines(lines: readonly FitLine[], keep = 6): FitLine[] {
 }
 
 /// About how many letters wide each kind's extra room is (composerLocation.css gives the real widths).
-const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 6, worktree: 4, lock: 9 };
+const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 5, worktree: 3, lock: 3 };
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";

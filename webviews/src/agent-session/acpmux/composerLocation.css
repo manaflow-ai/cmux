@@ -1197,15 +1197,16 @@
 /* The fullest listed rows' words (FolderPopover `widestLines`), unseen and no height: the list
    mounts only the rows in view and places them itself, so they give the popup no width. ::before
    draws the words (no second copy of a name is in the page) and ::after is the room the row draws
-   beside them: its insets, badge, gaps and check, and a worktree count, a worktree's indent or a
-   private repository's lock. */
+   beside them: its insets, badge, gaps and check (about 65 px), more for a worktree count, a
+   worktree's indent or a private repository's lock glyph, and a few px to spare. That room is
+   fixed px in the rows, so it is here too; the words follow Text Size on their own. */
 .acpmux-folder-fit { display: block; flex: none; height: 0; overflow: hidden; visibility: hidden; }
 .acpmux-folder-fit > span { display: flex; white-space: nowrap; }
 .acpmux-folder-fit > span::before { content: attr(data-text); }
-.acpmux-folder-fit > span::after { content: ""; flex: none; width: calc(84 * var(--ui-px, 1px)); }
-.acpmux-folder-fit > span[data-kind="count"]::after { width: calc(124 * var(--ui-px, 1px)); }
-.acpmux-folder-fit > span[data-kind="worktree"]::after { width: calc(112 * var(--ui-px, 1px)); }
-.acpmux-folder-fit > span[data-kind="lock"]::after { width: calc(148 * var(--ui-px, 1px)); }
+.acpmux-folder-fit > span::after { content: ""; flex: none; width: 84px; }
+.acpmux-folder-fit > span[data-kind="count"]::after { width: 112px; }
+.acpmux-folder-fit > span[data-kind="worktree"]::after { width: 104px; }
+.acpmux-folder-fit > span[data-kind="lock"]::after { width: 102px; }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
 /* Its list takes the menu's height, not the shared location list's 260 px cap: the menu's own
    max-height bounds it, and the list gives up room first (flex, min-height 0). The designed scroll
@@ -1722,7 +1723,7 @@
    200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
    wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
 .acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
-/* Nor does it take the folder menu's larger frame (380 to 560 wide, 560 tall): its own sizes. */
+/* Nor does it take the folder menu's larger frame (up to 560 wide, 560 tall): its own sizes. */
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover {
   max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
