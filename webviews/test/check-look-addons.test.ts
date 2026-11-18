@@ -26,7 +26,9 @@ test("the repo's contract and every look add-on pass", () => {
 test("a look sets contract tokens on :root, and nothing else", () => {
   expect(kinds(":root { --cv-user-bubble-radius: 6px; --cv-link: var(--agent-accent); }")).toEqual([]);
   expect(
-    kinds("@media (prefers-contrast: more) { :root { --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text)); } }"),
+    kinds(
+      "@media (prefers-contrast: more) { :root { --cv-link: color-mix(in srgb, var(--agent-accent) 80%, var(--agent-text)); } }",
+    ),
   ).toEqual([]);
   expect(kinds(".cv-user__bubble { --cv-user-bubble-radius: 6px; }")).toEqual(["selector"]);
   expect(kinds(":root { --cv-font-size: 13px; }")).toEqual(["private-token"]);

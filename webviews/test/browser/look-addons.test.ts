@@ -77,11 +77,14 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   /** The host's path for a person's agent-pane/theme.css, over what the stage already sent (its font). */
   async function applyLook(page: Page, look: string) {
     await page.evaluate((look) => {
-      const stage = (window as { __lookAddonsBase?: string }).__lookAddonsBase ??
-        (document.getElementById("acpmux-user-theme")?.textContent ?? "");
+      const stage =
+        (window as { __lookAddonsBase?: string }).__lookAddonsBase ??
+        document.getElementById("acpmux-user-theme")?.textContent ??
+        "";
       (window as { __lookAddonsBase?: string }).__lookAddonsBase = stage;
-      (window as unknown as { cmuxAcpmuxBridge: { applyCustomization(c: { themeCSS: string }): void } })
-        .cmuxAcpmuxBridge.applyCustomization({ themeCSS: `${stage}\n${look}` });
+      (
+        window as unknown as { cmuxAcpmuxBridge: { applyCustomization(c: { themeCSS: string }): void } }
+      ).cmuxAcpmuxBridge.applyCustomization({ themeCSS: `${stage}\n${look}` });
     }, look);
     await settle(page);
   }
@@ -93,7 +96,13 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         .map((el) => {
           const r = el.getBoundingClientRect();
           return r.width || r.height
-            ? { el: `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`, x: r.x, y: r.y, w: r.width, h: r.height }
+            ? {
+                el: `${el.tagName.toLowerCase()}.${[...el.classList].join(".")}`,
+                x: r.x,
+                y: r.y,
+                w: r.width,
+                h: r.height,
+              }
             : null;
         })
         .filter((box) => box !== null),
@@ -200,7 +209,9 @@ await requireBrowserLane("look-addons.test.ts", async () => {
     const before = new Map(plain.map((line) => [line.key, line.ratio]));
     return looked
       .filter((line) => line.ratio < line.min && line.ratio < (before.get(line.key) ?? Infinity) - 0.05)
-      .map((line) => `${line.key} "${line.text}": ${line.ratio}:1 (needs ${line.min}:1; plain ${before.get(line.key)}:1)`);
+      .map(
+        (line) => `${line.key} "${line.text}": ${line.ratio}:1 (needs ${line.min}:1; plain ${before.get(line.key)}:1)`,
+      );
   }
 
   for (const look of addons) {
@@ -240,22 +251,25 @@ await requireBrowserLane("look-addons.test.ts", async () => {
           const set = [...lookCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(
             (m) => [m[1]!, m[2]!.trim()] as const,
           );
-          const [resolved, declared] = await page.evaluate((pairs) => {
-            const probe = document.createElement("div");
-            document.documentElement.appendChild(probe);
-            try {
-              const declared = pairs.map(([, value]) => {
-                probe.style.setProperty("--look-probe", value);
-                return getComputedStyle(probe).getPropertyValue("--look-probe").trim();
-              });
-              const resolved = pairs.map(([name]) =>
-                getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
-              );
-              return [resolved, declared];
-            } finally {
-              probe.remove();
-            }
-          }, set as unknown as [string, string][]);
+          const [resolved, declared] = await page.evaluate(
+            (pairs) => {
+              const probe = document.createElement("div");
+              document.documentElement.appendChild(probe);
+              try {
+                const declared = pairs.map(([, value]) => {
+                  probe.style.setProperty("--look-probe", value);
+                  return getComputedStyle(probe).getPropertyValue("--look-probe").trim();
+                });
+                const resolved = pairs.map(([name]) =>
+                  getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+                );
+                return [resolved, declared];
+              } finally {
+                probe.remove();
+              }
+            },
+            set as unknown as [string, string][],
+          );
           expect(resolved).toEqual(declared);
           const radius = set.find(([name]) => name === "--cv-user-bubble-radius")?.[1];
           if (radius)

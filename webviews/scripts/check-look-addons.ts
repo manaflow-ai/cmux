@@ -261,8 +261,7 @@ export function checkLooks(looks: Look[], builtIn: string[], contract: Contract)
       });
   for (const look of looks) {
     if (!look.addon) {
-      if (!look.pending)
-        problems.push({ kind: "no-twin", where: look.id, message: "no add-on and no pending reason" });
+      if (!look.pending) problems.push({ kind: "no-twin", where: look.id, message: "no add-on and no pending reason" });
       continue;
     }
     const css = path.join(repo, "examples/looks", look.addon, "agent-pane/theme.css");
@@ -284,7 +283,8 @@ export function run(): Problem[] {
 
 if (import.meta.main) {
   const problems = run();
-  for (const problem of problems) console.error(`check-look-addons: ${problem.kind}: ${problem.where}: ${problem.message}`);
+  for (const problem of problems)
+    console.error(`check-look-addons: ${problem.kind}: ${problem.where}: ${problem.message}`);
   if (problems.length) process.exit(1);
   console.log("check-look-addons: every look uses public surfaces only, and every contract token works from :root");
 }
