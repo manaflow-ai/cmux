@@ -173,6 +173,13 @@ describe("isAdminGrantablePlanId", () => {
     expect(isAdminGrantablePlanId("")).toBe(false);
     expect(isAdminGrantablePlanId(null)).toBe(false);
   });
+
+  test("accepts the cmux NEXT Cloud plans as themselves", () => {
+    expect(isAdminGrantablePlanId("next_pro")).toBe(true);
+    expect(isAdminGrantablePlanId("next_max")).toBe(true);
+    expect(isAdminGrantablePlanId("NEXT_PRO")).toBe(false);
+    expect(isAdminGrantablePlanId("next")).toBe(false);
+  });
 });
 
 describe("adminUserRow", () => {
@@ -270,6 +277,43 @@ describe("setManualPlanGrant", () => {
     expect(row.isPro).toBe(true);
     expect(row.manualPlanId).toBe("pro");
     expect(row.lastGrant?.plan).toBe("pro");
+  });
+
+  test("grants a cmux NEXT plan as itself without granting classic Pro", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { other: 1 } });
+    const app = fakeApp([target]);
+    const row = await setManualPlanGrant({
+      targetUserId: "u1",
+      plan: "next_max",
+      admin,
+      app,
+      now: () => new Date("2026-11-17T10:00:00.000Z"),
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(target.clientReadOnlyMetadata).toEqual({ other: 1, cmuxVmPlan: "next_max" });
+    expect(row.manualPlanId).toBe("next_max");
+    expect(row.lastGrant?.plan).toBe("next_max");
+    expect(row.isPro).toBe(false);
+  });
+
+  test("removing a cmux NEXT grant clears it and keeps a classic Stripe mirror", async () => {
+    const target = fakeUser({
+      id: "u1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxPlan: "pro" },
+    });
+    const app = fakeApp([target]);
+    const row = await setManualPlanGrant({
+      targetUserId: "u1",
+      plan: null,
+      admin,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => activeStripe,
+    });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxPlan: "pro" });
+    expect(row.manualPlanId).toBeNull();
+    expect(row.isPro).toBe(true);
   });
 
   test("removing the grant deletes cmuxVmPlan and reconciles cmuxPlan from Stripe", async () => {
@@ -703,6 +747,44 @@ describe("pending email grants", () => {
     expect(rows.find((row) => row.email === "other@example.com")?.appliedAt).toBeNull();
     // Second sign-in finds nothing open.
     expect(await applyPendingEmailGrants({ id: "u9", primaryEmail: "pat@example.com" }, { db, grant: async () => undefined })).toBe(0);
+  });
+
+  test("applyPendingEmailGrants applies a pending cmux NEXT grant", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "next@example.com", plan: "next_pro", admin, db });
+    const grants: { plan: unknown }[] = [];
+    const applied = await applyPendingEmailGrants(
+      { id: "u7", primaryEmail: "next@example.com" },
+      { db, grant: async (input) => { grants.push(input); return undefined; } },
+    );
+    expect(applied).toBe(1);
+    expect(grants.map((grant) => grant.plan)).toEqual(["next_pro"]);
+    expect(rows[0]?.appliedUserId).toBe("u7");
+  });
+
+  test("a pending grant of the other plan family stays open instead of replacing a classic grant", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "pat@example.com", plan: "next_pro", admin, db });
+    const target = fakeUser({ id: "u9", primaryEmail: "pat@example.com", clientReadOnlyMetadata: { cmuxVmPlan: "founders" } });
+    const app = fakeApp([target]);
+    const applied = await applyPendingEmailGrants(
+      { id: "u9", primaryEmail: "pat@example.com" },
+      {
+        db,
+        grant: (input) => setManualPlanGrant({
+          ...input,
+          app,
+          withFreshUser: directMutation(app),
+          stripeBillingStatus: async () => noStripe,
+        }),
+      },
+    );
+    expect(applied).toBe(0);
+    expect(target.updates).toEqual([]);
+    expect(rows[0]?.appliedAt).toBeNull();
+    expect(rows[0]?.appliedUserId).toBeNull();
   });
 
   test("applyPendingEmailGrants never applies a row revoked before the claim, and releases the claim on failure", async () => {
