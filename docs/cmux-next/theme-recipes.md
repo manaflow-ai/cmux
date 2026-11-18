@@ -51,6 +51,51 @@ a view"). A view whose script fails shows its error in its own place with a Relo
 rest of the app keeps working. If a code change of your own breaks the app, go back a build from the
 palette with **Roll Back to Previous Version**, or run `cmux settings rollback-update --confirm`.
 
+## Ship fonts with a community theme
+
+A community theme repository (one with `cmux-theme.json`, installed with `cmux theme install`) can
+carry font files for the agent chat in a `fonts/` folder beside `themes/`, the way it carries
+`wallpapers/`. Declare the fonts' license in `cmux-theme.json` and include its text:
+
+```json
+{ "cmuxTheme": 1, "id": "you/pack", "name": "Pack", "version": "1.0.0",
+  "fontLicense": "OFL-1.1" }
+```
+
+```text
+cmux-theme.json
+themes/pack.json
+fonts/PackSans.woff2
+fonts/PackSerif-Italic.woff2
+fonts/OFL.txt            (or fonts/LICENSE*)
+```
+
+Then name the faces in the theme file. A `file:` path is relative to the themes folder, as a
+backdrop picture is:
+
+```json
+{ "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+  "agentPane.display.font.proseFamily": "Pack Serif",
+  "agentPane.display.font.faces": {
+    "Pack Sans": "file:../fonts/PackSans.woff2",
+    "Pack Serif:italic": "file:../fonts/PackSerif-Italic.woff2" } }
+```
+
+- Only openly licensed fonts: `"fontLicense"` is `OFL-1.1`, `Apache-2.0` or `MIT`, and the license
+  text ships as `fonts/OFL.txt` or `fonts/LICENSE*`. A theme with font files and no license is
+  refused.
+- At most 8 font files, each at most 2 MiB, `.woff2`, `.woff`, `.ttf` or `.otf`, and the extension
+  must match the file's bytes.
+- A face key is one family name, optionally suffixed `:italic`. Its value is one of the theme's own
+  files, `file:../fonts/NAME`.
+- `font.uiFamily` wins over `font.ui`, and `font.proseFamily` wins over `font.preset`. A theme
+  file may also set `agentPane.display.code.family` and `agentPane.display.code.scale`, to match
+  inline code to the pack.
+- Install copies the fonts and the license text to `~/.config/cmux/fonts/<entry>/` and points the
+  theme file there; `cmux theme remove` deletes them.
+- `cmux theme check DIR` on the repository folder reports a missing license, a bad font file and a
+  bad face before you publish.
+
 ## Keep it fast
 
 A theme file costs nothing per frame: it's read once on each save. Code you add to the app is a

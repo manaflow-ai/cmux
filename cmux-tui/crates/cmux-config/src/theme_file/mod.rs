@@ -60,8 +60,10 @@ const EXCLUDED_KEYS: [&str; 8] = [
     "appearance.customDensities",
     "appearance.backgroundLocation",
 ];
-const LOOK_PREFIXES: [&str; 7] = [
+const LOOK_PREFIXES: [&str; 8] = [
     "appearance.",
+    // The agent chat's typography: a font pack's families and face files.
+    "agentPane.display.font.",
     "ui.animation",
     "ui.calm",
     "ui.paneAnimations",
@@ -69,10 +71,12 @@ const LOOK_PREFIXES: [&str; 7] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// Look keys outside those prefixes: the terminal and chat code fonts and
+/// the sidebar's shape and edges.
+const LOOK_KEYS: [&str; 8] = [
     "terminal.fontFamily",
+    "agentPane.display.code.family",
+    "agentPane.display.code.scale",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
@@ -325,6 +329,31 @@ impl ThemeFile {
     pub fn keys(&self) -> Vec<String> {
         self.values.iter().map(|(path, _)| dotted(path)).collect()
     }
+
+    /// Each `agentPane.display.font.faces` entry the app would skip (a bad
+    /// key, a missing, oversized or mistyped file), as a diagnostic of this
+    /// file: `cmux theme check` reports them; the read itself never stats
+    /// the files.
+    pub fn face_diagnostics(&self) -> Vec<ThemeDiagnostic> {
+        let path = key_path(crate::font_faces::SETTING_KEY);
+        let Some(Value::Object(faces)) =
+            self.values.iter().find(|(at, _)| *at == path).map(|(_, value)| value)
+        else {
+            return Vec::new();
+        };
+        let (_, problems) = crate::font_faces::check_all(faces);
+        problems
+            .into_iter()
+            .map(|problem| ThemeDiagnostic {
+                kind: ThemeDiagnosticKind::InvalidValue,
+                path: format!("{}.{}", crate::font_faces::SETTING_KEY, problem.key),
+                message: problem.message,
+                file: Some(format!("{FOLDER_NAME}/{}.{FILE_EXTENSION}", self.name)),
+                line: None,
+                value: faces.get(&problem.key).map(compact),
+            })
+            .collect()
+    }
 }
 
 struct Reader<'a> {
@@ -408,6 +437,14 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if row.key == crate::font_faces::SETTING_KEY {
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            match written {
+                Value::Object(faces) => Value::Object(
+                    faces.iter().map(|(key, value)| (key.clone(), self.picture(value))).collect(),
+                ),
+                other => other.clone(),
+            }
         } else {
             written.clone()
         };

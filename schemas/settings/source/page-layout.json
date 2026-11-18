@@ -313,7 +313,8 @@
               "agentPane.display.environment.placement"
             ]},
             {"title": {"key": "settings.pageGroup.chatText", "text": "Chat Text"}, "keys": [
-              "agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
+              "agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
               "agentPane.display.code.family", "agentPane.display.code.scale"
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [

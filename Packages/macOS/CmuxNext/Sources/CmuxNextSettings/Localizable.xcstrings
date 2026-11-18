@@ -164309,6 +164309,798 @@
         }
       }
     },
+    "settings.agentPane.display.uiFamily": {
+      "comment": "Settings > Agent Chat: a font family or stack for the whole chat (agentPane.display.font.uiFamily)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Interface Font Family"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خط واجهة الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta sučelja chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefamilie for chatgrænseflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftfamilie der Chat-Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia de fuente de la interfaz del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille de police de l’interface du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia di font dell’interfaccia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのインターフェイスフォントファミリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរចំណុចប្រទាក់ជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 인터페이스 글꼴 패밀리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfamilie for chatgrensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek interfejsu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Família de fonte da interface do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов интерфейса чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Arayüzü Yazı Tipi Ailesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів інтерфейсу чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Họ phông chữ giao diện trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天界面字体系列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天介面字體系列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.uiFamily.help": {
+      "comment": "Settings > Agent Chat: help for the chat interface font family row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خطوط أو قائمة منها مفصولة بفواصل. عند تعيينها، تحل محل خط واجهة الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta ili lista porodica odvojenih zarezom. Kada je postavljena, zamjenjuje font sučelja chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skrifttypefamilie eller en kommasepareret liste af dem. Når den er angivet, erstatter den skrifttypen for chatgrænsefladen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Schriftfamilie oder eine durch Kommas getrennte Liste. Wenn gesetzt, ersetzt sie die Schrift der Chat-Oberfläche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una familia de fuentes o una lista separada por comas. Si se define, sustituye a la fuente de la interfaz del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une famille de polices ou une liste séparée par des virgules. Si elle est définie, elle remplace la police de l’interface du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una famiglia di font o un elenco separato da virgole. Se impostata, sostituisce il font dell’interfaccia della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォントファミリー、またはそのカンマ区切りのリスト。設定すると、チャットのインターフェイスフォントの代わりに使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរ ឬបញ្ជីរបស់វាដែលបំបែកដោយក្បៀស។ ពេលកំណត់ វាជំនួសពុម្ពអក្សរចំណុចប្រទាក់ជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "글꼴 패밀리 또는 쉼표로 구분한 목록입니다. 설정하면 채팅 인터페이스 글꼴을 대체합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skriftfamilie eller en kommaseparert liste med dem. Når den er angitt, erstatter den skriften for chatgrensesnittet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek lub ich lista rozdzielona przecinkami. Po ustawieniu zastępuje czcionkę interfejsu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma família de fontes ou uma lista separada por vírgulas. Quando definida, substitui a fonte da interface do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов или их список через запятую. Если задано, заменяет шрифт интерфейса чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรหรือรายการที่คั่นด้วยจุลภาค เมื่อตั้งค่าแล้วจะใช้แทนแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yazı tipi ailesi veya virgülle ayrılmış bir listesi. Ayarlandığında Sohbet Arayüzü Yazı Tipinin yerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів або їх список через кому. Якщо задано, замінює шрифт інтерфейсу чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một họ phông chữ hoặc danh sách cách nhau bằng dấu phẩy. Khi được đặt, nó thay thế phông chữ giao diện trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个字体系列，或以逗号分隔的列表。设置后将取代聊天界面字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個字體系列，或以逗號分隔的清單。設定後會取代聊天介面字體。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseFamily": {
+      "comment": "Settings > Agent Chat: the font family of the agent's replies (agentPane.display.font.proseFamily)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Reply Font Family"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خط ردود الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta odgovora u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefamilie for chatsvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftfamilie der Chat-Antworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia de fuente de las respuestas del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille de police des réponses du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia di font delle risposte della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの返信フォントファミリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរចម្លើយជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 답변 글꼴 패밀리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfamilie for chatsvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek odpowiedzi czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Família de fonte das respostas do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов ответов в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรคำตอบในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yanıtı Yazı Tipi Ailesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів відповідей у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Họ phông chữ câu trả lời trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回复字体系列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回覆字體系列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseFamily.help": {
+      "comment": "Settings > Agent Chat: help for the reply font family row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of the agent's replies. When set, it replaces the Chat Font."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط ردود الوكيل. عند تعيينه، يحل محل خط الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font odgovora agenta. Kada je postavljen, zamjenjuje font razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypen i agentens svar. Når den er angivet, erstatter den chattens skrifttype."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Schrift der Antworten des Agenten. Wenn gesetzt, ersetzt sie die Chat-Schrift."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fuente de las respuestas del agente. Si se define, sustituye a la fuente del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La police des réponses de l’agent. Si elle est définie, elle remplace la police du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il font delle risposte dell’agente. Se impostato, sostituisce il font della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの返信のフォント。設定すると、チャットのフォントの代わりに使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរនៃចម្លើយរបស់ភ្នាក់ងារ។ ពេលកំណត់ វាជំនួសពុម្ពអក្សរជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 답변의 글꼴입니다. 설정하면 채팅 글꼴을 대체합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriften i agentens svar. Når den er angitt, erstatter den skriften i chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka odpowiedzi agenta. Po ustawieniu zastępuje czcionkę czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fonte das respostas do agente. Quando definida, substitui a fonte do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт ответов агента. Если задан, заменяет шрифт чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรของคำตอบจากเอเจนต์ เมื่อตั้งค่าแล้วจะใช้แทนแบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın yanıtlarının yazı tipi. Ayarlandığında Sohbet Yazı Tipinin yerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт відповідей агента. Якщо задано, замінює шрифт чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ cho câu trả lời của tác tử. Khi được đặt, nó thay thế phông chữ trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回复的字体。设置后将取代聊天字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回覆的字體。設定後會取代聊天字體。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fontFaces": {
+      "comment": "Settings > Agent Chat: font files the chat loads, by family (agentPane.display.font.faces)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Font Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملفات خطوط الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteke fontova chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefiler til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftdateien des Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos de fuentes del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers de police du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File di font della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのフォントファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារពុម្ពអក្សរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 글꼴 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfiler for chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pliki czcionek czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos de fonte do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файлы шрифтов чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์แบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yazı Tipi Dosyaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файли шрифтів чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp phông chữ trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天字体文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天字體檔案"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fontFaces.help": {
+      "comment": "Settings > Agent Chat: help for the chat font files row; keep the example verbatim",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف خط لكل عائلة، مثل \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka fonta za svaku porodicu, npr. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skrifttypefil for hver familie, f.eks. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Schriftdatei je Familie, etwa \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un archivo de fuente por familia, como \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un fichier de police par famille, par exemple \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un file di font per ogni famiglia, ad esempio \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファミリーごとのフォントファイル。例: \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារពុម្ពអក្សរសម្រាប់គ្រួសារនីមួយៗ ដូចជា \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "패밀리마다 하나의 글꼴 파일입니다. 예: \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skriftfil for hver familie, for eksempel \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik czcionki dla każdej rodziny, np. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um arquivo de fonte para cada família, como \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл шрифта для каждого семейства, например \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์แบบอักษรสำหรับแต่ละตระกูล เช่น \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her aile için bir yazı tipi dosyası, örneğin \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл шрифту для кожної родини, наприклад \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tệp phông chữ cho mỗi họ, chẳng hạn \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个字体系列一个字体文件，例如 \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個字體系列一個字體檔案，例如 \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.uiFont": {
       "comment": "Settings > Agent Chat: the chat's interface font (agentPane.display.font.ui)",
       "extractionState": "manual",
