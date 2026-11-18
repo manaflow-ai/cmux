@@ -33,7 +33,8 @@ export type GitHubStatus = {
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected` or
+/// What the folder menu draws. `status` undefined: not read yet (the Connect to GitHub row says it is
+/// checking, and a click on it does nothing until the status answers); `not_connected` or
 /// `unavailable`: one Connect to GitHub row whose click connects (the host opens the install page, or
 /// sign-in), its failure on that row.
 export type GitHubPickerState = {

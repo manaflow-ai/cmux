@@ -26,7 +26,7 @@ const base = {
 
 const openFolderMenu: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Folder/ });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-folder-popover .acpmux-location-note"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-folder-popover .acpmux-location-search"));
 };
 
 /// Another design's words on the shipped chip (CloudFolderlessDesigns.tsx): `dim` as the old empty pick.
@@ -57,11 +57,11 @@ export default componentEntry<CloudFolderlessDesignsProps>({
   height: 420,
   variants: {
     "menu-note": {
-      note: "Picked, and the one that ships: the chip reads No folder (not dimmed); where the chat starts is one line in the folder menu and the chip's description, never narration in the strip.",
+      note: "Picked, and the one that ships: the chip reads No folder (not dimmed); where the chat starts is the chip's description, never narration in the strip or a line in the folder menu.",
       props: { ...base, design: "menu-note" },
     },
     "menu-note-open": {
-      note: "The same, folder menu open: No folder is checked, Add folder… and the projects still pick a folder, and the quiet line says the chat starts in a fresh home on the machine.",
+      note: "The same, folder menu open: No folder is checked, Add folder… and the projects still pick a folder; nothing sits under the actions.",
       props: { ...base, design: "menu-note" },
       play: openFolderMenu,
     },
