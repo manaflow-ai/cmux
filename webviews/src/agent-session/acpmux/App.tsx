@@ -187,7 +187,7 @@ import { setPromptSurfaces } from "./surfaces/promptSurface";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
-import { useComposerKeyboard } from "./composerFocus";
+import { COMPOSER_READY_EVENT, useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
@@ -1612,8 +1612,11 @@ export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
+/// A parked view: drawn (its effects run) but unseen. Opacity too, since a child that sets
+/// `visibility: visible` itself (composerLocation.css's fitted model and effort labels) still paints.
 const PARKED_STYLE = {
   visibility: "hidden",
+  opacity: 0,
   position: "absolute",
   inset: 0,
   pointerEvents: "none",
@@ -11231,7 +11234,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// `<Activity mode="hidden">` (newtab/sparePark.ts): its effects come back then, between frames, and
   /// the adopt's reveal runs none. Per mount: a view built again under the page starts hidden.
   const [parkedMount, setParkedMount] = useState(() => (sparePark() === "visible" ? 0 : -1));
-  const parkVisible = parkedMount === chatViewMount.current.key;
+  const parkVisible = sparePark() === "visible" || parkedMount === chatViewMount.current.key;
   const parkedVisible = premountsChatView && !showsChatView && parkVisible;
   const parksWhenIdle = premountsChatView && !showsChatView && !parkVisible && sparePark() === "idle";
   const parkingMount = chatViewMount.current.key;
@@ -11240,6 +11243,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return whenIdleToPark(() => startTransition(() => setParkedMount(parkingMount)));
   }, [parksWhenIdle, parkingMount]);
   const parkStyle = parkedVisible ? PARKED_STYLE : undefined;
+  /// A view that was parked made its composer's editor then, and the composer's claim of the keyboard
+  /// (COMPOSER_READY_EVENT) was refused while it was inert: shown, it claims again, as a view built at
+  /// the adopt did when its editor was made.
+  const wasParked = useRef(parkedVisible);
+  useLayoutEffect(() => {
+    const unparked = wasParked.current && !parkedVisible && showsChatView;
+    wasParked.current = parkedVisible;
+    if (unparked) window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
+  }, [parkedVisible, showsChatView]);
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
