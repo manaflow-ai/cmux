@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { inlineToken, type ComposerAttachment } from "./attachments";
+import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
-import { takeBackSteer } from "./conversation/pendingSteerModel";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { inlineToken } = await importWithDom(() => import("./attachments"));
+const { takeBackSteer } = await importWithDom(() => import("./conversation/pendingSteerModel"));
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };

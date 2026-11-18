@@ -3,14 +3,13 @@
 // kinda sluggish") held 369 lines and no page event: no `frames`, no `long-frame`.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  FlickerLog,
-  pageHostFlickerSend,
-  resetFlickerLogForTests,
-  startFlickerLog,
-  type FlickerEvent,
-} from "./flickerLog";
-import { resetPageHostClientForTests } from "./pageHost";
+import type { FlickerEvent } from "./flickerLog";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { FlickerLog, pageHostFlickerSend, resetFlickerLogForTests, startFlickerLog } = await importWithDom(
+  () => import("./flickerLog"),
+);
+const { resetPageHostClientForTests } = await importWithDom(() => import("./pageHost"));
 
 const scope = globalThis as Record<string, unknown>;
 const previousWebkit = scope.webkit;

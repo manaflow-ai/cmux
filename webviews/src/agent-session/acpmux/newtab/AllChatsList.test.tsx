@@ -2,10 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { resetSettledChatsForTests } from "./settledCache";
-import { resetDeviceChatsForTests, setDeviceChats } from "./deviceChats";
-import { useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import type { AllChatsPage, LoadChatsPage } from "./allChatsListModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { resetSettledChatsForTests } = await importWithDom(() => import("./settledCache"));
+const { resetDeviceChatsForTests, setDeviceChats } = await importWithDom(() => import("./deviceChats"));
+const { useChatPages } = await importWithDom(() => import("./allChatsListModel"));
 
 type Request = {
   params: Parameters<LoadChatsPage>[0];

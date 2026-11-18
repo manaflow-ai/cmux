@@ -6,10 +6,12 @@ import { readFileSync } from "node:fs";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChipHost } from "../chips/host";
-import { AnsweredBy, AuthorChip, Face, PresenceStack, TypingLine } from "./Faces";
-import { ANA, JORDAN, MEI, SAM } from "./people.fixtures";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { setChipHost } = await importWithDom(() => import("../chips/host"));
+const { AnsweredBy, AuthorChip, Face, PresenceStack, TypingLine } = await importWithDom(() => import("./Faces"));
+const { ANA, JORDAN, MEI, SAM } = await importWithDom(() => import("./people.fixtures"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

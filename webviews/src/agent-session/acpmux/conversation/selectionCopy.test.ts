@@ -4,8 +4,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
-import { htmlMarkdown } from "../richClipboard";
-import { selectionHtml } from "./selectionCopy";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { htmlMarkdown } = await importWithDom(() => import("../richClipboard"));
+const { selectionHtml } = await importWithDom(() => import("./selectionCopy"));
 
 const scope = globalThis as Record<string, unknown>;
 const KEYS = ["document", "Node"];

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { reportInputReadyWhenFocused } from "./inputReady";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { reportInputReadyWhenFocused } = await importWithDom(() => import("./inputReady"));
 
 let dom: JSDOM;
 let focused = false;

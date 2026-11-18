@@ -4,9 +4,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { useChatOpenFeedback } from "./allChatsListModel";
-import { newTabScreenActions } from "./screenActions";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { useChatOpenFeedback } = await importWithDom(() => import("./allChatsListModel"));
+const { newTabScreenActions } = await importWithDom(() => import("./screenActions"));
 
 const scope = globalThis as Record<string, unknown>;
 const names = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

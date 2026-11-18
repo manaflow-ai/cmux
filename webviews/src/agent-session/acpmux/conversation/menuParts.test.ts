@@ -4,7 +4,9 @@
 // on click by default ... and you can right click to go to it").
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { menuPartAt, openSessionAttributes } from "./menuParts";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { menuPartAt, openSessionAttributes } = await importWithDom(() => import("./menuParts"));
 
 const scope = globalThis as Record<string, unknown>;
 const hadAnchor = "HTMLAnchorElement" in scope;

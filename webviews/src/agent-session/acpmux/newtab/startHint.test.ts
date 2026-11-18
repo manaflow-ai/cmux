@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { newTabHost } from "../newTabModel";
-import { injectedNewTabContext, sameNewTabScreen } from "./adoption";
-import { reconciledProject, startFromContext } from "./startHint";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { newTabHost } = await importWithDom(() => import("../newTabModel"));
+const { injectedNewTabContext, sameNewTabScreen } = await importWithDom(() => import("./adoption"));
+const { reconciledProject, startFromContext } = await importWithDom(() => import("./startHint"));
 
 // Leo, 2026-11-03: "the read defaults/the "not working in a project" thing that should all be
 // instant". The New Tab context the host injects as the document commits carries the chat's start,

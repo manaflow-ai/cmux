@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { afterDeleteDismiss } from "./deleteDismiss";
-import { deleteClosesTab } from "./archiveClose";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { afterDeleteDismiss } = await importWithDom(() => import("./deleteDismiss"));
+const { deleteClosesTab } = await importWithDom(() => import("./archiveClose"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

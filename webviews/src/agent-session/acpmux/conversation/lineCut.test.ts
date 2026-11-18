@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { cutBetween, wholeLineCut } from "./lineCut";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { cutBetween, wholeLineCut } = await importWithDom(() => import("./lineCut"));
 const span = (top: number, bottom: number) => ({ top, bottom });
 test.each([
   [[], 160, 160],

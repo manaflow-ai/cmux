@@ -2,10 +2,13 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { resetSettledChatsForTests } from "./settledCache";
-import { AllChatsList } from "./AllChatsList";
-import { SEARCH_SETTLE_MS, useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import type { AllChatsPage, LoadChatsPage } from "./allChatsListModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { resetSettledChatsForTests } = await importWithDom(() => import("./settledCache"));
+const { AllChatsList } = await importWithDom(() => import("./AllChatsList"));
+const { SEARCH_SETTLE_MS, useChatPages } = await importWithDom(() => import("./allChatsListModel"));
 
 // All chats search asks the daemon once per settled query, not once per keystroke: each read
 // ranks every chat, so a read per key made typing cost keys x chats (Leo, 2026-11-04: "never ...

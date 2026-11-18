@@ -5,8 +5,10 @@
 // (`data-load-fade`): copied, the ghost started that fade over from opacity 0 and blinked out.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LOAD_FADE_CLASS } from "../../shared/loadFade";
-import { ghostOf } from "./turnFold";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { LOAD_FADE_CLASS } = await importWithDom(() => import("../../shared/loadFade"));
+const { ghostOf } = await importWithDom(() => import("./turnFold"));
 
 test("a ghost never replays the load fade of the row it copies, or of a card inside it", () => {
   const { document } = new JSDOM("<!doctype html><body></body>").window;

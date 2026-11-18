@@ -3,15 +3,11 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  clientWaiter,
-  isLostConnection,
-  lostPrompt,
-  lostPromptSlot,
-  resentAfterLoss,
-  waitForResend,
-} from "./lostPrompt";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot, resentAfterLoss, waitForResend } =
+  await importWithDom(() => import("./lostPrompt"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

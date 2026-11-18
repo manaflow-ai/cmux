@@ -5,9 +5,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { whoElseCall } from "./whoElseCalls";
 import fixture from "./whoElseCalls.fixture.json";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { whoElseCall } = await importWithDom(() => import("./whoElseCalls"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

@@ -11,10 +11,12 @@ import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { act, Profiler, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import * as i18n from "../i18n";
 import type { AcpmuxPermission, AcpmuxPlanEntry } from "../model";
 import type { AgentQuestion } from "../question/model";
 import { teardownDom } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const i18n = await importWithDom(() => import("../i18n"));
 
 let cardRenders = 0;
 const realUseT = i18n.useT;
@@ -30,9 +32,9 @@ void mock.module("../i18n", () => ({
     return realUseT();
   },
 }));
-const { QuestionCard } = await import("../question/QuestionCard");
-const { PlanList } = await import("./PlanList");
-const { PermissionQuestion } = await import("../question/PermissionQuestion");
+const { QuestionCard } = await importWithDom(() => import("../question/QuestionCard"));
+const { PlanList } = await importWithDom(() => import("./PlanList"));
+const { PermissionQuestion } = await importWithDom(() => import("../question/PermissionQuestion"));
 
 const TOKENS = 200;
 const scope = globalThis as Record<string, unknown>;

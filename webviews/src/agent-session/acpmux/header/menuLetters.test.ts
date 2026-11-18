@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { menuLetter, TYPEAHEAD_MS, type MenuTyping } from "./menuLetters";
+import type { MenuTyping } from "./menuLetters";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { menuLetter, TYPEAHEAD_MS } = await importWithDom(() => import("./menuLetters"));
 
 const dom = new JSDOM(`<div role="menu" tabindex="-1"><input type="search"><textarea></textarea>
   <div contenteditable="true"></div><button role="menuitem">Rename</button></div>`);

@@ -6,9 +6,11 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { VideoViewer } from "../chips/ReplyMedia";
-import { ImageViewer } from "./ImageViewer";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { VideoViewer } = await importWithDom(() => import("../chips/ReplyMedia"));
+const { ImageViewer } = await importWithDom(() => import("./ImageViewer"));
 
 // Base UI's focus code schedules frames that may run after a test: the frame functions stay installed
 // for the whole file, and go when it ends (the frames still pending then are cleared with them).

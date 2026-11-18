@@ -5,10 +5,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { permissionFromMessage } from "../direct";
-import { askPermissionFocus, FOCUS_REQUEST_MS, takePermissionFocus } from "./focusRequest";
-import { PermissionCard } from "../PermissionCard";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { permissionFromMessage } = await importWithDom(() => import("../direct"));
+const { askPermissionFocus, FOCUS_REQUEST_MS, takePermissionFocus } = await importWithDom(
+  () => import("./focusRequest"),
+);
+const { PermissionCard } = await importWithDom(() => import("../PermissionCard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

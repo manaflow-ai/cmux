@@ -6,8 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../../test/support/domTeardown";
 import type { AcpmuxRow } from "../model";
-import { REPLY_SETTLE_MS } from "./replyPainted";
-import { useEndedReplyCheck } from "./replyJudge";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { REPLY_SETTLE_MS } = await importWithDom(() => import("./replyPainted"));
+const { useEndedReplyCheck } = await importWithDom(() => import("./replyJudge"));
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;

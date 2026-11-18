@@ -2,10 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { DictationButton } from "./DictationButton";
 import type { Dictation } from "./dictation";
-import { applyHostEvent } from "./pageHost";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { DictationButton } = await importWithDom(() => import("./DictationButton"));
+const { applyHostEvent } = await importWithDom(() => import("./pageHost"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

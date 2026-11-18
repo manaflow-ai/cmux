@@ -2,9 +2,11 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
-import { htmlMarkdown } from "../richClipboard";
-import { menuPartRef } from "./menuParts";
-import { installSelectionCopy, selectionHtml } from "./selectionCopy";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { htmlMarkdown } = await importWithDom(() => import("../richClipboard"));
+const { menuPartRef } = await importWithDom(() => import("./menuParts"));
+const { installSelectionCopy, selectionHtml } = await importWithDom(() => import("./selectionCopy"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

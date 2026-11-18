@@ -5,8 +5,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { flushHeldModePick, heldModePickForTest, holdModePick } from "./heldModePick";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { flushHeldModePick, heldModePickForTest, holdModePick } = await importWithDom(() => import("./heldModePick"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -2,9 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { agentHomeTrust, type TrustSource } from "../folderTrust";
-import { useFolderTrustAsk } from "../useFolderTrustAsk";
+import type { TrustSource } from "../folderTrust";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { agentHomeTrust } = await importWithDom(() => import("../folderTrust"));
+const { useFolderTrustAsk } = await importWithDom(() => import("../useFolderTrustAsk"));
 
 // Leo 2026-11-03: "why does it even take time to read settings? you know what things are. the read
 // defaults/the "not working in a project" thing that should all be instant". A chat in no project runs

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { watchOutputViewport } from "./outputViewport";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { watchOutputViewport } = await importWithDom(() => import("./outputViewport"));
 
 test("the bottom fade exists only while more output lies below the scroll position", () => {
   const { window } = new JSDOM("<pre></pre>");

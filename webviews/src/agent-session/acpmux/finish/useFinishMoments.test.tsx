@@ -2,11 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../chatDisplay";
 import type { HeaderPullRequest } from "../header/headerState";
-import { endFinishMoment, finishMoment } from "./finishMoments";
-import { FINISH_SOUND_KEY, useFinishMoments } from "./useFinishMoments";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../chatDisplay"));
+const { endFinishMoment, finishMoment } = await importWithDom(() => import("./finishMoments"));
+const { FINISH_SOUND_KEY, useFinishMoments } = await importWithDom(() => import("./useFinishMoments"));
 
 let dom: JSDOM;
 let root: Root | undefined;

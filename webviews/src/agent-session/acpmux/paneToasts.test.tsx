@@ -6,15 +6,19 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createNoticeQueue } from "../../ui/NoticeStack";
 import type { AcpmuxActivity } from "./model";
-import { resetSessionRefs, senderRef, setSessionRefResolver } from "./conversation/sessionRefs";
-import { resetTranscriptDisclosure } from "./conversation/transcriptDisclosureModel";
-import { WhoElseCard } from "./conversation/WhoElseCard";
-import { whoElseCall, WHO_ELSE_SCHEMA } from "./conversation/whoElseCalls";
-import { paneNotices } from "./paneToasts";
-import { SubsessionContext, SubsessionStore } from "./subagents/subsessions";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { createNoticeQueue } = await importWithDom(() => import("../../ui/NoticeStack"));
+const { resetSessionRefs, senderRef, setSessionRefResolver } = await importWithDom(
+  () => import("./conversation/sessionRefs"),
+);
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./conversation/transcriptDisclosureModel"));
+const { WhoElseCard } = await importWithDom(() => import("./conversation/WhoElseCard"));
+const { whoElseCall, WHO_ELSE_SCHEMA } = await importWithDom(() => import("./conversation/whoElseCalls"));
+const { paneNotices } = await importWithDom(() => import("./paneToasts"));
+const { SubsessionContext, SubsessionStore } = await importWithDom(() => import("./subagents/subsessions"));
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 

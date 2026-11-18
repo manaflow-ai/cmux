@@ -5,11 +5,13 @@
 // and its group row's current action (subagents/subagentFold.ts) all apply the same rule.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { childRows } from "./subagents/childRows";
-import { SubagentFold } from "./subagents/subagentFold";
-import { visibleToolItems } from "./conversation/mcpPresentation";
-import { isCompletedPlumbingTool } from "./hiddenTools";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { childRows } = await importWithDom(() => import("./subagents/childRows"));
+const { SubagentFold } = await importWithDom(() => import("./subagents/subagentFold"));
+const { visibleToolItems } = await importWithDom(() => import("./conversation/mcpPresentation"));
+const { isCompletedPlumbingTool } = await importWithDom(() => import("./hiddenTools"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

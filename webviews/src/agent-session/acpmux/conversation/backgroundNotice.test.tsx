@@ -7,15 +7,14 @@ import { afterEach, describe, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  BACKGROUND_CHECK_MS,
-  BACKGROUND_NOTICE_TEXT,
-  type BackgroundNotice,
-  backgroundNotice,
-  useBackgroundNotice,
-} from "./backgroundNotice";
-import { AcpmuxRpcError } from "../handoff/protocol";
+import type { BackgroundNotice } from "./backgroundNotice";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { BACKGROUND_CHECK_MS, BACKGROUND_NOTICE_TEXT, backgroundNotice, useBackgroundNotice } = await importWithDom(
+  () => import("./backgroundNotice"),
+);
+const { AcpmuxRpcError } = await importWithDom(() => import("../handoff/protocol"));
 
 describe("backgroundNotice", () => {
   test("work that moved says so, as does an answer that leaves `backgrounded` out", () => {

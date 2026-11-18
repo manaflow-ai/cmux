@@ -1,6 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { attachUserScrollIntent, userScrollIntent } from "./userScroll";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { attachUserScrollIntent, userScrollIntent } = await importWithDom(() => import("./userScroll"));
 
 let detach: (() => void) | undefined;
 let dom: JSDOM | undefined;

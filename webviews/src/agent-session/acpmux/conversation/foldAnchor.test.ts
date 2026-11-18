@@ -3,7 +3,9 @@
 // "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP").
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const {
   clickFold,
   FOLD_DRAW_WAIT_MS,
   FOLD_HOLD_MIN_MS,
@@ -20,7 +22,7 @@ import {
   toggleState,
   trimmedFoldRoom,
   verticalWheel,
-} from "./foldAnchor";
+} = await importWithDom(() => import("./foldAnchor"));
 
 describe("foldRoomFor", () => {
   test("keeps the view's end, whole pixels up", () => {

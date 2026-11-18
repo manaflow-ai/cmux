@@ -5,12 +5,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setComposerSettings } from "./composerSettings";
-import { deliverHandoffFailure, useDictation, type Dictation, type DictationField } from "./dictation";
-import { dictationSourceName, handoffFailure } from "./dictationSources";
-import { NativeError } from "./nativeError";
-import { translate } from "./i18n";
+import type { Dictation, DictationField } from "./dictation";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { setComposerSettings } = await importWithDom(() => import("./composerSettings"));
+const { deliverHandoffFailure, useDictation } = await importWithDom(() => import("./dictation"));
+const { dictationSourceName, handoffFailure } = await importWithDom(() => import("./dictationSources"));
+const { NativeError } = await importWithDom(() => import("./nativeError"));
+const { translate } = await importWithDom(() => import("./i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

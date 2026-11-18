@@ -6,7 +6,9 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { foldMotion, foldMs } from "./fold";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { foldMotion, foldMs } = await importWithDom(() => import("./fold"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = (["document", "window"] as const).map((key) => [key, scope[key] !== undefined, scope[key]] as const);

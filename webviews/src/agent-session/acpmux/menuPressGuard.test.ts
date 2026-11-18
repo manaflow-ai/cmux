@@ -4,7 +4,9 @@
 // these presses land on the field, which the guard swallows whenever a chip's menu is on screen.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installMenuPressGuard } from "./menuPressGuard";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { installMenuPressGuard } = await importWithDom(() => import("./menuPressGuard"));
 
 const scope = globalThis as Record<string, unknown>;
 const hadElement = "Element" in scope;

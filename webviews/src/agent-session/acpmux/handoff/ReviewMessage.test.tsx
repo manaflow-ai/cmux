@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HandoffReviewMessage } from "./ReviewMessage";
 import type { Handoff } from "./protocol";
-import { handoffStrings } from "./strings";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { HandoffReviewMessage } = await importWithDom(() => import("./ReviewMessage"));
+const { handoffStrings } = await importWithDom(() => import("./strings"));
 
 const session = {
   sessionId: "source",

@@ -3,8 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
-import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { TranscriptActivityRow } = await importWithDom(() => import("./TranscriptActivityRow"));
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 

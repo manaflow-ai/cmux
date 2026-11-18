@@ -5,7 +5,9 @@
 // text selection inside it.
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { togglesHeader } from "./headerToggle";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { togglesHeader } = await importWithDom(() => import("./headerToggle"));
 
 function header() {
   const { window } = new JSDOM(

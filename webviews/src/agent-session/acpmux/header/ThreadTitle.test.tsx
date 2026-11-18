@@ -4,16 +4,15 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ChatMenu } from "./ChatHeaderTools";
-import {
-  guardedChatMenu,
-  menuGroups,
-  menuItemForShortcut,
-  menuKeycap,
-  type ChatMenuItem,
-} from "./chatHeaderToolsModel";
-import { ThreadTitle } from "./ThreadTitle";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { ChatMenu } = await importWithDom(() => import("./ChatHeaderTools"));
+const { guardedChatMenu, menuGroups, menuItemForShortcut, menuKeycap } = await importWithDom(
+  () => import("./chatHeaderToolsModel"),
+);
+const { ThreadTitle } = await importWithDom(() => import("./ThreadTitle"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

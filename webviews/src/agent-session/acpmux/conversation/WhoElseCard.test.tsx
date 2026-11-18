@@ -4,14 +4,16 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { translatorFor } from "../i18n";
-import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
-import { staysInSight, toolGroups } from "./toolGroups";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { WhoElseCard } from "./WhoElseCard";
-import { whatText } from "./whoElseCardModel";
-import { whoElseCall, WHO_ELSE_SCHEMA } from "./whoElseCalls";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translatorFor } = await importWithDom(() => import("../i18n"));
+const { SubsessionContext, SubsessionStore } = await importWithDom(() => import("../subagents/subsessions"));
+const { staysInSight, toolGroups } = await importWithDom(() => import("./toolGroups"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { WhoElseCard } = await importWithDom(() => import("./WhoElseCard"));
+const { whatText } = await importWithDom(() => import("./whoElseCardModel"));
+const { whoElseCall, WHO_ELSE_SCHEMA } = await importWithDom(() => import("./whoElseCalls"));
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
