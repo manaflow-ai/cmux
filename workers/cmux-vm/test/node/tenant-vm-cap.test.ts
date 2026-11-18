@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { memoryLedgerStorage, TenantLedger } from "../../src/limits/ledger.ts";
 import { TenantId } from "../../src/lib/ids.ts";
-import { DEFAULT_DEV_TEST_MAX_VMS, makeTenantPolicy, NO_VM_COUNT_CAP } from "../../src/policy.ts";
+import { DEFAULT_DEV_TEST_MAX_VMS, makeTenantPolicy, NO_VM_COUNT_CAP, PRODUCTION_DEV_TEST_MAX_VMS } from "../../src/policy.ts";
 
 const tenant = (id: string) => TenantId.make(id);
 
@@ -12,7 +12,9 @@ it("gives a production product tenant no machine-count cap, and keeps dev/test t
     vmQuotas: { team_capped: 3 },
   });
   expect(policy.maxVms(tenant("team_paying"))).toBe(NO_VM_COUNT_CAP);
-  expect(policy.maxVms(tenant("team_smoke"))).toBe(DEFAULT_DEV_TEST_MAX_VMS);
+  // The production smoke tenant stays at 20: a leaked smoke loop there runs on the real account.
+  expect(policy.maxVms(tenant("team_smoke"))).toBe(PRODUCTION_DEV_TEST_MAX_VMS);
+  expect(PRODUCTION_DEV_TEST_MAX_VMS).toBe(20);
   expect(policy.maxVms(tenant("team_capped"))).toBe(3);
   // Off production every tenant is dev/test.
   expect(makeTenantPolicy({ environment: "staging" }).maxVms(tenant("team_paying"))).toBe(DEFAULT_DEV_TEST_MAX_VMS);
