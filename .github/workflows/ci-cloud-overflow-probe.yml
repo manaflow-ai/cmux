@@ -70,7 +70,9 @@ jobs:
       deployment: false
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
+    # The scheduled watch runs from main, whose runs-on this mirrors: one-job ephemeral Linux VMs (the 2 or 8 vCPU labels),
+    # never a probed size and never GitHub-hosted Ubuntu, which started nothing for hours on 2026-11-18.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
     timeout-minutes: 25
     permissions:
       actions: write
