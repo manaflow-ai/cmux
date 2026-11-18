@@ -324,21 +324,10 @@ pub(super) async fn local(
             new_params.set("mcpServers", json!([]));
             // On a task of its own, as `dispatch_brief`'s session/new
             // (`request_cancel::on_own_task`): on this stack it overflows a 2 MiB worker.
-            let (task_hub, task_conn, fixed) =
-                (hub.clone(), conn.clone(), identity.session_id.clone());
-            crate::request_cancel::on_own_task(Box::pin(async move {
-                dispatch_request_with_identity(
-                    &task_hub,
-                    &task_conn,
-                    method::SESSION_NEW,
-                    new_params,
-                    None,
-                    Some(fixed),
-                )
+            let fixed = Some(identity.session_id.clone());
+            crate::request_cancel::on_own_task(nested_session_new(hub, conn, new_params, fixed))
                 .await
-            }))
-            .await
-            .map_err(|e| RpcError::internal(format!("durable dispatch session/new: {e}")))??;
+                .map_err(|e| RpcError::internal(format!("durable dispatch session/new: {e}")))??;
             hub.resolve(&identity.session_id)?
         }
     };

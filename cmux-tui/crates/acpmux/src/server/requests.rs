@@ -694,12 +694,9 @@ async fn dispatch_brief(
     }
     // On a task of its own (`request_cancel::on_own_task`): served on this stack, the nested
     // session/new overflowed a 2 MiB worker.
-    let (task_hub, task_conn) = (hub.clone(), conn.clone());
-    let made = crate::request_cancel::on_own_task(Box::pin(async move {
-        dispatch_request(&task_hub, &task_conn, method::SESSION_NEW, new_params, None).await
-    }))
-    .await
-    .unwrap_or_else(|e| Err(RpcError::internal(format!("dispatch session/new: {e}"))));
+    let made = crate::request_cancel::on_own_task(nested_session_new(hub, conn, new_params, None))
+        .await
+        .unwrap_or_else(|e| Err(RpcError::internal(format!("dispatch session/new: {e}"))));
     let created = match made {
         Ok(created) => created,
         Err(error) => {
@@ -1146,6 +1143,22 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
 #[cfg(not(unix))]
 fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
     path.is_file()
+}
+
+/// A dispatch's nested session/new (with the durable dispatch's fixed id), for
+/// `request_cancel::on_own_task`. A plain fn, not inside the async fn that awaits it: that
+/// fn's future contains this one, and only outside it can the compiler prove this one `Send`.
+fn nested_session_new(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: Value,
+    fixed_id: Option<String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, RpcError>> + Send>> {
+    let (hub, conn) = (hub.clone(), conn.clone());
+    Box::pin(async move {
+        dispatch_request_with_identity(&hub, &conn, method::SESSION_NEW, params, None, fixed_id)
+            .await
+    })
 }
 
 pub(super) async fn dispatch_request(
