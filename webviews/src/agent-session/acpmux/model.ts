@@ -1641,6 +1641,11 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
+/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
+let measuringReply = false;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
+const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
@@ -2706,7 +2711,7 @@ function textHeight(
   /// The rows' line height when it is not the prose's (a folded note's 20px lines).
   lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont } = metrics();
+  const measureFont = proseFont();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
@@ -3142,12 +3147,13 @@ function preparedLines(
   prepared: PreparedRow["prepared"],
   used: Set<string>,
 ): PreparedTextWithSegments | null {
-  const key = `lines\n${metrics().measureFont}\n${text}`;
+  const font = proseFont();
+  const key = `lines\n${font}\n${text}`;
   used.add(key);
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
-      measured = prepareWithSegments(text, metrics().measureFont, {
+      measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });
       notePreparedText(text.length);
@@ -3503,20 +3509,26 @@ export function layoutConversation(
         height = kept.height;
         remembered = true;
       } else {
-        height = custom
-          ? customHeight
-          : edge === LIVE_STEP_EDGE
-            ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
-            : measuredRowHeight(
-                row,
-                width,
-                cache,
-                edge?.startsWith("footer") === true,
-                edge?.startsWith("last-turn") === true,
-                sessionId,
-                edge?.startsWith("continuation") === true,
-                edge?.endsWith(ACTIONS_EDGE) === true,
-              );
+        // A reply's text measures in the reply's face (`proseFont`).
+        measuringReply = row.kind === "assistant";
+        try {
+          height = custom
+            ? customHeight
+            : edge === LIVE_STEP_EDGE
+              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              : measuredRowHeight(
+                  row,
+                  width,
+                  cache,
+                  edge?.startsWith("footer") === true,
+                  edge?.startsWith("last-turn") === true,
+                  sessionId,
+                  edge?.startsWith("continuation") === true,
+                  edge?.endsWith(ACTIONS_EDGE) === true,
+                );
+        } finally {
+          measuringReply = false;
+        }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         known?.set(row, { width, height, edge, scale });
