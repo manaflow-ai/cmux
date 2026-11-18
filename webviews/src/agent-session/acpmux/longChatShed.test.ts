@@ -139,6 +139,10 @@ async function streamed(
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   let target = "";
   let total = 0;
+  /// Records the next attach page holds (its newest); 0 answers an empty chat, as the stream's first open does.
+  let attachTail = 0;
+  /// The older pages read (`_acpmux/events` with a `beforeSeq`).
+  let olderReads = 0;
   let socket: { deliver: (message: unknown) => void } | undefined;
   class Chat extends MockAcpmuxSocket {
     constructor() {
@@ -150,9 +154,16 @@ async function streamed(
         if (method === "_acpmux/attach") {
           const result = (await answer(method, params)) as Record<string, unknown>;
           target = params.sessionId;
-          return { ...result, events: [], hasMore: false, lastSeq: 0, pageThrough: 0, turnOpener: null };
+          if (attachTail === 0)
+            return { ...result, events: [], hasMore: false, lastSeq: 0, pageThrough: 0, turnOpener: null };
+          const events: EventRecord[] = [];
+          for (let seq = Math.max(1, total - attachTail + 1); seq <= total; seq += 1)
+            events.push(recordAt(target, seq));
+          const hasMore = (events[0]?.seq ?? 1) > 1;
+          return { ...result, events, hasMore, lastSeq: total, pageThrough: total, turnOpener: null };
         }
         if (method === "_acpmux/events" && params.sessionId === target && params.beforeSeq !== undefined) {
+          olderReads += 1;
           const limit = Number(params.limit ?? 400);
           const kinds: string[] | undefined = params.kinds?.includes("transcript") ? undefined : params.kinds;
           const events: EventRecord[] = [];
@@ -219,6 +230,22 @@ async function streamed(
     total,
     sheds,
     rebuilds: () => rebuilds - rebuildsBefore,
+    olderReads: () => olderReads,
+    /// Opens the chat again in the same selection, as a machine back (`attachIfBack`) or an attach retry does: its
+    /// state reset, then an attach whose page holds the newest `tail` records with older ones left to read.
+    reopen: async (tail: number) => {
+      attachTail = tail;
+      const self = client as unknown as {
+        selectedSessionId?: string;
+        resetSessionState: (cause?: string) => void;
+        attach: (sessionId: string) => Promise<unknown>;
+      };
+      self.resetSessionState("peer back: read again");
+      await self.attach(self.selectedSessionId!);
+      for (let index = 0; index < 20; index += 1) await tick();
+      flush();
+    },
+    client,
     HELD_RECORDS,
     cleanup: () => {
       client.close?.();
@@ -317,6 +344,27 @@ test("a shed while the view's oldest drawn row is a fold the client holds under 
       chat.snapshot().rows.some((row) => row.id === kept!.id),
       "the fold's prompt row is still drawn",
     ).toBe(true);
+  } finally {
+    chat.cleanup();
+  }
+}, 300_000);
+
+test("a chat opened again in the same selection after a shed reads its older history ahead while it follows", async () => {
+  // A shed while the view follows its latest row stops the transcript's read-ahead for that selection
+  // (`shedFollowingGeneration`). A machine back or an attach retry opens the chat again under the same selection; the
+  // chat opened again has shed nothing, so its read-ahead must page older history in as any open does.
+  const chat = await streamed(endedTurns, 12_000);
+  try {
+    expect(chat.sheds, "the chat shed while it followed").toBeGreaterThan(1);
+    await chat.reopen(400);
+    const held = chat.pane.events[0]?.seq ?? 1;
+    expect(held, "the page opened again leaves older history").toBeGreaterThan(1);
+    const readsBefore = chat.olderReads();
+    await chat.client.loadOlder(undefined, false, false, true);
+    for (let index = 0; index < 20; index += 1) await tick();
+    chat.flush();
+    expect(chat.olderReads(), "the read-ahead asked an older page").toBeGreaterThan(readsBefore);
+    expect(chat.pane.events[0]!.seq, "the older page is held").toBeLessThan(held);
   } finally {
     chat.cleanup();
   }
