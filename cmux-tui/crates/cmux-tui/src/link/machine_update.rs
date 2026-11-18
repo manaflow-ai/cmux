@@ -174,6 +174,14 @@ pub(super) fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
     local != 0 && remote.is_none_or(|remote| remote == 0 || remote < local)
 }
 
+/// Updates the machine at `socket` to this client's build when it runs an older one (the app's
+/// automatic update, `--to-bundled --if-older`): a folder chat's start on a machine handed out
+/// before a build it needs (`sync_cli/project.rs`). The answer line, or why it did not.
+pub(in crate::link) fn update_if_older(socket: &Path) -> Result<Value, String> {
+    let request = Request { socket: socket.to_path_buf(), to_bundled: true, if_older: true };
+    update(&request).map_err(|failed| format!("{} ({})", failed.error, failed.code))
+}
+
 fn update(request: &Request) -> Result<Value, Failed> {
     let socket = request.socket.as_path();
     let before = machine_gate::reach(socket)

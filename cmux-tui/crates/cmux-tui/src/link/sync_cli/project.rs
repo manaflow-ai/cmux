@@ -167,7 +167,7 @@ pub(crate) fn start(
     if !enabled() {
         return Ok(Err(NotProjected::Off));
     }
-    if !machine_serves(socket) {
+    if !machine_serves(socket) && !updated_to_serve(socket) {
         return Ok(Err(NotProjected::Unserved));
     }
     let exe = std::env::current_exe().context("cannot find this cmux binary")?;
@@ -244,6 +244,34 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
 }
 
 /// Whether the machine's `identify` lists `projection-v1`.
+/// How long a start waits for the machine to answer again after its update.
+const UPDATE_WAIT: Duration = Duration::from_secs(90);
+
+/// A machine without `projection-v1` that runs an older build than this Mac's: a new machine
+/// handed out from an older image, whose own updater waits until it is idle (never, while its
+/// first chat starts). It is updated to this Mac's build now, so the folder projects instead of
+/// going as a partial copy. Whether it serves `projection-v1` after.
+fn updated_to_serve(socket: &Path) -> bool {
+    match crate::link::machine_update::update_if_older(socket) {
+        Ok(answer) if answer.get("updated") == Some(&Value::Bool(true)) => {
+            eprintln!("cmux link project: updated the machine to project the folder: {answer}");
+        }
+        Ok(_) => return false,
+        Err(error) => {
+            eprintln!("cmux link project: could not update the machine: {error}");
+            return false;
+        }
+    }
+    let until = Instant::now() + UPDATE_WAIT;
+    while Instant::now() < until {
+        if machine_serves(socket) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    false
+}
+
 fn machine_serves(socket: &Path) -> bool {
     super::machine_call(socket, "identify", json!({})).is_ok_and(|identity| {
         identity.get("capabilities").and_then(Value::as_array).is_some_and(|served| {
