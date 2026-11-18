@@ -11,19 +11,29 @@ import Testing
 /// not one for each tab. A page view is a web view with its own process: a hold that makes one for each key pays
 /// each make in the frames of the hold, and keeps each page alive behind the tab that is shown.
 ///
-/// The rule of these rows: the untouched New Tab tabs of a pane have ONE page view. It is the page of the tab that
-/// the pane shows; when the pane shows another untouched New Tab tab, the page goes with the selection.
+/// The rule of these rows: a New Tab tab that a pane shows and that has no page view takes the page view of an
+/// untouched New Tab tab that no pane shows. So a tab that is shown never waits for a new page view while such
+/// a page view is there, and a hold makes none.
 ///
-/// - Row 1: a hold of New Tab keys makes one page view.
-/// - Row 2: a walk back over the tabs of a hold makes no page view, and the tabs have one page view all the time.
+/// - Row 1: a hold of New Tab keys makes no page view, and the tabs have no more page views than before it.
+/// - Row 2: a hold and then a walk back over its tabs make no page view, and each tab has a page view when the
+///   pane shows it.
 /// - Row 3: a hold of the Close Tab key over the tabs of a hold: the pane shows the same page view after each
-///   close but the last, each close takes the tab that the pane showed, and no page view is made.
-/// - Row 4, what must stay: a New Tab tab and a terminal tab shown in turn make no page view.
+///   close, each close takes the tab that the pane showed, and no page view is made.
+/// - Row 4, what must stay: a New Tab tab and a terminal tab shown in turn make no page view, and the New Tab tab
+///   keeps its page view.
+/// - Row 5: a New Tab key from a terminal tab, while a New Tab tab that the pane does not show has an untouched
+///   page view: the new tab takes that page view, and none is made.
 ///
-/// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each page
-/// view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). A frame is the app's own: a row waits for
-/// one by an event. Each key is the New Tab action's own call (`NewTabPage.open`), each tab switch is the pane's
-/// own call (`select`), each close is the pane's own call (`close`): no row sends a key event.
+/// The app is the package's own, with a daemon of this tree and an empty pool of pages made ahead, so each new
+/// page view here is a cold one (the setup of `NewTabPageAtItsFrameTests`). That setup's pane starts with a New
+/// Tab page of its own, so each row starts with one New Tab key: the tab that the pane shows then is one that a
+/// key made, with a page view, whatever the pane had before. A frame is the app's own: a row waits for one by an
+/// event. Each key is the New Tab action's own call (`NewTabPage.open`), each tab switch is the pane's own call
+/// (`select`), each close is the pane's own call (`close`): no row sends a key event.
+///
+/// The measure is the count of distinct page views (`Views`), not the store's count of built pages: that count
+/// has a page that a tab adopts too.
 ///
 /// Limits. The package's tests have no Chromium host, so each page view is a WebKit one. A row that makes more
 /// than 2 page views in its hold stops the hold there: a hold that makes a page view for each key must not make
@@ -32,29 +42,66 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabHoldMovesItsPageTests {
+    /// The distinct page views that the pane's New Tab tabs had since the row's start. It keeps each view, so a
+    /// closed view's place in memory is not counted as a new one.
+    @MainActor final class Views {
+        private var seen: [AgentPaneView] = []
+        var count: Int { seen.count }
+
+        func note(_ view: AgentPaneView) {
+            if !seen.contains(where: { $0 === view }) { seen.append(view) }
+        }
+
+        /// The page views that the pane's New Tab tabs have now.
+        func read(_ pane: PaneController, _ services: AppServices) -> [AgentPaneView] {
+            let now = NewTabHoldMovesItsPageTests.newTabs(of: pane, services).compactMap { services.agentTabs.existingView($0) }
+            now.forEach(note)
+            return now
+        }
+    }
+
     /// The pane's tabs that are New Tab pages, in the strip's order, by the keys that they have now (the store can
     /// give a tab a new key when the daemon answers its creation).
     static func newTabs(of pane: PaneController, _ services: AppServices) -> [String] {
         pane.orderedIDs.map(\.rawValue).filter { services.agentTabs.isNewTabPage($0) }
     }
 
-    /// The page views that the pane's New Tab tabs have now.
-    static func pages(of pane: PaneController, _ services: AppServices) -> [AgentPaneView] {
-        newTabs(of: pane, services).compactMap { services.agentTabs.existingView($0) }
+    /// The setup of each row: an empty pool, each page view that the store builds or adopts noted, and ONE New Tab
+    /// key with its frame. `body` gets the count of page views that the pane's New Tab tabs have after that key.
+    static func row(_ install: String,
+                    _ body: (AppServices, PaneController, Views, Int) async throws -> Void) async throws {
+        try await NewTabPageAtItsFrameTests.withAnEmptyPool(install) { services, _, pane, _ in
+            let tabs = services.agentTabs, views = Views()
+            let wired = tabs.onPageBuilt
+            tabs.onPageBuilt = { key in
+                if let view = tabs.existingView(key) { views.note(view) }
+                wired?(key)
+            }
+            defer { tabs.onPageBuilt = wired }
+            _ = views.read(pane, services)
+            NewTabPage.open(in: pane, seed: nil)
+            await NewTabPageAtItsFrameTests.frame(services)
+            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the row's own New Tab key")
+            try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab after the row's own New Tab key")
+            try #require(tabs.existingView(shown) != nil, "setup: the row's own New Tab tab has no page view at its frame")
+            try await body(services, pane, views, views.read(pane, services).count)
+        }
     }
 
     /// A hold of `keys` New Tab keys with a frame of the app after each. It stops after the key that made the third
-    /// page view. Returns the keys pressed, and the most page views that the pane's New Tab tabs had at one time.
-    static func hold(_ keys: Int, in pane: PaneController, _ services: AppServices, built: () -> Int) async -> (pressed: Int, most: Int) {
+    /// page view of the hold. Returns the keys pressed, the most page views that the pane's New Tab tabs had at one
+    /// time, and the count of page views made.
+    static func hold(_ keys: Int, in pane: PaneController, _ services: AppServices, _ views: Views) async -> (pressed: Int, most: Int, made: Int) {
+        let before = views.count
         var pressed = 0, most = 0
         for _ in 0..<keys {
             NewTabPage.open(in: pane, seed: nil)
             await NewTabPageAtItsFrameTests.frame(services)
             pressed += 1
-            most = max(most, pages(of: pane, services).count)
-            if built() > 2 { break }
+            most = max(most, views.read(pane, services).count)
+            if views.count - before > 2 { break }
         }
-        return (pressed, most)
+        return (pressed, most, views.count - before)
     }
 
     /// Shows the pane's tab `key` and waits for one frame of the app.
@@ -65,65 +112,88 @@ struct NewTabHoldMovesItsPageTests {
         try #require(pane.currentTabKey == key, "setup: the pane does not show the tab that the row selected, one frame after the select")
     }
 
-    /// Row 1. A hold of 94 New Tab keys, with a frame after each key as a hold at the key repeat rate has. Want: one
-    /// page view for the hold, and the pane's New Tab tabs have one page view at each frame.
-    @Test(arguments: [94]) func aHoldOfNewTabKeysMakesOnePageView(keys: Int) async throws {
-        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-hold-moves-page-hold") { services, _, pane, built in
-            let held = await Self.hold(keys, in: pane, services, built: built)
-            let tabs = Self.newTabs(of: pane, services).count
+    /// Opens a terminal tab in the pane and waits until the daemon made it and the pane shows it. Returns its key.
+    static func terminalTab(in pane: PaneController, _ services: AppServices) async throws -> String {
+        pane.newTerminalTab()
+        try await PasswordManagerRouteTests.until({
+            pane.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }
+        }, report: { "setup: the daemon made no terminal tab in the pane" })
+        let terminal = try #require(pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.id)
+        try await PasswordManagerRouteTests.until({ pane.orderedIDs.contains { $0.rawValue == terminal } },
+                                                  report: { "setup: the terminal tab is not in the pane's strip" })
+        try await show(terminal, in: pane, services)
+        try #require(!services.agentTabs.isNewTabPage(terminal), "setup: the terminal tab is a New Tab page")
+        return terminal
+    }
+
+    /// Row 1. A hold of 94 New Tab keys, with a frame after each key as a hold at the key repeat rate has. Want: no
+    /// page view is made in the hold, the pane's New Tab tabs have no more page views at a frame than before the
+    /// hold, and the tab that the pane shows after the hold has a page view.
+    @Test(arguments: [94]) func aHoldOfNewTabKeysMakesNoPageView(keys: Int) async throws {
+        try await Self.row("cn-hold-moves-page-hold") { services, pane, views, atStart in
+            let held = await Self.hold(keys, in: pane, services, views)
             print("""
-                NewTabHoldMovesItsPageTests: row 1, a hold of \(keys) New Tab keys: \(held.pressed) keys pressed, \(built()) page \
-                views made, the pane has \(tabs) New Tab tabs, they had \(held.most) page views at one time at most
+                NewTabHoldMovesItsPageTests: row 1, a hold of \(keys) New Tab keys: \(held.pressed) keys pressed, \(held.made) page \
+                views made in the hold; the pane's New Tab tabs had \(atStart) page views before the hold and \(held.most) at one \
+                time at most in it
                 """)
             #expect(held.pressed == keys,
-                    "the hold stopped after key \(held.pressed) of \(keys): \(built()) page views were made by then, want 1 for the whole hold")
-            #expect(built() == 1, "\(built()) page views were made for a hold of \(held.pressed) New Tab keys, want 1")
-            #expect(held.most == 1, "the pane's New Tab tabs had \(held.most) page views at one time, want 1")
+                    "the hold stopped after key \(held.pressed) of \(keys): \(held.made) page views were made by then, want 0 for the whole hold")
+            #expect(held.made == 0, "\(held.made) page views were made in a hold of \(held.pressed) New Tab keys, want 0")
+            #expect(held.most <= atStart,
+                    "the pane's New Tab tabs had \(held.most) page views at one time in the hold, \(atStart) before it: want no more")
             let shown = try #require(pane.currentTabKey, "the pane shows no tab after the hold")
             #expect(services.agentTabs.existingView(shown) != nil, "the tab that the pane shows after the hold has no page view")
         }
     }
 
-    /// Row 2. A hold of 6 keys, then the person goes back over the 6 tabs, one tab at each frame. Want: the walk
-    /// makes no page view, the tab that the pane shows has a page view at each step, and the 6 tabs have one page
-    /// view at each step.
-    @Test func aWalkBackOverTheTabsOfAHoldMakesNoPageViewAndKeepsOne() async throws {
-        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-hold-moves-page-walk") { services, _, pane, built in
-            let held = await Self.hold(6, in: pane, services, built: built)
-            let afterTheHold = built()
+    /// Row 2. A hold of 6 keys, then the person goes back over the 6 tabs before the last one, one tab at each
+    /// frame. Want: the hold and the walk make no page view, the tab that the pane shows has a page view at each
+    /// step, and the tabs have no more page views at a step than before the hold.
+    @Test func aHoldAndAWalkBackOverItsTabsMakeNoPageView() async throws {
+        try await Self.row("cn-hold-moves-page-walk") { services, pane, views, atStart in
+            let before = Self.newTabs(of: pane, services).count
+            let held = await Self.hold(6, in: pane, services, views)
             let count = Self.newTabs(of: pane, services).count
-            try #require(count == held.pressed, "setup: the pane has \(count) New Tab tabs after \(held.pressed) keys")
+            try #require(count == before + held.pressed, "setup: the pane has \(count) New Tab tabs after \(held.pressed) keys, \(before) before them")
+            try #require(pane.currentTabKey == Self.newTabs(of: pane, services).last, "setup: the tab of the last key is not the last New Tab tab of the strip")
+            let madeBeforeTheWalk = views.count
             var most = 0, steps = 0, withNoPage = 0
-            for index in (0..<(count - 1)).reversed() {
+            // The tabs of the hold but its last, then the tab of the row's own key: one step for each key of the hold.
+            for step in 1...held.pressed {
                 // The key that the tab has now: a tab can get a new key between two steps.
-                let key = Self.newTabs(of: pane, services)[index]
+                let key = Self.newTabs(of: pane, services)[count - 1 - step]
                 try await Self.show(key, in: pane, services)
                 steps += 1
-                most = max(most, Self.pages(of: pane, services).count)
+                most = max(most, views.read(pane, services).count)
                 if services.agentTabs.existingView(key) == nil { withNoPage += 1 }
             }
+            let inTheWalk = views.count - madeBeforeTheWalk
             print("""
-                NewTabHoldMovesItsPageTests: row 2, a walk back over \(count) tabs of a hold: \(afterTheHold) page views made in \
-                the hold, \(built() - afterTheHold) in the \(steps) steps of the walk; the tabs had \(most) page views at one \
-                time at most in the walk; \(withNoPage) steps showed a tab with no page view
+                NewTabHoldMovesItsPageTests: row 2, a hold of \(held.pressed) keys and a walk back of \(steps) steps: \(held.made) \
+                page views made in the hold, \(inTheWalk) in the walk; the tabs had \(atStart) page views before the hold, \
+                \(held.most) at most in the hold, \(most) at most in the walk; \(withNoPage) steps showed a tab with no page view
                 """)
-            #expect(built() == afterTheHold, "the walk back made \(built() - afterTheHold) page views in \(steps) steps, want 0")
-            #expect(withNoPage == 0, "\(withNoPage) of \(steps) steps showed a tab with no page view")
-            #expect(most == 1, "the pane's \(count) New Tab tabs had \(most) page views at one time in the walk, want 1")
+            #expect(held.made + inTheWalk == 0,
+                    "the hold made \(held.made) page views and the walk back made \(inTheWalk), want 0 over the hold and the walk")
+            #expect(withNoPage == 0, "\(withNoPage) of \(steps) steps showed a tab with no page view, one frame after the pane showed it")
+            #expect(max(held.most, most) <= atStart,
+                    "the pane's New Tab tabs had \(max(held.most, most)) page views at one time, \(atStart) before the hold: want no more")
         }
     }
 
     /// Row 3. A hold of 94 New Tab keys, then a hold of the Close Tab key over those tabs, with a frame after each
-    /// close. Want: each close takes the tab that the pane showed; after each close but the last, the pane shows the
-    /// page view that it showed before the close (the page goes to the tab that is shown next: no page view is
-    /// closed before the last tab); and no page view is made at a show.
+    /// close. Want: each close takes the tab that the pane showed; after each close the pane shows the page view
+    /// that it showed before the close (the page goes to the tab that is shown next: no page view is closed while
+    /// a tab of the hold is there); and no page view is made at a show.
     @Test(arguments: [94]) func aCloseHoldOverTheTabsOfAHoldKeepsThePageView(keys: Int) async throws {
-        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-hold-moves-page-close") { services, _, pane, built in
+        try await Self.row("cn-hold-moves-page-close") { services, pane, views, _ in
             let tabs = services.agentTabs
-            let held = await Self.hold(keys, in: pane, services, built: built)
-            let afterTheHold = built()
+            let held = await Self.hold(keys, in: pane, services, views)
+            let madeBeforeTheCloses = views.count
             var closes = 0, outOfOrder = 0, otherPage = 0, noPage = 0
-            while Self.newTabs(of: pane, services).count > 1 {
+            // One close for each key of the hold: the last close shows the tab of the row's own key.
+            for _ in 0..<held.pressed {
                 let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab before close \(closes + 1)")
                 try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab before close \(closes + 1)")
                 let page = tabs.existingView(shown)
@@ -135,45 +205,75 @@ struct NewTabHoldMovesItsPageTests {
                 if pane.orderedIDs.contains(id) || pane.orderedIDs.count != before - 1 { outOfOrder += 1 }
                 let next = pane.currentTabKey.flatMap { tabs.existingView($0) }
                 if next == nil { noPage += 1 } else if next !== page { otherPage += 1 }
+                _ = views.read(pane, services)
             }
+            let inTheCloses = views.count - madeBeforeTheCloses
             print("""
-                NewTabHoldMovesItsPageTests: row 3, a close hold over the tabs of a hold of \(held.pressed) keys: \(closes) closes \
-                before the last tab; \(outOfOrder) closes did not take the shown tab; after \(otherPage) closes the pane showed \
-                another page view, after \(noPage) closes a tab with no page view; \(built() - afterTheHold) page views made in \
-                the close hold
+                NewTabHoldMovesItsPageTests: row 3, a close hold over the tabs of a hold of \(held.pressed) keys: \(closes) closes; \
+                \(outOfOrder) closes did not take the shown tab; after \(otherPage) closes the pane showed another page view, \
+                after \(noPage) closes a tab with no page view; \(held.made) page views made in the hold, \(inTheCloses) in the \
+                close hold
                 """)
-            #expect(held.pressed == keys, "the hold stopped after key \(held.pressed) of \(keys): \(afterTheHold) page views were made by then")
+            #expect(held.pressed == keys, "the hold stopped after key \(held.pressed) of \(keys): \(held.made) page views were made by then")
             #expect(outOfOrder == 0, "\(outOfOrder) of \(closes) closes did not take the tab that the pane showed, and only that tab")
             #expect(otherPage == 0, "after \(otherPage) of \(closes) closes the pane showed another page view than before the close: the page did not go to the tab that is shown next")
             #expect(noPage == 0, "after \(noPage) of \(closes) closes the pane showed a tab with no page view, one frame after the close")
-            #expect(built() == afterTheHold, "the close hold made \(built() - afterTheHold) page views, want 0")
+            #expect(inTheCloses == 0, "the close hold made \(inTheCloses) page views, want 0")
         }
     }
 
-    /// Row 4, what must stay. One New Tab tab, and the tab that the pane had before it (a terminal). The person shows
-    /// the 2 tabs in turn 20 times, one tab at each frame. Want: no page view is made, and the New Tab tab has a page
-    /// view each time that the pane shows it.
+    /// Row 4, what must stay. A New Tab tab and a terminal tab. The person shows the 2 tabs in turn 20 times, one
+    /// tab at each frame. Want: no page view is made, and the New Tab tab has the same page view each time that the
+    /// pane shows it.
     @Test func aNewTabTabAndATerminalTabShownInTurnMakeNoPageView() async throws {
-        try await NewTabPageAtItsFrameTests.withAnEmptyPool("cn-hold-moves-page-turns") { services, _, pane, built in
+        try await Self.row("cn-hold-moves-page-turns") { services, pane, views, _ in
             let tabs = services.agentTabs
-            let before = try #require(pane.currentTabKey, "setup: the pane shows no tab before the key")
-            try #require(!tabs.isNewTabPage(before), "setup: the pane shows a New Tab page before the key")
-            NewTabPage.open(in: pane, seed: nil)
-            await NewTabPageAtItsFrameTests.frame(services)
-            try #require(built() == 1, "setup: the New Tab key made \(built()) page views by its frame, want 1")
-            var withNoPage = 0
+            let index = Self.newTabs(of: pane, services).count - 1
+            let page = try #require(pane.currentTabKey.flatMap { tabs.existingView($0) }, "setup: the New Tab tab has no page view")
+            let terminal = try await Self.terminalTab(in: pane, services)
+            let made = views.count
+            var withNoPage = 0, withAnotherPage = 0
             for _ in 0..<20 {
-                try await Self.show(before, in: pane, services)
-                let newTab = try #require(Self.newTabs(of: pane, services).first, "setup: the pane has no New Tab tab")
+                let newTab = try #require(Self.newTabs(of: pane, services).dropFirst(index).first, "setup: the pane lost its New Tab tab")
                 try await Self.show(newTab, in: pane, services)
-                if tabs.existingView(newTab) == nil { withNoPage += 1 }
+                let now = tabs.existingView(newTab)
+                if now == nil { withNoPage += 1 } else if now !== page { withAnotherPage += 1 }
+                _ = views.read(pane, services)
+                try await Self.show(terminal, in: pane, services)
+                _ = views.read(pane, services)
             }
             print("""
-                NewTabHoldMovesItsPageTests: row 4, a New Tab tab and a terminal tab shown in turn 20 times: \(built() - 1) page \
-                views made in the turns; \(withNoPage) times the New Tab tab had no page view when the pane showed it
+                NewTabHoldMovesItsPageTests: row 4, a New Tab tab and a terminal tab shown in turn 20 times: \(views.count - made) \
+                page views made in the turns; \(withNoPage) times the New Tab tab had no page view when the pane showed it, \
+                \(withAnotherPage) times another page view
                 """)
-            #expect(built() == 1, "the 20 turns made \(built() - 1) page views, want 0")
+            #expect(views.count == made, "the 20 turns made \(views.count - made) page views, want 0")
             #expect(withNoPage == 0, "\(withNoPage) of 20 times the New Tab tab had no page view, one frame after the pane showed it")
+            #expect(withAnotherPage == 0, "\(withAnotherPage) of 20 times the New Tab tab had another page view than before the turns")
+        }
+    }
+
+    /// Row 5. The pane has a New Tab tab with an untouched page view and shows a terminal tab. Then a New Tab key.
+    /// Want: the new tab has a page view at its frame and no page view is made: a tab that the pane shows does not
+    /// wait for a new page view while an untouched one that no pane shows is there.
+    @Test func aNewTabKeyFromATerminalTabTakesTheHiddenUntouchedPageView() async throws {
+        try await Self.row("cn-hold-moves-page-pull") { services, pane, views, atStart in
+            let tabs = services.agentTabs
+            _ = try await Self.terminalTab(in: pane, services)
+            let made = views.count
+            NewTabPage.open(in: pane, seed: nil)
+            await NewTabPageAtItsFrameTests.frame(services)
+            let shown = try #require(pane.currentTabKey, "setup: the pane shows no tab after the New Tab key")
+            try #require(tabs.isNewTabPage(shown), "setup: the pane shows no New Tab tab after the New Tab key")
+            let now = views.read(pane, services).count
+            print("""
+                NewTabHoldMovesItsPageTests: row 5, a New Tab key from a terminal tab beside a hidden untouched New Tab tab: \
+                \(views.count - made) page views made; the pane's New Tab tabs had \(atStart) page views before the key and \
+                \(now) after it
+                """)
+            #expect(tabs.existingView(shown) != nil, "the new tab has no page view, one frame after its key")
+            #expect(views.count == made, "the New Tab key made \(views.count - made) page views, want 0: an untouched page view that no pane showed was there")
+            #expect(now <= atStart, "the pane's New Tab tabs have \(now) page views after the key, \(atStart) before it: want no more")
         }
     }
 }
