@@ -66,10 +66,11 @@ final class PagedListGalleryUITests: XCTestCase {
 
         // The edge: loading (6 s pages), failed with Try Again, the end with its label.
         for direction in ["down", "up"] {
-            // A page takes 6 s here: fling to the edge and shoot the moment its spinner shows. The
-            // edge draws the same spinner while more pages exist and while one is read (`.more` and
-            // `.loading`, one view, so the state change moves nothing): either is this state.
-            lab = open("\(direction):slow")
+            // The second page never answers here (`stall`): fling to the edge and shoot its spinner.
+            // (With pages that do answer, the read ahead keeps the edge as far ahead as the flings
+            // go.) The edge draws the same spinner while more pages exist and while one is read
+            // (`.more` and `.loading`, one view, so the state change moves nothing): either is this state.
+            lab = open("\(direction):stall")
             let loading = lab.app.descendants(matching: .any)
                 .matching(NSPredicate(format: "identifier IN %@", ["lab.list.edge.loading", "lab.list.edge.more"])).firstMatch
             if lab.row(0).waitForExistence(timeout: 15) {

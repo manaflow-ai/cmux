@@ -14,7 +14,8 @@ private let theme = CmuxMobileTheme.standard
 /// - SCENARIO: `normal` (30-row pages, 0.4 s each, 20 pages), `slow` (6 s a page: the edge's
 ///   spinner shows), `fast` (50 pages at 0.05 s, for fling hitches), `end` (two pages, then the
 ///   end), `empty`, `firstfail` (the first read fails once), `morefail` (the second page fails
-///   once), `live` (a new row arrives every 1.5 s).
+///   once), `live` (a new row arrives every 1.5 s), `stall` (the first page at once, then a read
+///   that doesn't answer for 10 minutes: the edge's spinner stays, for a screenshot).
 /// `-cmux-mobile-gallery-appearance light|dark` picks the scheme; `-cmux-mobile-paged-lab-clean`
 /// hides the measurement line for screenshots.
 public struct PagedListLabRoot: View {
@@ -245,7 +246,9 @@ public struct PagedListLabRoot: View {
 }
 
 enum PagedLabScenario: String, Sendable {
-    case normal, slow, fast, end, empty, firstfail, morefail, live
+    /// `stall`: the first page at once, then a read that never answers while a test looks at it
+    /// (the edge's spinner, reached in one or two flings).
+    case normal, slow, fast, end, empty, firstfail, morefail, live, stall
 
     var pageSize: Int { 30 }
     var pages: Int {
@@ -314,7 +317,7 @@ final class PagedLabSource: PagedListSource {
 
     func page(after cursor: String?) async throws -> PagedListPage<PagedLabItem> {
         // motion: not an animation; the lab's source answers after a network-like delay.
-        try await Task.sleep(for: scenario.latency)
+        try await Task.sleep(for: scenario == .stall && cursor != nil ? .seconds(600) : scenario.latency)
         let page = cursor.flatMap(Int.init) ?? 0
         if scenario == .firstfail, cursor == nil, !failedFirst {
             failedFirst = true
