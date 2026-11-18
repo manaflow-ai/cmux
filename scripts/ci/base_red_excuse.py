@@ -3852,6 +3852,7 @@ class SuiteChecks:
         self.github, self.repo = github, repo
         self.known: dict[tuple[str, str], frozenset[str] | None] = {}
         self.rooted = False  # `nodes` was refused: suites are read by commit (SUITE_COMMITS_QUERY)
+        self.homes: dict[str, str] = {}  # a suite of a run in another repository (CHECK_OF_RECORD): that repository
 
     def conclusions(self, runs: list[dict], index: int, name: str) -> frozenset[str] | None:
         """The conclusions ('' for one not finished) of every check run named NAME in RUNS[INDEX]'s check suite, or
@@ -3865,6 +3866,9 @@ class SuiteChecks:
                 other = suite_id(run)
                 if other is not None and (other, name) not in self.known and other not in batch:
                     batch[other] = str(run.get("head_sha") or "")
+                    home = (run.get("repository") or {}).get("full_name")
+                    if isinstance(home, str) and home != self.repo:
+                        self.homes[other] = home
                     if len(batch) == SUITES_PER_QUERY:
                         break
             self.read(batch, name)
@@ -3890,8 +3894,16 @@ class SuiteChecks:
 
     def read_by_commit(self, suites: dict[str, str], name: str) -> None:
         """read() under `repository`, by the commits SUITES' runs tested: a suite missing from its commit's whole
-        list (no next page) has no check run of NAME."""
-        owner, _, repo = self.repo.partition("/")
+        list (no next page) has no check run of NAME. A suite of another repository's run (a CHECK_OF_RECORD base's,
+        RecordRoute) is asked under that repository, never under this one, where its commit has no such suite."""
+        homes: dict[str, dict[str, str]] = {}
+        for suite, sha in suites.items():
+            homes.setdefault(self.homes.get(suite, self.repo), {})[suite] = sha
+        for home, part in homes.items():
+            self.read_commits(home, part, name)
+
+    def read_commits(self, home: str, suites: dict[str, str], name: str) -> None:
+        owner, _, repo = home.partition("/")
         shas = sorted({sha for sha in suites.values() if COMMIT_SHA.fullmatch(sha)})
         if not owner or not repo or not shas:
             return
@@ -6850,6 +6862,102 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
+# A base verified in another repository (2026-11-17, teamleaderleo/glaeda#2103 at c7b37598): glaeda land stopped on
+# "not excused: 'runner-tests (2)': no main run of its workflow has a verdict for it to compare with". glaeda's
+# Verify (.github/workflows/ci.yml) skips every job on a push to teamleaderleo/glaeda main (its `changes` job runs for
+# a pull request or in manaflow-ai/glaeda only, and every other job needs it): main is verified in the fork
+# manaflow-ai/glaeda, whose main holds the same commits (sync-main.yml), so the fork's Verify at a commit is that
+# commit's check of record (scripts/glaeda-gh reads it so for a teamleaderleo/glaeda head). Every base verdict was read
+# from the PR's own repo, whose main runs have none, so every glaeda red was refused as the PR's own. CHECK_OF_RECORD
+# names each (repo, base) whose base runs are another repo's, the same workflow file there. For such a base, every
+# base run list (a workflow's runs on the base branch, any event but a pull request's) is read from that repo by the
+# PR run's workflow file (workflow ids differ per repo; GitHub takes the file name in their place), and every later
+# read of a run, job, check run or check suite listed there (its jobs, log, annotations, record) goes there too:
+# GitHub's run, job and suite ids are global, so an id is routed by where it was listed (RecordRoute), and no reader
+# of a base run or job has to be told. Compares stay in the PR's repo (the head is there; main's commits are in both).
+CHECK_OF_RECORD = {("teamleaderleo/glaeda", "main"): "manaflow-ai/glaeda"}
+RECORD_RUNS_ROUTE = re.compile(r"repos/([^/]+/[^/]+)/actions/workflows/([^/?]+)/runs\?(.*)", re.S)
+RECORD_ID_ROUTE = re.compile(r"repos/([^/]+/[^/]+)/(actions/runs|actions/jobs|check-runs|check-suites)/(\d+)(?:[/?].*)?",
+                             re.S)
+RECORD_KINDS = {"actions/runs": "runs", "actions/jobs": "jobs", "check-runs": "jobs", "check-suites": "suites"}
+
+
+def check_of_record(repo: str, base: str, github):
+    """GITHUB, reading BASE's runs of REPO where they are verified (CHECK_OF_RECORD, RecordRoute); GITHUB itself for
+    every other repo and base."""
+    record = CHECK_OF_RECORD.get((repo, base))
+    return github if record is None else RecordRoute(repo, base, record, github)
+
+
+class RecordRoute:
+    """GITHUB with REPO's BASE run lists read in RECORD, and every run, job or suite listed there read there too (the
+    rule above). Every other read, and every other method, is GITHUB's, looked up on each call."""
+
+    def __init__(self, repo: str, base: str, record: str, github):
+        self.repo, self.base, self.record, self.github = repo, base, record, github
+        self.ids: dict[str, set[int]] = {"runs": set(), "jobs": set(), "suites": set()}  # listed in RECORD
+        self.paths: dict[str, str] = {}  # REPO's workflow id: its file, from REPO's run records
+
+    def __getattr__(self, name: str):
+        return getattr(self.github, name)
+
+    def json(self, route: str, **kwargs):
+        moved = self.moved(route)
+        found = self.github.json(moved or route, **kwargs)
+        self.learn(found, moved is not None)
+        return found
+
+    def log(self, repo: str, job: dict):
+        if repo == self.repo and isinstance(job, dict) and (
+                job.get("id") in self.ids["jobs"] or job.get("run_id") in self.ids["runs"]):
+            repo = self.record
+        return self.github.log(repo, job)
+
+    def moved(self, route: str) -> str | None:
+        """ROUTE as read in RECORD, or None when it is REPO's own read."""
+        if (listed := RECORD_RUNS_ROUTE.fullmatch(route)) is not None and listed[1] == self.repo:
+            query = urllib.parse.parse_qs(listed[3])
+            if query.get("branch") != [self.base] or set(query.get("event", ())) & {"pull_request",
+                                                                                     "pull_request_target"}:
+                return None  # a pull request's runs, or another branch's: REPO's own
+            return f"repos/{self.record}/actions/workflows/{self.workflow_file(listed[2])}/runs?{listed[3]}"
+        one = RECORD_ID_ROUTE.fullmatch(route)
+        if one is not None and one[1] == self.repo and int(one[3]) in self.ids[RECORD_KINDS[one[2]]]:
+            return f"repos/{self.record}/{route.removeprefix(f'repos/{self.repo}/')}"
+        return None
+
+    def workflow_file(self, workflow: str) -> str:
+        """REPO's WORKFLOW (an id, or already a file name) as its file name, which names the same workflow in RECORD."""
+        if not workflow.isdigit():
+            return workflow
+        if workflow not in self.paths:
+            found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}")
+            self.paths[workflow] = str((found if isinstance(found, dict) else {}).get("path") or "")
+        path = self.paths[workflow].split("@", 1)[0]
+        if not path.startswith(".github/workflows/"):
+            raise Refused(f"{self.repo}'s workflow {workflow} came back without its file; its {self.base} verdicts "
+                          f"are {self.record}'s runs of that file (CHECK_OF_RECORD), so none could be read")
+        return path.removeprefix(".github/workflows/")
+
+    def learn(self, found, moved: bool) -> None:
+        """Keep the ids FOUND lists when read in RECORD (MOVED), and REPO's workflow files when read in REPO."""
+        for page in found if isinstance(found, list) else [found]:
+            if not isinstance(page, dict):
+                continue
+            runs = [page] if "workflow_id" in page else []
+            runs += [run for run in page.get("workflow_runs") or [] if isinstance(run, dict)]
+            for run in runs:
+                if moved:
+                    self.ids["runs"].add(run.get("id"))
+                    self.ids["suites"].add(run.get("check_suite_id"))
+                elif isinstance(run.get("workflow_id"), int) and isinstance(run.get("path"), str):
+                    self.paths.setdefault(str(run["workflow_id"]), run["path"])
+            if moved:
+                for job in (page.get("jobs") or []) + (page.get("check_runs") or []):
+                    if isinstance(job, dict):
+                        self.ids["jobs"].add(job.get("id"))
+
+
 def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
     """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
     the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
@@ -7880,7 +7988,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     caller's (PURPOSES; None is a land): only PER_STEP_PURPOSE gets the per-step reading (fixed_on_base_by_step)."""
     if purpose is not None and purpose not in PURPOSES:
         raise Refused(f"purpose {purpose!r} is not one of {', '.join(PURPOSES)}; nothing was judged")
-    github = rate_limit_aware(github)
+    # A base verified in another repo has its runs read there (CHECK_OF_RECORD); every other is read as before.
+    github = rate_limit_aware(check_of_record(repo, base, github))
     sha = exact_sha(repo, sha, github)  # every compare below is with a job's full head_sha
     audit: list[str] = []
     base_jobs: dict[int, list[dict] | None] = {}
@@ -8029,8 +8138,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
                 continue
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
+            record = CHECK_OF_RECORD.get((repo, base))
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          + (f"in {record}, its check of record, " if record else "") + f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
                           f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
                           + f"; not a setup red other PRs share: {why_not}")
         if name == GUARD_GROUP_JOB:

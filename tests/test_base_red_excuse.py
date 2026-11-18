@@ -3738,6 +3738,92 @@ class OtherRepoRollups(unittest.TestCase):
             excuse.rollups(HQ)
 
 
+# teamleaderleo/glaeda#2103 (2026-11-17, at c7b37598): glaeda's Verify skips every job on a push to its own main,
+# which is verified in the fork manaflow-ai/glaeda (CHECK_OF_RECORD); 'runner-tests (2)' was refused as "no main run
+# of its workflow has a verdict" because only the PR's own repo was read.
+GLAEDA, GLAEDA_FORK = "teamleaderleo/glaeda", "manaflow-ai/glaeda"
+GLAEDA_CI = ".github/workflows/ci.yml"
+
+
+class GlaedaGitHub(FakeGitHub):
+    """FakeGitHub's head run 10 (workflow 7, ci.yml) as a teamleaderleo/glaeda PR's. Its own main run 30 skipped every
+    job (job 6); the fork's main runs 21 and 20 (its own ci.yml, another workflow id) hold FakeGitHub's base verdict,
+    job 2. A fork run or job asked for in the PR's repo is a 404 there, so the fake fails the test on it."""
+
+    def __init__(self):
+        super().__init__()
+        self.jobs[6] = dict(failed_job(6, 30, BASE_SHA), conclusion="skipped", steps=[])
+        for run in self.base_runs:
+            run["repository"] = {"full_name": GLAEDA_FORK}
+        self.own_main = [{"id": 30, "event": "push", "head_branch": "main", "status": "completed",
+                          "conclusion": "success", "head_sha": BASE_SHA, "repository": {"full_name": GLAEDA}}]
+        self.fork_runs, self.fork_jobs = {20, 21}, {2}
+        self.log_repos: dict[int, str] = {}
+        self.asked: list[str] = []  # every route as judge asked it
+
+    def json(self, route, *, paginate=False):
+        self.asked.append(route)
+        own, fork = f"repos/{GLAEDA}/", f"repos/{GLAEDA_FORK}/"
+        if route.startswith(own + "actions/workflows/7/runs?"):
+            return {"workflow_runs": copy.deepcopy(self.own_main)}
+        if route == own + "actions/workflows/7":
+            return {"id": 7, "path": GLAEDA_CI}
+        if route.startswith(fork + "actions/workflows/ci.yml/runs?"):
+            route = route.replace(fork + "actions/workflows/ci.yml/", f"repos/{REPO}/actions/workflows/7/")
+            return super().json(route.replace("branch=main", "branch=feat-cmux-next"), paginate=paginate)
+        found = re.match(r"repos/([^/]+/[^/]+)/(actions/runs|actions/jobs|check-runs)/(\d+)", route)
+        if found:
+            ids = self.fork_runs if found[2] == "actions/runs" else self.fork_jobs
+            assert (found[1] == GLAEDA_FORK) == (int(found[3]) in ids), f"read in the wrong repo: {route}"
+        assert route.startswith((own, fork)), route
+        route = route.replace(fork, f"repos/{REPO}/").replace(own, f"repos/{REPO}/")
+        route = route.replace("/compare/main...", "/compare/feat-cmux-next...")
+        return super().json(route, paginate=paginate)
+
+    def log(self, repo, job):
+        self.log_repos[job["id"]] = repo
+        return super().log(repo, job)
+
+
+class BaseVerifiedInAnotherRepo(unittest.TestCase):
+    def setUp(self):
+        self.gh = GlaedaGitHub()
+
+    def judge(self):
+        return excuse.judge(GLAEDA, "main", HEAD, [10], self.gh)
+
+    def test_a_red_the_forks_main_shares_is_excused_from_the_forks_run(self):
+        text = "\n".join(self.judge())
+        self.assertIn("excused", text)
+        self.assertIn("run 20", text)
+        self.assertEqual(self.gh.log_repos, {1: GLAEDA, 2: GLAEDA_FORK})
+
+    def test_a_red_green_on_the_forks_main_is_still_the_prs_own(self):
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        with self.assertRaisesRegex(excuse.Refused, "not red on main run 20"):
+            self.judge()
+
+    def test_with_no_check_of_record_every_red_is_refused_as_before(self):
+        # The replay of #2103's stop: the PR's own main runs skipped every job, so none has a verdict.
+        with unittest.mock.patch.dict(excuse.CHECK_OF_RECORD, clear=True):
+            with self.assertRaisesRegex(excuse.Refused, "no main run of its workflow has a verdict"):
+                self.judge()
+        self.assertFalse([route for route in self.gh.asked if GLAEDA_FORK in route])
+
+    def test_main_is_read_in_the_fork_only(self):
+        self.judge()
+        own_main = [route for route in self.gh.asked if f"repos/{GLAEDA}/actions/workflows/" in route
+                    and "branch=main" in route]
+        self.assertEqual(own_main, [])
+        self.assertTrue([route for route in self.gh.asked if f"repos/{GLAEDA_FORK}/actions/runs/20/jobs" in route])
+
+    def test_any_other_repo_is_read_unrouted(self):
+        github = object()
+        self.assertIs(excuse.check_of_record(REPO, "feat-cmux-next", github), github)
+        self.assertIs(excuse.check_of_record(GLAEDA, "lane/x", github), github)
+
+
 # hq#9249 (2026-11-11): a child PR into lane/rerun-guard-fixed-on-base, the head of open PR hq#9226 at d755d38b.
 # Its 'Skill policy tests' (run 42988800012) failed the LaunchAgent step exactly as the parent's head did (run
 # 42985609913); the lane branch has no run of its own, so it was refused as "no lane/... run ... to compare with".
