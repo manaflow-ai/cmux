@@ -652,7 +652,10 @@ older name; both run the same start.
                      (the files the copy sends), which are refused without it
   --name VM          Use the VM with this name, or create it
   --target vm:VM_ID  Use this VM (`cmux vm ls`)
-                     Neither: create a new small machine with a new name
+                     Neither: create a new small machine with a new name.
+                     One that doesn't connect or start its agent within
+                     90 s is deleted and the chat starts on a fresh one,
+                     once
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
   --account ACCOUNT  Start and send only while the app is signed in to this
