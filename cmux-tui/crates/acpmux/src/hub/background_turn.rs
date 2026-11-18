@@ -17,7 +17,8 @@
 //!   `task_notification` turn's `cause` names the task that ended and whether that is worth a
 //!   response (`background_cause.rs`: `{kind, status, weight, origin?, summary?}`);
 //! - `{"state": "ended", "id", "trigger", "quiet", "reason"}`, at its `result` (`reason:
-//!   "result"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
+//!   "result"`; for Codex, which runs its own turns toward an active goal and sends no `result`,
+//!   when its thread goes idle: `_meta.codex.threadStatus.type: "idle"`), when a prompt starts an acpmux turn while it runs (`"prompt"`: the rest is that
 //!   turn's), or when the agent exits (`"exit"`).
 //!
 //! Such a turn never pings: it never marks the chat unread, never ends an acpmux turn (so
@@ -117,9 +118,19 @@ impl BackgroundTurns {
     }
 
     /// An own update of the chat (not a subagent's), before it is logged. Returns the
-    /// `started` record to log first, when it is the first sign of a pending turn.
+    /// `started` record to log first, when it is the first sign of a pending turn, or the
+    /// `ended` record of the running one when Codex's thread went idle.
     fn on_update(&mut self, update: &Value, acpmux_turn: bool, seq: u64) -> Option<Value> {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        // Codex sends no `result`: its thread going idle ends its own turn (one toward an active
+        // `_session/goal`, `stop_condition.rs`).
+        if !acpmux_turn
+            && kind == "session_info_update"
+            && update.pointer("/_meta/codex/threadStatus/type").and_then(Value::as_str)
+                == Some("idle")
+        {
+            return self.end("result");
+        }
         let mut started = None;
         if acpmux_turn {
             self.pending = None;
@@ -265,9 +276,9 @@ impl Hub {
         let seq = session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_seq + 1;
         let mut state = session.background_turns.lock().unwrap_or_else(|e| e.into_inner());
         let acpmux_turn = acpmux_turn || state.adopted_turn;
-        let started = state.on_update(update, acpmux_turn, seq);
+        let record = state.on_update(update, acpmux_turn, seq);
         drop(state);
-        if let Some(msg) = started {
+        if let Some(msg) = record {
             self.append(session, "mux", RECORD_KIND, msg);
         }
     }

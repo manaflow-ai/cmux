@@ -266,10 +266,16 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
             .sub("a1")
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Done | SubStatus::Reported))
     };
+    // The host's sub ticker runs once a minute; here every 5 s.
     let deadline = Instant::now() + Duration::from_secs(900);
+    let mut tick = Instant::now();
     while Instant::now() < deadline && !done(&h) {
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
             h.brain.step(input);
+        }
+        if tick.elapsed() >= Duration::from_secs(5) {
+            tick = Instant::now();
+            h.brain.step(optchat_chief::brain::Input::SubTick);
         }
     }
     let total = began.elapsed();
