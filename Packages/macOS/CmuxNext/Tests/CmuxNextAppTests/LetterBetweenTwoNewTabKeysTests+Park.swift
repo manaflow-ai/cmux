@@ -173,7 +173,15 @@ extension LetterBetweenTwoNewTabKeysTests {
             try scene.held("a", code: 0)
             let tab2 = try scene.newTab()
             let atTheKey = Self.parkedTyping(scene.services)
-            _ = try await scene.pageAfterOneFrame(of: tab2, into: Typed())
+            let page2 = try await scene.pageAfterOneFrame(of: tab2, into: Typed())
+            // The page of the second new tab reports with the token of its key hold, as the page does, and its field
+            // reports ready: that hold ends. A hold that is still there takes a Delete before the type-ahead code.
+            let tabs = scene.services.agentTabs
+            let token = try #require(tabs.newTabPages[tabs.tabKey(tab2)]?.page.inputToken,
+                                     "setup: the page of the second new tab has no token of a key hold")
+            scene.input.acknowledge(token, in: scene.window)
+            page2.receive(true)
+            await LargeSessionWindowFixture.drainMain()
 
             // The page of the first new tab does not report. The limit passes on the park's clock. The row does not
             // read `debug.focus` from here to the key: that read drops a text that is too old.
@@ -193,8 +201,12 @@ extension LetterBetweenTwoNewTabKeysTests {
                          ready and a focus that can queue typing (the pane shows that page: \(shows), the focus can queue typing: \
                          \(canQueue), the field is ready: \(page1.isReady))
                          """)
-            try #require(!scene.router.creationInputCoordinator.isHolding(in: scene.window),
-                         "setup: the window's creation hold has keys before the \(name) key")
+            try #require(!scene.router.creationInputCoordinator.isHolding(in: scene.window) && !scene.input.isHolding(in: scene.window),
+                         """
+                         setup: a hold of the window is still there before the \(name) key and can take it (the creation hold: \
+                         \(scene.router.creationInputCoordinator.isHolding(in: scene.window)), the New Tab key hold: \
+                         \(scene.input.isHolding(in: scene.window))). The key hold's log ends: \(scene.holdLog)
+                         """)
 
             // The first key in the first new tab.
             let key = try scene.keys.press(characters, code: code, command: false)
