@@ -243,6 +243,12 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         );
         assert!(file.is_loaded, "{name}");
         assert!(file.diagnostics.is_empty(), "{name}: {:?}", file.diagnostics);
+        // A look that names a terminal theme takes the window with it, over the person's own
+        // App Theme (else a dark look sits in a light window).
+        let value = crate::jsonc::parse(&text).expect("jsonc");
+        if value.get("appearance.theme").is_some() {
+            assert_eq!(value["appearance.appTheme"], json!("followTerminal"), "{name}");
+        }
     }
 }
 

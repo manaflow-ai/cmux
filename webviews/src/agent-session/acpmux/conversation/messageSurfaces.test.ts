@@ -9,8 +9,10 @@ const desktopCss = readFileSync(join(import.meta.dir, "../../../pages/shared/des
 const noticeCss = readFileSync(join(import.meta.dir, "../../../ui/notice.css"), "utf8");
 
 test("selected message surfaces are borderless while the prompt keeps stronger glass", () => {
-  expect(css).toContain("--glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);");
-  expect(css).toContain("--glass-edge: transparent;");
+  // A look may set --cv-user-bubble-tint and --cv-user-bubble-edge (style-tokens.json); unset, the
+  // prompt keeps this fill and no edge.
+  expect(css).toContain("--glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 10%, transparent));");
+  expect(css).toContain("--glass-edge: var(--cv-user-bubble-edge, transparent);");
   // Another agent's message is one inline line on base (#27312): no card to restyle.
   expect(css).not.toContain(".cv-received__body {");
   expect(agentRowCss).toContain(".cv-agentmsg__card {");
@@ -77,7 +79,10 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
   const bubble = rules(css).filter(({ selector }) => /(^|\s)\.cv-user__bubble$/.test(selector));
   const selected = bubble.filter(({ selector }) => !selector.includes("data-message-surfaces"));
   expect(selected.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
-  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual(["transparent"]);
+  // Clear unless a look paints its own hairline (--cv-user-bubble-edge).
+  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual([
+    "var(--cv-user-bubble-edge, transparent)",
+  ]);
   // The bubble never sets a rim shadow or a rim term of its own past the zeroed vars.
   for (const prop of ["--glass-rim-shadow", ...scaled])
     expect(

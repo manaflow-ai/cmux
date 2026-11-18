@@ -25,8 +25,11 @@
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
   --cv-code-bg: color-mix(in srgb, var(--cv-fg) 11%, transparent); /* #3e3f39 inline code */
-  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, transparent); /* #373833 */
-  --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
+  /* A code card is a transcript card one step toward the text, so a look's --cv-card-fill and
+     --cv-card-ring (style-tokens.json) paint it too. On the default card (text at 4% and 10%) this
+     is the text at 7.5% and 11.5%, as before. */
+  --cv-codeblock-bg: color-mix(in srgb, var(--cv-card-fill) 96.35%, var(--cv-fg)); /* #373833 */
+  --cv-codeblock-ring: color-mix(in srgb, var(--cv-card-ring) 98.33%, var(--cv-fg)); /* #3f403b */
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */

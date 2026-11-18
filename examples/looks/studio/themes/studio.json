@@ -5,6 +5,8 @@
   "description": "Near-black neutral chrome, a hairline sidebar edge, no wallpaper or glass.",
 
   "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#0b0b0c", "foreground": "#e4e4e7", "selection": "#27272a", "accent": "#a1a1aa" },
   "appearance.accent": "neutral",
 
