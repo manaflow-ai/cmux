@@ -6215,6 +6215,44 @@ class JoblessSweepTests(unittest.TestCase):
         self.assertNotIn([str(stuck["id"]), "rerun"], fake.posts())
         self.assertIn(f"newer run {newer['id']}", text)
 
+    def web_world(self, *, with_holder):
+        # Run 44289634413 (Web validation, PR #46198 at 6b8470d9): pending from 10:53Z with no jobs, behind run
+        # 44285380617 at cfbb8a2c, whose only unfinished job, the `web-validation` gate, queued on ubuntu-24.04.
+        branch = "lane/visible-only-native-static"
+        parked = web_run(status="pending", sha="6b8470d9", age=360, branch=branch)
+        parked["pull_requests"] = [{"number": 46198}]
+        holder = web_run(status="queued", sha="cfbb8a2c", age=387, branch=branch)
+        runs = {parked["id"]: dict(parked)}
+        jobs = {parked["id"]: []}
+        if with_holder:
+            runs[holder["id"]] = dict(holder)
+            jobs[holder["id"]] = finished_jobs(387) + [gate_job(age=360)]
+        fake = JoblessFakeGitHub(runs, jobs, ignore_cancel=[parked["id"], holder["id"]])
+        fake.app_token = True
+        fake.prs = {branch: [make_pr(46198, head="6b8470d9")]}
+        fake.snapshots.append({"generated_at": iso(10), "pools": {}, "lost_reruns": []})
+        return parked, holder, fake
+
+    def test_a_parked_pull_request_run_with_a_holder_is_left_to_the_holder_pass(self):
+        parked, holder, fake = self.web_world(with_holder=True)
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts(), [[str(holder["id"]), "cancel"], [str(holder["id"]), "force-cancel"]])
+        self.assertEqual(load["lost_reruns"], [])
+
+    def test_a_parked_pull_request_run_with_no_holder_is_cancelled_then_re_run(self):
+        parked, _, fake = self.web_world(with_holder=False)
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+            self.assertEqual(code, 0, text)
+            self.assertEqual(fake.posts(), [[str(parked["id"]), "cancel"], [str(parked["id"]), "force-cancel"]])
+            fake.runs[parked["id"]].update(status="completed", conclusion="cancelled")
+            fake.snapshots.append(load)
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(fake.posts()[-1], [str(parked["id"]), "rerun"])
+
     def test_dry_run_changes_nothing(self):
         stuck, fake = self.world()
         with tempfile.TemporaryDirectory() as temp:

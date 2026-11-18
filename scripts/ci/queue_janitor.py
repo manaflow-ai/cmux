@@ -5081,8 +5081,12 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         holders, holder_errors = (find_concurrency_holders(github, runs, now=now) if max_holder_cancels
                                   else ([], []))
         # Runs pending or queued an hour with no job (find_jobless()): a holder ahead of one joins the holders.
+        # A parked run whose holder that pass found is its: GitHub starts it once the holder ends (run 44289634413).
+        held = {run["id"] for run in parked if any(
+            h.run.get("path") == run.get("path") and h.run.get("head_branch") == run.get("head_branch")
+            and same_event_family(h.run, run) for h in holders)}
         jobless_holders, jobless, jobless_notes = (
-            find_jobless(github, runs, jobs_by_run, now=now, pending_entries=pending or [])
+            find_jobless(github, runs, jobs_by_run, now=now, skip_ids=held, pending_entries=pending or [])
             if max_jobless_cancels else ([], [], []))
         holders += [h for h in jobless_holders if h.run["id"] not in {other.run["id"] for other in holders}]
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
