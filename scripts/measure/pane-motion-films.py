@@ -963,20 +963,29 @@ class Films:
         """The set-up `C`: no new workspace. The app itself puts the Chief's tab (a tab of the kind `conversation`) into
         its Home workspace, and no action opens one. So: the action `home.show`, then the pane with such a tab in the
         workspace that the window shows, with the focus; returns (workspace, [pane], []). A launch whose Home has no
-        such tab gives no film: the fault's words have the tab kinds of each pane that the read found. A workspace of
-        the session is never taken for the Home workspace."""
-        st, seen = self.st, []
+        such tab gives no film, and the fault's words say which case the last read found: the app's list has no
+        workspace outside the session's; it has some and the window shows none of them; the shown one has no pane; or
+        its panes have no such tab (then the tab kinds of each pane). A workspace of the session is never taken for
+        the Home workspace."""
+        st, read = self.st, []
         row["panes"], row["dock"] = ["chief"], HOME_DOCK
         reply = st.action("home.show")
         if isinstance(reply, dict) and reply.get("error"):
             raise RuntimeError(f"the app refused home.show: {str(reply['error'])[:160]}")
 
         def found():
+            # `read`: each workspace outside the session's of this read: (its words, the tab kinds of each of its
+            # panes; None = the window does not show it).
+            read[:] = []
             for space in st.workspaces():
-                if space["id"] in self.session or st.window_showing(space["id"]) is None:
+                if space["id"] in self.session:
+                    continue
+                name = f"'{space['id']}' (`{str(space.get('title') or '')[:40]}`)"
+                if st.window_showing(space["id"]) is None:
+                    read.append((name, None))
                     continue
                 panes = st.panes(st.workspace(space["id"]))
-                seen[:] = [[tab.get("kind") for tab in pane.get("tabs") or []] for pane in panes]
+                read.append((name, [[tab.get("kind") for tab in pane.get("tabs") or []] for pane in panes]))
                 for pane in panes:
                     tab = next((tab for tab in pane.get("tabs") or [] if tab.get("kind") == "conversation"), None)
                     # The tab is the one that its pane shows (a pane with no word of its selected tab has 1 tab here).
@@ -985,13 +994,36 @@ class Films:
             return None
         hit = STRESS.wait(found, SHOW_S, step=0.1)
         if not hit:
-            raise RuntimeError(f"no tab of the kind `conversation` in the workspace that the window shows after home.show, in {SHOW_S} s "
-                               f"(the tab kinds of each of its panes: {seen})")
+            raise RuntimeError(self.no_chief(read))
         workspace, pane, had, row["chief_tab"] = hit
         self.home = (workspace, had)
         st.focus_pane(pane)
         time.sleep(self.opts.settle)  # the Home workspace is on the screen before the take
         return workspace, [pane], []
+
+    def no_chief(self, read):
+        """The fault's words of a launch with no Chief's tab to film, from the last read (`read` of `chief`): the case
+        first, then what the read found. A list of workspaces has 6 entries at most, and the count of the others."""
+        try:
+            shows = [window.get("workspace") for window in self.st.topology().get("windows") or []]
+            windows = f"each window shows: {shows}, of the session's: {[ident in self.session for ident in shows]}"
+        except Exception as error:  # noqa: BLE001  the fault is said also when this one read fails
+            windows = f"the read of the windows failed: {str(error)[:80]}"
+        shown = [(name, kinds) for name, kinds in read if kinds is not None]
+        if not read:
+            return (f"no Home workspace after home.show, in {SHOW_S} s: the app's list of workspaces has no workspace outside "
+                    f"the session's ({windows})")
+        if not shown:
+            names = [name for name, _ in read]
+            more = f" and {len(names) - 6} more" if len(names) > 6 else ""
+            return (f"no Home workspace in the window after home.show, in {SHOW_S} s: the window shows no workspace outside the "
+                    f"session's (outside the session's the app's list has: [{', '.join(names[:6])}]{more}; {windows})")
+        name, kinds = shown[-1]
+        if not kinds:
+            return (f"the workspace that the window shows after home.show has no pane, in {SHOW_S} s ({name}; a docked pane "
+                    f"is not counted; {windows})")
+        return (f"no tab of the kind `conversation` in the workspace that the window shows after home.show, in {SHOW_S} s "
+                f"(the tab kinds of each of its panes: {kinds}; the workspace: {name})")
 
     def build(self, spec, row):
         """A new workspace, shown, with the panes of the film's set-up; returns (workspace, pane ids, stream boxes)."""

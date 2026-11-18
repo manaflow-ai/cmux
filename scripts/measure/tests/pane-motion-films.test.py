@@ -131,10 +131,14 @@ class World:
         # The group `pages`. `opened`: each action that opens a page: (the action, its `path`, its target, the pane that
         # had the focus). The app's own Home workspace, which no film makes and no film closes: with `home-workspace`
         # its pane has a shell, with `chief-tab` it has the Chief's conversation tab; with none the fake has no Home.
+        # With `home-has-no-pane` the Home workspace is there and has no pane. With `home-show-shows-nothing` the app
+        # takes `home.show` with no error and the window shows what it showed before.
         self.opened = []
         if faults & {"home-workspace", "chief-tab"}:
             kind = "conversation" if "chief-tab" in faults else "terminal"
             self.spaces[HOME] = {"panes": [{"id": "pane-of-home", "tabs": [{"id": "tab-of-home", "kind": kind, "title": "Chief"}]}], "zoomed": None}
+        if "home-has-no-pane" in faults:
+            self.spaces[HOME] = {"panes": [], "zoomed": None}
 
     def film(self, state):
         """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
@@ -451,10 +455,12 @@ class FakeStress:
             self.world.close_waits.append(WAITING[-1] if WAITING else None)
             if "layout-read-fails-after-the-close" in self.world.faults and WAITING:
                 raise RuntimeError("a fake fault of the layout read")
-        return {"windows": [{"id": "win_" + w["key"], "key": w["key"]} for w in self.world.wins if not w["reads_left"]]}
+        # Each window says the workspace that it shows (the fake has one shown workspace for its windows).
+        return {"windows": [{"id": "win_" + w["key"], "key": w["key"], "workspace": self.world.shown}
+                            for w in self.world.wins if not w["reads_left"]]}
 
     def workspaces(self):
-        return [{"id": ident} for ident in self.world.spaces]
+        return [{"id": ident, "title": "Home" if ident == HOME else "a workspace"} for ident in self.world.spaces]
 
     def workspace(self, ident):
         self.world.read()
@@ -556,6 +562,8 @@ class FakeStress:
             page = {"id": self.world.ident("tab"), "kind": "page", "page": PAGE_OF[name]}
             next(p for s in self.world.spaces.values() for p in s["panes"] if p["id"] == where)["tabs"].append(page)
         elif name == "home.show":
+            if "home-show-shows-nothing" in self.world.faults:
+                return {}
             if HOME not in self.world.spaces:
                 return {"error": "a fake refusal: Home is not ready"}
             self.world.shown = HOME
@@ -1656,6 +1664,32 @@ class FilmsCase(unittest.TestCase):
         code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "C-Z")
         self.assertEqual((code, report["films"][0]["status"]), (1, "not_run"))
         self.assertIn("the app refused home.show: a fake refusal: Home is not ready", report["films"][0]["reason"])
+
+    def chief_fault(self, *faults):
+        """The reason of the film `C-Z` that a launch with `faults` does not run."""
+        code, report, lines, launches = self.run_films({"launch-activates", *faults}, "--films", "C-Z")
+        self.assertEqual((code, report["films"][0]["status"]), (1, "not_run"))
+        return report["films"][0]["reason"]
+
+    def test_a_launch_whose_list_has_no_workspace_outside_the_session_says_that_case_and_not_a_pane_list(self):
+        reason = self.chief_fault("home-show-shows-nothing")
+        self.assertIn("the app's list of workspaces has no workspace outside the session's", reason)
+        self.assertNotIn("the tab kinds of each of its panes", reason)  # no pane was read: the words of a pane list would be false
+        self.assertIn("each window shows: [", reason)  # and which workspace each window shows in its place
+        self.assertIn("of the session's: [False]", reason)
+
+    def test_a_home_workspace_that_the_window_does_not_show_says_that_case_and_each_workspace_that_the_read_found(self):
+        reason = self.chief_fault("chief-tab", "home-show-shows-nothing")
+        self.assertIn("the window shows no workspace outside the session's", reason)
+        self.assertIn(f"['{HOME}' (`Home`)]", reason)  # each workspace outside the session's, with its title
+        self.assertIn("each window shows: [", reason)  # and which workspace each window shows in its place
+        self.assertIn("of the session's: [False]", reason)
+        self.assertNotIn("the tab kinds of each of its panes", reason)
+
+    def test_a_home_workspace_with_no_pane_says_that_case_and_its_workspace(self):
+        reason = self.chief_fault("home-has-no-pane")
+        self.assertIn(f"the workspace that the window shows after home.show has no pane, in 10 s ('{HOME}' (`Home`)", reason)
+        self.assertNotIn("no tab of the kind `conversation`", reason)
 
     def test_a_pane_that_a_film_left_in_the_home_workspace_is_closed_again(self):
         # The split leaves the focus in the Chief's pane, so the close is not sent and the new pane stays: the script
