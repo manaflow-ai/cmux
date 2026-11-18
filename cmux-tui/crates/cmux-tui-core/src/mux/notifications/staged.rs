@@ -11,7 +11,6 @@
 //! nothing, and its caller goes on without the notification.
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "notification.create";
 
