@@ -153,6 +153,7 @@ export default componentEntry<{ look?: Look }>({
   styles: () =>
     Promise.all([
       import("../styles.css"),
+      import("../composerStates.css"),
       import("./screen.css"),
       import("./appPage.css"),
       import("../../../apps/scene/scene.css"),
