@@ -91,8 +91,9 @@ validate_replaceable_helper_bundle() {
   # when their exact TCC identity and executable prove they are our generated
   # build output. Never remove an arbitrary directory merely because it lives
   # at the computed output path.
-  existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
-  existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  existing_id="" existing_executable=""
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
+  [[ -f "$helper_app/Contents/Info.plist" ]] && existing_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$helper_app/Contents/Info.plist" 2>/dev/null || true)"
   local legacy_id=false
   case "$existing_id" in
     com.cmuxterm.*.computer-use|com.cmuxterm.app.computer-use)
@@ -375,7 +376,24 @@ else
       exit 1
     fi
     TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
-    git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    # Fetch only the pinned commit, not the repository's whole history (about 260 MB):
+    # a cold cache on the nightly signer (cmux15, run 44232805509) spent 9.5 min in a
+    # full `git clone` before the transfer stalled and failed the nightly. A stalled
+    # transfer (under 1 KB/s for 60 s) is ended and retried, at most 3 attempts.
+    git init --quiet "$TMPDIR_CLONE"
+    git -C "$TMPDIR_CLONE" remote add origin "$CMUX_CUA_REPO_URL"
+    fetched=""
+    for attempt in 1 2 3; do
+      if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+        git -C "$TMPDIR_CLONE" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; then
+        fetched=1
+        break
+      fi
+      echo "warning: cmux-cua fetch attempt $attempt of 3 failed" >&2
+      # A stalled transfer leaves its partial pack behind; drop it so it never moves into the cache.
+      find "$TMPDIR_CLONE/.git/objects/pack" -name 'tmp_pack_*' -delete 2>/dev/null || true
+    done
+    [[ -n "$fetched" ]] || { echo "error: could not fetch cmux-cua $CMUX_CUA_PINNED_SHA" >&2; exit 1; }
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
     /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
     TMPDIR_CLONE=""
@@ -391,7 +409,8 @@ else
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
   if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
-    git -C "$SRC_ROOT" fetch --quiet origin "$CMUX_CUA_PINNED_SHA"
+    GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+      git -C "$SRC_ROOT" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"
   fi
   # Materialize the exact pinned tree. A plain `checkout --detach` at the
   # already-checked-out commit silently keeps modified tracked files, so a
