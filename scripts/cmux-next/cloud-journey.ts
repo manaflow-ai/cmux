@@ -30,6 +30,10 @@
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
  *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
  *   agent daemon restart, each mid-turn and timed from a send at its end to the reply (cloud-chaos.ts).
+ *   --chaos-faults ID,... runs only those faults instead (cloud-chaos.ts FAULT_IDS: the leg's five and cmuxterm-hq's
+ *   chaos matrix, ported from the deleted relay chat: daemon restarts, link loss, a rejected login, the session host
+ *   killed or wedged, pause and resume, an update's take-over, db-stall); db-stall sets staging's database fault
+ *   through --chaos-db-switch-command CMD (run with DB_FAULT, the window as JSON, set from the leg's own start).
  *   --start-via app starts the agent the way the app does (`agent-session-start` over the carrier dial, needs --cmux),
  *   not `acp ensure`: the step passes on a started session and fails with the refusal's code and `data.harness`
  *   (cloud-chat-matrix.ts judges its `start` cells on that, hq#11225); the chat steps after it are skipped.
@@ -122,7 +126,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
-import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos, selectFaults, type DbFault } from "./cloud-chaos.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
@@ -1624,6 +1628,27 @@ export async function runPreclaimBurst(args: {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
+/**
+ * db-stall's switch (`--chaos-db-switch-command`): CMD under `sh -c` with DB_FAULT set to the window, at most 60 s.
+ * Set when it exits 0; its output's last line says how (a dispatched run's URL), or why not.
+ */
+export function runDbSwitch(command: string, fault: DbFault, timeoutMs = 60_000): Promise<{ ok: boolean; text: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("sh", ["-c", command], { env: { ...process.env, DB_FAULT: JSON.stringify(fault) }, stdio: ["ignore", "pipe", "pipe"] });
+    let said = "";
+    const keep = (b: Buffer) => { said = (said + b.toString("utf8")).slice(-2000); };
+    child.stdout!.on("data", keep);
+    child.stderr!.on("data", keep);
+    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    const last = () => said.trim().split("\n").filter(Boolean).slice(-2).join(" | ").slice(0, 300);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, text: `could not run: ${e.message}` }); });
+    child.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, text: code === 0 ? `set${last() ? `: ${last()}` : ""}` : `exit ${code ?? signal}${last() ? `: ${last()}` : ""}` });
+    });
+  });
+}
+
 async function waitMachine(api: Api, machine: string, want: (m: any) => boolean, budgetMs: number, goneOk = false): Promise<any> {
   const t0 = Date.now();
   let last: any = null;
@@ -3536,6 +3561,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
+  // --chaos-faults ID,...: only those faults (cloud-chaos.ts FAULT_IDS; cmuxterm-hq's chaos matrix runs one a machine).
+  // An unknown id stops the run here, before a machine is made.
+  const chaosOnly = (argValue("--chaos-faults", argv) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  selectFaults(chaosOnly);
+  // --chaos-db-switch-command CMD: db-stall's switch. Run with `sh -c`, DB_FAULT set to the window (JSON, epoch ms) the
+  // leg sets from its own start; exit 0 when the switch is set (cmuxterm-hq cloud-chaos.yml dispatches it).
+  const chaosDbSwitch = argValue("--chaos-db-switch-command", argv);
   // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
@@ -4659,6 +4691,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
+          only: chaosOnly,
+          // pause-mid-turn and resume-then-chat: the person's pause and resume, each resolved at its state.
+          machineApi: {
+            pause: async () => {
+              await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-chaos-pause-${Date.now()}`);
+              await waitMachine(api, created.id, (x) => x.status === "paused", 180_000);
+            },
+            resume: async () => {
+              await api.op("cloud.machine.start", { machine: created.id }, `${tag}-chaos-start-${Date.now()}`);
+              await waitMachine(api, created.id, (x) => x.status === "running", 180_000);
+            },
+          },
+          // db-stall's VM API read: the machine's row, then an exec (each through the VM API and its database).
+          vmRead: async () => {
+            await api.read("cloud.machine.get", { machine: created.id });
+            const r = await exec("true");
+            if (r.code !== 0) throw new Error(`exec exit ${r.code}`);
+          },
+          dbSwitch: chaosDbSwitch ? (fault: DbFault) => runDbSwitch(chaosDbSwitch, fault) : undefined,
         }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
         for (const r of results) {
           J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.felt_ms ?? 0, detail: r.detail });

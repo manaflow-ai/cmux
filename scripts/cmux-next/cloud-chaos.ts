@@ -16,6 +16,13 @@
  *   supervisor (cmux-host) starts it again;
  * - `agent daemon restart`: acpmux on the machine is killed with SIGKILL mid-turn and acpmux.service brings it back.
  *
+ * `--chaos-faults ID,...` runs others instead (MATRIX: cmuxterm-hq's chaos matrix, moved here from the relay chat
+ * cmux-platform#1136 deleted, cmuxterm-hq#13645): acpmux SIGTERM mid-turn and during a new chat's session/new, the
+ * link down 30 s, a model endpoint that rejects the login, the session host SIGKILLed or SIGSTOPped 45 s, a pause and
+ * resume mid-turn, a chat right after a 12.5 min pause, an update's take-over of the daemon, and db-stall: staging's
+ * database fault switch set from the leg's own start (`--chaos-db-switch-command`), with a chat and a VM API read every
+ * 30 s through its window and past it (judgeDbStall).
+ *
  * Per fault it records: felt_ms, the time the person feels: at the cause's end a second chat (FeltChat: idle, on its
  * own dial, as the person's other chat tab) sends a prompt, and felt_ms runs from that send to the first record of the
  * agent's reply the client receives (feltAfterSend). A send the dial cannot take yet is tried again with the same
@@ -42,7 +49,20 @@ export type ChaosExec = (command: string, timeoutMs?: number) => Promise<{ code:
 
 export type ChaosResult = {
   fault: string;
+  /** The fault's id (FAULT_IDS): what a run selects it by (`--chaos-faults`), and cmuxterm-hq's chaos suite rows. */
+  id?: string;
   outcome: "ok" | "fail" | "not run";
+  /** Whether the fault's cause happened: a fault that was not injected is never a pass. */
+  injected?: boolean;
+  /** The recovery budget: the felt time (for db-stall, the window's end to the first reply) must stay within it. */
+  budget_ms?: number;
+  /** What the person saw, in one short line. */
+  seen?: string;
+  /** The typed error the client got (a refused send's code, a failed turn's detail), or null. */
+  error?: TypedError | null;
+  /** db-stall: the window the switch set (epoch ms) and each round's chat and VM API read. */
+  window?: DbFault;
+  rounds?: DbRound[];
   /** From a send at the cause's end to the first record of the reply the client received: the person's felt time. */
   felt_ms: number | null;
   /** From the cause's end to the first identify the carrier answered: the connection's part of felt_ms. */
@@ -71,6 +91,37 @@ export type ChaosContext = {
   credentials?: { env: Record<string, string> };
   tag: string;
   log?: (line: string) => void;
+  /** Only these fault ids, in this order (`--chaos-faults`); none: the default leg, FAULTS. */
+  only?: string[];
+  /** The machine's lifecycle through the API, for pause-mid-turn and resume-then-chat: each resolves at the state. */
+  machineApi?: { pause(): Promise<void>; resume(): Promise<void> };
+  /** One VM API read (the machine's row), for db-stall's rounds. */
+  vmRead?: () => Promise<void>;
+  /** Sets the staging database fault switch for db-stall (`--chaos-db-switch-command`). */
+  dbSwitch?: (fault: DbFault) => Promise<{ ok: boolean; text: string }>;
+};
+
+export type TypedError = { code?: string; message?: string };
+
+/** cmux-vm's staging database fault (workers/cmux-vm/src/db/fault.ts): a share of queries held `ms` in [from, until). */
+export type DbFault = { mode: "stall"; ms: number; share: number; from: number; until: number };
+
+/** One db-stall round: a felt send on the person's chat and a VM API read, placed against the window by its own times. */
+export type DbRound = {
+  n: number;
+  phase: "before" | "during" | "after";
+  /** When the round started and ended (epoch ms, this runner's clock, as the window's). */
+  start: number;
+  end: number;
+  felt_ms: number | null;
+  ok: boolean;
+  /** The machine took the send (agent-session-prompt answered). */
+  acked: boolean;
+  /** Taken and then neither replied nor ended with a stated reason: an acknowledged message lost. */
+  lost: boolean;
+  error: TypedError | null;
+  read_ms: number;
+  read_ok: boolean;
 };
 
 const PING_MS = 250;
@@ -82,22 +133,96 @@ const TURN_DEADLINE_MS = 180_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-/** The faults the leg injects, in order, and the guest command for each. `secs` is how long its cause lasts. */
-export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
-  { name: "relay cut", secs: 0, command: relayCutCommand() },
-  { name: "drop 5 s", secs: 5, command: dropCommand(5) },
-  { name: "drop 60 s", secs: 60, command: dropCommand(60) },
+/**
+ * One fault of the leg. A mid-turn fault (`kind` "mid-turn", the default) goes in a third of the way through a counting
+ * turn: its guest `command` (which prints `@@ok` once the cause is in), or `inject: "pause"` (the machine paused and
+ * resumed through the API). `secs` is how long its cause lasts, `budget_s` how long the felt send after it may take
+ * to its reply's first record. The other kinds have runners of their own (runChaos).
+ */
+export type ChaosFault = {
+  id: string;
+  name: string;
+  secs: number;
+  budget_s: number;
+  command: string;
+  kind?: "mid-turn" | "session-new" | "token-rejected" | "resume" | "db-stall";
+  inject?: "pause";
+  /** After the fault, a new acpmux daemon must have taken the home over and every old one be gone (an update). */
+  judge?: "take-over";
+};
+
+/** acpmux's daemon pid on the machine (`acp --json daemon status`), into `$p`. */
+const DAEMON_PID = 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); ';
+
+/** The session host's pid into `$host`, and its unit's cgroup into `$cg` (sessionHostKillCommand's lookup). */
+const SESSION_HOST_PID = "cg=$(systemctl show -p ControlGroup --value cmux-host.service 2>/dev/null); host=''; " +
+  // Every cgroup.procs under the unit (the session host may sit in a child cgroup). The pattern's brackets keep this
+  // shell, whose own command line holds the pattern's text, from matching itself, and its own pid is skipped too.
+  "for p in $(find \"/sys/fs/cgroup$cg\" -name cgroup.procs -exec cat {} + 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; " +
+  "{ tr '\\0' ' ' < \"/proc/$p/cmdline\"; } 2>/dev/null | grep -q -- ' --relay-slo[t] ' && { host=$p; break; }; done; ";
+
+/** Claude Code's settings, where --model stub writes the stub's endpoint (cloud-journey.ts). */
+const CLAUDE_SETTINGS = "/home/cmux/.claude/settings.json";
+const REJECT_PORT = "/tmp/cmux-chaos-reject.port";
+const REJECT_PREV = "/tmp/cmux-chaos-reject.prev";
+
+/** Signal the acpmux daemon: SIGKILL (a crash) or SIGTERM (a restart). */
+export function daemonSignalCommand(signal: "KILL" | "TERM"): string {
+  return `${DAEMON_PID}[ -n "$p" ] && kill -${signal} "$p" && echo "@@ok $p"`;
+}
+
+/** The leg's default faults, in order (the hq carrier job, probe cloud-carrier-chaos-staging). */
+export const FAULTS: ChaosFault[] = [
+  { id: "relay-cut", name: "relay cut", secs: 0, budget_s: 120, command: relayCutCommand() },
+  { id: "drop-5s", name: "drop 5 s", secs: 5, budget_s: 120, command: dropCommand(5) },
+  { id: "drop-60s", name: "drop 60 s", secs: 60, budget_s: 120, command: dropCommand(60) },
   {
+    id: "session-host-restart",
     name: "session host restart",
     secs: 0,
+    budget_s: 120,
     command: sessionHostKillCommand(),
   },
   {
+    id: "agent-daemon-restart",
     name: "agent daemon restart",
     secs: 0,
-    command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
+    budget_s: 120,
+    command: daemonSignalCommand("KILL"),
   },
 ];
+
+/**
+ * cmuxterm-hq's Cloud chaos matrix (tools/cloud-chaos/chaos_suite.py FAULTS), moved from the relay chat that
+ * cmux-platform#1136 deleted onto the carrier: the same names and budgets, each run by id (`--chaos-faults`, one
+ * machine a fault in the hq matrix). Each does on the machine what the old chaos_agent.py did, and is judged as the
+ * app's chat over the carrier sees it.
+ */
+export const MATRIX: ChaosFault[] = [
+  { id: "daemon-restart-session-new", name: "daemon restart during session/new", secs: 0, budget_s: 120, command: daemonSignalCommand("TERM"), kind: "session-new" },
+  { id: "daemon-restart-mid-turn", name: "daemon SIGTERM mid-turn", secs: 0, budget_s: 120, command: daemonSignalCommand("TERM") },
+  { id: "daemon-crash-mid-turn", name: "daemon SIGKILL mid-turn", secs: 0, budget_s: 120, command: daemonSignalCommand("KILL") },
+  { id: "link-loss", name: "link down 30 s", secs: 30, budget_s: 180, command: dropCommand(30, "all") },
+  { id: "token-rejected", name: "model endpoint rejects the login", secs: 0, budget_s: 120, command: tokenRejectCommand(), kind: "token-rejected" },
+  { id: "relay-crash", name: "session host SIGKILL mid-turn", secs: 0, budget_s: 180, command: sessionHostKillCommand() },
+  { id: "relay-wedged", name: "session host SIGSTOP 45 s mid-turn", secs: 45, budget_s: 180, command: sessionHostStopCommand(45) },
+  { id: "pause-mid-turn", name: "pause and resume mid-turn", secs: 0, budget_s: 300, command: "", inject: "pause" },
+  { id: "resume-then-chat", name: "a chat right after a resume from a 12.5 min pause", secs: 0, budget_s: 120, command: "", kind: "resume" },
+  { id: "db-stall", name: "staging database stall", secs: 0, budget_s: 120, command: "", kind: "db-stall" },
+  { id: "acpmux-takeover-mid-turn", name: "acpmux update take-over mid-turn", secs: 0, budget_s: 120, command: daemonReinstallCommand(), judge: "take-over" },
+];
+
+/** Every fault id a run can select. */
+export const FAULT_IDS = [...FAULTS, ...MATRIX].map((f) => f.id);
+
+/** The faults `ids` names, in that order; none: FAULTS. An unknown id is an error, before any machine is made. */
+export function selectFaults(ids?: string[]): ChaosFault[] {
+  if (!ids || !ids.length) return FAULTS;
+  const all = new Map([...FAULTS, ...MATRIX].map((f) => [f.id, f]));
+  const unknown = ids.filter((id) => !all.has(id));
+  if (unknown.length) throw new Error(`unknown chaos fault ${unknown.join(", ")}; known: ${FAULT_IDS.join(", ")}`);
+  return ids.map((id) => all.get(id)!);
+}
 
 /**
  * Reset every established 443 connection on the machine. `ss -K` lists each socket it closed (`-n`, so the port reads
@@ -117,12 +242,89 @@ export function relayCutCommand(): string {
  * and only that pid is killed.
  */
 export function sessionHostKillCommand(): string {
-  return "cg=$(systemctl show -p ControlGroup --value cmux-host.service 2>/dev/null); host=''; " +
-    // Every cgroup.procs under the unit (the session host may sit in a child cgroup). The pattern's brackets keep this
-    // shell, whose own command line holds the pattern's text, from matching itself, and its own pid is skipped too.
-    "for p in $(find \"/sys/fs/cgroup$cg\" -name cgroup.procs -exec cat {} + 2>/dev/null); do [ \"$p\" = \"$$\" ] && continue; " +
-    "{ tr '\\0' ' ' < \"/proc/$p/cmdline\"; } 2>/dev/null | grep -q -- ' --relay-slo[t] ' && { host=$p; break; }; done; " +
+  return SESSION_HOST_PID +
     "if [ -n \"$cg\" ] && [ -n \"$host\" ] && sudo -n kill -KILL \"$host\"; then echo \"@@ok $host\"; else echo \"@@failed cgroup=$cg pid=$host\"; fi";
+}
+
+
+/**
+ * A wedged session host (the old suite's relay-stop): SIGSTOP for `secs`. Its SIGCONT is a timer on the machine armed
+ * before the stop, so the host runs again even if this run dies; `@@ok` only once the stop went in.
+ */
+export function sessionHostStopCommand(secs: number): string {
+  return SESSION_HOST_PID + "if [ -n \"$cg\" ] && [ -n \"$host\" ]; then " +
+    `sudo -n sh -c ${shq(`(sleep ${secs}; kill -CONT "$1") >/dev/null 2>&1 &`)} _ "$host"; ` +
+    "if sudo -n kill -STOP \"$host\"; then echo \"@@ok $host\"; else sudo -n kill -CONT \"$host\"; echo \"@@failed stop pid=$host\"; fi; " +
+    "else echo \"@@failed cgroup=$cg pid=$host\"; fi";
+}
+
+/**
+ * What a nightly update does to the running daemon (the old suite's daemon-update): its own executable copied beside
+ * it and renamed over its path (same bytes, a new file). acpmux's update watch (daemon/exe_swap.rs) sees the path
+ * replaced and hands the home over to a new daemon. `@@ok PID` names the daemon that ran before the swap.
+ */
+export function daemonReinstallCommand(): string {
+  return `${DAEMON_PID}exe=''; [ -n "$p" ] && exe=$(sudo -n readlink "/proc/$p/exe"); ` +
+    `case "$exe" in ""|*" (deleted)") echo "@@failed exe=$exe pid=$p" ;; /*) ` +
+    `if sudo -n cp --preserve=mode,ownership,timestamps "$exe" "$exe.chaos-update" && sudo -n mv -f "$exe.chaos-update" "$exe"; ` +
+    `then echo "@@ok $p"; else sudo -n rm -f "$exe.chaos-update"; echo "@@failed swap $exe"; fi ;; *) echo "@@failed exe=$exe" ;; esac`;
+}
+
+/** Whether a daemon other than `old` serves and `old` is gone: `@@took NEW` or `@@not NEW`. */
+export function daemonTookOverCommand(old: string): string {
+  return `${DAEMON_PID}if [ -n "$p" ] && [ "$p" != ${shq(old)} ] && ! kill -0 ${shq(old)} 2>/dev/null; then echo "@@took $p"; else echo "@@not $p"; fi`;
+}
+
+
+/**
+ * The model endpoint rejects the login from now on (the old suite's token-reject): a loopback server that answers
+ * every request 401 authentication_error, as Anthropic does, and Claude Code's settings pointed at it, the endpoint
+ * before it kept for tokenRestoreCommand. A chat started after it reads the new endpoint. `@@ok PORT` once both are in.
+ */
+export function tokenRejectCommand(): string {
+  const server = [
+    "import http.server, json",
+    "class H(http.server.BaseHTTPRequestHandler):",
+    "    def _r(self):",
+    "        b = json.dumps({'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}}).encode()",
+    "        self.send_response(401); self.send_header('content-type', 'application/json')",
+    "        self.send_header('content-length', str(len(b))); self.end_headers(); self.wfile.write(b)",
+    "    do_GET = do_POST = _r",
+    "    def log_message(self, *a): pass",
+    "s = http.server.ThreadingHTTPServer(('127.0.0.1', 0), H)",
+    `open(${JSON.stringify(REJECT_PORT)}, 'w').write(str(s.server_address[1]))`,
+    "s.serve_forever()",
+  ].join("\n");
+  const point = [
+    "import json, pathlib, sys",
+    `p = pathlib.Path(${JSON.stringify(CLAUDE_SETTINGS)})`,
+    "c = json.loads(p.read_text()) if p.exists() else {}",
+    "env = c.setdefault('env', {})",
+    `pathlib.Path(${JSON.stringify(REJECT_PREV)}).write_text(json.dumps(env.get('ANTHROPIC_BASE_URL')))`,
+    "env['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]",
+    "p.write_text(json.dumps(c))",
+  ].join("\n");
+  return `rm -f ${REJECT_PORT}; (setsid python3 -I -c ${shq(server)} >/dev/null 2>&1 &); ` +
+    `for i in $(seq 50); do [ -s ${REJECT_PORT} ] && break; sleep 0.1; done; port=$(cat ${REJECT_PORT} 2>/dev/null); ` +
+    `if [ -n "$port" ] && python3 -I -c ${shq(point)} "$port"; then echo "@@ok $port"; else echo "@@failed port=$port"; fi`;
+}
+
+/** Undoes tokenRejectCommand: the earlier endpoint back in the settings, and the 401 server (by its port) stopped. */
+export function tokenRestoreCommand(): string {
+  const back = [
+    "import json, pathlib",
+    `p = pathlib.Path(${JSON.stringify(CLAUDE_SETTINGS)})`,
+    "c = json.loads(p.read_text()) if p.exists() else {}",
+    `prev = json.loads(pathlib.Path(${JSON.stringify(REJECT_PREV)}).read_text())`,
+    "env = c.setdefault('env', {})",
+    "if prev is None: env.pop('ANTHROPIC_BASE_URL', None)",
+    "else: env['ANTHROPIC_BASE_URL'] = prev",
+    "p.write_text(json.dumps(c))",
+  ].join("\n");
+  // The server is the one process listening on the port it wrote; only that pid is stopped.
+  return `python3 -I -c ${shq(back)} && echo @@restored; port=$(cat ${REJECT_PORT} 2>/dev/null); ` +
+    `pid=$([ -n "$port" ] && ss -Hltnp "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\\([0-9]*\\).*/\\1/p' | head -1); ` +
+    `[ -n "$pid" ] && kill "$pid"; rm -f ${REJECT_PORT} ${REJECT_PREV}`;
 }
 
 /** Not injectable from the machine: recorded as not run, with whose lane can run them. */
@@ -142,13 +344,15 @@ export const NOT_INJECTED: Array<{ name: string; why: string }> = [
  * it, else an nft table of its own (deleted by the timer). The timer is armed before any rule goes in, a rule set that
  * goes in only partly is taken out at once, and `@@ok` is printed only once every rule is in.
  */
-export function dropCommand(secs: number): string {
-  const ipt = [
-    "iptables -I OUTPUT -p tcp --dport 443 -j DROP",
-    "iptables -I INPUT -p tcp --sport 443 -j DROP",
-  ];
-  const undo = ["iptables -D OUTPUT -p tcp --dport 443 -j DROP", "iptables -D INPUT -p tcp --sport 443 -j DROP"];
-  const nft = "nft add table inet cmuxchaos && nft add chain inet cmuxchaos out '{ type filter hook output priority 0; }' && nft add rule inet cmuxchaos out tcp dport 443 drop && nft add chain inet cmuxchaos in '{ type filter hook input priority 0; }' && nft add rule inet cmuxchaos in tcp sport 443 drop";
+export function dropCommand(secs: number, scope: "443" | "all" = "443"): string {
+  // "all": every packet in or out but loopback's (the old suite's link-down; the stub and acpmux keep running).
+  const out = scope === "all" ? "! -o lo" : "-p tcp --dport 443";
+  const inn = scope === "all" ? "! -i lo" : "-p tcp --sport 443";
+  const ipt = [`iptables -I OUTPUT ${out} -j DROP`, `iptables -I INPUT ${inn} -j DROP`];
+  const undo = [`iptables -D OUTPUT ${out} -j DROP`, `iptables -D INPUT ${inn} -j DROP`];
+  const nftOut = scope === "all" ? `'oifname != "lo" drop'` : "tcp dport 443 drop";
+  const nftIn = scope === "all" ? `'iifname != "lo" drop'` : "tcp sport 443 drop";
+  const nft = `nft add table inet cmuxchaos && nft add chain inet cmuxchaos out '{ type filter hook output priority 0; }' && nft add rule inet cmuxchaos out ${nftOut} && nft add chain inet cmuxchaos in '{ type filter hook input priority 0; }' && nft add rule inet cmuxchaos in ${nftIn}`;
   const restore = undo.join("; ");
   const script = `if command -v iptables >/dev/null 2>&1; then (sleep ${secs}; ${restore}) >/dev/null 2>&1 & ` +
     `if ${ipt.join(" && ")}; then echo @@ok iptables; else ${restore}; echo @@failed iptables; fi; ` +
@@ -455,6 +659,11 @@ export class ChatClient {
   /** Dial, make the chat tab and start the chat in it; the first attach sets the baseline seq. */
   async open(harness: string): Promise<void> {
     await this.openTab(harness);
+    await this.begin(harness);
+  }
+
+  /** After openTab: the chat started in the tab, and its first attach (the baseline seq). */
+  async begin(harness: string): Promise<void> {
     const started = answerOf(await this.start(harness));
     this.session = String(started.session ?? "");
     if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
@@ -784,7 +993,7 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
 
 /** How many turns of the session started with this marker, and whether the last one ended. */
 async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ started: number; running: boolean; status: string; detail: string }> {
-  const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(session)} --limit 20 2>&1`, 45_000);
+  const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(session)} --limit 40 2>&1`, 45_000);
   let turns: any[] = [];
   try { turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? []; } catch { /* unreadable: counted as 0 */ }
   const mine = turns.filter((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker));
@@ -967,22 +1176,91 @@ const SEQ_HOLD_S = 900;
 /** A tag the stub's marker regex (`\S+`) and a guest shell word both take as it is. */
 const safeTag = (tag: string) => tag.replace(/[^A-Za-z0-9-]/g, "-");
 
-/** Run every fault on the machine; one result per fault, the not-injectable ones included. */
+/** A refusal's text as answerOf throws it (`CODE: message`) as a typed error; null for none. */
+export function typedError(text: string): TypedError | null {
+  if (!text) return null;
+  const m = /^([A-Za-z0-9_.-]+): ?([\s\S]*)$/.exec(text);
+  return m ? { code: m[1], message: m[2].slice(0, 240) } : { message: text.slice(0, 240) };
+}
+
+/** What a reply or a turn's end says when the model endpoint refused the login: the sign-in problem the person sees. */
+export const AUTH_SHAPED = /authentication_error|invalid x-api-key|\b401\b|\/login|log ?in\b|api key|sign[ -]?in|unauthori[sz]ed/i;
+
+/** db-stall's window: it opens DB_OPENS_MS after the probe sets it and lasts DB_WINDOW_MS (chaos_suite.py DB_FAULT). */
+export const DB_OPENS_MS = 240_000;
+export const DB_WINDOW_MS = 180_000;
+/** A round each DB_ROUND_MS, from the switch until DB_AFTER_MS past the window's end. */
+export const DB_ROUND_MS = 30_000;
+export const DB_AFTER_MS = 120_000;
+/** A pause long enough for a spare's connections to go stale (run 42119371232: cloud.relay.host_gone after one). */
+export const RESUME_IDLE_MS = 750_000;
+
+/**
+ * The staging database fault for a probe ready at `now`: half of cmux-vm's queries held 10 s and then failed, from
+ * DB_OPENS_MS on for DB_WINDOW_MS. Its clock is the probe's own start, so no runner queue before it moves the window.
+ */
+export function dbWindow(now: number): DbFault {
+  const from = now + DB_OPENS_MS;
+  return { mode: "stall", ms: 10_000, share: 0.5, from, until: from + DB_WINDOW_MS };
+}
+
+/** A round's place against the window, by its own start and end (this runner's clock, the window's too). */
+export function dbPhase(start: number, end: number, w: DbFault): DbRound["phase"] {
+  return end < w.from ? "before" : start >= w.until ? "after" : "during";
+}
+
+/**
+ * The database stall's verdict from its rounds. Injected only when the switch was set, a round ran in the window, and
+ * a VM API read in it was held (most of the stall, or failed): a window that touched no query proves nothing. Then two
+ * invariants: no acknowledged send is lost (each ends in a reply or a stated reason), and replies recover: the first
+ * round after the window replies within `budgetMs` of its end.
+ */
+export function judgeDbStall(w: DbFault, rounds: DbRound[], switched: boolean, budgetMs: number): { injected: boolean; ok: boolean; recover_ms: number | null; seen: string; error: TypedError | null } {
+  const during = rounds.filter((r) => r.phase === "during");
+  const held = during.filter((r) => !r.read_ok || r.read_ms >= w.ms * 0.8).length;
+  const injected = switched && during.length > 0 && held > 0;
+  const lost = rounds.filter((r) => r.lost);
+  const first = rounds.find((r) => r.phase === "after" && r.ok && r.felt_ms !== null);
+  const recover = first ? first.start + first.felt_ms! - w.until : null;
+  const ok = injected && !lost.length && recover !== null && recover <= budgetMs;
+  const refused = during.filter((r) => !r.ok && r.error);
+  const why = !switched ? "the switch was not set" : !during.length ? "no round ran in the window"
+    : !held ? "no VM API read in the window was held" : "";
+  const seen = `${injected ? "" : `not injected (${why}); `}in the window ${during.filter((r) => r.ok).length}/${during.length} replied, ` +
+    `${refused.length} refused, ${during.filter((r) => r.lost).length} lost; ${held} VM API reads held; ${lost.length} lost in all; ` +
+    (recover === null ? "no chat after the window replied" : `the first reply after the window ${recover} ms past its end`);
+  return { injected, ok, recover_ms: recover, seen, error: refused[0]?.error ?? null };
+}
+
+const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d+Z$/, "Z");
+
+/**
+ * Run the selected faults on the machine (ctx.only; none: FAULTS and the not-injectable ones); one result per fault.
+ * Every fault shares the setup: the carrier dial pinged, the person's chat and their idle felt chat each on a dial of
+ * its own, and one warm reply on the felt chat.
+ */
 export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
+  const faults = selectFaults(ctx.only);
+  const harness = ctx.harness ?? "claude";
   const out: ChaosResult[] = [];
   const carrier = new Carrier(ctx);
   carrier.start();
   const chat = new ChatClient(ctx);
   // The person's other chat tab, idle: what they send in it at each fault's end times the felt wait (feltAfterSend).
   const felt = new ChatClient(ctx);
-  const failed = (fault: string, detail: string): ChaosResult => ({ fault, outcome: "fail", felt_ms: null, recover_ms: null, carrier: "", turn: "", detail });
+  const failed = (f: ChaosFault, detail: string, injected = false): ChaosResult => ({
+    fault: f.name, id: f.id, outcome: "fail", injected, budget_ms: f.budget_s * 1000, felt_ms: null, recover_ms: null,
+    carrier: "", turn: "", seen: detail.slice(0, 160), error: null, detail,
+  });
+  const exec = (command: string, ms: number) => ctx.exec(`${ctx.guest}${command}`, ms).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+  const tail = (r: { stdout: string; stderr: string }) => (r.stdout + r.stderr).trim().slice(-200);
   try {
     const first = await carrier.answeredAfter(0, 60_000);
     if (first === null) throw new Error("the carrier dial never answered identify before the faults");
     // The person's chat, opened and read over its own carrier dial the way the app does. Without it no fault can be
     // judged for lost output, so each fails with the reason.
-    const chatError = await chat.open(ctx.harness ?? "claude").then(() => "", (e: Error) => e.message)
-      || await felt.open(ctx.harness ?? "claude").then(() => "", (e: Error) => `the felt chat: ${e.message}`);
+    const chatError = await chat.open(harness).then(() => "", (e: Error) => e.message)
+      || await felt.open(harness).then(() => "", (e: Error) => `the felt chat: ${e.message}`);
     // One reply on the felt chat before any fault, so the first fault's felt time holds no cold agent start.
     // Each felt send counts only records past the felt chat's previous turn (feltFloor; null: not verified).
     let feltFloor: number | null = felt.held;
@@ -1000,41 +1278,26 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
     // The chat's folder holds each counting turn's files (countingTurnScript); its policy and mode go to the job log.
     const facts = chatError ? { cwd: "", text: "" } : await chatFacts(ctx, chat.session);
     if (!chatError) ctx.log?.(`chaos: the client's chat: ${facts.text}`);
-    for (const [i, f] of FAULTS.entries()) {
-      if (chatError) {
-        out.push(failed(f.name, `the client's chat could not be opened over the carrier: ${chatError}`));
-        continue;
-      }
-      if (warmError) {
-        out.push(failed(f.name, warmError));
-        continue;
-      }
-      const tag = `${safeTag(ctx.tag)}-${i}`;
+
+    /** A fault a third of the way through a counting turn on the person's chat, then a felt send at its cause's end. */
+    const midTurn = async (f: ChaosFault, tag: string): Promise<ChaosResult> => {
+      const budget = f.budget_s * 1000;
       const marker = countMarker(tag);
       // The client is attached and holds everything before this turn; the turn is judged from here.
       await chat.caughtUp(chat.held, 60_000);
       const baseline = chat.held;
       const from = chat.received.length;
-      // The guest terminal printing 1..SEQ_LINES across the fault, read by the client over the carrier.
       // The counting turn's files, in the chat's folder (countingTurnScript reads them), before the terminal starts.
-      if (!facts.cwd) {
-        out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
-        continue;
-      }
-      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      if (!facts.cwd) return failed(f, `the counting files have no folder: the chat's folder could not be read (${facts.text})`);
+      const wrote = await exec(countingFilesCommand(facts.cwd, tag), 60_000);
       const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
-      if (!dir) {
-        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
-        continue;
-      }
+      if (!dir) return failed(f, `the counting files could not be written in ${facts.cwd}: ${tail(wrote)}`);
+      // The guest terminal printing 1..SEQ_LINES across the fault, read by the client over the carrier.
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
       const seqError = await seq.start(tag).then(() => "", (e: Error) => e.message);
       // The counting turn: COUNT_STEPS numbered reads (the model stub's counting script, countingTurnScript).
       const sent = await chat.prompt(countingPrompt(tag, f.name, dir)).then(() => "", (e: Error) => e.message);
-      if (sent) {
-        out.push(failed(f.name, `the turn did not start: ${sent}`));
-        continue;
-      }
+      if (sent) return { ...failed(f, `the turn did not start: ${sent}`), error: typedError(sent) };
       // Mid-turn, about a third in: the fault goes in once the client has seen step COUNT_STEPS / 3, or after 120 s
       // whatever it has seen (named in the detail).
       const third = Math.ceil(COUNT_STEPS / 3);
@@ -1046,23 +1309,28 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
       // History is a remote read: output may have finished while it was in flight.
       reached = chat.reached(tag, from);
-      if (state.started === 0) {
-        out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
-        continue;
-      }
+      if (state.started === 0) return failed(f, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`);
       const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`
         : reached >= third ? `mid-turn at step ${reached} of ${COUNT_STEPS}`
         : `mid-turn, but the client had seen only step ${reached} of ${COUNT_STEPS}`;
       const dialsBefore = carrier.dials;
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
-      // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
       const injectedAt = Date.now();
-      const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      let injected: { code: number; stdout: string; stderr: string };
+      if (f.inject === "pause") {
+        // Through the API, as the person's pause and resume: the cause ends when the machine reads running again.
+        if (!ctx.machineApi) return failed(f, "could not inject: the journey gave the leg no machine API (pause, resume)");
+        injected = await ctx.machineApi.pause().then(() => ctx.machineApi!.resume()).then(
+          () => ({ code: 0, stdout: "@@ok paused and resumed", stderr: "" }),
+          (e: Error) => ({ code: 1, stdout: `pause/resume: ${e.message}`, stderr: "" }));
+      } else {
+        // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+        injected = await exec(f.command, f.secs * 1000 + 60_000);
+      }
       if (!/@@ok/.test(injected.stdout)) {
         // A fault meant to run that could not be injected fails the leg: a probe must never read ok on a fault it skipped.
-        out.push(failed(f.name, `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}`));
-        continue;
+        return failed(f, `could not inject: ${tail(injected)}`);
       }
       const healed = causeEndedAt(injectedAt, Date.now(), f.secs);
       await sleep(Math.max(0, healed - Date.now()));
@@ -1070,8 +1338,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const floor = feltFloor;
       const feltSent: Promise<Felt> = floor === null
         ? Promise.resolve({ felt_ms: null, ack_ms: null, tries: 0, error: "not sent: the felt chat's previous turn has no verified end" })
-        : feltAfterSend(felt, `${feltMarker(tag)} ${f.name}: reply.`, RECOVER_DEADLINE_MS, floor);
-      const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
+        : feltAfterSend(felt, `${feltMarker(tag)} ${f.name}: reply.`, budget, floor);
+      const back = await carrier.answeredAfter(healed, budget);
       const recover = back === null ? null : back - healed;
       const feel = await feltSent;
       const feltTurn = floor === null ? { ok: false, text: "not sent" } : await turnOutcome(ctx, feltMarker(tag), felt.session);
@@ -1079,21 +1347,224 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const resumed = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length > resumesBefore;
       const how = carrier.dials > dialsBefore ? `new dial (${carrier.dials - dialsBefore})` : resumed ? "resumed the session" : "unbroken";
       const turn = await turnOutcome(ctx, marker, chat.session);
+      // An update's take-over: a new daemon serves and the one that ran before the swap is gone.
+      let takeOver = "";
+      if (f.judge === "take-over") {
+        const old = /@@ok (\d+)/.exec(injected.stdout)?.[1] ?? "";
+        takeOver = `no new daemon took the home over from ${old || "?"} within 120 s`;
+        for (const until = Date.now() + 120_000; Date.now() < until; await sleep(3_000)) {
+          const r = await exec(daemonTookOverCommand(old), 30_000);
+          const took = /@@took (\d+)/.exec(r.stdout)?.[1];
+          if (took) { takeOver = ""; ctx.log?.(`chaos: ${f.name}: daemon ${took} took the home over from ${old}`); break; }
+        }
+      }
       const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
-      const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
+      const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok && !takeOver;
       const feltText = feel.felt_ms === null
-        ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
+        ? `no reply within ${f.budget_s} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
         : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"})`;
-      const result: ChaosResult = {
+      return {
         fault: f.name,
+        id: f.id,
         outcome: ok ? "ok" : "fail",
+        injected: true,
+        budget_ms: budget,
         felt_ms: feel.felt_ms,
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
+        seen: feel.felt_ms === null ? `no reply within ${f.budget_s} s` : `replied in ${(feel.felt_ms / 1000).toFixed(1)} s; turn ${turn.text}`,
+        error: feel.felt_ms === null ? typedError(feel.error) : !turn.ok ? { code: "turn", message: turn.text } : null,
+        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${f.budget_s} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}${takeOver ? `; ${takeOver}` : ""}`,
       };
+    };
+
+    /**
+     * The daemon restarted while a new chat's session/new is in flight (the app's start of a new Cloud chat). The start
+     * is tried once more after a refusal, as the app's retry; the person's clock runs from the first start to the first
+     * record of the reply to their first send.
+     */
+    const sessionNew = async (f: ChaosFault, tag: string): Promise<ChaosResult> => {
+      const budget = f.budget_s * 1000;
+      const fresh = new ChatClient(ctx);
+      try {
+        const tabError = await fresh.openTab(harness).then(() => "", (e: Error) => e.message);
+        if (tabError) return failed(f, `the new chat's tab could not be made: ${tabError}`);
+        const startAt = Date.now();
+        let settledAt = 0;
+        const starting = fresh.begin(harness).then(() => "", (e: Error) => e.message).finally(() => { settledAt = Date.now(); });
+        const sentAt = Date.now();
+        const injected = await exec(f.command, 60_000);
+        const firstError = await starting;
+        if (!/@@ok/.test(injected.stdout)) return failed(f, `could not inject: ${tail(injected)}`);
+        // The start must still have been in flight when the restart went out, or it hit nothing.
+        if (settledAt && settledAt < sentAt) return failed(f, `not injected: the chat's start ended ${sentAt - settledAt} ms before the restart went out`);
+        let startError = firstError;
+        if (startError) {
+          await carrier.answeredAfter(Date.now(), budget);
+          startError = await fresh.begin(harness).then(() => "", (e: Error) => e.message);
+        }
+        if (startError) {
+          return { ...failed(f, `the new chat did not start: first ${firstError}; again after the restart: ${startError}`, true), error: typedError(startError), seen: `the new chat did not start: ${startError.slice(0, 120)}` };
+        }
+        const marker = feltMarker(tag);
+        const sendAt = Date.now();
+        const feel = await feltAfterSend(fresh, `${marker} first message: reply.`, Math.max(5_000, startAt + budget - sendAt), fresh.held);
+        const turn = await turnOutcome(ctx, marker, fresh.session);
+        const total = feel.felt_ms === null ? null : sendAt + feel.felt_ms - startAt;
+        const ok = total !== null && total <= budget && turn.ok;
+        const how = firstError ? `the first start was refused (${firstError.slice(0, 120)}) and the retry started it` : "the start rode through the restart";
+        return {
+          fault: f.name, id: f.id, outcome: ok ? "ok" : "fail", injected: true, budget_ms: budget, felt_ms: total, recover_ms: null,
+          carrier: "", turn: turn.text,
+          seen: total === null ? `no reply within ${f.budget_s} s of the new chat` : `the new chat replied ${(total / 1000).toFixed(1)} s after its start`,
+          error: firstError ? typedError(firstError) : feel.felt_ms === null ? typedError(feel.error) : null,
+          detail: `${how}; ${total === null ? `no reply within ${f.budget_s} s (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})` : `the first reply began ${total} ms after the start`}; its turn ${turn.text}`,
+        };
+      } finally {
+        fresh.stop();
+      }
+    };
+
+    /** The model endpoint refuses the login: a new chat must end with a sign-in error the person sees, not silence. */
+    const tokenRejected = async (f: ChaosFault, tag: string): Promise<ChaosResult> => {
+      const budget = f.budget_s * 1000;
+      const injected = await exec(f.command, 60_000);
+      if (!/@@ok/.test(injected.stdout)) return failed(f, `could not inject: ${tail(injected)}`);
+      const fresh = new ChatClient(ctx);
+      try {
+        // A new chat: its agent reads the endpoint at its start.
+        const openError = await fresh.open(harness).then(() => "", (e: Error) => e.message);
+        if (openError) {
+          const ok = AUTH_SHAPED.test(openError);
+          return { ...failed(f, `the new chat's start was refused: ${openError}`, true), outcome: ok ? "ok" : "fail", error: typedError(openError), seen: `the start was refused: ${openError.slice(0, 120)}` };
+        }
+        const from = fresh.received.length;
+        const marker = feltMarker(tag);
+        const sendAt = Date.now();
+        const feel = await feltAfterSend(fresh, `${marker} reply.`, budget, fresh.held);
+        const turn = await turnOutcome(ctx, marker, fresh.session);
+        const shown = fresh.arrivals(from).filter((r) => r.at >= sendAt && r.at <= sendAt + budget);
+        const auth = shown.find((r) => AUTH_SHAPED.test(JSON.stringify(r.record)));
+        const replied = shown.some((r) => /Felt reply/.test(JSON.stringify(r.record)));
+        const authTurn = AUTH_SHAPED.test(turn.text);
+        const ok = !replied && (Boolean(auth) || authTurn);
+        const said = auth ? JSON.stringify(auth.record).match(AUTH_SHAPED)?.[0] ?? "" : "";
+        return {
+          fault: f.name, id: f.id, outcome: ok ? "ok" : "fail", injected: true, budget_ms: budget,
+          felt_ms: auth ? auth.at - sendAt : feel.felt_ms, recover_ms: null, carrier: "", turn: turn.text,
+          seen: replied ? "a reply, as if the login were good" : auth ? `a sign-in error (${said}) after ${((auth.at - sendAt) / 1000).toFixed(1)} s` : authTurn ? `the turn ended: ${turn.text.slice(0, 120)}` : `nothing about the login within ${f.budget_s} s`,
+          error: auth ? { code: "auth", message: said } : !turn.ok ? { code: "turn", message: turn.text } : typedError(feel.error),
+          detail: `${shown.length} records to the client after the send; ${auth ? `a sign-in error at ${auth.at - sendAt} ms` : "no sign-in error"}${replied ? "; the stub's reply came" : ""}; its turn ${turn.text}`,
+        };
+      } finally {
+        fresh.stop();
+        const r = await exec(tokenRestoreCommand(), 30_000);
+        if (!/@@restored/.test(r.stdout)) ctx.log?.(`chaos: ${f.name}: the endpoint was not put back: ${tail(r)}`);
+      }
+    };
+
+    /** A spare's life: paused long enough for its connections to go stale, resumed, and the person asks at once. */
+    const resumeThenChat = async (f: ChaosFault, tag: string): Promise<ChaosResult> => {
+      const budget = f.budget_s * 1000;
+      if (!ctx.machineApi) return failed(f, "could not inject: the journey gave the leg no machine API (pause, resume)");
+      const paused = await ctx.machineApi.pause().then(() => "", (e: Error) => e.message);
+      if (paused) return failed(f, `could not pause: ${paused}`);
+      ctx.log?.(`chaos: ${f.name}: paused; idle ${RESUME_IDLE_MS / 1000} s`);
+      await sleep(RESUME_IDLE_MS);
+      const resumed = await ctx.machineApi.resume().then(() => "", (e: Error) => e.message);
+      if (resumed) return failed(f, `could not resume: ${resumed}`, true);
+      const runningAt = Date.now();
+      const floor = feltFloor;
+      if (floor === null) return failed(f, "not sent: the felt chat's previous turn has no verified end", true);
+      const marker = feltMarker(tag);
+      const feltSent = feltAfterSend(felt, `${marker} after the resume: reply.`, budget, floor);
+      const back = await carrier.answeredAfter(runningAt, budget);
+      const feel = await feltSent;
+      const feltTurn = await turnOutcome(ctx, marker, felt.session);
+      feltFloor = await feltBoundary(ctx, felt.session, floor, feltTurn.ok);
+      const ok = feel.felt_ms !== null && feltTurn.ok;
+      return {
+        fault: f.name, id: f.id, outcome: ok ? "ok" : "fail", injected: true, budget_ms: budget, felt_ms: feel.felt_ms,
+        recover_ms: back === null ? null : back - runningAt, carrier: carrier.dials > 1 ? "new dial" : "unbroken", turn: feltTurn.text,
+        seen: feel.felt_ms === null ? `no reply within ${f.budget_s} s of the resume` : `replied ${(feel.felt_ms / 1000).toFixed(1)} s after the resume`,
+        error: feel.felt_ms === null ? typedError(feel.error) : !feltTurn.ok ? { code: "turn", message: feltTurn.text } : null,
+        detail: `${feel.felt_ms === null ? `no reply within ${f.budget_s} s of a send at the resume (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})` : `the reply began ${feel.felt_ms} ms after a send at the resume`}; its turn ${feltTurn.text} (the machine served it); ${back === null ? "the carrier gave no answer" : `the carrier answered ${back - runningAt} ms after running`}`,
+      };
+    };
+
+    /**
+     * The staging database stall (cmux-vm's fault switch): the window set from now, then a round each DB_ROUND_MS
+     * until DB_AFTER_MS past its end, each a felt send on the person's chat and a VM API read, one send in flight at a
+     * time. A send the machine took that ended with neither a reply nor a stated reason is lost.
+     */
+    const dbStall = async (f: ChaosFault, tag: string): Promise<ChaosResult> => {
+      const budget = f.budget_s * 1000;
+      if (!ctx.dbSwitch) return { ...failed(f, "not run: the journey has no --chaos-db-switch-command to set the staging database fault"), outcome: "not run" };
+      const floor = feltFloor;
+      if (floor === null) return failed(f, "not sent: the felt chat's previous turn has no verified end");
+      const window = dbWindow(Date.now());
+      const sw = await ctx.dbSwitch(window).catch((e: Error) => ({ ok: false, text: e.message }));
+      ctx.log?.(`chaos: ${f.name}: window ${iso(window.from)} to ${iso(window.until)}; the switch: ${sw.text}`);
+      const read = ctx.vmRead ?? (async () => {
+        const r = await ctx.exec("true", 60_000);
+        if (r.code !== 0) throw new Error(`exec exit ${r.code}`);
+      });
+      const rounds: DbRound[] = [];
+      const markers: string[] = [];
+      for (let n = 1, next = Date.now(); ; n++) {
+        await sleep(Math.max(0, next - Date.now()));
+        const start = Date.now();
+        const marker = feltMarker(`${tag}-r${n}`);
+        markers.push(marker);
+        const [feel, vm] = await Promise.all([
+          feltAfterSend(felt, `${marker} round ${n}: reply.`, budget, felt.held),
+          (async () => {
+            const t = Date.now();
+            const okRead = await read().then(() => true, () => false);
+            return { ms: Date.now() - t, ok: okRead };
+          })(),
+        ]);
+        const end = Date.now();
+        rounds.push({
+          n, phase: dbPhase(start, end, window), start, end, felt_ms: feel.felt_ms, ok: feel.felt_ms !== null,
+          acked: feel.ack_ms !== null, lost: false, error: feel.felt_ms === null ? typedError(feel.error) : null, read_ms: vm.ms, read_ok: vm.ok,
+        });
+        ctx.log?.(`chaos: ${f.name}: round ${n} ${rounds[n - 1].phase}: ${feel.felt_ms === null ? `no reply (${feel.error || "taken, then silence"})` : `replied in ${feel.felt_ms} ms`}; read ${vm.ok ? "ok" : "failed"} in ${vm.ms} ms`);
+        next = start + DB_ROUND_MS;
+        if (Date.now() >= window.until + DB_AFTER_MS) break;
+      }
+      // A send taken but never replied: its turn says whether it ended with a reason (stated) or was lost.
+      for (const r of rounds.filter((x) => x.acked && !x.ok)) {
+        const state = await turnState(ctx, markers[r.n - 1], felt.session).catch(() => null);
+        if (state && state.started >= 1 && !state.running && state.status !== "completed") r.error = { code: "turn", message: `${state.status}${state.detail ? `: ${state.detail}` : ""}` };
+        else if (!state || state.started === 0 || state.running) r.lost = true;
+      }
+      feltFloor = await feltBoundary(ctx, felt.session, floor, true);
+      const j = judgeDbStall(window, rounds, sw.ok, budget);
+      return {
+        fault: f.name, id: f.id, outcome: j.ok ? "ok" : "fail", injected: j.injected, budget_ms: budget,
+        felt_ms: Math.max(0, ...rounds.filter((r) => r.phase === "during" && r.felt_ms !== null).map((r) => r.felt_ms!)) || null,
+        recover_ms: j.recover_ms, carrier: "", turn: "", seen: j.seen, error: j.error, window, rounds,
+        detail: `${j.seen}; window ${iso(window.from)} to ${iso(window.until)}; the switch: ${sw.text}; rounds ` +
+          rounds.map((r) => `${r.n}:${r.phase}:${r.ok ? r.felt_ms : r.lost ? "lost" : r.error?.code ?? "none"}/read ${r.read_ok ? r.read_ms : "failed"}`).join(" "),
+      };
+    };
+
+    for (const [i, f] of faults.entries()) {
+      if (chatError) {
+        out.push(failed(f, `the client's chat could not be opened over the carrier: ${chatError}`));
+        continue;
+      }
+      if (warmError) {
+        out.push(failed(f, warmError));
+        continue;
+      }
+      const tag = `${safeTag(ctx.tag)}-${i}`;
+      const kind = f.kind ?? "mid-turn";
+      const run = kind === "session-new" ? sessionNew : kind === "token-rejected" ? tokenRejected : kind === "resume" ? resumeThenChat : kind === "db-stall" ? dbStall : midTurn;
+      const result = await run(f, tag).catch((e: Error) => failed(f, `the fault's run stopped: ${e.message}`));
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
       // Let the carrier settle before the next fault.
@@ -1104,7 +1575,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
     chat.stop();
     felt.stop();
   }
-  for (const n of NOT_INJECTED) out.push({ fault: n.name, outcome: "not run", felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why });
+  if (!ctx.only?.length) for (const n of NOT_INJECTED) out.push({ fault: n.name, outcome: "not run", felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: n.why });
   return out;
 }
 

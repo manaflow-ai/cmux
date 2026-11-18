@@ -826,3 +826,116 @@ describe("the machine at a stall", () => {
     }
   });
 });
+
+// cmuxterm-hq#13645: the hq chaos matrix's faults on the carrier (the relay chat they used is gone, cmux-platform#1136).
+describe("the hq chaos matrix on the carrier", () => {
+  const hqMatrix = ["acpmux-takeover-mid-turn", "daemon-crash-mid-turn", "daemon-restart-mid-turn", "daemon-restart-session-new",
+    "db-stall", "link-loss", "pause-mid-turn", "relay-crash", "relay-wedged", "resume-then-chat", "token-rejected"];
+
+  test("every hq fault name is a fault id, with the hq budget", () => {
+    expect(chaos.FAULT_IDS).toEqual(expect.arrayContaining(hqMatrix));
+    const budget = Object.fromEntries(chaos.MATRIX.map((f) => [f.id, f.budget_s]));
+    expect(budget).toMatchObject({ "link-loss": 180, "relay-crash": 180, "relay-wedged": 180, "pause-mid-turn": 300, "db-stall": 120, "daemon-restart-session-new": 120 });
+  });
+
+  test("no selection is the default leg, a selection runs only those in order, an unknown id is refused", () => {
+    expect(chaos.selectFaults()).toBe(FAULTS);
+    expect(chaos.selectFaults([])).toBe(FAULTS);
+    expect(chaos.selectFaults(["relay-wedged", "drop-5s"]).map((f) => f.id)).toEqual(["relay-wedged", "drop-5s"]);
+    expect(() => chaos.selectFaults(["relay-wedged", "no-such"])).toThrow(/unknown chaos fault no-such/);
+  });
+
+  test("a daemon SIGTERM and SIGKILL signal only the pid acpmux names", () => {
+    expect(chaos.daemonSignalCommand("TERM")).toContain('kill -TERM "$p" && echo "@@ok $p"');
+    expect(chaos.daemonSignalCommand("KILL")).toBe(FAULTS.find((f) => f.id === "agent-daemon-restart")!.command);
+  });
+
+  test("link loss drops every packet but loopback's, and restores itself first", () => {
+    const cmd = dropCommand(30, "all");
+    expect(cmd).toContain("iptables -I OUTPUT ! -o lo -j DROP");
+    expect(cmd).toContain("iptables -I INPUT ! -i lo -j DROP");
+    expect(cmd).toContain(`oifname != "lo" drop`);
+    expect(cmd.indexOf("sleep 30")).toBeLessThan(cmd.indexOf("iptables -I OUTPUT"));
+    expect(dropCommand(5)).toBe(dropCommand(5, "443"));
+  });
+
+  test("a wedged session host gets its SIGCONT armed before the stop, by the pid from its unit", () => {
+    const cmd = chaos.sessionHostStopCommand(45);
+    expect(cmd).toContain("systemctl show -p ControlGroup --value cmux-host.service");
+    expect(cmd.indexOf("kill -CONT")).toBeLessThan(cmd.indexOf("kill -STOP"));
+    expect(cmd).toContain("sleep 45");
+    expect(cmd).toContain('echo "@@failed cgroup=$cg pid=$host"');
+  });
+
+  test("an update swaps the daemon's own executable by a rename, and a take-over is a new pid with the old gone", () => {
+    const cmd = chaos.daemonReinstallCommand();
+    expect(cmd).toContain('cp --preserve=mode,ownership,timestamps "$exe" "$exe.chaos-update"');
+    expect(cmd).toContain('mv -f "$exe.chaos-update" "$exe"');
+    expect(cmd).toContain('*" (deleted)"');
+    expect(chaos.daemonTookOverCommand("41")).toContain(`! kill -0 '41'`);
+  });
+
+  test("the rejected login points Claude at a 401 server, and the restore puts the endpoint back", () => {
+    const cmd = chaos.tokenRejectCommand();
+    expect(cmd).toContain("authentication_error");
+    expect(cmd).toContain("ANTHROPIC_BASE_URL");
+    expect(cmd).toContain('echo "@@ok $port"');
+    const back = chaos.tokenRestoreCommand();
+    expect(back).toContain("@@restored");
+    expect(back).not.toMatch(/pkill|killall/);
+  });
+
+  test("the sign-in error the person must see", () => {
+    for (const s of ["authentication_error", "Invalid API key · Please run /login", "HTTP 401", "Please sign in"]) expect(chaos.AUTH_SHAPED.test(s)).toBe(true);
+    expect(chaos.AUTH_SHAPED.test("Felt reply [chaos-felt t] reply.")).toBe(false);
+    expect(chaos.typedError("agent_session.sign_in_required: sign in to Claude")).toEqual({ code: "agent_session.sign_in_required", message: "sign in to Claude" });
+    expect(chaos.typedError("")).toBeNull();
+  });
+});
+
+describe("db-stall on the carrier", () => {
+  const w = chaos.dbWindow(1_000_000);
+  const round = (n: number, start: number, over: Partial<chaos.DbRound> = {}): chaos.DbRound => ({
+    n, start, end: start + 2_000, phase: chaos.dbPhase(start, start + 2_000, w), felt_ms: 2_000, ok: true, acked: true,
+    lost: false, error: null, read_ms: 300, read_ok: true, ...over,
+  });
+
+  test("the window opens after the probe's own start", () => {
+    expect(w).toEqual({ mode: "stall", ms: 10_000, share: 0.5, from: 1_000_000 + chaos.DB_OPENS_MS, until: 1_000_000 + chaos.DB_OPENS_MS + chaos.DB_WINDOW_MS });
+  });
+
+  test("a round is placed by its own start and end", () => {
+    expect(chaos.dbPhase(w.from - 5_000, w.from - 1, w)).toBe("before");
+    expect(chaos.dbPhase(w.from - 5_000, w.from + 1, w)).toBe("during");
+    expect(chaos.dbPhase(w.until - 1, w.until + 9_000, w)).toBe("during");
+    expect(chaos.dbPhase(w.until, w.until + 9_000, w)).toBe("after");
+  });
+
+  const run = (overDuring: Partial<chaos.DbRound> = {}) => [
+    round(1, w.from - 60_000),
+    round(2, w.from + 10_000, { read_ms: 10_200, ...overDuring }),
+    round(3, w.from + 40_000, { ok: false, felt_ms: null, error: { code: "turn", message: "failed: db" }, read_ok: false }),
+    round(4, w.until + 5_000, { felt_ms: 3_000 }),
+  ];
+
+  test("green: a held read in the window, nothing lost, a reply soon after it", () => {
+    const j = chaos.judgeDbStall(w, run(), true, 120_000);
+    expect(j).toMatchObject({ injected: true, ok: true, recover_ms: 8_000, error: { code: "turn" } });
+    expect(j.seen).toContain("in the window 1/2 replied, 1 refused, 0 lost; 2 VM API reads held");
+  });
+
+  test("not injected when the switch was not set or no read in the window was held", () => {
+    expect(chaos.judgeDbStall(w, run(), false, 120_000)).toMatchObject({ injected: false, ok: false });
+    const quiet = run().map((r) => ({ ...r, read_ms: 300, read_ok: true }));
+    const j = chaos.judgeDbStall(w, quiet, true, 120_000);
+    expect(j.injected).toBe(false);
+    expect(j.seen).toContain("not injected (no VM API read in the window was held)");
+  });
+
+  test("red: an acknowledged send lost, or a reply after the window past the budget", () => {
+    expect(chaos.judgeDbStall(w, run({ ok: false, felt_ms: null, lost: true }), true, 120_000)).toMatchObject({ injected: true, ok: false });
+    const late = run();
+    late[3] = round(4, w.until + 5_000, { felt_ms: 119_000 });
+    expect(chaos.judgeDbStall(w, late, true, 120_000)).toMatchObject({ ok: false, recover_ms: 124_000 });
+  });
+});
