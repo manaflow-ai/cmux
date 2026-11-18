@@ -42,7 +42,7 @@ public final class ShareCmuxView: NSView {
     /// (tests record it instead).
     public init(writeToPasteboard: @escaping @MainActor (String) -> Void = ShareCmuxView.writeToGeneralPasteboard) {
         self.writeToPasteboard = writeToPasteboard
-        surface = OverlaySurfaceView(interactive: true)
+        surface = Glass.makeOverlayPanel(interactive: true, tone: .neutralGlass(.transient))
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           hint: .return,
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))

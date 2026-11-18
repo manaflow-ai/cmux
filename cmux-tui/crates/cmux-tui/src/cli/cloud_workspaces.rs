@@ -121,7 +121,7 @@ pub(super) fn machines_of(reply: &Value) -> Option<Vec<Value>> {
 
 /// The CLI's best-effort read of the app's Cloud machines: `None` with no
 /// app, an explicit daemon route the app does not own, or a failed read.
-fn read(global: &super::GlobalArgs) -> Option<Vec<Value>> {
+pub(super) fn read(global: &super::GlobalArgs) -> Option<Vec<Value>> {
     if global.app_socket.is_none() && !super::cloud_machines::app_found() {
         return None;
     }

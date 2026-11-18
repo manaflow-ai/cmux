@@ -76,6 +76,37 @@ class LaunchIngest(unittest.TestCase):
         self.assertEqual(rows[("failed_launches", "head")]["value"], 1)
         self.assertEqual(rows[("failed_launches", "base")]["value"], 0)
 
+    def test_premain_log(self) -> None:
+        # launch-premain.sh's LP-RUN lines: only the measured launch (role B) of each arm is a sample.
+        lines = ['LP host cmux23 chip="Apple M4 Pro" macOS 26.1 session Aqua']
+        for rep, (fast, slow) in enumerate(((44.0, 980.0), (47.0, 640.0), (41.0, None))):
+            for arm, value in (("z", fast), ("a", slow)):
+                lines.append("LP-RUN " + json.dumps({"arm": arm, "rep": rep + 1, "role": "A", "main_start": 30.0}))
+                row = {"arm": arm, "rep": rep + 1, "role": "B", "main_start": value, "pageins": 900 if value and value > 100 else 200,
+                       "resident_before": 0.4, "user_ms": 20.0}
+                if value is None:
+                    row["error"] = "no window in 30 s"
+                lines.append("LP-RUN " + json.dumps(row))
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "step.log"
+            log.write_text("\n".join(lines) + "\n")
+            ctx = ingest(log)
+        rows = {(r["metric"], r["labels"]["arm"]): r for r in ctx.rows}
+        self.assertEqual(rows[("main_start", "z")]["value"], 44.0)
+        self.assertEqual(rows[("main_start", "z")]["n"], 3)
+        self.assertEqual(rows[("main_start", "a")]["value"], 810.0)
+        self.assertEqual(rows[("failed_launches", "a")]["value"], 1)
+        self.assertEqual(rows[("pageins", "a")]["value"], 900)
+        self.assertTrue(all(r["labels"]["mode"] == "premain" for r in ctx.rows))
+        self.assertEqual(ctx.host["name"], "cmux23")
+
+    def test_premain_bench_nightly(self) -> None:
+        # The standing detector: launch-premain runs nightly with the 60 s arm, its control and the relink arm.
+        bench = load_all()["launch-premain"]
+        self.assertTrue(bench.nightly)
+        self.assertEqual(bench.nightly_args["arms"], "h,a,k")
+        self.assertEqual(bench.harness, "scripts/measure/launch-premain.sh")
+
     def test_registered(self) -> None:
         bench = load_all()["launch"]
         self.assertTrue(bench.nightly)
