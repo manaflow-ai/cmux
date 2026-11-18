@@ -40,6 +40,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var size: CloudChatSize?
     /// The bytes the folder's copy sends, as the start's preflight counted them; nil when not counted.
     public var folderBytes: Int64?
+    /// The largest size the account's plan gives, as the page read it (`cloudMachine.list` `plan.max_size`); nil: not known.
+    public var planMax: CloudChatSize?
     /// Native Send authorization reserved before waiting for the speculative lease.
     var gestureTicket: String?
     /// The page's send again after its `cloud.signIn` signed in: authorized only by
@@ -114,6 +116,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
         self.signedIn = signedIn as? Bool ?? false
+        self.planMax = (params?["planMax"] as? String).flatMap(CloudChatSize.init(rawValue:)) // a size this app does not know: none
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -265,15 +268,22 @@ struct AgentPaneHandOff {
     private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        var start = start
         if let reservationKey = start.reservationKey,
            !model.ownsCloudReservation(reservationKey) {
-            // A page cannot attach a lease owned by another compose or pane. The native model is
-            // the source of truth for the one live reservation; page state is only a hand-off hint.
-            return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            // The pane's chat changed after this compose reserved (a harness switch): the Send goes cold
+            // and that machine is released. Anything else is never attached: a page cannot bind a lease
+            // owned by another compose or pane. The native model is the source of truth for the one live
+            // reservation; page state is only a hand-off hint.
+            guard await model.releaseLeftCloudReservation(reservationKey) else {
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
+            start.reservationKey = nil
+        } else if let reservationKey = start.reservationKey {
+            model.markCloudReservationSent(reservationKey)
         }
         // A Send without the reservation: one still out is this pane's to release as it answers.
         if start.reservationKey == nil { model.dropCloudReservation() }
-        var start = start
         (start.carriedFiles, start.stagedFiles) = await model.cloudCarriedFiles(start.attachments)
         guard AgentPaneCloudAttachments(start.attachments, files: start.carriedFiles, staged: start.stagedFiles) != nil else {
             return AgentPaneReply.failure(code: "cloud_attachments", message: AgentPaneCloudAttachments.refusal(start.attachments))
@@ -303,8 +313,8 @@ struct AgentPaneHandOff {
                           signInGrant: grantKey) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
-            // also when the App could not close it.
-            if reply["ok"] as? Bool != true { replacements.endSandbox() }
+            // also when the App could not close it. Its reservation is spent with it.
+            if reply["ok"] as? Bool != true { replacements.endSandbox() } else if let key = start.reservationKey { model.cloudReservationBound(key) }
             return reply
         }
     }

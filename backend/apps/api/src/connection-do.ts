@@ -409,6 +409,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
+      ...(typeof params.setup_action === "string" ? { setup_action: params.setup_action } : {}),
       redirectUri: frame.redirect_uri,
       connection: c.id,
       state: String(params.state),
