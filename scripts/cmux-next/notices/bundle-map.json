@@ -88,6 +88,11 @@
       "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/PlugIns/CmuxShare.appex/Contents/MacOS/CmuxShare",
+      "what": "the Share extension (scripts/cmux-next/bundle-share-extension.sh): Packages/macOS/CmuxNext/ShareExtension, first-party Swift and the system frameworks only",
+      "notices": ["first-party"]
+    },
+    {
       "path": "Contents/Resources/bin/cmux",
       "what": "the cmux CLI and daemon (cmux-tui crates; acpmux, libghostty-vt, the browser host and the app host are linked in, the hosts run by argv[0] as bin/cmux-browser-host and bin/cmux-app-host links; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
       "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "section:rust-cmux-app-host"]

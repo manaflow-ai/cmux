@@ -19,9 +19,15 @@
 //! nothing: 95 starts from Nov 12 to 18, median 65.6k input tokens and
 //! 3.5 s each (user, 2026-11-18: "why wasn't it just one prompt?").
 //!
-//! On by default for a Claude subagent on this Mac; cmux-next.json
-//! `chief.subagentGoal: false` turns it off (a codex subagent or one on a
-//! peer never gets it: neither runs Claude Code here).
+//! A Codex subagent gets the same condition: acpmux sets it as Codex's own
+//! goal (codex-acp `_session/goal`) beside its first prompt, and Codex starts
+//! its next turns itself until it marks the goal complete. Its report waits
+//! for a turn end with the goal no longer active
+//! (`brain/children.rs` `goal_goes_on`).
+//!
+//! On by default for a Claude or Codex subagent on this Mac; cmux-next.json
+//! `chief.subagentGoal: false` turns it off (one on a peer never gets it:
+//! the peer's acpmux may not know `stopCondition`).
 
 use serde_json::{Value, json};
 
@@ -79,7 +85,7 @@ pub fn note_block() -> Value {
     json!({
         "type": "text",
         "text": format!(
-            "You work under a goal: a Stop hook checks every would-be stop and sends you back to work until this holds. {CONDITION}"
+            "You work under a goal: every would-be stop is checked, and you go back to work until this holds. {CONDITION}"
         ),
     })
 }
