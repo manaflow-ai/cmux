@@ -68,6 +68,7 @@ fn an_agent_pooled_under_the_old_switch_is_discarded_not_served() {
 /// A pooled agent was given its tool servers as it started: once the person turns cmux's tools
 /// for agents on or off (`agents.cmuxMcp`), a session of the same shape asks for other servers, so
 /// the old entry's key no longer matches and it is never served with the old `cmux` server.
+#[cfg(unix)]
 #[test]
 fn a_change_to_cmux_tools_leaves_a_pooled_key_unmatched() {
     use std::os::unix::fs::PermissionsExt as _;
@@ -115,6 +116,7 @@ fn another_settings_file_leaves_a_pooled_key_unmatched() {
 
 /// A Codex spare started before the person added their own HTTP server named `cmux` (as Codex
 /// itself answers) would still run cmux's server under that name: its key no longer matches.
+#[cfg(unix)]
 #[test]
 fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     use crate::agent_tools::tests_support::{codex_answers, fake_codex};
@@ -160,6 +162,7 @@ fn an_http_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
 /// A Codex spare keys on Codex's answer for the person's own `cmux` entry (none, a stdio entry
 /// with its command and args, HTTP) and on the answer its env keys carry: a change to either
 /// since it started leaves its key unmatched, and it is discarded.
+#[cfg(unix)]
 #[test]
 fn a_persons_stdio_cmux_entry_leaves_a_pooled_codex_key_unmatched() {
     use crate::agent_tools::tests_support::{codex_answers, fake_codex};
