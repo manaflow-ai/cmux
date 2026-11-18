@@ -18,6 +18,7 @@
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
 // session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
+// With HOME_ROOT/cmux-next.json (launch-ready.sh engines=) the app reads its settings from that file.
 // SOCKET is the app's control socket (default HOME_ROOT/app.sock). A socket path must fit sun_path (104 bytes with
 // its NUL); a fleet worker's checkout is deep enough that HOME_ROOT/app.sock does not, so launch-ready.sh passes a
 // short one under /tmp.
@@ -109,6 +110,9 @@ var environment: [String: String] = [
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
+// A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
+let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
+if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
@@ -167,8 +171,10 @@ func rpc(_ method: String) -> [String: Any]? {
     return object["result"] as? [String: Any]
 }
 
-// What is in front: the focused workspace (its model key, stable across launches), its tab, and the key window's top
-// page (`context.keys` topPage: "home" when Home is in front; snapshot.get has no top page). Read once, after the
+// What is in front: the focused workspace (its model key, stable across launches), its tab and that tab's page
+// ("home-dock" for the Home a launch docks in its workspace), the surface with the keyboard (`context.keys`
+// surfaceKind; nil while the keyboard is on the sidebar or nowhere) and whether Home is in front: the focused tab is
+// the docked Home, or Home covers the window (topPage "home", which a launch's docked Home never sets). Read once, after the
 // settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
 // launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
 // snapshot.get is asked up to 3 times, 250 ms apart: one missed answer is not taken as nothing in front.
@@ -184,10 +190,24 @@ func front() -> [String: Any] {
     let workspace = (topology["workspaces"] as? [[String: Any]] ?? []).first { $0["id"] as? String == focused }?["key"] as? String ?? focused
     let context = rpc("context.keys") ?? [:]
     let keys = context["keys"] as? [String: Any] ?? context
-    return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "top_page": keys["topPage"] ?? NSNull(),
+    let surface = keys["surfaceKind"] as? String, page = (focus["tab"] as? String).flatMap { tabPage($0, in: topology) }
+    return ["workspace": workspace.map { $0 as Any } ?? NSNull(), "tab": focus["tab"] ?? NSNull(), "page": page.map { $0 as Any } ?? NSNull(),
+            "surface": surface.map { $0 as Any } ?? NSNull(),
+            "home": keys["topPage"] as? String == "home" || page == "home-dock" || surface == "home-dock",
             "windows": (topology["windows"] as? [Any])?.count ?? 0]
 }
 var frontAtQuit: [String: Any]?
+
+/// The `page` of the tab with id `tab` anywhere in snapshot.get's topology (its panes' tabs), nil if it names none.
+func tabPage(_ tab: String, in node: Any) -> String? {
+    if let object = node as? [String: Any] {
+        if object["id"] as? String == tab, let page = object["page"] as? String { return page }
+        for value in object.values { if let page = tabPage(tab, in: value) { return page } }
+    } else if let array = node as? [Any] {
+        for value in array { if let page = tabPage(tab, in: value) { return page } }
+    }
+    return nil
+}
 
 let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     let t = now()
@@ -213,7 +233,7 @@ while !done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow
 
 func rel(_ value: Double?) -> Any { guard let value, let start else { return NSNull() }; return (value - start * 1).rounded(toPlaces: 1) }
 extension Double { func rounded(toPlaces places: Int) -> Double { let p = pow(10, Double(places)); return (self * p).rounded() / p } }
-let keep = ["main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
+let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",

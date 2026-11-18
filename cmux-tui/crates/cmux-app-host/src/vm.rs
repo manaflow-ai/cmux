@@ -490,6 +490,12 @@ impl AppVm {
         self.entry_unit("dispatch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppDispatch", args))
     }
 
+    /// A widget mount's host-owned tick: sets its `now()` clock to `now_ms`.
+    pub fn tick(&mut self, mount: &str, now_ms: u64) -> Result<(), VmError> {
+        let args = (mount.to_string(), now_ms as f64);
+        self.entry_unit("tick", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppTick", args))
+    }
+
     /// Answers one `call`. Unknown callback ids are ignored.
     pub fn resolve(&mut self, cb: u64, ok: bool, body: &Value) -> Result<(), VmError> {
         if !self.shared.borrow_mut().pending_calls.remove(&cb) {

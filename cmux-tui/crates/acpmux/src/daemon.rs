@@ -147,13 +147,14 @@ fn install_panic_log() {
     }
 }
 
-/// Debug builds only: the one panic the test triggers below raise.
+/// Debug builds only: the one panic the test triggers raise (below, and the agent host's
+/// translator seam, `agent_host/host.rs` `test_translator_panic`).
 #[cfg(debug_assertions)]
 #[allow(
     clippy::panic,
     reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
 )]
-fn test_panic(message: &str) -> ! {
+pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
     panic!("{message}");
 }
