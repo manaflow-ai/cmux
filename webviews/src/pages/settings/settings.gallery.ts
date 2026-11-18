@@ -1698,6 +1698,7 @@ const githubConnection = {
   busy: false,
   connect: "Connect GitHub",
   disconnect: "Disconnect",
+  reconfigure: "Reconfigure",
   confirm: "Disconnect GitHub? Agents will lose access through this connection.",
   cancel: "Cancel",
   refresh: "Refresh",
@@ -1706,6 +1707,7 @@ const githubConnection = {
     {
       id: "sample-github",
       canDisconnect: true,
+      canReconfigure: true,
       account: "sample-team",
       status: "Connected",
       permissions: ["contents:write", "pull_requests:write"],
