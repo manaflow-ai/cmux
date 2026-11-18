@@ -147,6 +147,21 @@ function normalize(task: Task, mirror: Pick<Mirror, "settings" | "statuses">): T
   };
 }
 
+/** `normalize` again after a status or settings change, keeping the task's object when its key and
+ * category come out the same: a list row takes its task as a prop, so a change to one status
+ * re-renders the rows of the tasks it touches, not every row. */
+function renormalize(
+  tasks: ReadonlyMap<string, Task>,
+  mirror: Pick<Mirror, "settings" | "statuses">,
+): Map<string, Task> {
+  const out = new Map<string, Task>();
+  for (const [id, task] of tasks) {
+    const next = normalize(task, mirror);
+    out.set(id, next.key === task.key && next.category === task.category ? task : next);
+  }
+  return out;
+}
+
 export function fromSnapshot(snapshot: Snapshot): Mirror {
   const seq = Number(snapshot.seq);
   const statuses = sortStatuses(snapshot.statuses);
@@ -186,7 +201,7 @@ export function applyEvent(mirror: Mirror, event: TaskEvent): Mirror {
       const { entity: _entity, ...status } = value;
       next.statuses = sortStatuses([...mirror.statuses.filter((s) => s.id !== status.id), status]);
       // A status's category change reaches the tasks in it.
-      next.tasks = new Map([...mirror.tasks].map(([id, task]) => [id, normalize(task, next)]));
+      next.tasks = renormalize(mirror.tasks, next);
       break;
     }
     case "label": {
@@ -206,7 +221,7 @@ export function applyEvent(mirror: Mirror, event: TaskEvent): Mirror {
       next.settings = settings;
       // A new key prefix reaches every task's key.
       if (settings.key_prefix !== mirror.settings.key_prefix) {
-        next.tasks = new Map([...mirror.tasks].map(([id, task]) => [id, normalize(task, next)]));
+        next.tasks = renormalize(mirror.tasks, next);
       }
       break;
     }

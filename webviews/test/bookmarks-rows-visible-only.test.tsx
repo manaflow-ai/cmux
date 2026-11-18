@@ -146,6 +146,24 @@ test("a bookmark another writer renamed renders its one row", async () => {
   expect(renders).toBe(1);
 });
 
+test("while searching, a bookmark another writer renamed renders its one result row", async () => {
+  const { provider, store } = await mount();
+  await act(async () => {
+    store.setText("saved page");
+    await wait(50);
+  });
+  expect(store.getSnapshot().results?.length).toBeGreaterThan(0);
+  expect(shownRows().has("bm_long_3")).toBe(true);
+  const renders = await counted(async () => {
+    const nodes = provider["nodes"] as Bookmark[];
+    const at = nodes.findIndex((node) => node.id === "bm_long_3");
+    nodes[at] = { ...nodes[at]!, title: "Saved page 4, renamed elsewhere" };
+    provider.emitChanged();
+  });
+  expect(host.querySelector('[data-bookmark="bm_long_3"]')?.textContent).toContain("renamed elsewhere");
+  expect(renders).toBe(1);
+});
+
 test("a selection change renders the row it left and the row it reached", async () => {
   const { store } = await mount();
   await act(async () => store.select("bm_long_2"));

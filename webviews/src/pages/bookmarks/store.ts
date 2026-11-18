@@ -354,7 +354,14 @@ export class BookmarksStore {
     try {
       const reply = await this.client.call<SearchResult>(BookmarkOps.search, { browser_profile_id: profile, text });
       if (generation !== this.searchGeneration || profile !== this.snapshot.profile) return;
-      const results = reply.bookmarks;
+      // Each result that did not change keeps the object it had (as the last results or the tree
+      // hold it): a relist runs the search again, and a list row takes its node as a prop.
+      const last = new Map((this.snapshot.results ?? []).map((row) => [row.id, row]));
+      const nodes = this.snapshot.tree.nodes;
+      const results = reply.bookmarks.map((row) => {
+        const kept = last.get(row.id) ?? nodes.get(row.id);
+        return kept && sameFields(kept, row) ? kept : row;
+      });
       const shown = new Set(results.map((row) => row.id));
       this.set({ results, selection: this.snapshot.selection.filter((id) => shown.has(id)) });
     } catch (error) {

@@ -3,7 +3,9 @@
 // owner's echo confirms it, so nothing jumps back; changes made elsewhere (the CLI, an agent) arrive
 // as owner events and never move the selection or the scroll (the origin rule).
 import {
+  createContext,
   memo,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -11,6 +13,7 @@ import {
   useSyncExternalStore,
   type CSSProperties,
   type DragEvent,
+  type ReactNode,
 } from "react";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
@@ -390,10 +393,26 @@ function useAssigneeEntries(mirror: Mirror, tasks: readonly Task[], strings: Str
 interface RowShared {
   store: TasksStore;
   strings: Strings;
-  statuses: readonly Status[];
   labels: ReadonlyMap<string, Label>;
+}
+
+/** What every task's right-click menu lists: all statuses and assignees. It reaches the menus
+ * through context, not the rows' props, so a status or assignee change redraws the mounted menus
+ * (each lists them) without re-rendering the rows around them. */
+interface MenuSource {
+  store: TasksStore;
+  statuses: readonly Status[];
   entries: readonly AssigneeEntry[];
   me: Principal | undefined;
+}
+
+const MenuSourceContext = createContext<MenuSource | null>(null);
+
+/** A task's right-click menu around its row's button. */
+function TaskMenu({ task, children }: { task: Task; children: ReactNode }) {
+  const source = useContext(MenuSourceContext)!;
+  const items = useTaskMenu(source.store, source.statuses, source.entries, source.me, task);
+  return <ContextMenu items={items}>{children}</ContextMenu>;
 }
 
 /** Which tasks have a change in flight, and each one's unsent change: built once per change of the
@@ -414,22 +433,26 @@ function pendingMarks(intents: readonly Intent[]): PendingMarks {
   return { pending, unsent };
 }
 
-function useRows({ store, state, strings }: LayoutProps): { shared: RowShared; marks: PendingMarks } {
+function useRows({ store, state, strings }: LayoutProps): {
+  shared: RowShared;
+  marks: PendingMarks;
+  menu: MenuSource;
+  statusById: ReadonlyMap<string, Status>;
+} {
   const entries = useAssigneeEntries(state.mirror, state.tasks, strings);
   const marks = useMemo(() => pendingMarks(state.pending), [state.pending]);
-  const shared: RowShared = {
-    store,
-    strings,
-    statuses: state.mirror.statuses,
-    labels: state.mirror.labels,
-    entries,
-    me: state.mirror.me,
-  };
-  return { shared, marks };
+  const { statuses, me } = state.mirror;
+  const menu = useMemo(() => ({ store, statuses, entries, me }), [store, statuses, entries, me]);
+  // A status event keeps the objects of the statuses it did not change: a row's own one holds.
+  const statusById = useMemo(() => new Map(statuses.map((status) => [status.id, status])), [statuses]);
+  const shared: RowShared = { store, strings, labels: state.mirror.labels };
+  return { shared, marks, menu, statusById };
 }
 
 interface TaskRowProps extends RowShared {
   task: Task;
+  /** The task's status, when the row shows it. */
+  status?: Status;
   selected: boolean;
   pending: boolean;
   unsent: Intent | undefined;
@@ -440,23 +463,19 @@ interface TaskRowProps extends RowShared {
 const TaskRow = memo(function TaskRow({
   store,
   strings,
-  statuses,
   labels,
-  entries,
-  me,
   task,
+  status,
   selected,
   pending,
   unsent,
   showStatus,
   style,
 }: TaskRowProps) {
-  const items = useTaskMenu(store, statuses, entries, me, task);
-  const status = statusOf(statuses, task);
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
     <div role="listitem" style={style} className="tasks-row-slot">
-      <ContextMenu items={items}>
+      <TaskMenu task={task}>
         <button
           type="button"
           data-focus-ring="row"
@@ -476,7 +495,7 @@ const TaskRow = memo(function TaskRow({
           <LabelDots labels={labelsOf(labels, task)} />
           <AssigneeBadge assignee={task.assignee} delegate={task.delegate} strings={strings} />
         </button>
-      </ContextMenu>
+      </TaskMenu>
       <RowUnsent store={store} strings={strings} intent={unsent} />
     </div>
   );
@@ -513,34 +532,36 @@ function ListLayout({ store, state, strings }: LayoutProps) {
     }
     return out;
   }, [state.mirror.statuses, state.shown]);
-  const { shared, marks } = useRows({ store, state, strings });
+  const { shared, marks, menu } = useRows({ store, state, strings });
   if (!rows.length) return <p className="tasks-empty">{strings.t("pane.empty")}</p>;
   return (
-    <VirtualList
-      className="tasks-list"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
-      role="list"
-      label={strings.t("pane.title")}
-      count={rows.length}
-      estimateSize={(index) => (rows[index]!.kind === "status" ? HEADER_HEIGHT : ROW_HEIGHT)}
-      renderRow={(index, style) => {
-        const row = rows[index]!;
-        return row.kind === "status" ? (
-          <StatusHeader key={`s:${row.status.id}`} status={row.status} count={row.count} style={style} />
-        ) : (
-          <TaskRow
-            key={row.task.id}
-            {...shared}
-            task={row.task}
-            selected={state.selection === row.task.id}
-            pending={marks.pending.has(row.task.id)}
-            unsent={marks.unsent.get(row.task.id)}
-            showStatus={false}
-            style={style}
-          />
-        );
-      }}
-    />
+    <MenuSourceContext value={menu}>
+      <VirtualList
+        className="tasks-list"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
+        role="list"
+        label={strings.t("pane.title")}
+        count={rows.length}
+        estimateSize={(index) => (rows[index]!.kind === "status" ? HEADER_HEIGHT : ROW_HEIGHT)}
+        renderRow={(index, style) => {
+          const row = rows[index]!;
+          return row.kind === "status" ? (
+            <StatusHeader key={`s:${row.status.id}`} status={row.status} count={row.count} style={style} />
+          ) : (
+            <TaskRow
+              key={row.task.id}
+              {...shared}
+              task={row.task}
+              selected={state.selection === row.task.id}
+              pending={marks.pending.has(row.task.id)}
+              unsent={marks.unsent.get(row.task.id)}
+              showStatus={false}
+              style={style}
+            />
+          );
+        }}
+      />
+    </MenuSourceContext>
   );
 }
 
@@ -579,62 +600,65 @@ function InboxLayout({ store, state, strings }: LayoutProps) {
   }, [groups, state.connection, state.selection, store]);
   const byId = useMemo(() => new Map(state.tasks.map((task) => [task.id, task])), [state.tasks]);
   const selected = state.selection === undefined ? undefined : byId.get(state.selection);
-  const { shared, marks } = useRows({ store, state, strings });
+  const { shared, marks, menu, statusById } = useRows({ store, state, strings });
   return (
-    <div className="tasks-inbox">
-      <VirtualList
-        className="tasks-list tasks-inbox-list"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
-        role="list"
-        label={strings.t("pane.title")}
-        count={rows.length}
-        estimateSize={(index) => (rows[index]!.kind === "task" ? ROW_HEIGHT : HEADER_HEIGHT)}
-        renderRow={(index, style) => {
-          const row = rows[index]!;
-          if (row.kind === "zero") {
+    <MenuSourceContext value={menu}>
+      <div className="tasks-inbox">
+        <VirtualList
+          className="tasks-list tasks-inbox-list"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
+          role="list"
+          label={strings.t("pane.title")}
+          count={rows.length}
+          estimateSize={(index) => (rows[index]!.kind === "task" ? ROW_HEIGHT : HEADER_HEIGHT)}
+          renderRow={(index, style) => {
+            const row = rows[index]!;
+            if (row.kind === "zero") {
+              return (
+                <p key="zero" className="tasks-inbox-zero" style={style}>
+                  {strings.t("inbox.zero")}
+                </p>
+              );
+            }
+            if (row.kind === "group") {
+              return (
+                <div key={`g:${row.id}`} className="tasks-group-header" style={style} role="presentation">
+                  <span className="tasks-group-title">{strings.t(INBOX_TITLES[row.id])}</span>
+                  <span className="tasks-count">{row.count}</span>
+                </div>
+              );
+            }
             return (
-              <p key="zero" className="tasks-inbox-zero" style={style}>
-                {strings.t("inbox.zero")}
-              </p>
+              <TaskRow
+                key={row.task.id}
+                {...shared}
+                task={row.task}
+                selected={state.selection === row.task.id}
+                pending={marks.pending.has(row.task.id)}
+                unsent={marks.unsent.get(row.task.id)}
+                status={statusById.get(row.task.status)}
+                showStatus
+                style={style}
+              />
             );
-          }
-          if (row.kind === "group") {
-            return (
-              <div key={`g:${row.id}`} className="tasks-group-header" style={style} role="presentation">
-                <span className="tasks-group-title">{strings.t(INBOX_TITLES[row.id])}</span>
-                <span className="tasks-count">{row.count}</span>
-              </div>
-            );
-          }
-          return (
-            <TaskRow
-              key={row.task.id}
-              {...shared}
-              task={row.task}
-              selected={state.selection === row.task.id}
-              pending={marks.pending.has(row.task.id)}
-              unsent={marks.unsent.get(row.task.id)}
-              showStatus
-              style={style}
-            />
-          );
-        }}
-      />
-      <div className="tasks-detail-pane">
-        <div className="tasks-detail-scroll">
-          {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
-        </div>
-        {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
-        <SplitEdge
-          side="start"
-          property="--tasks-detail-width"
-          storageKey="cmux.tasks.detail.width"
-          min={280}
-          max={960}
-          on="parent"
+          }}
         />
+        <div className="tasks-detail-pane">
+          <div className="tasks-detail-scroll">
+            {selected ? <TaskDetail store={store} state={state} strings={strings} task={selected} /> : null}
+          </div>
+          {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+          <SplitEdge
+            side="start"
+            property="--tasks-detail-width"
+            storageKey="cmux.tasks.detail.width"
+            min={280}
+            max={960}
+            on="parent"
+          />
+        </div>
       </div>
-    </div>
+    </MenuSourceContext>
   );
 }
 
@@ -763,7 +787,7 @@ function SessionCard({ session, strings }: { session: Session; strings: Strings 
 function BoardLayout({ store, state, strings }: LayoutProps) {
   const groups = useMemo(() => statusGroups(state.mirror.statuses, state.shown), [state.mirror.statuses, state.shown]);
   const sessions = useMemo(() => sessionsByTask(state.mirror.sessions), [state.mirror.sessions]);
-  const { shared, marks } = useRows({ store, state, strings });
+  const { shared, marks, menu } = useRows({ store, state, strings });
   const [target, setTarget] = useState<string | null>(null);
   const onDrop = (status: string) => (event: DragEvent) => {
     event.preventDefault();
@@ -772,54 +796,56 @@ function BoardLayout({ store, state, strings }: LayoutProps) {
     if (id) store.setStatus(id, status);
   };
   return (
-    <div className="tasks-board">
-      {groups.map(({ status, tasks }) => (
-        <section
-          key={status.id}
-          className={`tasks-column${target === status.id ? " targeted" : ""}`}
-          aria-label={status.name}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            if (target !== status.id) setTarget(status.id);
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTarget(null);
-          }}
-          onDrop={onDrop(status.id)}
-        >
-          <StatusHeader status={status} count={tasks.length} />
-          <VirtualList
-            className="tasks-column-list"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
-            role="list"
-            label={status.name}
-            count={tasks.length}
-            estimateSize={() => 96}
-            // A card grows with its title (up to three lines) and session progress: each slot is measured
-            // (TanStack's one ResizeObserver watches the mounted cards only).
-            measureRows
-            renderRow={(index, style, measure) => {
-              const task = tasks[index]!;
-              return (
-                <BoardCard
-                  key={task.id}
-                  {...shared}
-                  task={task}
-                  session={sessions.get(task.id)}
-                  selected={state.selection === task.id}
-                  pending={marks.pending.has(task.id)}
-                  unsent={marks.unsent.get(task.id)}
-                  style={style}
-                  index={index}
-                  measure={measure}
-                />
-              );
+    <MenuSourceContext value={menu}>
+      <div className="tasks-board">
+        {groups.map(({ status, tasks }) => (
+          <section
+            key={status.id}
+            className={`tasks-column${target === status.id ? " targeted" : ""}`}
+            aria-label={status.name}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              if (target !== status.id) setTarget(status.id);
             }}
-          />
-        </section>
-      ))}
-    </div>
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTarget(null);
+            }}
+            onDrop={onDrop(status.id)}
+          >
+            <StatusHeader status={status} count={tasks.length} />
+            <VirtualList
+              className="tasks-column-list"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
+              role="list"
+              label={status.name}
+              count={tasks.length}
+              estimateSize={() => 96}
+              // A card grows with its title (up to three lines) and session progress: each slot is measured
+              // (TanStack's one ResizeObserver watches the mounted cards only).
+              measureRows
+              renderRow={(index, style, measure) => {
+                const task = tasks[index]!;
+                return (
+                  <BoardCard
+                    key={task.id}
+                    {...shared}
+                    task={task}
+                    session={sessions.get(task.id)}
+                    selected={state.selection === task.id}
+                    pending={marks.pending.has(task.id)}
+                    unsent={marks.unsent.get(task.id)}
+                    style={style}
+                    index={index}
+                    measure={measure}
+                  />
+                );
+              }}
+            />
+          </section>
+        ))}
+      </div>
+    </MenuSourceContext>
   );
 }
 
@@ -837,10 +863,7 @@ interface BoardCardProps extends RowShared {
 const BoardCard = memo(function BoardCard({
   store,
   strings,
-  statuses,
   labels,
-  entries,
-  me,
   task,
   session,
   selected,
@@ -850,12 +873,11 @@ const BoardCard = memo(function BoardCard({
   index,
   measure,
 }: BoardCardProps) {
-  const items = useTaskMenu(store, statuses, entries, me, task);
   const done = session ? session.plan.filter((step) => step.status === "completed").length : 0;
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
     <div ref={measure} data-index={index} style={style} className="tasks-card-slot" role="listitem">
-      <ContextMenu items={items}>
+      <TaskMenu task={task}>
         <button
           type="button"
           data-focus-ring="row"
@@ -888,7 +910,7 @@ const BoardCard = memo(function BoardCard({
             <LabelChips labels={labelsOf(labels, task)} />
           </span>
         </button>
-      </ContextMenu>
+      </TaskMenu>
       <RowUnsent store={store} strings={strings} intent={unsent} />
     </div>
   );

@@ -106,8 +106,12 @@ function snapshotOf(count: number) {
   return { ...sample, tasks, settings: { ...sample.settings, next_number: count + 1 } };
 }
 
-async function mount(layout: Layout, count = 200) {
-  const provider = new MockTasksProvider(snapshotOf(count));
+type Fixture = ReturnType<typeof snapshotOf>;
+
+async function mount(layout: Layout, count = 200, tweak?: (snapshot: Fixture) => void) {
+  const fixture = snapshotOf(count);
+  tweak?.(fixture);
+  const provider = new MockTasksProvider(fixture);
   let key = 0;
   const store = new TasksStore(provider, { newKey: () => `k${++key}`, schedule: () => () => {}, visible: () => true });
   store.subscribe(() => {});
@@ -147,6 +151,31 @@ test("list: a task another writer changed renders its one row", async () => {
     provider.call(TasksOps.update, { task: "task_3", assignee: "usr_austin", idempotency_key: "cli-1" }),
   );
   expect(renders).toBe(1);
+});
+
+test("list: a status event re-renders only the rows of the tasks it changes", async () => {
+  // task_3 alone in Backlog, which lists before Todo: its row is in the window.
+  const { provider } = await mount("list", 200, (snapshot) => {
+    snapshot.tasks[2]!.status = "st_backlog";
+  });
+  expect(shownTasks(".tasks-row").has("task_3")).toBe(true);
+  const status = (id: string) => provider.state.statuses.find((candidate) => candidate.id === id)!;
+  const send = (value: ReturnType<typeof status>) => {
+    provider.state.seq += 1;
+    provider.publish({
+      change: {
+        seq: provider.state.seq,
+        index: 0,
+        tx: `elsewhere-${provider.state.seq}`,
+        kind: "status.updated",
+        change: { type: "upsert", value: { entity: "status", ...value } },
+      },
+    });
+  };
+  // A status no task has is renamed: no row renders (each mounted menu takes the new name).
+  expect(await counted("TaskRow", () => send({ ...status("st_done"), name: "Shipped" }))).toBe(0);
+  // Backlog's category changes (its place holds): the one task in it renders.
+  expect(await counted("TaskRow", () => send({ ...status("st_backlog"), category: "triage" }))).toBe(1);
 });
 
 // The inbox orders by priority then `updated_at`, so a changed task moves and its neighbours shift
