@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { pageParked } from "../src/agent-session/acpmux/pageParked";
 import { settleReact } from "./support/domTeardown";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
@@ -194,5 +195,22 @@ test("a parked pane draws no other chat's change, and draws them in the turn it 
   } finally {
     setParked(false);
     client.close();
+  }
+});
+
+test("a take while no client listens (a reconnect's backoff) still reaches the page", async () => {
+  const { client } = await openPane();
+  setParked(true);
+  client.close();
+  setParked(false);
+  expect(pageParked(), "the taken page reads parked").toBe(false);
+  const { client: next, socket, snapshots } = await openPane();
+  try {
+    const before = snapshots();
+    burst(socket, 30, 3);
+    flushFrames();
+    expect(snapshots() - before, "the next client draws other chats' changes").toBe(1);
+  } finally {
+    next.close();
   }
 });
