@@ -56,7 +56,14 @@ await requireBrowserLane("chat-copy-composer-draft-swap.test.ts", async () => {
   const TURNS = 40;
   const LATEST = `Answer ${TURNS}:`;
   /// The draft in acpmux: three lines, so the composer is three lines tall.
-  const DRAFT = "First, read the restart trace.\nThen check where the composer sits.\nLast, write the failing test.";
+  const DRAFT = [
+    "First, read the restart trace.",
+    "Then check where the composer sits.",
+    "Note the frame it moved in.",
+    "Compare it with the copy.",
+    "Check the transcript foot.",
+    "Last, write the failing test.",
+  ].join("\n");
   const DRAFT_LAST_LINE = "Last, write the failing test.";
   /// acpmux refuses the socket this long from navigation, as while it restarts after an update.
   const DOWN_MS = 3000;
@@ -242,7 +249,7 @@ await requireBrowserLane("chat-copy-composer-draft-swap.test.ts", async () => {
         rootHidden,
         rows: rows.map(({ id, top }) => ({ id, top })),
         composer: box ? { top: box.top, height: box.height } : null,
-        composerText: (composerElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+        composerText: (composerElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 400),
       };
       recording.frames.push(frame);
       const next = JSON.stringify([
