@@ -36,15 +36,32 @@ import Testing
 
     @Test(arguments: DensityPreset.allCases)
     func builtInsScaleDefaultsOmnibar(preset: DensityPreset) {
-        let reference = OmnibarMetrics(tokens: DensityPreset.cozy.tokens)
+        // Default's reference: Helium's 28 pt bar and buttons over Compact's 0.9, the 14 pt chip glyph, Helium's glyphs and 18 pt trailing icons.
+        // Each density scales it by its omnibar factor, Compact's at Default.
         let metrics = OmnibarMetrics(tokens: preset.tokens)
-        let t = CGFloat(preset.scaleFactor)
-        for (size, base) in [(metrics.barHeight, reference.barHeight),
-                             (metrics.buttonSize, reference.buttonSize), (metrics.iconPointSize, reference.iconPointSize),
-                             (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, reference.trailingIconSize)] {
-            #expect(size == (base * t * 2).rounded() / 2)
+        let t = CGFloat(preset.omnibarScaleFactor)
+        for (size, base) in [(metrics.iconPointSize, 14),
+                             (metrics.toolbarIconSize, CGFloat(14 / 0.9 / 0.617)), (metrics.trailingIconSize, 18)] as [(CGFloat, CGFloat)] {
+            #expect(size == (base * t * 2).rounded() / 2, "\(preset)")
         }
-        #expect(metrics.fontSize == reference.fontSize * t)
+        // The bar and buttons: Helium's 28 pt at Compact, Chrome's 34 bar at Default (Lucas 2026-11-17) with Compact's
+        // 28 pt buttons (Lucas 2026-11-18: Compact's padding).
+        let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
+        #expect(metrics.barHeight == bar && metrics.buttonSize == (preset == .cozy ? 28 : bar), "\(preset)")
+        let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
+        #expect(abs(metrics.fontSize - font) < 0.000_001)
+    }
+
+    /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar with 11 pt
+    /// capitals; its toolbar buttons are Compact's 28 pt (Lucas 2026-11-18: Compact's padding).
+    @Test func defaultsOmnibarIsCompacts() {
+        var compact = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
+        compact.barHeight = 34
+        compact.fontSize = CGFloat((11 - 0.31) / 0.70459)
+        // Its star is 16 pt of ink on a 28 pt side, on a 28 pt plate: Compact's padding (Lucas 2026-11-18).
+        compact.starIconSize = 28
+        compact.starPlateSize = 28
+        #expect(OmnibarMetrics(tokens: DensityPreset.cozy.tokens) == compact)
     }
 
     @Test func levelOneIsTheComfortableRow() {
@@ -65,10 +82,10 @@ import Testing
         #expect(short.barHeight >= OmnibarMetrics.minimumBarHeight(fontSize: short.fontSize), "\(short)")
     }
 
-    /// Ultra-compact is tighter than today, Spacious roomier, and every size grows with the density.
+    /// Ultra-compact is tighter than Compact's 28 pt, Spacious roomier, and every size grows with the density.
     @Test func everyDensitySitsOnOneLine() {
         let all = DensityPreset.allCases.map { OmnibarMetrics(tokens: $0.tokens) }
-        #expect(all.first!.barHeight < 24, "Ultra-compact is \(all.first!.barHeight) pt")
+        #expect(all.first!.barHeight < 28, "Ultra-compact is \(all.first!.barHeight) pt")
         for (denser, roomier) in zip(all, all.dropFirst()) {
             #expect(denser.barHeight <= roomier.barHeight && denser.fontSize <= roomier.fontSize && denser.buttonSize <= roomier.buttonSize)
         }

@@ -45,6 +45,8 @@ mod exit_snapshot_cost;
 pub(crate) mod floating_panes;
 mod history_agent_fold;
 #[cfg(unix)]
+mod history_agent_save_stride;
+#[cfg(unix)]
 mod holder_late_start;
 mod input_queue_backstop;
 mod journal_lane_full;
@@ -101,6 +103,8 @@ mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 

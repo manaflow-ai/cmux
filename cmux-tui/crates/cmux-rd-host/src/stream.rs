@@ -99,6 +99,14 @@ fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
 }
 
+/// A frame shard or parity datagram: what the engine resends on a NACK or a tail-loss
+/// probe. These go through the pacer; input acks and clock pongs (small, latency-bound)
+/// do not.
+fn is_media_datagram(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram)
+        .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
+}
+
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
@@ -540,11 +548,12 @@ impl MediaSession {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
         let now = now_us();
         let due = pacer.due(now);
+        // Repairs left first; only the frame datagrams count toward a frame's send time.
+        let mut left = pacer.take_frame_datagrams_sent();
         for datagram in &due {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        let mut left = due.len();
         while left > 0 {
             let Some(log) = self.paced_logs.front_mut() else { break };
             let take = left.min(log.remaining);
@@ -602,9 +611,7 @@ impl MediaSession {
         if out.outage_ended.is_some() {
             self.drop_stale_queue(&mut out);
         }
-        for datagram in &out.datagrams {
-            let _ = carrier.send_datagram(datagram);
-        }
+        self.send_output(carrier, std::mem::take(&mut out.datagrams));
         self.upstreams.deliver(&out.upstream);
         if out.release_all {
             let _ = self.desktop.release_all();
@@ -614,6 +621,29 @@ impl MediaSession {
         }
         if let Some(req) = out.encode {
             self.encoder.submit(req);
+        }
+    }
+
+    /// Sends an engine output's datagrams: resent frame shards (NACK answers, tail-loss
+    /// probes) through the pacer, ahead of queued frames, so a recovery never leaves as an
+    /// unpaced burst; everything else at once.
+    fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
+        let Some(pacer) = self.pacer.as_mut() else {
+            for datagram in &datagrams {
+                let _ = carrier.send_datagram(datagram);
+            }
+            return;
+        };
+        let (repairs, direct): (Vec<_>, Vec<_>) =
+            datagrams.into_iter().partition(|d| is_media_datagram(d));
+        for datagram in &direct {
+            let _ = carrier.send_datagram(datagram);
+        }
+        if !repairs.is_empty() {
+            pacer.push_repair(repairs, self.engine.target_bps(), now_us());
+            if let Err(e) = self.send_paced(carrier) {
+                eprintln!("cmux-rd host: paced repair send failed: {e}");
+            }
         }
     }
 
