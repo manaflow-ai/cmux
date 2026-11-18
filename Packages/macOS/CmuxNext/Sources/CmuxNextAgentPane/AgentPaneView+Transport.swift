@@ -141,7 +141,11 @@ extension AgentPaneView {
                     Task { @MainActor in done() }
                 }
             } else {
-                // The completion runs once the page has run the push.
+                // The completion runs once the page has run the push: WebKit calls it only after the
+                // script ran in the page (or the web process ended), so it is this host's ack. A page
+                // whose main thread is stuck never completes it, and the pacer holds its one push in
+                // flight (AgentPaneFramePacer `inFlight`): no second push, tighter than the unacked
+                // bounds the page host needs (``AgentPaneTransport/Limits/maximumUnackedBytes``).
                 self.webView.evaluateJavaScript(event.script) { _, _ in done() }
             }
         }
