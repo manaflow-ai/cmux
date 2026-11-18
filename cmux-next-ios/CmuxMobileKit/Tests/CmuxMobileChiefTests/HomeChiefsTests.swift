@@ -71,6 +71,16 @@ import Testing
         #expect(unknown.tag(for: "c-mini", macName: nil) == "Main \u{00B7} host-7f3a")
     }
 
+    @Test func serverNamesComeFromTheTeamsHostList() {
+        // `team.hosts.list`: the ids `brain_place.host` names, with each host's name.
+        let names = ChiefSources.hostNames(["hosts": [["id": "host_7f3a", "name": "Studio mini", "platform": "macos"],
+                                                      ["id": "host_unnamed", "name": ""], ["name": "no id"]]])
+        #expect(names == ["host_7f3a": "Studio mini"])
+        let placed = Self.cloud("mini", main: "c-mini", host: "host_7f3a")
+        let chiefs = HomeChiefs(macRows: [], macChief: nil, cloud: Self.cloud + [placed], open: placed, serverName: { names[$0] })
+        #expect(chiefs.tag(for: "c-mini", macName: nil) == "Main \u{00B7} Studio mini")
+    }
+
     @Test func pickersLeadWithTheMainChief() {
         let chiefs = HomeChiefs(macRows: [], macChief: nil, cloud: Self.cloud, open: Self.cloud[0])
         #expect(chiefs.mainFirst(["c-ops", "c-hosted"]) { $0 } == ["c-hosted", "c-ops"])
