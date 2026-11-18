@@ -24,7 +24,11 @@ final class HomeKeptUpdatingUITests: XCTestCase {
     @MainActor
     func testHomeKeptRowsSayUpdatingOnlyPastTheBound() throws {
         let app = launch("retry-home-kept-slow")
-        XCTAssertTrue(app.buttons["home.row.stress-5"].waitForExistence(timeout: 30), "the kept rows\n\(app.debugDescription)")
+        // The fixture seeds the kept rows 12 s after launch: absent now, so the clock below
+        // starts within a poll of the instant they (and the gate) start.
+        let row = app.buttons["home.row.stress-5"]
+        XCTAssertFalse(row.exists, "the kept rows come after launch")
+        XCTAssertTrue(row.waitForExistence(timeout: 40), "the kept rows\n\(app.debugDescription)")
         let shown = Date()
         let note = app.descendants(matching: .any)["home.note.updating"]
         check(app, note, at: 5, since: shown, expect: false, "home-1-kept-5s")
@@ -34,9 +38,11 @@ final class HomeKeptUpdatingUITests: XCTestCase {
     @MainActor
     func testWorkspacesRefreshSaysUpdatingOnlyPastTheBound() throws {
         let app = launch("retry-refresh-slow")
-        // The fixture starts the endless refresh 1.2 s after launch; the rows show before it.
-        XCTAssertTrue(app.cells.firstMatch.waitForExistence(timeout: 30), "the Workspaces rows\n\(app.debugDescription)")
-        Thread.sleep(forTimeInterval: 1.5)
+        // The fixture starts the endless refresh and opens Workspaces together, 12 s after
+        // launch: its rows are absent now, so the clock starts with the refresh.
+        let row = app.buttons["workspace.row.ws-cmux"]
+        XCTAssertFalse(row.exists, "Workspaces opens after launch")
+        XCTAssertTrue(row.waitForExistence(timeout: 40), "the Workspaces rows\n\(app.debugDescription)")
         let shown = Date()
         let subtitle = app.staticTexts["Updating…"]
         check(app, subtitle, at: 5, since: shown, expect: false, "workspaces-1-refresh-5s")
