@@ -9,12 +9,10 @@ import Foundation
 /// launch). Only folders named as the app names them are deleted.
 @MainActor
 struct AgentChatUploads {
-    private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String; var tab: String; var expires: Date; var writing = false }
+    private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String; var tab: String; var expires: Date }
     private struct Batch { var session: String; var tab: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
-    /// Writes the stages' chunks off the main thread, one open handle per staged file.
-    private nonisolated static let writer = AgentPaneUploadWriter()
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
     nonisolated static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
     /// The folder under ``root`` that holds a folder per chat (``ChatUploadFolders``).
@@ -46,8 +44,7 @@ struct AgentChatUploads {
         return stager(root: root, session: session, tab: tab, work: services.work, mine: mine)
     }
 
-    /// Test and native callers that already have a local upload root use the
-    /// same staging state machine without an AppServices tab resolver.
+    /// Test and native callers with a local upload root: the same staging state machine, no AppServices tab resolver.
     static func stager(root: URL, session: String, work: BackgroundWork = BackgroundWork()) -> AgentPaneUploadStager {
         stager(root: root, session: session, tab: "", work: work, mine: { made, _ in made == session || made == "new" })
     }
@@ -82,24 +79,13 @@ struct AgentChatUploads {
                 }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard let begun = stages[token], !begun.writing, mine(begun.session, begun.tab), begun.received == offset, data.count <= begun.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                // Decoded and written on the files lane; the main actor runs other work meanwhile.
-                stages[token]?.writing = true
-                let written = await writer.append(data, to: begun.file, work: work)
-                stages[token]?.writing = false
-                guard var stage = stages[token], stage.file == begun.file else {
-                    // Cancelled or finished while it was written: its handle goes too.
-                    await writer.close(begun.file, work: work)
-                    return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed)
-                }
-                guard written else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
+                guard var stage = stages[token], mine(stage.session, stage.tab), stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage // taken before the write, so no other chunk takes this offset
+                guard await AgentPaneUploadWriter.appendOnce(data, to: stage.file, work: work), stages[token] != nil else { stages[token]?.received = -1; return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 expire(token)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages[token], !stage.writing, mine(stage.session, stage.tab), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                await writer.close(stage.file, work: work)
-                guard stages[token]?.file == stage.file else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard let stage = stages[token], mine(stage.session, stage.tab), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 let base = session == "new" ? root : ChatUploadFolders(root: root).chat(session)
                 let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
                 do {
@@ -112,8 +98,6 @@ struct AgentChatUploads {
             case .cancel(let token):
                 if let stage = stages[token], mine(stage.session, stage.tab) {
                     stages.removeValue(forKey: token)
-                    // A chunk still being written closes its own handle when it returns (`.chunk`).
-                    if !stage.writing { await writer.close(stage.file, work: work) }
                     try? FileManager.default.removeItem(at: stage.folder)
                 }
                 return AgentPaneReply.success()
@@ -134,12 +118,9 @@ struct AgentChatUploads {
         Task { @MainActor in
             // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
             try? await Task.sleep(for: .seconds(10 * 60))
-            guard let expired = stages[token], !expired.writing, expired.expires <= Date() else { return }
+            guard let expired = stages[token], expired.expires <= Date() else { return }
             stages.removeValue(forKey: token)
-            await Task.detached(priority: .utility) { [folder = expired.folder, file = expired.file] in
-                writer.close(file)
-                try? FileManager.default.removeItem(at: folder)
-            }.value
+            await Task.detached(priority: .utility) { [folder = expired.folder] in try? FileManager.default.removeItem(at: folder) }.value
         }
     }
 

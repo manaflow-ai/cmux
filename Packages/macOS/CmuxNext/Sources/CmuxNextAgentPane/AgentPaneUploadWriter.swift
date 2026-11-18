@@ -17,6 +17,20 @@ package nonisolated final class AgentPaneUploadWriter: Sendable {
         (try? await work.run(.userBlocking, mayBlock: .files) { [self] in write(chunk, to: file) }) ?? false
     }
 
+    /// Appends `chunk` to `file` on `work`'s files lane, opening and closing the file for it, with no
+    /// handle kept (a stager that keeps no writer): whether all of it was written.
+    package static func appendOnce(_ chunk: AgentPaneUploadChunk, to file: URL, work: BackgroundWork) async -> Bool {
+        (try? await work.run(.userBlocking, mayBlock: .files) {
+            guard let data = chunk.bytes(), let handle = try? FileHandle(forWritingTo: file) else { return false }
+            defer { try? handle.close() }
+            do {
+                try handle.seekToEnd()
+                try handle.blockingWrite(contentsOf: data)
+                return true
+            } catch { return false }
+        }) ?? false
+    }
+
     /// Closes `file`'s handle, if it has one. Blocking: call it on a files lane.
     package func close(_ file: URL) {
         let handle = handles.withLock { $0.removeValue(forKey: file.path) }
