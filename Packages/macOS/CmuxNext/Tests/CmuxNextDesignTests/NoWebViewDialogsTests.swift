@@ -28,7 +28,6 @@ struct NoWebViewDialogsTests {
     /// Cards of the floating web card panel still drawn by a page, each with the work that moves it. The list only
     /// shrinks: a new card is native.
     static let webCards: [String: String] = [
-        "AddMachineCardProvider": "Add Machine: moving to the native dialog card",
         "ServerPageProvider": "the server panel's routes (shared with the menu bar popover)",
     ]
 
