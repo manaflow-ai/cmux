@@ -41,6 +41,9 @@ public protocol AppsTransport: AnyObject {
     func composerPlaces() async throws(AppsTransportError) -> AppJSON
     /// One read-only App Store op (`apps-store {op}`, no arguments), the reply as the daemon wrote it.
     func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON
+    /// One App Store op with its arguments (`apps-store {op, args}`), the reply as the daemon wrote it
+    /// (the native store's `catalog.list`, `catalog.get`, `asset.get`).
+    func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON
     /// `apps-set`; returns the app's record after the commit.
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError)
@@ -76,8 +79,11 @@ extension AppsTransport {
 }
 
 extension AppsTransport {
+    /// An argument-free store op is the op with empty arguments.
+    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { try await storeCall(op, args: .object([:])) }
+
     /// A transport that serves no App Store reads answers each with an empty object.
-    public func storeCall(_ op: String) async throws(AppsTransportError) -> AppJSON { .object([:]) }
+    public func storeCall(_ op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON { .object([:]) }
 
     public func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         AppSessionInfoPanel.list(try await storeCall("apps.panels.list"))

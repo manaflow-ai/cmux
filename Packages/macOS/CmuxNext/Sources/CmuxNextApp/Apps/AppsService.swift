@@ -32,8 +32,9 @@ final class AppsService {
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
-    /// The App Store page (React, apps-web-DESIGN.md) per tab key.
+    /// The App Store page per tab key: React (apps-web-DESIGN.md), or native (Debug `apps.store.surface`).
     private var webStorePages: [String: PageWebView] = [:]
+    private var nativeStorePages: [String: AppStoreNativeView] = [:]
     /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
     private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
@@ -90,12 +91,13 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
+        pendingRoute = AppStoreTab.route(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             // An open page moves to the route; a page this show made already opened on it.
-            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
+            webStorePages[key]?.open(route: AppStoreTab.route(appID: appID, tab: tab))
+            nativeStorePages[key]?.show(route: AppStoreTab.route(appID: appID, tab: tab))
             pendingRoute = nil
             waitingStore = nil
             return
@@ -188,10 +190,16 @@ extension AppsService: InternalPageProvider {
     var symbol: String { "bag" }
     var icon: IconName? { .store }
 
-    /// The React App Store page; it opens on the route of the show that made it. Missing page
-    /// resources (a build without the web bundles) show an empty view, never a second store.
+    /// The App Store page on its show's route: React, or native under Debug `apps.store.surface`; no web bundles, an empty view.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
+        if PageTunables.appStore.value == .native, case let registry = services.registry {
+            let run = { (action: ActionID, key: String, value: String) in _ = registry.perform(action, invocation: ActionInvocation(arguments: [key: .string(value)], origin: .user)) }
+            let store = AppStoreNativeView(client: client, changes: PageFactory(services: services).appsStoreProvider(), route: pendingRoute,
+                                           open: { run("app.open", "app", $0) }, openLink: { run("openBrowser", "url", $0.absoluteString) })
+            nativeStorePages[key] = store
+            return store
+        }
+        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? AppStoreTab.route(appID: nil, tab: nil)) else {
             return NSView()
         }
         webStorePages[key] = page
@@ -200,19 +208,11 @@ extension AppsService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
+        nativeStorePages.removeValue(forKey: key)
     }
 
     /// The page keeps its own history (its fragment).
     func history(for key: String) -> (any PageHistory)? { nil }
-
-    /// The page's fragment: a listing, else `tab` (Discover by default).
-    nonisolated static func storeRoute(appID: String?, tab: AppStoreTab?) -> String {
-        if let appID, var query = URLComponents(string: "x:") {
-            query.queryItems = [URLQueryItem(name: "app", value: appID)]
-            return "#/discover?" + (query.percentEncodedQuery ?? "")
-        }
-        return "#/" + (tab ?? .discover).rawValue
-    }
 }
 
 enum AppsServiceError: Error {

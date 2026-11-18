@@ -7,7 +7,8 @@
 //!   whether it is granted, and whether the app is sandboxed.
 //! - `logs`: the last lines of the app's log ring (no stream; the page
 //!   reads again).
-//! - `asset.get`: an image file of the package (its icon) as a `data:` URL.
+//! - `asset.get`: an image file of the package (its icon, a screenshot) as a
+//!   `data:` URL.
 //! - `hidden.set`: Hide or Show. It changes what the user sees, never what
 //!   an app may do, so the Apps page needs only the person's gesture.
 //! - `grant.set`: allow or revoke one scope (the Apps page asks on a native
@@ -38,6 +39,9 @@ struct SessionInfoPanel {
 
 /// The largest asset `asset.get` answers (an icon, never a bundle).
 const MAX_ASSET_BYTES: usize = 512 * 1024;
+/// The largest screenshot `asset.get` answers: a path the manifest lists in
+/// `screenshots` (an image or a short animated loop).
+const MAX_SCREENSHOT_BYTES: usize = 4 << 20;
 /// The most log lines `logs` answers.
 const MAX_LOG_LINES: usize = 500;
 
@@ -262,14 +266,23 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let missing = || ApiError::new("apps.asset.missing", "the package has no such file");
+        let screenshot =
+            package.manifest.get("screenshots").and_then(Value::as_array).is_some_and(|paths| {
+                paths.iter().any(|path| path.as_str() == Some(p.path.as_str()))
+            });
+        let (max, limit) = if screenshot {
+            (MAX_SCREENSHOT_BYTES, "the screenshot is larger than 4 MiB")
+        } else {
+            (MAX_ASSET_BYTES, "the asset is larger than 512 KiB")
+        };
         let size = std::fs::metadata(package.dir.join(&p.path)).map_err(|_| missing())?.len();
-        if size > MAX_ASSET_BYTES as u64 {
-            return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
+        if size > max as u64 {
+            return Err(ApiError::new("apps.asset.too_large", limit));
         }
         // `read` refuses a path (or a symlink on the way) that leaves the package.
         let bytes = package.read(&p.path).ok_or_else(missing)?;
-        if bytes.len() > MAX_ASSET_BYTES {
-            return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
+        if bytes.len() > max {
+            return Err(ApiError::new("apps.asset.too_large", limit));
         }
         Ok(json!({
             "app": p.app,

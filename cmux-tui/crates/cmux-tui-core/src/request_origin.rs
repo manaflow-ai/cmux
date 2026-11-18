@@ -53,8 +53,9 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// opens another browser's profile by path: an agent must not read the
 /// person's bookmarks, history or tabs through the daemon, nor a profile
 /// macOS keeps from it (Full Disk Access) by asking the daemon instead.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 12] = [
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 13] = [
     "apps.install",
+    "apps.update",
     "apps.uninstall",
     "apps.enable",
     crate::state::agent_folder::OPERATION,
