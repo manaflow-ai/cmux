@@ -455,6 +455,7 @@ final class SidebarBridge {
                 layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
             }
         case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        case .background: withWidgetItems(SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength))?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }

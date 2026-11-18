@@ -176,6 +176,8 @@ extension SidebarBridge {
     /// The right-click menu of a section: Hide only on an app section, Hide
     /// Section only on Recents (`SidebarHiddenSections`).
     func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
+        // The widget area's header: Edit Widgets and Add Widget (it is not in the layout document).
+        if id == SidebarAppSections.widgetSectionID { return withWidgetItems(NSMenu()) }
         let isApp = model.layout.section(id)?.owningAppID != nil
         let entries = services.registry.contextMenuEntries(for: .sidebarSection, removing: SidebarHiddenSections.headerMenuRemovals(id, isApp: isApp))
         return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
@@ -214,6 +216,11 @@ extension SidebarBridge {
     /// edit of its own fields waits for the echo (the planner refuses it until then), so the menu leaves it out.
     static func pendingEdits(_ id: LayoutItemID, document: SidebarDocStore?) -> Set<ActionID> {
         document?.isPending(id) == true ? ["sidebar.item.toggleLabel"] : []
+    }
+
+    /// `menu` with Edit Widgets and Add Widget at its end (the sidebar's background, the widget header).
+    func withWidgetItems(_ menu: NSMenu?) -> NSMenu? {
+        (container.sidebarView.appSections as? SidebarAppSections)?.widgets?.appendingMenuItems(to: menu) ?? menu
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
