@@ -35,12 +35,13 @@ import Testing
         var testDescription: String { name }
     }
 
-    /// Each time is where the act's spring ends for the eye: a split's 0.10 s, a close's 0.08 s, and a zoom's 0.24 s
-    /// (its spring has a response of 0.2 s; cut at 0.2 s it would jump the last hundredth of its way).
-    nonisolated static let split = Act(name: "split right", time: 0.10)
-    nonisolated static let close = Act(name: "close", time: 0.08)
-    nonisolated static let zoom = Act(name: "zoom", time: 0.24)
-    nonisolated static let acts = [split, Act(name: "split down", time: 0.10), close, zoom]
+    /// Each time is where the act's spring animation ends, with 0.2 percent of its way left: the motion's frame count
+    /// ends there too. A split's 0.115 s, a close's 0.086 s and a zoom's 0.27 s; for the eye (0.5 percent left) they are
+    /// 0.10 s, 0.08 s and 0.24 s.
+    nonisolated static let split = Act(name: "split right", time: 0.115)
+    nonisolated static let close = Act(name: "close", time: 0.086)
+    nonisolated static let zoom = Act(name: "zoom", time: 0.27)
+    nonisolated static let acts = [split, Act(name: "split down", time: 0.115), close, zoom]
 
     /// From here on a split, a close and a zoom of `harness` move their panes: the pane animations are on, and the
     /// fixture asks for the move (a fixture that only pins Reduce Motion gets none).

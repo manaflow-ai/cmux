@@ -78,9 +78,10 @@ final class PaneZoomDimView: NSView {
         Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
     }
 
-    /// The dim goes: from its full strength to nothing, on the pane veil's fade.
-    func fadeOut() {
-        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: Float(amount))
+    /// The dim goes, on the pane veil's fade: from its full strength to nothing, or, `continuing` a dim that came
+    /// with a zoom, from the strength it shows.
+    func fadeOut(continuing: Bool) {
+        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: continuing ? nil : Float(amount))
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -129,6 +129,34 @@ extension PaneCommitMotionTests {
         #expect(harness.provider.released.isEmpty, "a pane was released: \(harness.provider.released)")
     }
 
+    /// The turn of a second Cmd-Shift-Enter in the zoom's motion changes nothing that shows: the pane that zooms still
+    /// has its move, the dim still shows, and no ring of a pane that the zoom covers shows over the pane that moves.
+    /// The frame that shows the unzoom shows the rings, and the same dim goes: it is not taken away and put back.
+    @Test func theTurnOfASecondKeyInAZoomsMotionKeepsTheDimAndShowsNoCoveredPanesRing() throws {
+        let zoom = try Self.zooming(frames: 3)
+        defer { zoom.harness.window.closeAfterTest() }
+        let harness = zoom.harness, screen = zoom.screen
+        let covered = ["p1", "p2", "p3"] as [PaneID]
+        try #require(Self.inFlight(screen), "the pane that zooms does not move three frames after the key")
+        let dim = try #require(Dim.dim(harness), "SETUP: no dim shows three frames into the zoom's move")
+        harness.model.apply(screens: Zoom.screens())
+        harness.root.syncWithModel()
+        #expect(Dim.dim(harness)?.view === dim.view, "the second key's turn took the dim away before its change shows")
+        #expect(Self.inFlight(screen), "the second key's turn ended the pane's move before its change shows")
+        for pane in covered {
+            let host = try #require(harness.root.context.hosts[pane], "\(pane) has no host after the second key")
+            #expect(!host.isHidden && host.chrome.isHidden, "\(pane)'s ring shows in the second key's turn, over the pane that still moves")
+        }
+        _ = harness.root.advanceFrame(Self.dt)
+        for pane in covered {
+            #expect(harness.root.context.hosts[pane]?.chrome.isHidden == false, "\(pane)'s ring does not show in the frame that shows the unzoom")
+        }
+        let going = try #require(Dim.dim(harness), "the frame that shows the unzoom shows no dim")
+        #expect(going.view === dim.view, "the unzoom's dim is another view than the zoom's: the dim was taken away and put back")
+        let fade = try #require(going.layer.animation(forKey: "opacity") as? CABasicAnimation, "the unzoom's dim has no fade on its layer")
+        #expect((fade.toValue as? Float) == 0, "the unzoom's dim does not go: its fade ends at \(String(describing: fade.toValue))")
+    }
+
     /// A screen switch in the zoom's motion ends the motion and the dim: the screen that the switch shows has no dim
     /// over it, and the screen that hid shows its zoom at rest when it shows again.
     @Test func aScreenSwitchInAZoomsMotionEndsIt() throws {

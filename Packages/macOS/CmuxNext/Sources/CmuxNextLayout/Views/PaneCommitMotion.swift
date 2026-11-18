@@ -73,8 +73,9 @@ final class PaneCommitMotion {
         let frames: [ObjectIdentifier: CGRect]
     }
 
-    /// A spring is at rest for the eye when this part of its way is left: the frame clock ends the motion there.
-    static let rest = 0.005
+    /// The frame clock ends the motion when this part of the spring's way is left: where the spring's animation ends
+    /// too (`Motion.springAnimation`), so the count cuts no animation before its own end.
+    static let rest = 0.002
 
     private var armed: Armed?
     /// Seconds of frame time left in the motion.
