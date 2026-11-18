@@ -97,6 +97,16 @@ class SettledTime(unittest.TestCase):
         self.assertEqual(s["settled_ms"], 8.0)
         self.assertEqual(s["changed_after_first"], 0)
 
+    def test_compression_noise_is_no_change(self):
+        # The recorder redraws a still window with a few gray levels of noise (cmux21, 2026-11-18): 1 to 6 levels on
+        # every pixel of the window, 3 s after the action, is not a late change.
+        new = paint(BASE, (0, 0, 64, 16), 0)
+        rng = random.Random(3)
+        noisy = bytes(min(255, max(0, v + rng.randint(-6, 6))) for v in new)
+        frames = [(at(-100), BASE), (at(8), new), (at(3000), noisy)]
+        s = settle.settle(frames, MARK, W, H, FRAME_MS, end=at(6000))
+        self.assertEqual(s["settled_ms"], 8.0)
+
     def test_a_change_that_never_returns_still_counts(self):
         # The same three tiles changing to a new picture each time (content still arriving) is no blink.
         new = paint(BASE, (0, 0, 64, 16), 0)
