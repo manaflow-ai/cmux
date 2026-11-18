@@ -26,11 +26,12 @@ import Testing
     static let freshMembers = ["n1", "n2"].map(WorkspaceID.init)
 
     static func nodes(topCollapsed: Bool = false, lowerCollapsed: Bool = true, above: [WorkspaceID] = [], below: [WorkspaceID] = [],
-                      patched: [WorkspaceID: SidebarWorkspace] = [:], newGroup: Bool = false, loose: [WorkspaceID] = Self.loose) -> [SidebarNode] {
+                      patched: [WorkspaceID: SidebarWorkspace] = [:], newGroup: Bool = false, loose: [WorkspaceID] = Self.loose,
+                      topMembers: [WorkspaceID] = Self.members) -> [SidebarNode] {
         func row(_ id: WorkspaceID) -> SidebarWorkspace { patched[id] ?? ws(id) }
         return above.map { .workspace(row($0)) }
             + (newGroup ? [.group(SidebarGroup(id: fresh, name: "New", color: .orange, workspaces: freshMembers.map(row)))] : [])
-            + [.group(SidebarGroup(id: top, name: "Top", color: .blue, isCollapsed: topCollapsed, workspaces: members.map(row)))]
+            + [.group(SidebarGroup(id: top, name: "Top", color: .blue, isCollapsed: topCollapsed, workspaces: topMembers.map(row)))]
             + below.map { .workspace(row($0)) }
             + loose.map { .workspace(row($0)) }
             + [.group(SidebarGroup(id: lower, name: "Lower", color: .green, isCollapsed: lowerCollapsed, workspaces: lowerMembers.map(row)))]
@@ -142,6 +143,10 @@ import Testing
         case selectElsewhere = "f: a row elsewhere is selected"
         case selectedPassesOver = "i: the selected row moves up past the top group"
         case topFolds = "j: the top group folds, the second group open below it"
+        case topOpens = "k: the top group unfolds"
+        case memberJoins = "l: a loose row below joins the top group, at its top"
+        case memberLeaves = "m: a member leaves the top group, to above it"
+        case topMoves = "n: the top group moves down a place, past a loose row"
         static let first: [Event] = [.insertBelow, .insertAbove, .memberGrows, .looseGrows, .lowerOpens, .selectElsewhere]
     }
 
@@ -180,6 +185,17 @@ import Testing
             list.showModelChange(animates: true)
         case .topFolds:
             model.setGroupCollapsed(top, true)
+        case .topOpens:
+            model.setGroupCollapsed(top, false)
+        case .memberJoins:
+            model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(loose: [loose[1], loose[2]], topMembers: [loose[0]] + members))]
+            list.showModelChange(animates: true)
+        case .memberLeaves:
+            model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(above: [members[2]], topMembers: [members[0], members[1]]))]
+            list.showModelChange(animates: true)
+        case .topMoves:
+            model.sections = [SidebarSection(kind: .machine(machine), nodes: nodes(above: [loose[0]], loose: [loose[1], loose[2]]))]
+            list.showModelChange(animates: true)
         }
     }
 
@@ -223,7 +239,7 @@ import Testing
         let started = Date()
         let scope = seeThrough ? seeThroughScope() : nil
         if seeThrough, scope == nil { return ["no see-through theme scope"] }
-        let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
+        let (model, list, window) = make(topCollapsed: topCollapsed || event == .topOpens, lowerCollapsed: event != .topFolds,
                                          selected: event == .selectedPassesOver ? loose[1] : members[0],
                                          expanded: [.memberGrows, .looseGrows].contains(event) || [.memberGrows, .looseGrows].contains(second),
                                          scope: scope)
@@ -284,6 +300,9 @@ import Testing
         let headerHeight = before.header.maxY - before.header.minY
         let railOffset = before.rail.minY - before.header.minY
         let folds = event == .topFolds || second == .topFolds
+        let opens = event == .topOpens
+        // A member that leaves is not the group's any more: the rest stay drawn with it.
+        let kept = event == .memberLeaves ? Array(members.prefix(2)) : members
         // Leo 2026-11-08 ("a bit of a flicker on that, like individual top group"): while the selected row passes over
         // the top group, no piece of the group dims at all, in any frame: the moving row covers what it crosses itself.
         let least: Float = covers ? 0.9999 : 0.99
@@ -325,7 +344,7 @@ import Testing
                     fail(index, "rail y \(Piece.f(r.minY)), header y \(Piece.f(h.minY)): offset \(Piece.f(r.minY - h.minY)), was \(Piece.f(railOffset))")
                 }
             }
-            for id in members {
+            for id in kept {
                 guard let was = before.members[id], was.shown else { continue }
                 let now = frame.members[id] ?? Piece()
                 if now.object != was.object { fail(index, "member \(id.rawValue) view replaced or gone (\(now))") }
@@ -386,7 +405,30 @@ import Testing
             if !lowerRail.shown || lowerRail.alpha < 0.99 { fail(frames.count, "second group's rail after the fold: \(lowerRail)") }
         }
         if !folds, before.rail.shown, after.rail.shown { path("rail top", frames.map(\.rail.minY), start: before.rail.minY, end: after.rail.minY) }
-        for id in members {
+        if opens {
+            // The members open under the header with its rail: a member once drawn never dims or goes again, and the
+            // rail never draws past the last member drawn, nor with none drawn.
+            var lastAlpha: [WorkspaceID: Float] = [:]
+            for (index, frame) in frames.enumerated() {
+                for id in members {
+                    let now = frame.members[id] ?? Piece()
+                    if let was = lastAlpha[id], !now.shown || now.alpha + 0.02 < was { fail(index, "opening member \(id.rawValue) went back from alpha \(was) (\(now))") }
+                    if now.shown { lastAlpha[id] = max(lastAlpha[id] ?? 0, now.alpha) }
+                }
+                let r = frame.rail
+                guard r.shown, r.alpha > 0.05 else { continue }
+                if let last = members.reversed().compactMap({ frame.members[$0] }).first(where: \.shown) {
+                    if r.maxY > last.maxY + 0.5 { fail(index, "rail bottom \(Piece.f(r.maxY)) past the last member drawn, bottom \(Piece.f(last.maxY)) (rail \(r))") }
+                } else {
+                    fail(index, "rail drawn (\(r)) with no member drawn")
+                }
+            }
+            for id in members where !(after.members[id]?.shown ?? false) || (after.members[id]?.alpha ?? 0) < 0.99 {
+                fail(frames.count, "member \(id.rawValue) not open after the unfold (\(after.members[id] ?? Piece()))")
+            }
+            if !after.rail.shown || after.rail.alpha < 0.99 { fail(frames.count, "rail not drawn after the unfold (\(after.rail))") }
+        }
+        for id in kept {
             guard let was = before.members[id], was.shown, let end = after.members[id], end.shown else { continue }
             path("member \(id.rawValue)", frames.map { $0.members[id]?.minY ?? .nan }, start: was.minY, end: end.minY)
         }
