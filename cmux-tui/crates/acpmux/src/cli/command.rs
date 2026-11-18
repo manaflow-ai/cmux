@@ -1572,7 +1572,11 @@ pub fn flatten(c: Command) -> Command {
                 session,
                 assignments: vec![
                     format!("archived={}", crate::store::now_ms()),
-                    "settled=manual".into(),
+                    format!(
+                        "{}={}",
+                        crate::hub::auto_settle::SETTLED_TAG,
+                        crate::hub::auto_settle::Reason::Manual.as_str()
+                    ),
                 ],
                 remove: vec!["unsettled".into()],
                 ttl: None,
