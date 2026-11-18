@@ -7679,6 +7679,81 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFleetRun(unittest.TestCase):
+    """leo-workspace#5376 at b2b09e79 (2026-11-18): the lane-gh broker moved its stalled ws-check to the build fleet
+    (cmuxterm-hq parts/43-calls-ci-fleet.py), cancelling run 44354923051, so the status linked a run whose job reads
+    completed/cancelled with no log, and every such red read "no result to read". On the broker host the job's kept
+    log (STATE/ci/ID.fleet-log) is the job's log now, for a record that names this head and run (ws_check_fleet_log)."""
+    STEP = ".github/workflows/tools-tests.yml test: lane VM hygiene"
+    JID = "9f86e40016d24dde9c66c70f3e48e23f"
+
+    def hygiene(self):
+        return ["=" * 70, "FAIL: test_sync (__main__.ControllerSweep.test_sync)", "-" * 70,
+                "Traceback (most recent call last):", "AssertionError: False is not true",
+                "-" * 70, "Ran 70 tests in 3.2s", "", "FAILED (failures=1)"]
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.STEP: self.hygiene()})
+        self.gh.verdict(self.gh.TIP, 2, {self.STEP: self.hygiene()})
+        # The head's run was cancelled by the broker before any runner took it: its job has no log on GitHub.
+        self.fleet_log = self.gh.logs.pop(11)
+        self.gh.jobs[1][1]["conclusion"] = "cancelled"
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        self.state = Path(state.name)
+        (self.state / "ci").mkdir()
+        env = unittest.mock.patch.dict(os.environ, {excuse.WS_CHECK_BROKER_STATE_ENV: str(self.state)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def keep(self, log=None, **over):
+        record = {"id": self.JID, "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": HEAD, "run_id": 1,
+                  "conclusion": "failure", "fleet": {"from_run": 1, "state": "done", "steps": [{"where": "linux-pool"}]},
+                  "receipt": {"run_id": "1", "ran_on": "build-fleet", "fleet_where": "linux-pool"}}
+        record.update(over)
+        (self.state / "ci" / f"{self.JID}.json").write_text(json.dumps(record))
+        (self.state / "ci" / f"{self.JID}.fleet-log").write_text(self.fleet_log if log is None else log)
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_fleet_run_red_on_main_too_is_excused_from_the_kept_log(self):
+        self.keep()
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual((kind, list(verdict["steps"])), ("fail", [self.STEP]))
+
+    def test_a_fleet_run_red_main_passes_is_the_heads_own(self):
+        self.keep()
+        self.gh.verdict(self.gh.TIP, 2, {}, state="success")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        self.assertIn(f"'ws-check' is green on main {self.gh.TIP[:12]}, red on {HEAD[:12]}", str(caught.exception))
+
+    def test_with_no_kept_log_it_is_still_no_result(self):
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "none")
+        self.assertIn("cancelled: no result to read (and this host's lane-gh broker keeps no fleet log of it)",
+                      verdict["why"])
+
+    def test_a_record_for_another_run_head_repo_or_an_unfinished_job_is_never_read(self):
+        for wrong in ({"run_id": 3}, {"head": "b" * 40}, {"repo": "manaflow-ai/cmux"}, {"dispatch": "manaflow-ai/cmux"},
+                      {"conclusion": None}, {"fleet": {"from_run": 1, "state": "running"}},
+                      {"receipt": {"run_id": "1", "ran_on": "github"}}):
+            with self.subTest(wrong=wrong):
+                self.keep(**wrong)
+                self.assertEqual(excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)[0], "none")
+
+    def test_a_kept_log_is_held_to_the_same_rules(self):
+        # Its WS_CHECK_RESULT must name this head (or a snapshot whose receipt names the linked run): a log of
+        # another tree is refused, never read as this head's.
+        self.keep(log=self.fleet_log.replace(f'"head": "{HEAD}"', f'"head": "{"b" * 40}"'))
+        with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+            excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+
+
 class WsCheckFailureText(unittest.TestCase):
     """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
     as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new

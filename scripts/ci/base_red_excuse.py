@@ -6652,6 +6652,57 @@ def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
     return found
 
 
+# A ws-check the lane-gh broker moved to the build fleet (cmuxterm-hq tools/lane-gh-broker parts/43-calls-ci-fleet.py,
+# hq#12237): its Actions run stalled on every route, the broker cancelled it, and the snapshot ran as a controller job
+# on the Linux pool or an owned Mac. The status still links the cancelled run, whose `checks` job reads
+# completed/cancelled with no steps and no log, so every such verdict read "no result to read" and none could ever be
+# excused (leo-workspace#5376 at b2b09e79, run 44354923051, 2026-11-18: 9 of 542 steps failed on the fleet). The broker
+# keeps the job's whole log beside its record (STATE/ci/ID.fleet-log, ci_fleet_log_path), and that log prints the same
+# WS_CHECK_RESULT and a FAST_CHECKS_RECEIPT naming the cancelled run. On the broker host (where `glaeda-gh land` runs
+# merge_hold) that kept log is the job's log: read only for a record of this repo's head whose run is the linked one,
+# whose fleet step is done, whose conclusion is a verdict and whose receipt names that run as run on the fleet. It is
+# then held to every rule an Actions log is (WS_CHECK_RESULT, the receipt's snapshot, run name and tree).
+WS_CHECK_BROKER_STATE_ENV = "LANE_GH_BROKER_STATE"  # a broker state folder (tests, or a broker with its own config)
+WS_CHECK_BROKER_STATES = ("~/.local/state/lane-gh-broker", "~/.local/state/lane-gh-broker-standby")
+
+
+def ws_check_fleet_log(repo: str, host: str, run: int, sha: str) -> tuple[str, dict] | None:
+    """(log, record) of the broker's fleet job that ran HOST's cancelled Actions RUN for REPO's SHA, from this host's
+    broker state (WS_CHECK_BROKER_STATE_ENV, else WS_CHECK_BROKER_STATES), or None when no such record is kept here."""
+    named = os.environ.get(WS_CHECK_BROKER_STATE_ENV)
+    for state in [named] if named else WS_CHECK_BROKER_STATES:
+        ci = Path(state).expanduser() / "ci"
+        try:
+            records = sorted(ci.glob("*.json"))
+        except OSError:
+            continue
+        for found in records:
+            try:
+                raw = found.read_text(encoding="utf-8", errors="replace")
+                if str(run) not in raw:
+                    continue
+                record = json.loads(raw)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            fleet, receipt = record.get("fleet"), record.get("receipt")
+            if not (isinstance(fleet, dict) and isinstance(receipt, dict)):
+                continue
+            if (record.get("run_id") != run or fleet.get("from_run") != run or fleet.get("state") != "done"
+                    or record.get("repo") != repo or record.get("dispatch") != host or record.get("head") != sha
+                    or record.get("conclusion") not in ("success", "failure")
+                    or str(receipt.get("run_id")) != str(run) or receipt.get("ran_on") != "build-fleet"):
+                continue
+            try:
+                kept = (found.parent / f"{found.stem}.fleet-log").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if kept.strip():
+                return test_reds.plain(kept.replace("\ufeff", "")), record
+    return None
+
+
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
     "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
@@ -6684,11 +6735,17 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if len(picked) != 1:
         raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
-    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
+    kept = None
+    if job.get("status") == "completed" and job.get("conclusion") == "cancelled":
+        # A run the broker cancelled and ran on the build fleet: its kept log is the job's (ws_check_fleet_log).
+        kept = ws_check_fleet_log(repo, host, int(link[1]), sha)
+    if kept is None and (job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure")):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
         return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
-                                       f"{job.get('conclusion')}: no result to read")
-    lines = lines_of(github.log(host, job))
+                                       f"{job.get('conclusion')}: no result to read"
+                                       + (" (and this host's lane-gh broker keeps no fleet log of it)"
+                                          if job.get("conclusion") == "cancelled" else ""))
+    lines = lines_of(kept[0] if kept is not None else github.log(host, job))
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:
         result = json.loads(lines[at].split("=", 1)[1]) if at is not None else None
