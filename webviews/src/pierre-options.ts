@@ -10,6 +10,7 @@ import {
   type DiffViewerAppearance,
 } from "./appearance";
 import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
+import { MOTION_MS } from "./motion/scale.generated";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -226,7 +227,7 @@ export function codeViewUnsafeCSS(): string {
       color: light-dark(#fff, #08233f);
       cursor: default;
       transform: scale(0.9);
-      transition: transform 80ms ease;
+      transition: transform ${MOTION_MS.quick}ms ease;
     }
     [data-utility-button]:hover {
       transform: scale(1.1);

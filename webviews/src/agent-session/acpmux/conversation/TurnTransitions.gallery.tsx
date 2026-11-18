@@ -27,6 +27,7 @@ import {
 } from "./scriptedTurn";
 import type { TailGlideLook } from "./tailGlide";
 import { turnView } from "./turns";
+import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const expanded = new Set<string>();
 
@@ -109,10 +110,9 @@ const ARRIVALS: ArrivalTurn[] = ["arrive-thinking", "arrive-tool", "arrive-group
 const LOOKS: TailGlideLook[] = ["arrive", "quick", "glide", "jump"];
 const ARRIVAL_LOOKS: TailGlideLook[] = ["arrive", "quick", "glide"];
 const NOTE: Record<TailGlideLook, string> = {
-  arrive:
-    "Shipped: everything that moves (the rows above, the rows under, the new row's fade) runs on one 80 ms step and rests together.",
-  quick: "Before: the rows under the change glide on the entry step (120 ms); the rows above come home on the spring.",
-  glide: "The rows under the change glide on the house settle (180 ms); the rows above on the spring.",
+  arrive: `Shipped: everything that moves (the rows above, the rows under, the new row's fade) runs on one ${MOTION_MS.quick} ms step and rests together.`,
+  quick: `Before: the rows under the change glide on the entry step (${MOTION_MS.micro} ms); the rows above come home on the spring.`,
+  glide: `The rows under the change glide on the house settle (${MOTION_SETTLE_MS} ms); the rows above on the spring.`,
   jump: "The rows under the change move at once.",
 };
 
