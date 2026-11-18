@@ -108,27 +108,6 @@ class TraceTests(unittest.TestCase):
         stats = ssm.trace_stats(trace(widths))
         self.assertEqual(stats["moved_frames"], 3)
 
-
-class SideWayTests(unittest.TestCase):
-    """The side pane toggle's direction from the panes' summed width (side_toggle in the bench)."""
-
-    def two_panes(self, widths):
-        return {"refresh_ms": 8.33, "samples": [{"t": i * 8.33, "panes": [pane("pane_aaaaaa", 0, w), pane("pane_bbbbbb", w, w)]}
-                                                for i, w in enumerate(widths)]}
-
-    def test_narrowed_panes_opened_the_sidebar(self):
-        stats = ssm.trace_stats(self.two_panes([600, 600, 450, 450]))
-        self.assertEqual(stats["pane_width_change"], -300.0)
-        self.assertEqual(ssm.side_way(stats), "opened")
-
-    def test_widened_panes_closed_it(self):
-        self.assertEqual(ssm.side_way(ssm.trace_stats(self.two_panes([450, 450, 600]))), "closed")
-
-    def test_still_panes_or_no_trace_say_nothing(self):
-        self.assertIsNone(ssm.side_way(ssm.trace_stats(self.two_panes([600, 600, 600]))))
-        self.assertIsNone(ssm.side_way({"pane_width_change": None}))
-        self.assertIsNone(ssm.trace_stats({"samples": []})["pane_width_change"])
-
     def test_a_parked_page_is_not_a_mover(self):
         def sample(t, x, width):
             return {"t": t, "panes": [pane("pane_aaaaaa", 0, 600)], "page": [[600, 900, width, 900, 0, x, x, 600]]}
@@ -136,23 +115,6 @@ class SideWayTests(unittest.TestCase):
         self.assertEqual(ssm.trace_movers(parked).keys() & {"page 0"}, set())
         shown = [sample(0, 368, 1391), sample(8.33, 368, 1391), sample(250, 368, 695)]
         self.assertIn("page 0", ssm.trace_movers(shown))
-
-    def test_panes_that_came_back_go_by_their_peak(self):
-        stats = ssm.trace_stats(self.two_panes([450, 520, 600, 520, 450]))
-        self.assertEqual((stats["pane_width_change"], stats["pane_width_peak"]), (0.0, 300.0))
-        self.assertEqual(ssm.side_way(stats), "closed")
-        self.assertTrue(ssm.side_returned(stats))
-        self.assertFalse(ssm.side_returned(ssm.trace_stats(self.two_panes([450, 600]))))
-
-    def test_a_pane_that_came_or_went_is_left_out(self):
-        samples = [{"t": 0, "panes": [pane("pane_aaaaaa", 0, 600)]},
-                   {"t": 8.33, "panes": [pane("pane_aaaaaa", 0, 450), pane("pane_cccccc", 450, 450)]}]
-        self.assertEqual(ssm.pane_width_change(samples), -150.0)
-
-    def test_the_way_survives_transition(self):
-        strip = {"frames": [frame(0), frame(10, ob=0.3)], "sent_host_s": 1.0}
-        row = ssm.transition(strip, dict(self.two_panes([600, 600, 450]), t0_s=1.0))
-        self.assertEqual(ssm.side_way(row), "opened")
 
 
 class StripTests(unittest.TestCase):
@@ -216,6 +178,22 @@ class TransitionTests(unittest.TestCase):
         row = ssm.transition(self.strip(sent, [frame(5)]), t, static=False)
         self.assertIn("nothing moved", row["error"])
 
+    def test_a_change_only_the_screen_saw_is_timed_by_its_pixels(self):
+        # Nightly e0c3d84 s9-chat-w1 close_right: the pane closed and the window changed, no traced tick moved.
+        t, sent = self.aligned([1000] * 8)
+        frames = [frame(190, ob=0.2, of=0.1, cb=0.3, cf=0.2, blank=True)] + \
+                 [frame(230 + i * 8, ob=0.2, cb=0.3) for i in range(8)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertTrue(row["untraced"])
+        self.assertEqual((row["first_frame_ms"], row["settled_ms"], row["blank_frames"]), (190, 230, 1))
+        self.assertFalse(ssm.verdict(ssm.summarize([row]), 8.33)["pass"])
+
+    def test_no_layout_and_no_pixel_change_still_fails(self):
+        t, sent = self.aligned([1000] * 8)
+        row = ssm.transition(self.strip(sent, [frame(10 + i * 8) for i in range(8)]), t, static=True)
+        self.assertIn("nothing moved", row["error"])
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)
@@ -240,6 +218,14 @@ class SummaryTests(unittest.TestCase):
         self.assertFalse(ssm.verdict(s, 8.33)["pass"])
         head = ssm.headline({"s1-empty-w1": {"split_right": s}}, {})
         self.assertIsNone(head["settled_ms"])
+        self.assertIsNone(ssm.headline({"s1-empty-w1": {"split_right": s}}, {}, strip_ms=900)["settled_ms"])
+
+    def test_a_cell_that_never_settled_counts_as_its_strip(self):
+        cells = {"s1-empty-w1": {"split_right": self.summary(60)},
+                 "s9-browser-w30": {"split_right": self.summary(415, unsettled=1)}}
+        head = ssm.headline(cells, ssm.flatness(cells), strip_ms=900)
+        self.assertEqual((head["cell"], head["settled_ms"], head["at_least"]), ("s9-browser-w30", 900, True))
+        self.assertIsNone(ssm.headline(cells, ssm.flatness(cells))["settled_ms"])
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])
