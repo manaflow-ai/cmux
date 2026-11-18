@@ -5,6 +5,20 @@ description: "The loop for every cmux NEXT change you can see: write the code, p
 
 # The hot loop
 
+**Start here, before any dev build: copy your nightly and swap your code in.**
+
+```sh
+cmux app try .              # a fresh clone of /Applications/cmux NIGHTLY.app beside the person's cmux, your tree in
+cmux app try . --extract    # keep what went in: branch cmux-try/<copy> and a patch
+cmux app try . --stop       # quit the clone and delete it
+```
+
+It puts your working tree's web UI (a dev server: saves show live) and daemon Rust into the clone, never into
+the person's running app, and prints the clone's socket: drive it with `cmux --app-socket SOCKET ...`. Running it
+again makes a fresh clone with your newest code. `--from APP` clones another build; `--dry-run` prints the plan.
+Swift and FFI changes still need a build: it says why and prints the fleet `cmux-ci build cmux ...` command (dev
+builds stay available). Off a Mac it prints the fleet route (push, `cmux-ci hot-verify N --look`).
+
 Leo, 2026-11-15: "imagine if you could just write the code and then the code goes into your app and then you
 can just use it." And: "Just screenshot it, take a video, touch it, interact with it, click around with it, and
 then push it through the various testing instead of the other way around."
@@ -27,6 +41,7 @@ copy of APP, then writes before and after screenshots (light and dark), a click-
 
 | Layer | Put it in | Take it out |
 |---|---|---|
+| Your working tree (web and daemon Rust), in a copy of the NIGHTLY | `cmux app try .` | `cmux app try . --stop` |
 | Web: a PR's `webviews/` | `cmux customize use pr:N` | `cmux customize library off pr-N` |
 | Web: a pushed branch or commit, no PR | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
 | Web: your working copy, no push | `cmux customize use dir:PATH --watch` (applies again about 19 s after each save on a fleet Mac) | `cmux customize library off NAME` |
