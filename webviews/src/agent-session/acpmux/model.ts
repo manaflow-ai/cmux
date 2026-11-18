@@ -82,7 +82,6 @@ import {
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
-import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
 import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
@@ -776,6 +775,11 @@ export type AcpmuxRow = {
   /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
   /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
   workedMessages?: { sent: number; received: number };
+  /// A finished turn that drew nothing but its closed "Worked for" (a wake that only ran tools), and
+  /// the bare turns right after it joined into its one line (conversation/turns.ts `joinBareWorked`):
+  /// each member's fold key. Opened, every member draws its own line, and `head` names the first
+  /// one's, under which a click on any of them closes them all (`foldCovers`).
+  workedRun?: { ids: readonly string[]; head?: string };
   /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
   /// `countsCalls`).
   workedCalls?: number;
@@ -3034,11 +3038,11 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them. The pane's attachment view says which attachments
-  // draw in the row above the bubble instead (UserBubble.tsx: the strip view draws them all there).
+  // a placed prompt join as the draft had them. Its attachments draw in one block above the bubble
+  // (UserBubble.tsx, bubbleParts.ts `bubbleLayout`), in every attachment view.
   const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? bubbleLayout(row, composerSettingsSnapshot().attachmentView)
+      ? bubbleLayout(row)
       : undefined;
   const inline = layout?.parts;
   const plainUser =

@@ -47,6 +47,7 @@ import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldRe
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { sinceRead } from "../agent-session/acpmux/conversation/sinceRead.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
+import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -111,6 +112,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   turnFoldSteered,
   sinceRead,
   workedForMessages,
+  bareWorkedTurns,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,

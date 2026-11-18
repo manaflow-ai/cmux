@@ -130,7 +130,7 @@ struct CloudStartChat {
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
-        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, cli: cli, invocation: invocation) {
+        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         } } // a refusal of its size names the size and the folder
         return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
@@ -266,7 +266,7 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         report(.init(name: "machine"))
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
+        let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) } }
         return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await cli.strandThenDelete(key: start.key, account: CloudStartCore().accountText(account), machine: machine.machineID) { try await services.cloud.deleteMachine($0) } }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.
@@ -301,13 +301,27 @@ extension CloudStartChat {
         services.cloud.setup.run = { [weak services] action in
             try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow))
         }
+        services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
 
-    /// Warms the person's spare (``CloudSpareWarm``, no login copied), never awaited by the caller.
+    /// Warms the person's spare (``CloudSpareWarm``, no login copied), never awaited by the caller; the spare it names is keyed and linked ahead of its claim.
     @MainActor static func warmSpare(_ services: AppServices) {
         let cloud = services.cloud
         guard !services.registry.disabledFeatures.contains(.cloud), cloud.mayCallCloud, let binary = cloud.move.cli, let platform = cloud.configuration.artifactsAPIBaseURL() else { return }
-        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start()
+        CloudSpareWarm(auth: cloud.auth, cli: CloudMoveCLI(binary: binary), platform: platform, installIdentity: cloud.installIdentity).start(warmed: cloud.spareReadiness.prime)
+    }
+
+    /// ``CloudSpareReadiness``'s App side: the start's own keyed restart, only on a daemon that says it is idle (no agent runs) and with `keepBusy` off, so a daemon not up yet marks nothing busy for the start's own check; the carrier the session would make.
+    @MainActor static func spareReadiness(_ cloud: CloudService) -> CloudSpareReadiness.Dependencies {
+        .init(scope: { [weak cloud] in cloud?.account ?? [] }, key: { [weak cloud] machine, scope in
+            guard let cloud, await RemoteApprovalPreparations.shared.run(machine: machine, keepBusy: false, { [cloud, api = cloud.machineAPI] in
+                guard await RemoteAgentDaemonStatus.read(cloudMachine: machine, api: api)?.idleForKeyedRestart == true, await cloud.account == scope else { return false }
+                return await cloud.restartWithApprovals(machine: machine) == nil }) else { return nil }
+            return AcpmuxRemotePersonKeys.shared.instance(machine: machine)
+        }, keyedInstance: { AcpmuxRemotePersonKeys.shared.instance(machine: $0) }, link: { [weak cloud] machine, team in
+            guard let cloud, let connector = CloudCarrierDial.Connector(machine: machine, service: .mux, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(), team: team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
+            return .init(spare: connector, paths: cloud.paths)
+        })
     }
 }
 

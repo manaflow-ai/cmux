@@ -156,14 +156,23 @@ function readLeaf(node: Node | undefined, low: number, high: number, leafIndex: 
   return node?.leaf;
 }
 
-/// What the rows before leaf `leafIndex` sum to.
+/// The root-to-leaf prefix walks this module has made: a test reads it to see that the rows in view share one walk per
+/// leaf, never one per row (placedHeightIndex.test.ts).
+export const placedIndexStats = { prefixWalks: 0 };
+
+/// What the rows before leaf `leafIndex` sum to, as the scalars a cursor starts from. The walk joins the left
+/// sibling of every right turn the way `join` does (same gap, same order of sums), kept in locals: a Summary per
+/// level made every row drawn in a frame allocate a chain of objects, which grew with the chat's depth.
 function prefixBeforeLeaf(
   root: Node | undefined,
   capacity: number,
   leafIndex: number,
   between: GapBetween | undefined,
-): Summary {
-  let prefix = EMPTY;
+): Cursor {
+  placedIndexStats.prefixWalks += 1;
+  let sum = 0;
+  let drawn = 0;
+  let lastMark = 0;
   let node = root;
   let low = 0;
   let high = capacity;
@@ -173,13 +182,22 @@ function prefixBeforeLeaf(
       node = node.left;
       high = middle;
     } else {
-      prefix = join(prefix, summaryOf(node.left), between);
+      const left = summaryOf(node.left);
+      if (left.rows > 0) {
+        const gap = drawn > 0 && left.drawn > 0 ? (between ? between(lastMark, left.firstMark) : left.firstGap) : 0;
+        sum = sum + gap + left.sum;
+        if (left.drawn > 0) lastMark = left.lastMark;
+        drawn = Math.min(2, drawn + left.drawn);
+      }
       node = node.right;
       low = middle;
     }
   }
-  return prefix;
+  return { top: sum, drawn: drawn > 0, lastMark };
 }
+
+/// A leaf's rows placed: each row's top and the gap over it (0 for a row that draws nothing).
+type LeafPlaces = { readonly tops: Float64Array; readonly gaps: Float64Array };
 
 /// One row placed after the rows summarised by (top, drawn, lastMark): the walk `placeRows` takes.
 type Cursor = { top: number; drawn: boolean; lastMark: number };
@@ -191,6 +209,10 @@ type Cursor = { top: number; drawn: boolean; lastMark: number };
  */
 export class PlacedHeightIndex {
   readonly count: number;
+  /// The starting cursor of each leaf asked for (`cursorAtLeaf`): a cache of what the immutable tree already says.
+  private readonly leafCursors = new Map<number, Cursor>();
+  /// The rows of each leaf asked for, placed (`placesOf`).
+  private readonly leafPlaces = new Map<number, LeafPlaces>();
   /// Where the last row ends (gaps included).
   readonly totalHeight: number;
 
@@ -270,13 +292,35 @@ export class PlacedHeightIndex {
     return top;
   }
 
+  /// Where a walk over leaf `leafIndex` starts. The tree never changes, so each leaf's prefix is walked once for the
+  /// snapshot (the rows in view ask for their tops and gaps one by one), and every caller steps its own copy.
   private cursorAtLeaf(leafIndex: number): Cursor {
-    const prefix = prefixBeforeLeaf(this.root, this.capacity, leafIndex, this.rules.between);
-    return {
-      top: prefix.sum,
-      drawn: prefix.drawn > 0,
-      lastMark: prefix.lastMark,
-    };
+    let known = this.leafCursors.get(leafIndex);
+    if (!known) {
+      known = prefixBeforeLeaf(this.root, this.capacity, leafIndex, this.rules.between);
+      this.leafCursors.set(leafIndex, known);
+    }
+    return { top: known.top, drawn: known.drawn, lastMark: known.lastMark };
+  }
+
+  /// Every row of leaf `leafIndex` placed once: its tops and the gaps over its rows, stepped from the leaf's cursor as a
+  /// walk over its rows does. A frame asks for the top and the gap of each mounted row, and a walk of the leaf up to
+  /// each row (up to 63 steps, a boxed number each) made that cost the rows in view times a leaf, in a chat of any
+  /// length; with the leaf placed once the rows in view cost one leaf each.
+  private placesOf(leafIndex: number): LeafPlaces | undefined {
+    const known = this.leafPlaces.get(leafIndex);
+    if (known) return known;
+    const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
+    if (!leaf) return undefined;
+    const cursor = this.cursorAtLeaf(leafIndex);
+    const rows = leaf.heights.length;
+    const places = { tops: new Float64Array(rows), gaps: new Float64Array(rows) };
+    for (let at = 0; at < rows; at += 1) {
+      if (gapped(leaf.heights[at]!, leaf.marks?.[at] ?? 0)) places.gaps[at] = this.gapOf(cursor, leaf, at);
+      places.tops[at] = this.step(cursor, leaf, at);
+    }
+    this.leafPlaces.set(leafIndex, places);
+    return places;
   }
 
   /// The row's top: where the rows above it end, plus its own gap when it draws.
@@ -284,25 +328,15 @@ export class PlacedHeightIndex {
     if (!Number.isInteger(index) || index <= 0) return 0;
     if (index >= this.count) return this.totalHeight;
     const leafIndex = Math.floor(index / BLOCK_SIZE);
-    const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
-    const cursor = this.cursorAtLeaf(leafIndex);
-    if (!leaf) return cursor.top;
-    const offset = index % BLOCK_SIZE;
-    for (let at = 0; at < offset; at += 1) this.step(cursor, leaf, at);
-    return this.step(cursor, leaf, offset);
+    const places = this.placesOf(leafIndex);
+    if (!places) return this.cursorAtLeaf(leafIndex).top;
+    return places.tops[index % BLOCK_SIZE]!;
   }
 
   /// The gap the row takes above itself (0 for a row that draws nothing or the first drawn row).
   gapAt(index: number): number {
     if (!Number.isInteger(index) || index < 0 || index >= this.count) return 0;
-    const leafIndex = Math.floor(index / BLOCK_SIZE);
-    const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
-    if (!leaf) return 0;
-    const offset = index % BLOCK_SIZE;
-    if (!gapped(leaf.heights[offset]!, leaf.marks?.[offset] ?? 0)) return 0;
-    const cursor = this.cursorAtLeaf(leafIndex);
-    for (let at = 0; at < offset; at += 1) this.step(cursor, leaf, at);
-    return this.gapOf(cursor, leaf, offset);
+    return this.placesOf(Math.floor(index / BLOCK_SIZE))?.gaps[index % BLOCK_SIZE] ?? 0;
   }
 
   /**
@@ -448,7 +482,10 @@ export class PlacedHeightIndex {
   /** Finds the first row whose top is greater than `target` (upper-bound semantics). */
   upperBoundTop(target: number): number {
     const between = this.rules.between;
-    let prefix = EMPTY;
+    // The prefix joined so far, in scalars (`prefixBeforeLeaf`).
+    let sum = 0;
+    let drawn = 0;
+    let lastMark = 0;
     let node = this.root;
     let low = 0;
     let high = this.capacity;
@@ -457,25 +494,31 @@ export class PlacedHeightIndex {
     while (node && high - low > 1) {
       const middle = low + ((high - low) >>> 1);
       const left = summaryOf(node.left);
-      const through = join(prefix, left, between);
-      if (left.rows > 0 && through.sum - left.lastHeight > target) {
+      let through = sum;
+      if (left.rows > 0) {
+        const gap = drawn > 0 && left.drawn > 0 ? (between ? between(lastMark, left.firstMark) : left.firstGap) : 0;
+        through = sum + gap + left.sum;
+      }
+      if (left.rows > 0 && through - left.lastHeight > target) {
         node = node.left;
         high = middle;
       } else {
-        prefix = through;
+        if (left.rows > 0) {
+          sum = through;
+          if (left.drawn > 0) lastMark = left.lastMark;
+          drawn = Math.min(2, drawn + left.drawn);
+        }
         node = node.right;
         low = middle;
       }
     }
     let leafIndex = Math.max(0, low - 1);
     // Scan from the leaf before the descent's, in case rounding put the answer there.
-    const cursor = this.cursorAtLeaf(leafIndex);
-    let index = leafIndex * BLOCK_SIZE;
-    while (index < this.count) {
-      const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
-      if (!leaf) break;
-      for (let offset = 0; offset < leaf.heights.length; offset += 1, index += 1)
-        if (this.step(cursor, leaf, offset) > target) return index;
+    while (leafIndex * BLOCK_SIZE < this.count) {
+      const places = this.placesOf(leafIndex);
+      if (!places) break;
+      for (let offset = 0; offset < places.tops.length; offset += 1)
+        if (places.tops[offset]! > target) return leafIndex * BLOCK_SIZE + offset;
       leafIndex += 1;
     }
     return this.count;
