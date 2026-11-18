@@ -1586,6 +1586,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-files-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-signed-bundle",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [

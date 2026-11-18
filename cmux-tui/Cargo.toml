@@ -79,6 +79,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-files-host",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",

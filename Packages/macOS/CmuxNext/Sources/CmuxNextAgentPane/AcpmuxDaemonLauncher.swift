@@ -43,7 +43,10 @@ nonisolated enum AcpmuxDaemonLauncher {
         "HOME", "LANG", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER", "__CF_USER_TEXT_ENCODING",
     ]
 
-    static func arguments(for environment: AcpmuxEnvironment) -> [String] {
+    /// The launch shell's argv. With `filesHost` (a DEV build that embeds "cmux Files (dev)",
+    /// docs/cmux-files-host.md) the daemon runs under that helper, so its agents' Files and
+    /// Folders checks are the helper's, shared by every DEV build.
+    static func arguments(for environment: AcpmuxEnvironment, filesHost: FilesHost? = nil) -> [String] {
         ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
             + (environment.passesPersonKeyAtSpawn ? ["--person-key-fd", String(personKeyDescriptor)] : [])
             + environment.daemonArguments

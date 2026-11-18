@@ -831,6 +831,18 @@ fn configure_detached_owner_environment(command: &mut Command) {
     }
 }
 
+/// The DEV app's owner launcher (docs/cmux-files-host.md): the embedded "cmux Files (dev)"
+/// helper, which runs the owner as its child from a pinned, team-signed identity, so macOS asks
+/// for Files and Folders once for every DEV build instead of once per tag. The app sets it for
+/// `server ensure` only in a DEV build that embeds the helper; unset runs the owner directly.
+const OWNER_LAUNCHER_ENV: &str = "CMUX_TUI_OWNER_LAUNCHER";
+
+/// The owner's command before its own arguments: `program`, or `launcher run -- program` when
+/// the app named an absolute launcher.
+fn owner_command(program: &std::path::Path, _launcher: Option<&std::ffi::OsStr>) -> Command {
+    Command::new(program)
+}
+
 impl SpawnedOwner {
     /// Whether the owner process has exited (and been reaped).
     fn exited(&self) -> bool {
@@ -883,7 +895,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         Some(binary) => binary,
         None => platform::self_exe_for_spawn()?,
     };
-    let mut command = Command::new(program);
+    let launcher = std::env::var_os(OWNER_LAUNCHER_ENV);
+    let mut command = owner_command(&program, launcher.as_deref());
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
     command.arg("--socket").arg(&spec.socket);
@@ -1058,6 +1071,26 @@ mod tests {
     use super::cloud_backend_from_identity;
     use super::configure_detached_owner_environment;
     use serde_json::json;
+
+    #[test]
+    fn a_dev_owner_launcher_runs_the_owner_through_cmux_files() {
+        use std::ffi::OsStr;
+        use std::path::Path;
+        let program = Path::new("/A/cmux DEV x.app/Contents/Resources/bin/cmux-tui");
+        let launcher = OsStr::new(
+            "/A/cmux DEV x.app/Contents/Library/cmux Files (dev).app/Contents/MacOS/cmux-files-host",
+        );
+        let through = super::owner_command(program, Some(launcher));
+        assert_eq!(through.get_program(), launcher);
+        let args: Vec<&OsStr> = through.get_args().collect();
+        assert_eq!(args, [OsStr::new("run"), OsStr::new("--"), program.as_os_str()]);
+
+        for launcher in [None, Some(OsStr::new("")), Some(OsStr::new("cmux-files-host"))] {
+            let direct = super::owner_command(program, launcher);
+            assert_eq!(direct.get_program(), program.as_os_str(), "{launcher:?}");
+            assert_eq!(direct.get_args().count(), 0, "{launcher:?}");
+        }
+    }
 
     #[test]
     fn backend_identity_is_optional_for_classic_and_exact_for_next() {
