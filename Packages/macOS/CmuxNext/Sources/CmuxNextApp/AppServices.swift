@@ -155,7 +155,7 @@ final class AppServices {
         var joinedMachines: MachineJoinService?
         /// `debug.join_consent`: the join status the app reads (``JoinConsentServices/app(_:)``), and its person line.
         var joinStatus: JoinStatus?
-        let joinLine = DebugJoinConsent.FixtureLine()
+        let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
     }
@@ -922,7 +922,7 @@ extension AppServices {
     func paidPlanUpgrade() -> PaidPlanUpgrade {
         let client = cloud.isSignedIn ? accounts.client : nil
         return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
-                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url, web: cloud.configuration.authWebOrigin)
     }
 
     /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).
