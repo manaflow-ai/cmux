@@ -77,7 +77,7 @@ projection without a restart.
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: threads by project, status in words and icons) or
+(the Codex app), `studio` (a coding studio: one flat list of threads, status in words and icons) or
 `cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
 and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
 whole window's look.
@@ -104,12 +104,11 @@ file leave unset. Your own setting always wins, so you can take a look and chang
 Or drop `sidebar.look` and copy a look's lines into your file to own every value. These are the
 three looks written out, exactly as shipped:
 
-**Claude**: Projects, then one flat Recents list; plain headings; a row is its title; a small dot
-for work.
+**Claude**: sessions under a plain heading per project; a row is its title; a small dot for work.
 
 ```json
 {
-  "sidebar.groupBy": "recents",
+  "sidebar.groupBy": "folder",
   "sidebar.groupHeader.background": "sections",
   "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,
@@ -123,8 +122,8 @@ for work.
 }
 ```
 
-**Codex**: threads under a plain heading per project folder; title and time on one line; a
-spinner for work.
+**Codex**: threads under a plain heading per project folder; title and time on one line; a thin
+ring for work.
 
 ```json
 {
@@ -137,19 +136,19 @@ spinner for work.
   "sidebar.showColors": false,
   "sidebar.showTimestamps": true,
   "sidebar.detailedStatusIcons": false,
-  "appearance.statusIndicator.style": "native",
+  "appearance.statusIndicator.style": "arc",
   "sidebar.showSpaces": false
 }
 ```
 
-**Studio**: threads by project folder, a closed folder shows how many it holds; title and compact
-time; working, waiting, error and done each have their own icon.
+**Studio**: one flat list of threads; title and compact time; working, waiting, error and done
+each have their own icon.
 
 ```json
 {
-  "sidebar.groupBy": "folder",
+  "sidebar.groupBy": "none",
   "sidebar.groupHeader.background": "sections",
-  "sidebar.groupHeader.memberCount": true,
+  "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,
   "sidebar.sectionLook": "quiet",
   "sidebar.workspaceRow.icon": false,

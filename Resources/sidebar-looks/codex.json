@@ -6,13 +6,13 @@
 // From the reference (docs/cmux-next/sidebar-customization.md, "Sidebar looks"):
 // - Threads under their project, one plain heading per project folder.
 // - A row is the title and, at its trailing edge, when it last changed ("5m").
-// - No icon or color on a row; a spinner while it works.
+// - No icon or color on a row; a thin ring while it works.
 // - No spaces strip.
 // The look never sets row height, sidebar width, the trailing column or motion: those stay on
 // cmux's shared grid (`sidebar.density`, `appearance.metrics.*`), so switching looks moves no pane.
 {
   "name": "Codex",
-  "description": "Threads by project folder; title and time on one line; a spinner for work.",
+  "description": "Threads by project folder; title and time on one line; a thin ring for work.",
 
   "sidebar.groupBy": "folder",
   "sidebar.groupHeader.background": "sections",
@@ -24,7 +24,7 @@
   "sidebar.showColors": false,
   "sidebar.showTimestamps": true,
   "sidebar.detailedStatusIcons": false,
-  "appearance.statusIndicator.style": "native",
+  "appearance.statusIndicator.style": "arc",
 
   "sidebar.showSpaces": false
 }

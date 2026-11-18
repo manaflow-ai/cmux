@@ -3,18 +3,18 @@
 // cmux-next.json, a theme file and managed settings leave unset, so your own settings still win.
 // To make your own, copy these lines into ~/.config/cmux/cmux-next.json and edit them.
 //
-// Measured from the reference (docs/cmux-next/sidebar-customization.md, "Sidebar looks"):
-// - Projects above, then one flat "Recents" list, newest first.
-// - Plain section headings: quiet ink, no fill, no count.
-// - A row is the title alone: no icon, no color, no time. A small dot leads a working row.
+// Measured from the reference captures (docs/cmux-next/sidebar-customization.md, "Sidebar looks"):
+// - Sessions under their project, one plain heading per project folder.
+// - Plain headings: quiet ink, no fill, no count.
+// - A row is the title alone: no icon, no color, no time. A small dot marks a working row.
 // - No spaces strip.
 // The look never sets row height, sidebar width, the trailing column or motion: those stay on
 // cmux's shared grid (`sidebar.density`, `appearance.metrics.*`), so switching looks moves no pane.
 {
   "name": "Claude",
-  "description": "Projects, then Recents; plain headings; title-only rows with a dot for work.",
+  "description": "Sessions by project; plain headings; title-only rows with a dot for work.",
 
-  "sidebar.groupBy": "recents",
+  "sidebar.groupBy": "folder",
   "sidebar.groupHeader.background": "sections",
   "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,

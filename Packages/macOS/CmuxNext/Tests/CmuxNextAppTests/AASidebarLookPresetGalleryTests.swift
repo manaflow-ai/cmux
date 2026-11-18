@@ -68,9 +68,9 @@ import Testing
         let model: SidebarModel
         let list: SidebarListView
 
-        init(look: String, dark: Bool = true) throws {
+        init(look: String, dark: Bool = true, width: CGFloat = AASidebarLookPresetGalleryTests.width) throws {
             _ = NSApplication.shared
-            let (width, height) = (AASidebarLookPresetGalleryTests.width, AASidebarLookPresetGalleryTests.height)
+            let height = AASidebarLookPresetGalleryTests.height
             window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -204,6 +204,65 @@ import Testing
         }
     }
 
+    /// Each look's reference sidebar width (measured from the reference captures; the look itself never sets
+    /// width), so a still sits beside its reference at the same size.
+    static let referenceWidths: [String: CGFloat] = ["cmux": 280, "claude": 288, "codex": 300, "studio": 256]
+
+    /// What the faithfulness score compares against the reference: the list's width, every workspace
+    /// row's height and pitch, the header heights, and the title and detail type.
+    static func metrics(_ harness: Harness) -> [String: Any] {
+        func weight(_ font: NSFont) -> Double {
+            let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
+            return (traits?[.weight] as? NSNumber)?.doubleValue ?? 0
+        }
+        var rows: [CGRect] = [], headers: [CGFloat] = []
+        for (key, view) in harness.list.rowViews {
+            switch key {
+            case .workspace: rows.append(view.frame)
+            case .group, .folder, .listHeader, .section: headers.append(view.frame.height)
+            default: break
+            }
+        }
+        let ys = rows.map(\.minY).sorted()
+        let pitches = zip(ys, ys.dropFirst()).map { $1 - $0 }
+        return [
+            "width": harness.list.frame.width,
+            "rowHeights": Array(Set(rows.map(\.height))).sorted(),
+            "rowPitchMin": pitches.min() ?? 0,
+            "headerHeights": Array(Set(headers)).sorted(),
+            "titleSize": SidebarStyle.titleFont.pointSize, "titleWeight": weight(SidebarStyle.titleFont),
+            "detailSize": SidebarStyle.subtitleFont.pointSize,
+            "headerSize": SidebarStyle.headerFont.pointSize, "headerWeight": weight(SidebarStyle.headerFont),
+        ]
+    }
+
+    /// Stills at each look's reference width (dark, as every reference is), their metrics, and a switch's
+    /// before, after and back stills (the frames check is `switchingLooksKeepsTheGridAndSwitchingBackMovesNothing`;
+    /// a spinner's phase makes pixels differ, so the stills are for review).
+    func renderFaithfulness(into out: URL) throws {
+        var all: [String: Any] = [:]
+        for look in Self.looks {
+            let harness = try Harness(look: look, dark: true, width: Self.referenceWidths[look] ?? Self.width)
+            try AAGroupHeaderDensityGalleryTests.write(try harness.image(), to: out.appending(path: "reference-width-\(look).png"))
+            all[look] = Self.metrics(harness)
+            harness.close()
+        }
+        let data = try JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: out.appending(path: "metrics.json"))
+        for look in Self.looks where look != SidebarLookPreset.fallback {
+            let harness = try Harness(look: SidebarLookPreset.fallback)
+            defer { harness.close() }
+            let before = try harness.image()
+            harness.apply(look: look)
+            let after = try harness.image()
+            harness.apply(look: SidebarLookPreset.fallback)
+            let back = try harness.image()
+            for (name, image) in [("before", before), ("after", after), ("back", back)] {
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "switch-\(look)-\(name).png"))
+            }
+        }
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         let root = AANestedGroupsGalleryTests.packageRoot
@@ -232,6 +291,7 @@ import Testing
             ctx.draw(image, in: CGRect(x: col * (w + gap), y: (1 - row) * (h + gap), width: w, height: h))
         }
         try AAGroupHeaderDensityGalleryTests.write(try #require(ctx.makeImage()), to: out.appending(path: "all.png"))
+        try renderFaithfulness(into: out)
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = root
