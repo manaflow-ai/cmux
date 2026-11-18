@@ -24,7 +24,8 @@ from pathlib import Path
 
 import yaml
 
-from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
+from test_ci_fork_runner_routing import (FAST_CHECKS_ADMISSION_EXPRESSION, evaluate_runs_on, parse_expression,
+                                         runner_label_errors)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
@@ -70,6 +71,8 @@ class FastChecksFailoverTests(unittest.TestCase):
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
         selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
         self.assertEqual(runner_label_errors(selector), [])
+        # The exact reviewed selector: any edit, even to another ephemeral size, leaves it.
+        self.assertEqual(selector, FAST_CHECKS_ADMISSION_EXPRESSION)
         for unsafe in (
             selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
             selector.replace("|| 'blacksmith-4vcpu-ubuntu-2404'", "|| 'self-hosted'"),
@@ -81,7 +84,7 @@ class FastChecksFailoverTests(unittest.TestCase):
             selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
         ):
             with self.subTest(selector=unsafe):
-                self.assertNotEqual(runner_label_errors(unsafe), [])
+                self.assertNotEqual(unsafe, FAST_CHECKS_ADMISSION_EXPRESSION)
 
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
