@@ -61,7 +61,7 @@ public final class WebKitSpareTab {
     init(policy: Policy, clock: any Clock<Duration>, activities: ExpectedActivity, activity: (() -> UInt64)?,
          isTrackingMenu: (() -> Bool)?, memoryPressure: MemoryPressureEvents?) {
         self.policy = policy
-        self.activity = activity ?? { activities.total }
+        self.activity = activity ?? { activities.count(.input) } // the person's input only: terminal output and animation frames are no input (an agent printing never let a spare be made)
         self.isTrackingMenu = isTrackingMenu ?? { RunLoop.main.currentMode == .eventTracking }
         timer = DemandTimer(owner: "WebKitSpareTab.build", clock: clock)
         if let memoryPressure { watch(memoryPressure) }
