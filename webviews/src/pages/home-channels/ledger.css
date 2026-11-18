@@ -152,9 +152,33 @@
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-list-group.after-pinned {
-  margin-top: var(--ds-space-1);
-  padding-top: var(--ds-space-2);
+/* Windowed (ConversationList.tsx): only the label, line and rows near the viewport are mounted,
+   each placed at its offset in a box as tall as the whole list. */
+.lg-list-space {
+  position: relative;
+  width: 100%;
+}
+.lg-list-section-host,
+.lg-list-divider,
+.lg-list-space .lg-list-group > li {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Its own block, so the label's margins count in its measured height. */
+.lg-list-section-host {
+  display: flow-root;
+}
+/* The hairline between my pins and the rest, with the space the rest's list had above it. */
+.lg-list-divider {
+  padding-top: var(--ds-space-1);
+}
+.lg-list-divider::after {
+  content: "";
+  display: block;
+  height: var(--ds-space-2);
   border-top: 1px solid var(--lg-line);
 }
 /* A row's context-menu host takes no box of its own. */
