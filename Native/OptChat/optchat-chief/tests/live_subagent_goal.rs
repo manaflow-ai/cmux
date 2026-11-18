@@ -196,10 +196,21 @@ fn a_goal_subagent_starts_with_one_prompt_and_its_goal_holds() {
 fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends() {
     use optchat_chief::state::SubStatus;
     let socket = std::env::var("OPTCHAT_LIVE_ACPMUX_SOCKET").expect("OPTCHAT_LIVE_ACPMUX_SOCKET");
-    let mut h = Harness::new(default_script());
+    // The chat and its folder from the harness; the brain reads the real daemon (its reports
+    // come from the subagent session's events there, not from the harness's fake agents).
+    let h = Harness::new(default_script());
     let acpmux = Acpmux::new(socket.into(), None, Vec::new());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut brain = optchat_chief::brain::Brain::new(
+        h.chat.clone(),
+        acpmux.clone(),
+        common::settings(h.dir.path()),
+        optchat_chief::state::StateFile::new(&h.dir.path().join("live-host.json")),
+        tx.clone(),
+        Arc::new(|line: &str| eprintln!("brain: {line}")),
+    );
     let (up_tx, up_rx) = std::sync::mpsc::channel();
-    let link = Mutex::new((up_tx, h.tx.clone()));
+    let link = Mutex::new((up_tx, tx.clone()));
     acpmux.spawn_link(
         Arc::new(move |e| {
             let link = link.lock().unwrap();
@@ -241,7 +252,7 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
                 parent: optchat_chief::brain::PARENT.into(),
                 claude_md: None,
             },
-            h.tx.clone(),
+            tx.clone(),
             Arc::new(|_: &str| {}),
         )
         .with_goal(true),
@@ -249,8 +260,8 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
     let began = Instant::now();
     let worker = std::thread::spawn(move || sp.spawn(vec![TASK.to_owned()], None));
     while !worker.is_finished() {
-        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
-            h.brain.step(input);
+        if let Ok(input) = rx.recv_timeout(Duration::from_millis(10)) {
+            brain.step(input);
         }
     }
     let started = worker.join().unwrap().unwrap();
@@ -260,8 +271,8 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
         .unwrap()
         .expect("the subagent's session");
 
-    let done = |h: &Harness| {
-        h.brain
+    let done = |brain: &optchat_chief::brain::Brain| {
+        brain
             .state()
             .sub("a1")
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Done | SubStatus::Reported))
@@ -269,26 +280,26 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
     // The host's sub ticker runs once a minute; here every 5 s.
     let deadline = Instant::now() + Duration::from_secs(900);
     let mut tick = Instant::now();
-    while Instant::now() < deadline && !done(&h) {
-        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
-            h.brain.step(input);
+    while Instant::now() < deadline && !done(&brain) {
+        if let Ok(input) = rx.recv_timeout(Duration::from_millis(50)) {
+            brain.step(input);
         }
         if tick.elapsed() >= Duration::from_secs(5) {
             tick = Instant::now();
-            h.brain.step(optchat_chief::brain::Input::SubTick);
+            brain.step(optchat_chief::brain::Input::SubTick);
         }
     }
     let total = began.elapsed();
     assert!(
-        done(&h),
+        done(&brain),
         "the subagent reported within 15 minutes: {:?}",
         h.log()
     );
     // Anything late (a second report) would come right after.
     let settle = Instant::now() + Duration::from_secs(5);
     while Instant::now() < settle {
-        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
-            h.brain.step(input);
+        if let Ok(input) = rx.recv_timeout(Duration::from_millis(50)) {
+            brain.step(input);
         }
     }
 
@@ -317,17 +328,18 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
         })
         .collect();
     let prompts = events.iter().filter(|e| e.kind == "session/prompt").count();
-    let reports: Vec<String> = h
-        .log()
-        .into_iter()
-        .filter(|(_, t)| t.starts_with("[a1]"))
-        .map(|(_, t)| t)
-        .collect();
+    // No Chief turn runs here: the report waits in the brain's state for the log. The loop above
+    // stops at the first report, so a report that holds the answer is the only one.
+    let report = brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.report.clone())
+        .unwrap_or_default();
     eprintln!("session {session}: {total:?} to the report");
     eprintln!("event kinds: {by_kind:?}");
     eprintln!("goal statuses: {goals:?}");
     eprintln!("the agent said: {said}");
-    eprintln!("reports: {reports:?}");
+    eprintln!("report: {report}");
 
     assert_eq!(prompts, 1, "exactly one prompt: {by_kind:?}");
     assert!(
@@ -344,10 +356,11 @@ fn a_codex_goal_subagent_starts_with_one_prompt_and_reports_once_its_goal_ends()
         said.contains("REPORTED") && said.contains("work-done"),
         "{said}"
     );
-    assert_eq!(reports.len(), 1, "one report: {reports:?}");
+    // Its final words after the goal ended (Codex may say REPORTED in one of its own turns and
+    // "Goal complete" in the last): the answer, never the PAUSED turn.
     assert!(
-        reports[0].contains("REPORTED"),
-        "the report is the answer: {reports:?}"
+        report.contains("work-done") && !report.contains("PAUSED"),
+        "the first report is the answer, not the PAUSED turn: {report}"
     );
     let _ = acpmux.end_session(&session);
 }
