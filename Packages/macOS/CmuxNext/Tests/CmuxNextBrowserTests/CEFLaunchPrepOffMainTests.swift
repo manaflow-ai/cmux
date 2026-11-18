@@ -49,4 +49,20 @@ extension CEFLaunchPrepOffMainTests {
         _ = await runtime.launchPrepTask?.value
         #expect(FileManager.default.fileExists(atPath: storage.previousLogFile.path), "the frame opened the prep, and it is done")
     }
+
+    /// The debug window's synchronous start has no preload, so it does the prep itself before `CefInitialize`: the
+    /// profile root exists and the last run's log is kept, as on the async start (CMUX-571).
+    @Test func theBlockingStartDoesThePrepItself() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cef-launch-prep-blocking-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = CEFProfileStorage(root: root.appending(path: "Chromium"))
+        try FileManager.default.createDirectory(at: storage.root, withIntermediateDirectories: true)
+        try Data("last run".utf8).write(to: storage.logFile)
+
+        let runtime = CEFRuntime(libraryLoader: { _ in .failure(.notEmbedded) }, storage: storage)
+        // The framework is not there, so the start fails after its prep.
+        #expect(throws: BrowserEngineError.self) { try runtime.startBlocking(layout: CEFLibraryMapOffMainTests.layout) }
+        #expect(FileManager.default.fileExists(atPath: storage.previousLogFile.path), "the blocking start kept the last run's log")
+        #expect(runtime.launchPrepTask != nil, "a later start reuses the prep, not a second log rotation")
+    }
 }
