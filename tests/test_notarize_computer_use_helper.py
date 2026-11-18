@@ -164,6 +164,23 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertIn('/standalone/cmux Computer Use.app', self.calls('spctl')[0][-1])
         self.assertTrue((self.helper / 'Contents/CodeResources').exists())
 
+    def test_the_screen_sharing_executable_is_signed_as_the_helper_before_the_helper(self):
+        # One permission identity for screen sharing and computer use: the nested executable gets
+        # the helper's identifier and the hardened runtime, no entitlements, before the helper's
+        # seal and the submission that ticket covers.
+        nested = self.helper / 'Contents/MacOS/cmux-screen-sharing'
+        nested.write_bytes(b'fixture-screen-sharing')
+        self.run_helper('--start', self.state)
+        signs = [c for c in self.calls('codesign') if '--sign' in c]
+        targets = [c[-1] for c in signs]
+        self.assertIn(str(nested), targets)
+        self.assertLess(targets.index(str(nested)), targets.index(str(self.helper)))
+        nested_sign = signs[targets.index(str(nested))]
+        self.assertEqual(nested_sign[nested_sign.index('--identifier') + 1], 'com.cmuxterm.cua')
+        self.assertIn('runtime', nested_sign)
+        self.assertNotIn('--entitlements', nested_sign)
+        self.assertNotIn('Screen Sharing.app', ''.join(targets))
+
     def finish_exit(self, **env):
         # Only the repository script and fixture arguments are executed, without a shell.
         return subprocess.run([str(SCRIPT), '--finish', str(self.state), str(self.app),  # noqa: S603

@@ -23,6 +23,9 @@ final class ChromiumWindowGuard {
     private var observers: [any NSObjectProtocol] = []
     /// A window became key (``AgentRenderKeyReturn`` gives back keys a parked agent page took).
     var onBecameKey: ((NSWindow) -> Void)?
+    /// A window's occlusion changed (``ChromiumPageWindowVisibility/parentOcclusionChanged(_:post:)`` passes it on to
+    /// the window's embedded page windows).
+    var onOcclusionChanged: ((NSWindow) -> Void)?
     private let logger: Logger
     /// True when `window` is a DevTools window cmux placed on purpose.
     private let isPlacedDevTools: (NSWindow) -> Bool
@@ -45,9 +48,11 @@ final class ChromiumWindowGuard {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 guard let window = note.object as? NSWindow else { return }
                 let becameKey = note.name == NSWindow.didBecomeKeyNotification
+                let occlusion = note.name == NSWindow.didChangeOcclusionStateNotification
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     self?.check(window)
                     if becameKey { self?.onBecameKey?(window) }
+                    if occlusion { self?.onOcclusionChanged?(window) }
                 }
             })
         }

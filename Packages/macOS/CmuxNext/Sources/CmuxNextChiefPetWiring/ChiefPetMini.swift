@@ -141,14 +141,17 @@ public final class ChiefPetMini {
     }
 
     /// Show in Mini in the palette, on the focused chat page `focused` names: run while the mini shows it already, it reads Show Chief in Mini and gives the mini
-    /// back to the Chief.
+    /// back to the Chief. Offered only on a chat the mini can show: elsewhere its row is disabled and
+    /// a run does nothing.
     public func bind(into registry: ActionRegistry, focused: @escaping @MainActor (ActionInvocation) -> AgentPaneModel?) {
         registry.bindEffect(Self.action) { [weak self, weak registry] invocation in
-            guard let self, let registry, let chat = focused(invocation).flatMap(chat(of:)) else {
-                return .refused(ChiefPetSubject.needsAgentChatTitle)
-            }
+            guard let self, let registry, let chat = focused(invocation).flatMap(chat(of:)) else { return .done }
             show(subject.chat == chat ? nil : chat, registry: registry)
             return .done
+        }
+        ActionTargetVisibility.gate(Self.action, in: registry) { [weak self] invocation in
+            guard let self, focused(invocation).flatMap(chat(of:)) != nil else { return ChiefPetSubject.needsAgentChatTitle }
+            return nil
         }
         ActionTargetTitles.setPaletteTitle(Self.action, in: registry) { [weak self] in
             guard let self, let chat = focused(ActionInvocation()).flatMap(chat(of:)), subject.chat == chat else { return nil }

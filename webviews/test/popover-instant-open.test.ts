@@ -347,6 +347,7 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
 
   test("the scan catches an open animation and a starting style on a popup, and passes its exit fade", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       popupEntrances(`
         .ui-popup.acpmux-chat-menu-popover { animation: ui-popup-open 120ms ease-out }
         @media (prefers-reduced-motion: reduce) { :where(.ui-popup) { animation: ui-popup-fade 120ms } }
@@ -355,14 +356,15 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .ui-menu .ui-menu-item { animation: row-in 80ms }
         .acpmux-mp-refresh-spinner { animation: cmux-spin 900ms linear infinite }`),
     ).toEqual([
-      "2 `.ui-popup.acpmux-chat-menu-popover` starts `animation: ui-popup-open 120ms ease-out`",
-      "3 `:where(.ui-popup)` starts `animation: ui-popup-fade 120ms`",
+      "2 `.ui-popup.acpmux-chat-menu-popover` starts `animation: ui-popup-open 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "3 `:where(.ui-popup)` starts `animation: ui-popup-fade 120ms`", // motion-allow: the scanner's report of the fixture
       "4 `.ui-popover[data-starting-style]` draws a starting style to enter from",
     ]);
   });
 
   test("the scan covers popup-named classes and ARIA menus, and passes palettes", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       popupEntrances(`
         .nt-edit-add-menu { animation: ui-enter 120ms both }
         .file-tree-context-menu { animation: ui-enter 120ms both }
@@ -374,12 +376,12 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .lg-palette { animation: ui-enter 120ms both }
         .nt-edit-add-menu-item { animation: row-in 80ms }`),
     ).toEqual([
-      "2 `.nt-edit-add-menu` starts `animation: ui-enter 120ms both`",
-      "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`",
-      "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`",
-      "5 `[role=listbox]` starts `animation: ui-enter 120ms both`",
+      "2 `.nt-edit-add-menu` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "5 `[role=listbox]` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
       '6 `[role = "menu"]` starts `animation: ui-enter`',
-      "7 `.x-popover` starts `animation: ui-enter 120ms`",
+      "7 `.x-popover` starts `animation: ui-enter 120ms`", // motion-allow: the scanner's report of the fixture
     ]);
   });
 
@@ -422,6 +424,7 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
 
   test("the close scan catches a fade, rise or grow on a popup, tooltip or hover card, in or out", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       surfaceMotions(`
         :where(.ui-popup) { transition: opacity var(--ui-popup-close) ease-in }
         .ui-tooltip, .ui-title-tooltip { transition: opacity 120ms ease-out, translate 120ms ease-out }
@@ -434,10 +437,10 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .acpmux-file-search { transition: opacity 80ms }`),
     ).toEqual([
       "2 `:where(.ui-popup)` transitions `opacity var(--ui-popup-close) ease-in`",
-      "3 `.ui-tooltip, .ui-title-tooltip` transitions `opacity 120ms ease-out`",
-      "3 `.ui-tooltip, .ui-title-tooltip` transitions `translate 120ms ease-out`",
-      "4 `:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style]` transitions `opacity 80ms ease-in`",
-      "5 `.ui-popup[data-ending-style]` starts `animation: out 80ms`",
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `opacity 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `translate 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "4 `:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style]` transitions `opacity 80ms ease-in`", // motion-allow: the scanner's report of the fixture
+      "5 `.ui-popup[data-ending-style]` starts `animation: out 80ms`", // motion-allow: the scanner's report of the fixture
       "6 `.x-hovercard` transitions `opacity` over `0.1s`",
     ]);
   });
