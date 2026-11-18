@@ -31,4 +31,15 @@ struct CloudNewWorkspaceSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspacesInCloud"] != nil)
         #expect(SettingsSchema.agentRefusedKeys["cloud.newWorkspaceFolder"] != nil)
     }
+
+    /// `cloud.projectedFolders`: off unless written true, on the Settings page, and only the person turns it on.
+    @Test func projectedFoldersAreOffByDefaultAndOnlyThePersonTurnsThemOn() throws {
+        let setting = CloudNewWorkspaceSetting()
+        #expect(setting.projectedFolders(in: .object([:])) == false)
+        #expect(setting.projectedFolders(in: .object(["cloud": .object(["projectedFolders": .string("yes")])])) == false)
+        #expect(setting.projectedFolders(in: .object(["cloud": .object(["projectedFolders": .bool(true)])])))
+        let toggle = try #require(SettingsSchema.all.first { $0.id == "cloud.projectedFolders" })
+        #expect(toggle.section == .machines && toggle.isShownOnSettingsPage && toggle.defaultValue == .bool(false))
+        #expect(SettingsSchema.agentRefusedKeys["cloud.projectedFolders"] != nil)
+    }
 }

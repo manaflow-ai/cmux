@@ -180,4 +180,21 @@ struct AgentPaneCloudPlanTests {
         start.repository = nil
         #expect(try start.sizedForRepository(sizes) == start)
     }
+
+    /// `cloud.projectedFolders` on: a folder too big to copy is not refused before its machine (it is projected, at the
+    /// chat size). Off, or a folder within the copy's limits, sizing is what it was.
+    @Test func aProjectingStartIsNotRefusedForAFolderTooBigToCopy() throws {
+        let gib: Int64 = 1_073_741_824
+        let start = AgentPaneCloudStart(task: "t", cwd: nil, key: UUID().uuidString)
+        let tooBig = CloudMoveCLI.StartChatPreflight.refused(.init(message: "too big", folder: "~/Projects"))
+        let noMachineHoldsIt = CloudMoveCLI.StartChatPreflight.passed(bytes: 300 * gib, size: nil)
+        #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(tooBig, local: "/tmp/p", projecting: false) }
+        #expect(throws: CloudMoveCLI.StartChatPreflightRefusal.self) { try start.sized(noMachineHoldsIt, local: "/tmp/p", projecting: false) }
+        let projected = try start.sized(noMachineHoldsIt, local: "/tmp/p", projecting: true)
+        #expect(projected.size == nil && projected.folderBytes == nil)
+        #expect(try start.sized(tooBig, local: "/tmp/p", projecting: true).size == nil)
+        // Within the limits the switch changes nothing.
+        let small = CloudMoveCLI.StartChatPreflight.passed(bytes: 2 * gib, size: .sm)
+        #expect(try start.sized(small, local: "/tmp/p", projecting: true) == start.sized(small, local: "/tmp/p"))
+    }
 }

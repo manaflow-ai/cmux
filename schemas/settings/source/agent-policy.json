@@ -940,6 +940,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "A projected folder keeps serving this Mac's files to the person's Cloud machine for as long as its chat runs: only the person turns that on.",
+      "keys": [
+        "cloud.projectedFolders"
+      ]
+    },
+    {
       "agent": "privacy",
       "keys": [
         "agents.chats.roots",

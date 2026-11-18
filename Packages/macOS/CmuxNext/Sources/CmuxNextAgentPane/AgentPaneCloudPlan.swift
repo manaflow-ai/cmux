@@ -20,6 +20,20 @@ extension AgentPaneCloudStart {
         return sized
     }
 
+    /// ``sized(_:local:)``, except that with `projecting` (`cloud.projectedFolders` on) a folder too big to copy is not
+    /// refused before its machine: the start goes on at the chat size, with no folder bytes, and projects the folder
+    /// (``CloudProjectedFolders``). Off, it is ``sized(_:local:)`` exactly.
+    public func sized(_ preflight: CloudMoveCLI.StartChatPreflight, local: String, projecting: Bool) throws -> Self {
+        do {
+            return try sized(preflight, local: local)
+        } catch is CloudMoveCLI.StartChatPreflightRefusal where projecting {
+            var sized = self
+            sized.size = nil
+            sized.folderBytes = nil
+            return sized
+        }
+    }
+
     /// This start with the size its GitHub repository needs, from the size the repos list gave it (`size_kb`,
     /// `sizes`, the App's ``AgentPaneGitHub/sizes``) under the page's plan (``planMax``, as ``sized(_:local:)``); `sm` when
     /// the list named none (or there is no list). A repository too big for a Cloud machine is `cloud_folder_too_big`. A

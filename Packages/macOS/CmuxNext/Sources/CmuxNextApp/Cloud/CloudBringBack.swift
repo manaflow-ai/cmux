@@ -197,7 +197,7 @@ struct CloudBringBack {
         }
         let pulled: CloudMoveCLI.Answer
         if pending != nil || toMachine { pulled = CloudMoveCLI.Answer(ok: true) } else { do {
-            pulled = try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+            pulled = try await services.cloud.projected.pull(machine: entry.machineID, folder: entry.remoteFolder, socket: machineSocket, cli: cli) { try await cli.bringBackPull(socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder) } // a projected folder: its own pull, its conflicts shown as this one's (CloudProjectedFolders)
         } catch {
             // Timed out or didn't launch: nothing moved, so Retry runs it again on this machine.
             throw Failure(message: CloudBringBackStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
@@ -237,7 +237,7 @@ struct CloudBringBack {
                 landing = remote
                 let sync = onto.map { CloudMoveCLI.FrozenSync(pull: false, socket: $0.socket, local: entry.remoteFolder, remote: remote?.folder ?? "",
                                                               fromSocket: machineSocket, seedLocal: entry.localRoot) }
-                    ?? CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)
+                    ?? (services.cloud.projected.record(machine: entry.machineID, folder: entry.remoteFolder) != nil ? nil : CloudMoveCLI.FrozenSync(pull: true, socket: machineSocket, local: entry.localRoot, remote: entry.remoteFolder)) // a projected folder came back by its pull above, never a sync of the mount
                 moved = try await cli.agentMove(from: machineSocket, surface: tab.surface.rawValue, to: onto?.socket ?? localSocket,
                                                 cwd: remote?.chat ?? entry.localChat, sync: sync, askFirst: askFirst, vmKind: onto?.vmKind)
                 if moved.ok || moved.errorCode != "fs.permission_denied" { break }

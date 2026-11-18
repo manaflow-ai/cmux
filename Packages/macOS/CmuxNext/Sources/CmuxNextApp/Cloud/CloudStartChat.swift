@@ -125,7 +125,7 @@ struct CloudStartChat {
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
-        let start = try await start.sized(cli.startChatPreflightAnswer(local: folder.root), local: folder.root) // before any machine or lease: the size its copy needs, or its refusal
+        let start = try await start.sized(cli.startChatPreflightAnswer(local: folder.root), local: folder.root, projecting: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:]))) // before any machine or lease: the size its copy needs, or its refusal (none when projected)
         report(.init(name: "machine", folder: folderName))
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
@@ -187,19 +187,18 @@ struct CloudStartChat {
     func copyFolder(_ folder: CloudMoveFolder, key: String, account: [String?], to machine: CloudMachineSession, cli: CloudMoveCLI,
                     declined: (CloudSeedRefusal) -> any Error, failed: (any Error) -> any Error,
                     progress: (SeedProgress) -> Void) async throws -> Copied {
-        let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
-        // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
-        // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
+        let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account), home = QuitAgents.environment(services)?.home.path
+        // With `cloud.projectedFolders` on, a folder past the copy's limits is projected, not copied (CloudProjectedFolders); any refusal copies it as below.
+        if let projected = await services.cloud.projected.start(on: CloudNewWorkspaceSetting().projectedFolders(in: services.settings?.snapshot.root ?? .object([:])), cli: cli, key: key, account: CloudStartCore().accountText(account), machine: machine.machineID, socket: await machine.daemon.connection?.endpoint?.socketPath, local: folder.root, subpath: folder.subpath, workRoots: services.cloud.move.workRoots, acpmuxHome: home) { return projected }
+        // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine); the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
         return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size?.storageMb, declined: declined) { refusal in do {
                 return try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
                                                            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
-                                                           notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, refusal, key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
+                                                           notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, refusal, key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home, storeAccess] line in
                         try await cli.startChatCopy(key: key, account: owner, machine: id, socket: socket, local: root, subpath: sub, workRoots: roots, acpmuxHome: home, access: storeAccess, onSeedRefusal: refusal, stderrLine: line)
                     }, each: progress)
                 } answer: { ($0.0.ok, $0.0.errorCode, $0.0.side) } update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }
-            } catch {
-                throw failed(error)
-        } }
+            } catch { throw failed(error) } }
     }
 
     /// Opens the chat on `machine` in `cwd` under the plan's `tabKey` (a retry gets the same tab) and closes the origin's tab: the chat is the

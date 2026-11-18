@@ -63,7 +63,7 @@ final class CloudService {
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
     @ObservationIgnored let tuiState: URL?
-    @ObservationIgnored let desktopStreams = CloudCarrierStreams() // The account's carriers (desktop dials, streams, serves); its end or Cloud turned off ends them.
+    @ObservationIgnored let desktopStreams = CloudCarrierStreams(); @ObservationIgnored private(set) lazy var projected = CloudProjectedFolders(binary: binary) // The account's carriers (desktop dials, streams, serves), whose end or Cloud turned off ends them; its projected folders' serve children, which its end, its machine lists and quit end.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -396,8 +396,8 @@ final class CloudService {
         for session in machines.cloud { session.disconnect() }
     }
 
-    /// The quit coordinator awaits this before AppKit may terminate the process: the personal gateway ends (a crash closes its stdin, which ends it too).
-    func prepareForTermination() async { gateway.stop() }
+    /// The quit coordinator awaits this before AppKit may terminate the process: the personal gateway ends (a crash closes its stdin, which ends it too), and every projected folder's serve child ends.
+    func prepareForTermination() async { gateway.stop(); await projected.stopAllAndWait() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -477,7 +477,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now
+            listLoadedAt = .now; await projected.listed(machines: listedMachineIDs, account: CloudStartCore().accountText(account)) { [weak self] in self?.listAccount == account } // serves this account's projected folders of listed machines, ends the others
             return true
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account, unavailableReason == nil, !Task.isCancelled else { return false }
@@ -633,7 +633,7 @@ final class CloudService {
         recordReadApplied = [:]
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]
-        machines.cloudLimits = nil
+        machines.cloudLimits = nil; projected.stopAll() // a sign-out or another account: no projected folder serves on
         hasLoadedMachines = false
         listLoadedAt = nil
     }

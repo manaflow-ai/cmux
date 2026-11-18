@@ -317,6 +317,29 @@
             "back",
             "machine"
           ]
+        },
+        {
+          "key": "cloud.projectedFolders",
+          "name": "projectedFolders",
+          "title": {
+            "key": "settings.cloud.projectedFolders",
+            "text": "Open Big Folders on Cloud Without Copying"
+          },
+          "help": {
+            "key": "settings.cloud.projectedFolders.help",
+            "text": "A folder too big to copy opens at once: each file comes from this Mac the first time it is read. This Mac must stay on and connected."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "folder",
+            "big",
+            "large",
+            "copy",
+            "projected",
+            "size"
+          ]
         }
       ]
     },
