@@ -99,7 +99,7 @@ const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
 /// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
 /// projection's only (projectInboxRows reuses it), the flat one has none. A delivered projection that
-/// draws every row as it is holds none either: row `i` starts at `i` (`startOf`), so an update of a
+/// draws every row as it is holds none either: row `i` starts at `i`, so an update of a
 /// long chat with no inbox makes no array of its length.
 type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
