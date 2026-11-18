@@ -1321,11 +1321,12 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
     assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
     assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
     assert_eq!(line["attachNoticesAheadMax"], json!(rows), "one list's rows: {line}");
-    // Each notice carries its row's summary: about 3.4 KB of the fixture's 75 keys.
+    // Each notice carries its row's summary, 3,327 bytes of the fixture's 75 keys: 1,330,733 a
+    // list on the Linux pool, every run. Within 1%: dropped notices are weighed at the mean.
     let per_list = line["noticeBytesPerPeerList"].as_u64().unwrap_or(0);
     assert!(
-        (rows * 3_000..=rows * 4_000).contains(&per_list),
-        "a list's notices are {per_list} bytes, not {rows} of about 3.4 KB: {line}"
+        (1_317_426..=1_344_040).contains(&per_list),
+        "a list's notices are {per_list} bytes, not 1,330,733 (1%): {line}"
     );
 }
 
