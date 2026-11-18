@@ -122,6 +122,13 @@ pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
 /// (`_meta.acpmux.credentials`, `agent/credentials.update`), which holds it in memory for that agent
 /// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
 pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
+/// A Codex credential (an OpenAI key or a ChatGPT sign-in's token) on `agent-session-start` reaches
+/// Codex: acpmux puts its provider override after `app-server`, where codex keeps it (an older
+/// acpmux put it before, codex dropped it, and the chat ran on no key). The app updates a machine
+/// that lacks this before a Codex start carries a credential (cmux#45774). Advertised beside
+/// [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
+pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
+    "agent-session-start-codex-credentials-v1";
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`).
 const CREDENTIAL_NAMES: [&str; 4] =
