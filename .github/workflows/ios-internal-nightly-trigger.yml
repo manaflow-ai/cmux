@@ -20,9 +20,12 @@ on:
 permissions: {}
 
 # feat-cmux-next moves every minute or two, faster than a decide run, so a
-# running decide is never cancelled: one runs, the newest push waits.
+# running decide is never cancelled: one runs, the newest push waits. A person's
+# dispatch (the --force past the failure backoff) waits in its own group: in the
+# shared one the next push replaced it before it started (run 44328490608,
+# 2026-11-18, cancelled after 32 s with no job run).
 concurrency:
-  group: cmux-mobile-internal-next-trigger
+  group: cmux-mobile-internal-next-trigger${{ github.event_name == 'workflow_dispatch' && '-dispatch' || '' }}
   cancel-in-progress: false
 
 jobs:
