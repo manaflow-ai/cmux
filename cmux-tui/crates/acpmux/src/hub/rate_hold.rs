@@ -342,7 +342,7 @@ impl Hub {
         };
         let hub = self.clone();
         // One line, queued like any agent message; never waited for here.
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("rate-park-notice", async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             if let Err(e) = hub.prompt_with(&parent, blocks, "acpmux", false, opts).await {
                 tracing::warn!(session = %parent.id, "rate limit park notice: {}", e.message);
