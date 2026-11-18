@@ -1172,10 +1172,20 @@ pub(super) async fn request_on_own_task(
             self.0.abort();
         }
     }
-    let (hub, conn) = (hub.clone(), conn.clone());
-    let task = tokio::spawn(crate::request_cancel::carried(async move {
-        dispatch_request_with_identity(&hub, &conn, m, params, None, fixed_id).await
-    }));
+    // Spawned in a plain fn: the spawn needs `dispatch_request_with_identity`'s future to be
+    // Send, and that future holds this one, so proving it here would need its own answer.
+    fn spawn(
+        hub: Arc<Hub>,
+        conn: Arc<Conn>,
+        m: &'static str,
+        params: Value,
+        fixed_id: Option<String>,
+    ) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+        tokio::spawn(crate::request_cancel::carried(async move {
+            dispatch_request_with_identity(&hub, &conn, m, params, None, fixed_id).await
+        }))
+    }
+    let task = spawn(hub.clone(), conn.clone(), m, params, fixed_id);
     let _abort = AbortOnDrop(task.abort_handle());
     match task.await {
         Ok(reply) => reply,
