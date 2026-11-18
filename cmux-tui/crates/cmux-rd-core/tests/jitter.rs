@@ -204,7 +204,8 @@ fn wired_lan_reaches_the_motion_rate_within_a_second_from_the_wan_start() {
     let mut sim = Sim::new(lan_controller());
     let targets = sim.run(&wired(), 40e6, 3_000_000);
     println!("wired targets (Mbps): {:?}", targets.iter().map(|&t| mbps(t)).collect::<Vec<_>>());
-    // 8 Mbps start, no RTT reported: doubling per second at most, from evidence.
+    // 8 Mbps start, no RTT reported: doubling per second at most, from evidence. (This
+    // viewer batches feedback every 50 ms, so no feedback is quick enough to read as a LAN.)
     assert!(targets[10] >= 15_000_000, "1 s: {}", mbps(targets[10]));
     assert!(targets[20] >= 30_000_000, "2 s: {}", mbps(targets[20]));
     assert_eq!(sim.dropped, 0);
@@ -226,6 +227,46 @@ fn a_measured_lan_round_trip_starts_high() {
     let mut relay = CongestionController::new(CcConfig::default(), PathKind::DoRelay);
     relay.on_rtt(800);
     assert!(relay.target_bps() <= CcConfig::default().relay_max_bps);
+}
+
+/// Sends one paced frame of ten datagrams from `at_us` (1 ms apart) and reports them all in
+/// one feedback `rtt_us` after the last left, as a viewer does when it releases the frame.
+fn one_frame_feedback(cc: &mut CongestionController, seq: &mut u16, at_us: u64, rtt_us: u64) {
+    let mut arrivals = Vec::new();
+    let mut last = at_us;
+    for i in 0..10u64 {
+        last = at_us + i * 1_000;
+        cc.on_sent_bytes(*seq, last, MTU);
+        arrivals.push(Arrival { transport_seq: *seq, arrival_us: (last + rtt_us / 2) as u32 });
+        *seq = seq.wrapping_add(1);
+    }
+    cc.on_feedback(&arrivals, 0.0, last + rtt_us);
+}
+
+#[test]
+fn the_first_feedback_on_a_lan_starts_high_without_a_carrier_round_trip() {
+    // The plain UDP socket carrier reports no round trip (`on_rtt` is never called with a
+    // LAN value): the first frame's feedback, 1.5 ms after its last datagram left, is one.
+    let start = CcConfig::default();
+    let mut seq = 0;
+    let mut cc = lan_controller();
+    assert_eq!(cc.target_bps(), start.start_bps);
+    one_frame_feedback(&mut cc, &mut seq, 1_000, 1_500);
+    assert!(
+        cc.target_bps() >= start.lan_start_bps,
+        "a LAN's first feedback left the start at {} Mbps",
+        mbps(cc.target_bps())
+    );
+
+    // A WAN's feedback comes a WAN round trip later: no LAN start.
+    let mut wan = CongestionController::new(start, PathKind::DirectWan);
+    one_frame_feedback(&mut wan, &mut seq, 1_000, 25_000);
+    assert!(wan.target_bps() < start.lan_start_bps, "{}", mbps(wan.target_bps()));
+
+    // Nor a relay, however short its round trip.
+    let mut relay = CongestionController::new(start, PathKind::DoRelay);
+    one_frame_feedback(&mut relay, &mut seq, 1_000, 1_500);
+    assert!(relay.target_bps() <= start.relay_max_bps);
 }
 
 #[test]

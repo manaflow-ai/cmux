@@ -188,7 +188,7 @@ extension ControlRouter {
         guard request.target == nil, browserAction,
               request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return }
         let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal,
-                                   homeChat: request.callerHomeChat)
+                                   homeChat: request.callerHomeChat, workspaceKey: request.callerWorkspace)
         guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
             throw BrowserCallerTarget.missingCaller(caller)
         }
