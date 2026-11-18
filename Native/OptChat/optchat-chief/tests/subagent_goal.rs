@@ -188,3 +188,26 @@ fn subagent_goal_subagent_settings_leave_hooks_on() {
         assert!(sub.get("allowManagedHooksOnly").is_none(), "{name}: {sub}");
     }
 }
+
+/// The goal reaches acpmux as `_meta.acpmux.stopCondition` on `session/new`; a session with
+/// none sends no key.
+#[test]
+fn subagent_goal_reaches_acpmux_as_its_stop_condition() {
+    use optchat_chief::acpmux::{STOP_CONDITION, SessionSpec, session_meta};
+    let spec = SessionSpec {
+        name: "optchat-sub-h0me-a1".into(),
+        harness: "claude".into(),
+        stop_condition: Some(optchat_chief::goal::CONDITION.into()),
+        ..Default::default()
+    };
+    let meta = session_meta(&spec, Some("optchat-sub-h0me"));
+    assert_eq!(meta[STOP_CONDITION], json!(optchat_chief::goal::CONDITION));
+    let plain = session_meta(
+        &SessionSpec {
+            stop_condition: None,
+            ..spec
+        },
+        None,
+    );
+    assert!(plain.get(STOP_CONDITION).is_none(), "{plain}");
+}

@@ -1326,6 +1326,16 @@ pub fn new_session_watching(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "session/new answered without a sessionId".to_owned())?;
+    // A stop condition the daemon did not keep (an acpmux from before `stopCondition`, or a
+    // harness other than Claude Code): the session runs, but it may stop at any turn end.
+    if spec.stop_condition.is_some()
+        && result.pointer(&format!("/_meta/acpmux/{STOP_CONDITION}")) != Some(&json!(true))
+    {
+        crate::log::log(format!(
+            "acpmux did not keep the stop condition of session {} ({id}): an acpmux older than stopCondition, or not a Claude Code harness; it runs without its goal",
+            spec.name
+        ));
+    }
     // Right after creation: an untagged Chief session would count as one of
     // the user's agents (quit counts, endAgents), so it does not stay.
     if !spec.tags.is_empty()
