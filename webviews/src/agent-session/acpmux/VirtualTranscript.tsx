@@ -3639,6 +3639,9 @@ function TranscriptView({
   const cardBase = useRef(0);
   /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
   const appliedLift = useRef(0);
+  /// The room a send's cleared card gave back that the rows were not drawn down by (`sendHeldPx` below),
+  /// as of the last pass: what comes next fills it.
+  const sendHeld = useRef(0);
   /// The composer's growth kept out of the room under the last row (`lifted` below) as of that pass.
   const liftedBefore = useRef(0);
   /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
@@ -4384,7 +4387,32 @@ function TranscriptView({
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
-  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  const unheldLift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  // A send clears the composer's card in a pass of its own, before or after the pass that brings its
+  // prompt's rows (an optimistic row draws first; the field clears once acpmux takes the prompt).
+  // Drawn down by the lines the cleared card gave back in one pass and up by the prompt in the other,
+  // the rows bounced: 46 px down and 175 up for a three-line draft (the frame judge's `follow
+  // reversed` in every state that sends, #46151). Within a send's window the room the cleared card
+  // gives back stays where the rows are drawn (`sendHeld`) until the rows move anyway: the pass that
+  // brings a prompt's row gives it all back in its rise (one move, 129 px up), and before that what
+  // grows (the reply's lines, a prompt that drew first) fills it, so the rows never move down for it.
+  const sendWindow = sends !== seenSends.current || performance.now() < sendRiseUntil.current;
+  // A prompt's row came at the tail (before the live line): O(rows that came), as `rowsCame` below.
+  const shownRows = previousRows.current;
+  let promptCame = false;
+  if (sendHeld.current > 0)
+    for (let index = rows.length - 1; index >= Math.max(0, shownRows.length - 2); index -= 1) {
+      const row = rows[index]!;
+      if (row.kind === "user" && row.id !== shownRows[index]?.id) promptCame = true;
+    }
+  const heldBefore =
+    sessionSwitched || !following || promptCame ? 0 : Math.max(0, sendHeld.current - Math.max(0, rowsGrew));
+  const drawnDownBy =
+    following && !sessionSwitched && sendWindow
+      ? Math.max(0, unheldLift - (appliedLift.current + sendHeld.current))
+      : 0;
+  const sendHeldPx = Math.max(0, Math.min(unheldLift, heldBefore + drawnDownBy));
+  const lift = unheldLift - sendHeldPx;
   const liftRef = useRef(lift);
   liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
@@ -5348,6 +5376,7 @@ function TranscriptView({
     // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
     heldRoom.current = room + lifted + cardHold + Math.max(0, noticeHold);
     appliedLift.current = lift;
+    sendHeld.current = sendHeldPx;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
     if (!lifting) cardRest.current = dockCard;
