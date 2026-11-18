@@ -30,7 +30,7 @@ mod aliases;
 mod home;
 #[cfg(test)]
 use home::{denied_paths, home_view};
-use home::{denied_paths_pinned, home_view_pinned};
+use home::{denied_paths_pinned, home_view_pinned, home_view_pinned_at};
 
 /// Canonical absolute UTF-8 paths, validated and created by the caller.
 /// `claude_project/memory` must already exist, too.
@@ -296,11 +296,20 @@ fn plan_with_mount_id(
     for path in writable {
         trees.push((path.as_path(), mount_id(path)?, true));
     }
-    let aliases = aliases::guarded_aliases(&trees, mountinfo);
+    // A second mount of the whole HOME (the fleet's /Users/<name> bind) would
+    // carry every guarded name through `--ro-bind / /`. The HOME is rebuilt
+    // there too, and the check accepts an alias only inside such a view.
+    let views = aliases::home_views(&paths.home, mount_id(&paths.home)?, mountinfo)?;
+    let aliases = aliases::guarded_aliases_in_views(&trees, mountinfo, &paths.home, &views);
     if !aliases.is_empty() {
         return Err(aliases.join("; "));
     }
     let mut home = home_view_pinned(&paths.home, denied, Some(&snapshot))?;
+    for (_, view) in &views {
+        let (args, fds) = home_view_pinned_at(&paths.home, view, denied, Some(&snapshot))?;
+        home.0.extend(args);
+        home.1.extend(fds);
+    }
     let outside = outside_view(outside, &paths.home)?;
     home.0.splice(0..0, outside);
     bwrap_args(paths, home, cmd_prefix)
