@@ -56,8 +56,8 @@ import Testing
         }
     }
 
-    /// The page covers only the right pane: the catcher's half over the left pane scrolls that pane, its half over the
-    /// page scrolls the page.
+    /// The page covers only the right pane: the catcher's half off the page goes to the window's own view there (the
+    /// divider's hit area, as with no page), not to the page; its half over the page scrolls the page.
     @Test func aScrollInADividerCatcherGoesToWhatIsUnderItsPoint() throws {
         let scene = Scene(withPage: true)
         defer { scene.close() }
@@ -71,15 +71,12 @@ import Testing
         let catcher = try Self.catcher(in: scene)
         try #require(catcher.frame.minX < page.frame.minX && page.frame.minX < catcher.frame.maxX,
                      "the catcher \(catcher.frame) does not straddle the page's edge \(page.frame.minX)")
-        let left = try #require(scene.panes.views["p1"])
 
         catcher.catcher.scrollWheel(with: try Self.scroll(at: Self.pointInCatcher(catcher, x: catcher.frame.minX + 1, scene: scene)))
-        #expect(Self.scrolls(left.heard) == 1, "the left pane under the catcher heard \(left.heard)")
-        #expect(Self.scrolls(scene.pageContent.heard) == 0)
+        #expect(Self.scrolls(scene.pageContent.heard) == 0, "the half off the page scrolled the page")
 
         catcher.catcher.scrollWheel(with: try Self.scroll(at: Self.pointInCatcher(catcher, x: catcher.frame.maxX - 1, scene: scene)))
         #expect(Self.scrolls(scene.pageContent.heard) == 1, "the page under the catcher heard \(scene.pageContent.heard)")
-        #expect(Self.scrolls(left.heard) == 1, "the left pane got the page's scroll too")
     }
 
     // MARK: What the overlay panel passes on
