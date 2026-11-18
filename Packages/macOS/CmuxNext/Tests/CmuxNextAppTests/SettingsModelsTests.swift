@@ -306,11 +306,14 @@ import Testing
     /// A failed Cloud chat's Set up Claude (`first`): the token added there goes first among the connections,
     /// so Cloud chats run on it even beside one the provider refused; a plain add sets no order.
     @Test func aClaudeTokenAddedFirstGoesFirst() async throws {
+        let plain = Daemon()
+        let plainModels = make(daemon: plain)
+        _ = await plainModels.loadedState()
+        _ = try await plainModels.run(["action": "addClaudeToken", "token": "sk-ant-oat01-plain"], context: click)
+        #expect(!plain.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/order.set" })
+        // Its own model: the stand-in daemon answers every add with the same id, new only to a model that has none.
         let daemon = Daemon()
         let models = make(daemon: daemon)
-        _ = await models.loadedState()
-        _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-plain"], context: click)
-        #expect(!daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/order.set" })
         _ = await models.loadedState()
         _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-first", "first": true], context: click)
         let order = try #require(daemon.calls.withLock { $0 }.last { $0.method == "_acpmux/connections/order.set" })
