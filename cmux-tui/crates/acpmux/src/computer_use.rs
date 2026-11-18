@@ -4,6 +4,7 @@
 //! The tool catalog, policy and engine live in `cmux-computer-use`; the
 //! worker runs under the cmux Remote host, never in this process.
 
+pub mod awake;
 pub mod client;
 pub mod mcp;
 

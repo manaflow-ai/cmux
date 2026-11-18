@@ -1860,6 +1860,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/AgentToolsCard.tsx",
+    "pages/settings/components/McpServersCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",

@@ -212,7 +212,21 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_read(meta, false, profile, defaults_env, None).await.map(|(p, ..)| p)
+        self.spawn_profile_with(meta, profile, defaults_env, None).await
+    }
+
+    /// `spawn_profile_for` on the owner's Cloud credential a chat launches with (the session
+    /// pool's key and start for a hinted Cloud chat, `PrewarmShape`, cmux#45953).
+    pub(super) async fn spawn_profile_with(
+        &self,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
+    ) -> Result<HarnessProfile, RpcError> {
+        self.spawn_profile_read(meta, false, profile, defaults_env, credential)
+            .await
+            .map(|(p, ..)| p)
     }
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
@@ -335,6 +349,9 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Only `apply` marks an agent as launched on the owner's credential: a marker a profile,
+        // preset or request env set would have its own login read back after a restart as one.
+        p.env.remove(crate::agent_credentials::MARKER);
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
         let direct = credential.is_some_and(|c| {

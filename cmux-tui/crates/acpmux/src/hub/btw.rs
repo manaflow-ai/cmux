@@ -401,6 +401,8 @@ impl Hub {
                     checked_cwd: None,
                     // It sees what its chat sees.
                     additional_directories: meta.additional_directories.clone(),
+                    // A side chat answers and stops: never its chat's stop condition.
+                    stop_condition: None,
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                     wait_start: false,

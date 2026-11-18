@@ -90,9 +90,11 @@ struct DogfoodReadiness {
         return raw.hasPrefix(".") ? String(raw.dropFirst()) : raw
     }
 
-    /// `auto_login` when this launch carried the account's credentials, else `restored`.
+    /// `auto_login` when this launch carried the account's credentials or a session made elsewhere
+    /// (`CMUX_MOBILE_STACK_REFRESH_TOKEN`, a fleet step's `--sign-in agent` session), else `restored`.
     var sessionSource: String {
-        (environment["CMUX_MOBILE_STACK_EMAIL"] ?? "").isEmpty ? "restored" : "auto_login"
+        let injected = ["CMUX_MOBILE_STACK_EMAIL", "CMUX_MOBILE_STACK_REFRESH_TOKEN"]
+        return injected.contains { !(environment[$0] ?? "").isEmpty } ? "auto_login" : "restored"
     }
 
     /// The receipt for one moment of this launch. `macs` is the account's Macs from the service

@@ -103,6 +103,7 @@ impl Mux {
                     "bad request: around split {around} does not end at pane {target}"
                 );
             }
+            quick_terminal::refuse_second_make(state, resolved.pane, fields)?;
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -884,9 +885,9 @@ impl Mux {
                     "split_id_exists: {split_public_id}"
                 );
             }
-            let Some((workspace, screen_index)) = state.screen_of(target) else {
-                anyhow::bail!("pane disappeared before new pane attachment");
-            };
+            let (workspace, screen_index) =
+                state.screen_of(target).context("pane disappeared before new pane attachment")?;
+            quick_terminal::refuse_second_make_at_attach(&state, workspace, intent, operation)?;
             if viewport_width.is_none() {
                 ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }
@@ -991,9 +992,8 @@ impl Mux {
                 screen.active_pane = pane_id;
             }
             screen.zoomed_pane = None;
-            // `floating-panes-v1`: a floating pane whose column got a row, or that the auto layout put into a
-            // stack, is tiled.
-            screen.settle_floating_panes();
+            // `floating-panes-v1`, `quick-terminal-v1`: the list follows the new layout; a quick terminal floats.
+            quick_terminal::settle_new_pane(screen, pane_id, before.active_pane, intent);
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
                 state.resource_indexes.splits.insert(public_id.clone(), split);

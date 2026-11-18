@@ -89,7 +89,7 @@ public final class SetupCardHost {
     /// The page's last measured height in CSS px.
     private var cssHeight: CGFloat = 0
 
-    /// The card's height in points: its CSS height at the page's zoom (as ``WebCardPanel`` sizes its card).
+    /// The card's height in points: its CSS height at the page's zoom (as the server popover sizes its page).
     private func resize() {
         let zoom = page.webKitView.pageZoom * page.webKitView.magnification
         let next = ceil(cssHeight * max(zoom, 0.01))

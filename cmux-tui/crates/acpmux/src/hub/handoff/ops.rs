@@ -300,6 +300,8 @@ impl Hub {
                             Default::default(),
                             &sm.session_env,
                         ),
+                        // The same work goes on: the target keeps the source's stop condition.
+                        stop_condition: sm.stop_condition.clone(),
                         ..Default::default()
                     })
                     .await?;

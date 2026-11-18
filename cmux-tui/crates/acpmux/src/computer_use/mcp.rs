@@ -148,6 +148,8 @@ where
     let mut calls = tokio::task::JoinSet::new();
     let mut lines = input.lines();
     let mut defer = false;
+    // Every tool call keeps the display from dimming into a lock for a while ([`super::awake`]).
+    let mut display = super::awake::DisplayAwake::default();
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
@@ -168,6 +170,7 @@ where
             "tools/list" => tools_list(defer),
             "tools/call" if !known_tool(&params) => unknown_tool(&params),
             "tools/call" => {
+                display.touch();
                 let (tx, caller) = (tx.clone(), caller.clone());
                 // A call may wait on the person or on a worker restart: the
                 // next request is read meanwhile.

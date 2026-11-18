@@ -104,6 +104,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
+        capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
+        // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
+        capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -233,6 +237,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
+            && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -279,6 +284,7 @@ pub(super) fn advertised_capabilities(
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         floating_panes::FLOATING_PANES_CAPABILITY,
+        floating_panes::QUICK_TERMINAL_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -512,6 +518,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::git_seed::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::blob_fetch::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::projection::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]

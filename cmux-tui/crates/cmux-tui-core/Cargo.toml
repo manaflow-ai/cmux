@@ -114,6 +114,8 @@ cmux-computer-use = { workspace = true, features = ["server"] }
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
+cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-list-types = { path = "../acpmux-list-types" }

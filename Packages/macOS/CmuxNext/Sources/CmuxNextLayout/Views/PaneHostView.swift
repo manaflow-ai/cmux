@@ -97,7 +97,7 @@ final class PaneHostView: NSView, RestingPlacement {
                     if !holdsUntilAfterLanding {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
-                        heldPin = nil
+                        heldPin = holdsContentForMove ? (trailing: false, bottom: false) : nil // MOVE HOLD: it keeps its corner
                         heldArea = (content as? PaneMotionHolding)?.paneMotionHoldArea
                         announcedRest = nil
                         // The area hears the hold in the key's turn, before the press's rest size goes to the content
@@ -158,14 +158,14 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
-    private func layOutLetGoContent() {
+    func layOutLetGoContent() {
         layoutClip()
         if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() }
     }
 
     /// A keyboard resize's hold (``ScreenContentView/holdsContentForKeyResize``): the content keeps its start size,
     /// clipped where the pane is smaller and beside the pane background where it is larger, until after the landing.
-    private var holdsUntilAfterLanding = false
+    private(set) var holdsUntilAfterLanding = false
     /// The edges a key-resize hold rides, chosen while the pane moves and kept until the release: at rest (the landing
     /// frame) the rest offset no longer says which edge moved, and a new pick would jump the content by the press step.
     private var heldPin: (trailing: Bool, bottom: Bool)?
@@ -237,6 +237,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
+        // No card of the screen that it left is under it now, and none paints its ground: a card of this screen
+        // puts its mark on the clip again in its next pass.
+        clipView.hasSolidGroundUnder = false
+        clipView.onContentGroundChange = nil
+        clipView.ownsContentGround = false
     }
 
     /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
@@ -337,7 +342,7 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        let content = contentFrame(in: clipView.bounds)
+        let content = moveContentFrame ?? contentFrame(in: clipView.bounds)
         if self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
