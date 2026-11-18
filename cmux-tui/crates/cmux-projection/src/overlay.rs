@@ -11,16 +11,17 @@
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock, Weak};
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::manifest::{Kind, Manifest, ROOT};
+use crate::manifest::{Entry, Kind, Manifest, ROOT};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
@@ -29,9 +30,15 @@ pub const CHUNK: u64 = 4 * 1024 * 1024;
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most bytes one prefetch batch asks for: a demand read that comes in behind it waits for at
+/// most this much on the Mac's link (about 20 ms at the 47 MB/s the RFD measured).
+pub const PREFETCH_BATCH_BYTES: u64 = 1024 * 1024;
+/// The most files waiting for readahead; past it a read's folder is not read ahead.
+const READAHEAD_QUEUE: usize = 16 * 1024;
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
+    pub const ESTALE: i32 = 116;
     pub const ENOENT: i32 = 2;
     pub const EIO: i32 = 5;
     pub const EEXIST: i32 = 17;
@@ -41,7 +48,7 @@ pub mod errno {
     pub const EINVAL: i32 = 22;
     pub const ENOTEMPTY: i32 = 39;
 }
-use errno::{EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, ENOTEMPTY, EXDEV};
+use errno::{EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, ENOTEMPTY, ESTALE, EXDEV};
 
 /// Which file (entry) and which part of it: a chunk number, or [`WHOLE`] / [`COPY_UP`].
 type Key = (u32, u32);
@@ -67,6 +74,8 @@ pub struct Stats {
     pub remote_reads: u64,
     pub remote_bytes: u64,
     pub cache_hits: u64,
+    /// Bytes a prefetch brought in (not counted in `remote_bytes`).
+    pub prefetched_bytes: u64,
 }
 
 /// Where a path lives now.
@@ -100,6 +109,16 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    prefetched_bytes: AtomicU64,
+    /// Files the Mac listed again after they changed there ([`Fetch::relist`]): their size and
+    /// modification time now, in place of the manifest's, kept in `cache/relisted`.
+    relisted: RwLock<HashMap<u32, (u64, i64)>>,
+    any_relisted: AtomicBool,
+    relisted_file: PathBuf,
+    /// Folder readahead waiting for [`Overlay::start_readahead`]'s thread, and whether it runs.
+    readahead: Mutex<Vec<u32>>,
+    readahead_wake: Condvar,
+    readahead_on: AtomicBool,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -188,7 +207,25 @@ impl Overlay {
             .map(|text| text.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default();
         let next = manifest.len() as u64 + 2;
+        let relisted_file = cache.join("relisted");
+        let relisted: HashMap<u32, (u64, i64)> = fs::read_to_string(&relisted_file)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| {
+                let mut words = line.split(' ');
+                let index = words.next()?.parse().ok()?;
+                let size = words.next()?.parse().ok()?;
+                let mtime_ns = words.next()?.parse().ok()?;
+                Some((index, (size, mtime_ns)))
+            })
+            .collect();
         Ok(Self {
+            any_relisted: AtomicBool::new(!relisted.is_empty()),
+            relisted: RwLock::new(relisted),
+            relisted_file,
+            readahead: Mutex::new(Vec::new()),
+            readahead_wake: Condvar::new(),
+            readahead_on: AtomicBool::new(false),
             manifest,
             fetch,
             owner,
@@ -203,6 +240,7 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            prefetched_bytes: AtomicU64::new(0),
         })
     }
 
@@ -225,11 +263,110 @@ impl Overlay {
             remote_reads: self.remote_reads.load(Ordering::Relaxed),
             remote_bytes: self.remote_bytes.load(Ordering::Relaxed),
             cache_hits: self.cache_hits.load(Ordering::Relaxed),
+            prefetched_bytes: self.prefetched_bytes.load(Ordering::Relaxed),
         }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lower entry `index`, with the size and modification time the Mac listed again if it did.
+    fn entry(&self, index: u32) -> Option<Cow<'_, Entry>> {
+        let entry = self.manifest.entry(index)?;
+        if !self.any_relisted.load(Ordering::Acquire) {
+            return Some(Cow::Borrowed(entry));
+        }
+        let relisted = self.relisted.read().unwrap_or_else(PoisonError::into_inner);
+        Some(match relisted.get(&index) {
+            Some(&(size, mtime_ns)) => Cow::Owned(Entry { size, mtime_ns, ..entry.clone() }),
+            None => Cow::Borrowed(entry),
+        })
+    }
+
+    fn is_relisted(&self, index: u32) -> bool {
+        self.any_relisted.load(Ordering::Acquire)
+            && self.relisted.read().unwrap_or_else(PoisonError::into_inner).contains_key(&index)
+    }
+
+    /// After a read of `index` found it changed on the Mac (`ESTALE`): asks the Mac to list it
+    /// again, drops its cached bytes, and serves its new size and time from then on (RFD 0007 hard
+    /// case 7). Whether it did; a source that cannot list it again leaves the read `ESTALE`.
+    fn relist(&self, index: u32) -> bool {
+        let Some(old) = self.entry(index).map(|entry| entry.size) else { return false };
+        let Ok(now) = self.fetch.relist(index) else { return false };
+        let _ = fs::remove_file(self.cache_path((index, WHOLE)));
+        for chunk in 0..old.max(now.0).div_ceil(CHUNK) {
+            if let Ok(chunk) = u32::try_from(chunk) {
+                let _ = fs::remove_file(self.cache_path((index, chunk)));
+            }
+        }
+        let mut relisted = self.relisted.write().unwrap_or_else(PoisonError::into_inner);
+        relisted.insert(index, now);
+        self.any_relisted.store(true, Ordering::Release);
+        let text: String = relisted
+            .iter()
+            .map(|(index, (size, mtime_ns))| format!("{index} {size} {mtime_ns}\n"))
+            .collect();
+        let temp = self.scratch_path();
+        if fs::write(&temp, text).is_ok() && fs::rename(&temp, &self.relisted_file).is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        true
+    }
+
+    /// `read`, and once more after the Mac listed `index` again when it found it changed.
+    fn fresh<T>(&self, index: u32, read: impl Fn() -> Result<T, i32>) -> Result<T, i32> {
+        match read() {
+            Err(ESTALE) if self.relist(index) => read(),
+            other => other,
+        }
+    }
+
+    /// Runs folder readahead on a thread of its own from now on, so a read returns as soon as its
+    /// own file is in and its folder's other small files follow at prefetch priority, behind
+    /// every demand read ([`Fetch::prefetch`]). The thread ends with the overlay. Without it,
+    /// readahead runs right after the read's own fetch, on the reading thread.
+    pub fn start_readahead(overlay: &Arc<Self>) {
+        overlay.readahead_on.store(true, Ordering::Release);
+        let weak: Weak<Self> = Arc::downgrade(overlay);
+        let _ = std::thread::Builder::new().name("projection-readahead".into()).spawn(move || {
+            loop {
+                let Some(overlay) = weak.upgrade() else { return };
+                let wanted = {
+                    let mut queue =
+                        overlay.readahead.lock().unwrap_or_else(PoisonError::into_inner);
+                    if queue.is_empty() {
+                        queue = overlay
+                            .readahead_wake
+                            .wait_timeout(queue, Duration::from_secs(1))
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .0;
+                    }
+                    std::mem::take(&mut *queue)
+                };
+                if !wanted.is_empty() {
+                    overlay.prefetch(&wanted);
+                }
+            }
+        });
+    }
+
+    /// Readahead of `entries` (a read's folder's other small files).
+    fn read_ahead(&self, entries: Vec<u32>) {
+        if entries.is_empty() {
+            return;
+        }
+        if self.readahead_on.load(Ordering::Acquire) {
+            let mut queue = self.readahead.lock().unwrap_or_else(PoisonError::into_inner);
+            if queue.len() < READAHEAD_QUEUE {
+                queue.extend(entries);
+            }
+            drop(queue);
+            self.readahead_wake.notify_one();
+        } else {
+            self.prefetch(&entries);
+        }
     }
 
     fn up(&self, path: &str) -> PathBuf {
@@ -321,7 +458,8 @@ impl Overlay {
                 }
             }
             Node::Lower(index) => {
-                let entry = self.manifest.entry(*index);
+                let owned = self.entry(*index);
+                let entry = owned.as_deref();
                 let kind = entry.map_or(Kind::Dir, |entry| entry.kind);
                 Attr {
                     ino,
@@ -461,7 +599,11 @@ impl Overlay {
     }
 
     fn read_lower(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
-        let entry = self.manifest.entry(index).ok_or(ENOENT)?;
+        self.fresh(index, || self.read_lower_now(index, offset, size))
+    }
+
+    fn read_lower_now(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
+        let entry = self.entry(index).ok_or(ENOENT)?;
         match entry.kind {
             Kind::Dir => return Err(EISDIR),
             Kind::Link => return Err(EINVAL),
@@ -531,68 +673,128 @@ impl Overlay {
         self.remote_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    /// A small file's bytes: from the cache, else fetched with its folder's other uncached small
-    /// files in one batch (directory readahead).
+    /// A small file's bytes: from the cache, else fetched alone, so the read waits for its own
+    /// bytes only; its folder's other uncached small files follow as readahead
+    /// ([`Overlay::read_ahead`]), at prefetch priority.
     fn whole(&self, index: u32) -> Result<Vec<u8>, i32> {
         let key = (index, WHOLE);
         if let Some(bytes) = self.cached(key) {
             return Ok(bytes);
         }
-        let mut claim = self.claim(key);
+        let claim = self.claim(key);
         if let Some(bytes) = self.cached(key) {
             return Ok(bytes);
         }
-        let mut batch = vec![index];
-        let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
-        if let Some(entry) = self.manifest.entry(index) {
-            let folder = self.manifest.path_of(entry.parent);
-            let (first, siblings) = self.manifest.children(entry.parent);
-            let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
-            let inner = self.lock();
-            for (at, sibling) in siblings.iter().enumerate() {
-                if batch.len() >= BATCH_FILES {
-                    break;
-                }
-                let Ok(at) = u32::try_from(at) else { break };
-                let other = first + at;
-                if other == index
-                    || sibling.kind != Kind::File
-                    || sibling.size > CHUNK
-                    || bytes + sibling.size > BATCH_BYTES
-                    || inflight.contains(&(other, WHOLE))
-                {
-                    continue;
-                }
-                let path = join(&folder, &sibling.name);
-                if inner.whiteouts.contains(&path)
-                    || self.upper.join(&path).exists()
-                    || self.cache_path((other, WHOLE)).exists()
-                {
-                    continue;
-                }
-                inflight.insert((other, WHOLE));
-                claim.keys.push((other, WHOLE));
-                batch.push(other);
-                bytes += sibling.size;
-            }
+        let expected = self.entry(index).map_or(0, |entry| entry.size);
+        let answer =
+            self.fetch.batch(&[index]).into_iter().next().unwrap_or(Err(FetchError::Failed));
+        let bytes = answer.map_err(FetchError::errno)?;
+        if bytes.len() as u64 != expected {
+            return Err(EIO);
         }
-        let answers = self.fetch.batch(&batch);
-        let mut mine = Err(EIO);
-        for (other, answer) in batch.iter().zip(answers) {
-            let expected = self.manifest.entry(*other).map_or(0, |entry| entry.size);
-            let answer = answer.map_err(FetchError::errno).and_then(|bytes| {
-                if bytes.len() as u64 == expected { Ok(bytes) } else { Err(EIO) }
-            });
-            if let Ok(bytes) = &answer {
-                self.count(bytes.len() as u64);
-                self.store((*other, WHOLE), bytes);
-            }
-            if *other == index {
-                mine = answer;
-            }
-        }
+        self.count(expected);
+        self.store(key, &bytes);
         drop(claim);
-        mine
+        self.read_ahead(self.siblings(index));
+        Ok(bytes)
+    }
+
+    /// The other small files of `index`'s folder that no read has brought in or is bringing in,
+    /// up to one readahead's worth ([`BATCH_FILES`], [`BATCH_BYTES`]).
+    fn siblings(&self, index: u32) -> Vec<u32> {
+        let Some(entry) = self.manifest.entry(index) else { return Vec::new() };
+        let folder = self.manifest.path_of(entry.parent);
+        let (first, siblings) = self.manifest.children(entry.parent);
+        let mut wanted = Vec::new();
+        let mut bytes = 0u64;
+        let inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+        let inner = self.lock();
+        for (at, sibling) in siblings.iter().enumerate() {
+            if wanted.len() >= BATCH_FILES {
+                break;
+            }
+            let Ok(at) = u32::try_from(at) else { break };
+            let other = first + at;
+            if other == index
+                || sibling.kind != Kind::File
+                || sibling.size > CHUNK
+                || bytes + sibling.size > BATCH_BYTES
+                || inflight.contains(&(other, WHOLE))
+                || self.is_relisted(other)
+            {
+                continue;
+            }
+            let path = join(&folder, &sibling.name);
+            if inner.whiteouts.contains(&path)
+                || self.upper.join(&path).exists()
+                || self.cache_path((other, WHOLE)).exists()
+            {
+                continue;
+            }
+            wanted.push(other);
+            bytes += sibling.size;
+        }
+        wanted
+    }
+
+    /// Brings the small files among `entries` into the cache at prefetch priority
+    /// ([`Fetch::prefetch`]), in batches of at most [`PREFETCH_BATCH_BYTES`], skipping what is
+    /// cached, being fetched, written or deleted. Returns the bytes it brought in. Big files are
+    /// left to their demand reads.
+    pub fn prefetch(&self, entries: &[u32]) -> u64 {
+        let mut brought = 0u64;
+        let mut wanted = entries.iter().copied().peekable();
+        while wanted.peek().is_some() {
+            let mut claim = Claim { overlay: self, keys: Vec::new() };
+            let mut batch = Vec::new();
+            let mut bytes = 0u64;
+            {
+                let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+                let inner = self.lock();
+                while let Some(&index) = wanted.peek() {
+                    let Some(entry) = self.entry(index) else {
+                        wanted.next();
+                        continue;
+                    };
+                    if !batch.is_empty()
+                        && (bytes + entry.size > PREFETCH_BATCH_BYTES || batch.len() >= BATCH_FILES)
+                    {
+                        break;
+                    }
+                    wanted.next();
+                    let key = (index, WHOLE);
+                    let path = self.manifest.path_of(index);
+                    if entry.kind != Kind::File
+                        || entry.size > CHUNK
+                        || inflight.contains(&key)
+                        || Self::hidden(&inner, &path)
+                        || self.upper.join(&path).exists()
+                        || self.cache_path(key).exists()
+                    {
+                        continue;
+                    }
+                    inflight.insert(key);
+                    claim.keys.push(key);
+                    batch.push(index);
+                    bytes += entry.size;
+                }
+            }
+            if batch.is_empty() {
+                continue;
+            }
+            for (index, answer) in batch.iter().zip(self.fetch.prefetch(&batch)) {
+                let expected = self.entry(*index).map_or(0, |entry| entry.size);
+                if let Ok(bytes) = answer
+                    && bytes.len() as u64 == expected
+                {
+                    self.store((*index, WHOLE), &bytes);
+                    brought += expected;
+                }
+            }
+            drop(claim);
+        }
+        self.prefetched_bytes.fetch_add(brought, Ordering::Relaxed);
+        brought
     }
 
     /// Chunk `chunk` of big file `index` (`total` bytes): from the cache, else fetched.
@@ -639,7 +841,7 @@ impl Overlay {
             let mode = self
                 .manifest
                 .resolve(&at)
-                .and_then(|index| self.manifest.entry(index))
+                .and_then(|index| self.entry(index))
                 .map_or(0o755, |entry| entry.mode);
             match fs::create_dir(&target) {
                 Ok(()) => {}
@@ -661,7 +863,11 @@ impl Overlay {
         if fs::symlink_metadata(self.up(path)).is_ok() {
             return Ok(());
         }
-        let entry = self.manifest.entry(index).ok_or(ENOENT)?.clone();
+        self.fresh(index, || self.copy_up_now(path, index))
+    }
+
+    fn copy_up_now(&self, path: &str, index: u32) -> Result<(), i32> {
+        let entry = self.entry(index).ok_or(ENOENT)?.into_owned();
         self.upper_folder(Self::parent_of(path))?;
         match entry.kind {
             Kind::Dir => return self.upper_folder(path),

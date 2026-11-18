@@ -5,7 +5,9 @@
 //!
 //! Wire: a link dial whose first line is
 //! `{"id", "cmd": "projection.serve", "name", "at", "manifest_bytes"}` is followed by that many
-//! bytes of the encoded manifest (none to attach again to the projection `name` already mounted).
+//! bytes of the encoded manifest (none to attach again to the projection `name` already mounted),
+//! or, with `"base"` and `"target"` (manifest ids in hex), that many bytes of a delta of a manifest
+//! this daemon kept from an earlier dial (`projection.no_base` when it has not kept it).
 //! The daemon mounts it at `at` (a folder below the machine's file roots, empty or missing),
 //! answers one line, `{"id", "ok": true, "data": {"at", "entries", "files", "bytes", "mount_ms"}}`
 //! or `{"id", "ok": false, "error", "error_code"}`, and from then on the dial carries the
@@ -33,8 +35,9 @@ use serde_json::{Value, json};
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
-/// The largest encoded manifest a dial may send (a 1.1 M-entry folder encodes to 14 MB).
-const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
+/// The largest encoded manifest a dial may send (a 1.1 M-entry folder encodes to 14 MB). The Mac
+/// checks it before it dials, so a folder past it goes as a copy without a refused dial.
+pub const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct ServeLine {
@@ -46,6 +49,14 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// The id ([`cmux_projection::manifest::Manifest::id`], hex) of a manifest this machine has
+    /// had, when the bytes are a delta of it ([`cmux_projection::manifest::Delta`]).
+    #[serde(default)]
+    base: Option<String>,
+    /// The id of the manifest the dial ends with (a delta applied must come to it): a later dial
+    /// with the same id attaches to the mount, whole or as a delta.
+    #[serde(default)]
+    target: Option<String>,
 }
 
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
@@ -288,15 +299,29 @@ fn attach(
         };
         return Ok((projected, json!({"at": at, "attached": true})));
     }
-    let digest = fnv(&encoded);
+    let bases = crate::platform::workspace_state_dir()
+        .map(|dir| dir.join("projections").join(BASES))
+        .ok_or(("projection.unavailable", "no state folder".to_owned()))?;
+    let digest = match &line.target {
+        Some(target) => u64::from_str_radix(target, 16)
+            .map_err(|_| ("projection.params_invalid", "a bad target id".to_owned()))?,
+        None => fnv(&encoded),
+    };
     if let Some(projected) =
         existing.filter(|projected| projected.digest == digest && projected.at == at)
     {
         return Ok((projected, json!({"at": at, "attached": true})));
     }
     let started = std::time::Instant::now();
-    let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
-        .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
+    let manifest = match (&line.base, &line.target) {
+        (Some(base), Some(_)) => from_delta(&bases, base, digest, &encoded)?,
+        (None, _) => cmux_projection::manifest::Manifest::decode(&encoded)
+            .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?,
+        (Some(_), None) => {
+            return Err(("projection.params_invalid", "a delta names its target".into()));
+        }
+    };
+    keep_base(&bases, &manifest, line.base.is_none().then_some(encoded));
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
@@ -310,8 +335,86 @@ fn attach(
         "files": files,
         "bytes": bytes,
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "delta": line.base.is_some(),
     });
     Ok((projected, data))
+}
+
+/// Where this daemon keeps the last manifests it mounted, by id, for a later dial to send a delta
+/// of one ([`cmux_projection::manifest::Delta`]): a second chat on the same folder sends what
+/// changed, not the whole manifest again.
+const BASES: &str = ".bases";
+/// How many manifests it keeps.
+const KEPT_BASES: usize = 8;
+
+fn base_path(bases: &Path, id: u64) -> PathBuf {
+    bases.join(format!("{id:016x}.manifest"))
+}
+
+/// The manifest the delta `encoded` makes of base `base` (hex id), checked to be `target`.
+/// `projection.no_base` when this machine no longer has that base (the Mac then sends it whole).
+fn from_delta(
+    bases: &Path,
+    base: &str,
+    target: u64,
+    encoded: &[u8],
+) -> Result<cmux_projection::manifest::Manifest, Refusal> {
+    use cmux_projection::manifest::{Delta, Manifest};
+    let no_base = |why: String| ("projection.no_base", why);
+    let id = u64::from_str_radix(base, 16).map_err(|_| no_base("a bad base id".into()))?;
+    let bytes = std::fs::read(base_path(bases, id))
+        .map_err(|_| no_base(format!("no manifest {base} here")))?;
+    let base = Manifest::decode(&bytes).map_err(|error| no_base(format!("{error:#}")))?;
+    let delta = Delta::decode(encoded)
+        .map_err(|error| ("projection.params_invalid", format!("bad delta: {error:#}")))?;
+    let manifest = base.apply(&delta).map_err(|error| no_base(format!("{error:#}")))?;
+    if manifest.id().ok() != Some(target) {
+        return Err(no_base("the delta did not make the Mac's manifest".into()));
+    }
+    Ok(manifest)
+}
+
+/// Keeps `manifest` (its wire bytes `encoded` when the dial sent them whole) as a base for a
+/// later delta, and only the newest [`KEPT_BASES`]. A delta's result is encoded again here
+/// (about 175 ms for 1.5 M files), before the answer, so the next chat's delta finds it.
+fn keep_base(
+    bases: &Path,
+    manifest: &cmux_projection::manifest::Manifest,
+    encoded: Option<Vec<u8>>,
+) {
+    let Ok(id) = manifest.id() else { return };
+    let bytes = match encoded {
+        Some(bytes) => bytes,
+        None => match manifest.encode() {
+            Ok(bytes) => bytes,
+            Err(_) => return,
+        },
+    };
+    store_base(bases, id, &bytes);
+}
+
+fn store_base(bases: &Path, id: u64, bytes: &[u8]) {
+    if std::fs::create_dir_all(bases).is_err() {
+        return;
+    }
+    let path = base_path(bases, id);
+    let temp = path.with_extension(format!("tmp{}", std::process::id()));
+    if std::fs::write(&temp, bytes).is_err() || std::fs::rename(&temp, &path).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return;
+    }
+    let mut kept: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(bases)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "manifest"))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .collect();
+    kept.sort();
+    let old = kept.len().saturating_sub(KEPT_BASES);
+    for (_, path) in kept.into_iter().take(old) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// `at` as a mount point: absolute, below one of `roots`, and a folder that is empty (made when
@@ -388,6 +491,14 @@ fn mount(
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
     let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // Where it is mounted, for git's fsmonitor hook (`cmux link project fsmonitor`) to find it.
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let _ = std::fs::write(
+            state.join(cmux_projection::fsmonitor::MOUNT_POINT_FILE),
+            at.as_os_str().as_bytes(),
+        );
+    }
     let projected = Arc::new(Projected {
         link,
         digest,

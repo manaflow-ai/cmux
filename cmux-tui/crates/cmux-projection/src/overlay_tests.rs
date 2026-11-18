@@ -118,18 +118,21 @@ fn stat_and_listing_never_ask_the_mac() {
 }
 
 #[test]
-fn one_read_fetches_the_folders_small_files_in_one_batch() {
+fn one_read_fetches_its_file_alone_then_the_folders_other_small_files() {
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
     let a = path_ino(&overlay, "src/a.rs");
     assert_eq!(overlay.read(a, 3, 100).unwrap(), b"a() {}");
-    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
-    assert_eq!(fake.batches.lock().unwrap()[0].len(), 3);
+    // The read's own file first, then its folder's readahead (inline: no readahead thread here).
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
+    assert_eq!(fake.batches.lock().unwrap()[0].len(), 1);
+    assert_eq!(fake.batches.lock().unwrap()[1].len(), 2);
     let b = path_ino(&overlay, "src/b.rs");
     assert_eq!(overlay.read(b, 0, 100).unwrap(), b"fn b() {}");
-    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
     assert!(overlay.stats().cache_hits >= 1);
-    assert_eq!(overlay.stats().remote_reads, 3);
+    assert_eq!(overlay.stats().remote_reads, 1);
+    assert_eq!(overlay.stats().prefetched_bytes, 18);
 }
 
 #[test]

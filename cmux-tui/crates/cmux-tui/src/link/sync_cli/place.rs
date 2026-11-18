@@ -30,6 +30,16 @@ pub(super) enum Entry {
     Other,
 }
 
+/// What [`Dir::stat`] found at a name.
+pub(super) struct Stat {
+    pub entry: Entry,
+    /// Device and inode.
+    pub id: (u64, u64),
+    pub size: u64,
+    /// Modification time, nanoseconds since the epoch.
+    pub mtime_ns: i64,
+}
+
 fn c_name(name: &str) -> io::Result<CString> {
     CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
 }
@@ -228,6 +238,37 @@ impl Dir {
         })?;
         // SAFETY: a new descriptor the file owns.
         Ok(unsafe { File::from_raw_fd(fd) })
+    }
+
+    /// What one `stat` of the entry `name` says, not following a symlink; None when it is
+    /// missing. A projection's listing takes a file's identity, size and time from it, opening
+    /// nothing.
+    pub(super) fn stat(&self, name: &str) -> io::Result<Option<Stat>> {
+        let c = c_name(name)?;
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor, C string and out pointer.
+        let result = unsafe {
+            libc::fstatat(self.0.as_raw_fd(), c.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW)
+        };
+        match check(result) {
+            Ok(_) => Ok(Some(Stat {
+                entry: match stat.st_mode & libc::S_IFMT {
+                    libc::S_IFREG => Entry::File { mode: widen(stat.st_mode & 0o7777) },
+                    libc::S_IFDIR => Entry::Dir,
+                    libc::S_IFLNK => Entry::Link,
+                    _ => Entry::Other,
+                },
+                id: (widen_u64(stat.st_dev), widen_u64(stat.st_ino)),
+                size: widen_u64(stat.st_size),
+                mtime_ns: stat
+                    .st_mtime
+                    .saturating_mul(1_000_000_000)
+                    .saturating_add(stat.st_mtime_nsec),
+            })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The (device, inode) of the entry `name`, not following a symlink;

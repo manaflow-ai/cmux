@@ -105,6 +105,16 @@ impl Skips {
         Self { top: top.to_path_buf(), total: 0, counts: BTreeMap::new(), listed: Vec::new() }
     }
 
+    /// Takes in the skips another thread's listing of the same folder noted.
+    pub(super) fn absorb(&mut self, other: Self) {
+        self.total += other.total;
+        for (kind, count) in other.counts {
+            *self.counts.entry(kind).or_default() += count;
+        }
+        let room = LISTED.saturating_sub(self.listed.len());
+        self.listed.extend(other.listed.into_iter().take(room));
+    }
+
     /// `path` (relative to the folder; a folder ends in `/`) was left out.
     pub(super) fn note(&mut self, path: &str, why: Why) {
         self.total += 1;

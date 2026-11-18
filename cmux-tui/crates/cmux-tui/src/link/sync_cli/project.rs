@@ -19,6 +19,7 @@
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project enable | disable | status
+//!     cmux link project fsmonitor 2 TOKEN   (on the machine: git's `core.fsmonitor` hook)
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, MetadataExt as _};
@@ -33,7 +34,7 @@ use cmux_projection::wire::{self, Part};
 use serde_json::{Value, json};
 
 use super::local::Source as Origin;
-use super::local::{self, LocalFile, Rules};
+use super::local::{self, LocalFile};
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -51,12 +52,30 @@ pub(crate) enum NotProjected {
     Small,
     /// The machine does not serve `projection-v1`.
     Unserved,
+    /// The folder's manifest is past what a machine takes
+    /// ([`cmux_tui_core::projection::MAX_MANIFEST_BYTES`]).
+    TooLarge,
 }
 
-/// The listed folder: its manifest and, by manifest entry, what each file is read from.
+impl NotProjected {
+    /// The code a copy's answer carries for why it was not projected (`projection_fallback`).
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Off => "projection.off",
+            Self::Small => "projection.small",
+            Self::Unserved => "projection.unavailable",
+            Self::TooLarge => "projection.too_large",
+        }
+    }
+}
+
+/// The listed folder: its manifest and, by manifest entry, what each file is read from, with the
+/// files listed again since they changed here ([`Source::relist`]) in place of their manifest's.
 struct Listed {
     manifest: Manifest,
     served: Vec<Option<Served>>,
+    folder: PathBuf,
+    relisted: std::sync::Mutex<std::collections::HashMap<u32, Served>>,
 }
 
 fn ok(answer: &Value) -> bool {
@@ -68,6 +87,7 @@ fn code(answer: &Value) -> Option<&str> {
 }
 
 /// One file of the manifest as this Mac reads it.
+#[derive(Clone)]
 struct Served {
     file: LocalFile,
     size: u64,
@@ -82,6 +102,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
         Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("fsmonitor") => return fsmonitor(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
              REMOTE | enable | disable | status"
@@ -103,8 +124,28 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
-/// turned it off.
+/// `fsmonitor 2 TOKEN`: git's fsmonitor hook on the machine, run in a repository's working tree.
+/// A repository inside a projection is answered from the projection's change set
+/// ([`cmux_projection::fsmonitor`]), so `git status` checks only what the agent changed; any other
+/// is answered "everything", as with no hook. Only protocol 2 is spoken: anything else exits 1,
+/// and git falls back to its own scan.
+fn fsmonitor(args: &[String]) -> i32 {
+    let (Some("2"), Some(token)) = (args.first().map(String::as_str), args.get(1)) else {
+        eprintln!("usage: cmux link project fsmonitor 2 TOKEN");
+        return 1;
+    };
+    let (Some(state), Ok(worktree)) =
+        (cmux_tui_core::platform::workspace_state_dir(), std::env::current_dir())
+    else {
+        return 1;
+    };
+    let answer = cmux_projection::fsmonitor::hook(&state.join("projections"), &worktree, token);
+    let mut stdout = std::io::stdout().lock();
+    if stdout.write_all(&answer).and_then(|()| stdout.flush()).is_err() { 1 } else { 0 }
+}
+
+/// Whether chats from attached folders are projected: on unless [`ENV`] or `cmux link project
+/// disable` turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
@@ -213,6 +254,7 @@ pub(crate) fn start(
     match code(&answer) {
         Some("projection.small") => return Ok(Err(NotProjected::Small)),
         Some("projection.unavailable") => return Ok(Err(NotProjected::Unserved)),
+        Some("projection.too_large") => return Ok(Err(NotProjected::TooLarge)),
         _ => {}
     }
     bail!(
@@ -280,13 +322,44 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
-    let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
+    if encoded.len() as u64 > cmux_tui_core::projection::MAX_MANIFEST_BYTES {
+        return Ok(too_large(encoded.len()));
+    }
+    // A machine that mounted this folder before keeps that manifest: send what changed since.
+    let last = last_sent(&socket, &folder);
+    let mut sent = None;
+    // Anything but a mount from the delta (`projection.no_base`, a machine too old to know
+    // deltas, a dial that failed) sends the manifest whole.
+    if let Some((base, delta)) = last
+        .as_deref()
+        .and_then(|last| delta_of(last, &listed.manifest))
+        .filter(|(_, delta)| delta.len() < encoded.len())
+        && let Ok(target) = listed.manifest.id()
+        && let Ok((stream, answer)) = dial(&socket, &name, &at, &delta, Some(base), Some(target))
+        && ok(&answer)
+    {
+        sent = Some((stream, answer, delta.len()));
+    }
+    let delta = sent.is_some();
+    let (stream, mut answer, sent_bytes) = match sent {
+        Some(sent) => sent,
+        None => {
+            let target = listed.manifest.id().ok();
+            let (stream, answer) = dial(&socket, &name, &at, &encoded, None, target)?;
+            (stream, answer, encoded.len())
+        }
+    };
     if !ok(&answer) {
         return Ok(answer);
     }
+    if let Some(last) = &last {
+        keep_last_sent(last, &encoded);
+    }
     if let Some(data) = answer.get_mut("data").and_then(Value::as_object_mut) {
         data.insert("listed_ms".into(), json!(listed_ms));
-        data.insert("manifest_bytes".into(), json!(encoded.len()));
+        data.insert("manifest_bytes".into(), json!(sent_bytes));
+        data.insert("full_manifest_bytes".into(), json!(encoded.len()));
+        data.insert("delta".into(), json!(delta));
         data.insert("ready_ms".into(), json!(elapsed_ms(started)));
     }
     let mut stdout = std::io::stdout();
@@ -294,6 +367,51 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let _ = stdout.flush();
     serve_until_gone(&socket, &name, &at, &encoded, &listed, stream);
     Ok(Value::Null)
+}
+
+/// The answer for a manifest of `bytes` past what a machine takes: the start copies instead.
+fn too_large(bytes: usize) -> Value {
+    json!({
+        "ok": false,
+        "error": format!(
+            "the folder's manifest is {bytes} bytes, past the {} a machine takes",
+            cmux_tui_core::projection::MAX_MANIFEST_BYTES
+        ),
+        "error_code": "projection.too_large",
+    })
+}
+
+/// Where this Mac keeps the last manifest it sent from `folder` to the machine at `socket`, for a
+/// later chat's dial there to send only what changed ([`delta_of`]).
+fn last_sent(socket: &Path, folder: &Path) -> Option<PathBuf> {
+    let dir = cmux_tui_core::platform::workspace_state_dir()?.join("link-sync").join("manifests");
+    let mut key = socket.as_os_str().as_encoded_bytes().to_vec();
+    key.push(0);
+    key.extend_from_slice(folder.as_os_str().as_encoded_bytes());
+    let hash = key.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    Some(dir.join(format!("{hash:016x}.manifest")))
+}
+
+/// The id of the manifest kept at `last`, and the encoded delta from it to `manifest`
+/// ([`Manifest::delta`]): none when nothing is kept there.
+fn delta_of(last: &Path, manifest: &Manifest) -> Option<(u64, Vec<u8>)> {
+    let base = Manifest::decode(&std::fs::read(last).ok()?).ok()?;
+    let delta = Manifest::delta(&base, manifest).encode().ok()?;
+    Some((base.id().ok()?, delta))
+}
+
+/// Keeps `encoded` (the manifest the machine now has) at `last`.
+fn keep_last_sent(last: &Path, encoded: &[u8]) {
+    let Some(dir) = last.parent() else { return };
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let temp = last.with_extension(format!("tmp{}", std::process::id()));
+    if std::fs::write(&temp, encoded).is_err() || std::fs::rename(&temp, last).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
 }
 
 fn elapsed_ms(since: Instant) -> u64 {
@@ -337,10 +455,10 @@ fn serve_until_gone(
         }
         std::thread::sleep(backoff);
         backoff = (backoff * 2).min(Duration::from_secs(10));
-        match dial(socket, name, at, &[]) {
+        match dial(socket, name, at, &[], None, None) {
             Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
-                match dial(socket, name, at, encoded) {
+                match dial(socket, name, at, encoded, None, listed.manifest.id().ok()) {
                     Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
                     Ok((_, answer)) => {
                         eprintln!(
@@ -361,16 +479,21 @@ fn serve_until_gone(
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
-/// nothing to attach again). The stream, buffered, and the machine's answer.
+/// nothing to attach again, or with `base` a delta of the manifest the machine kept by that id).
+/// `target` is the id ([`Manifest::id`]) of the manifest the machine ends with, so a later dial
+/// of the same manifest, whole or as a delta, attaches to its mount. The stream, buffered, and
+/// the machine's answer.
 fn dial(
     socket: &Path,
     name: &str,
     at: &str,
     encoded: &[u8],
+    base: Option<u64>,
+    target: Option<u64>,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    let line = json!({
+    let mut line = json!({
         "id": 1,
         "cmd": cmux_tui_core::projection::SERVE,
         "name": name,
@@ -380,6 +503,13 @@ fn dial(
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
     });
+    if let Some(object) = line.as_object_mut() {
+        for (key, id) in [("base", base), ("target", target)] {
+            if let Some(id) = id {
+                object.insert(key.into(), json!(format!("{id:016x}")));
+            }
+        }
+    }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     stream.write_all(&bytes)?;
@@ -395,17 +525,18 @@ fn dial(
     Ok((reader, answer))
 }
 
-/// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
-/// modification time, as a manifest.
+/// The folder as the copy lists it ([`local::listed_stats`], no cap), with every file's size and
+/// modification time from the `stat` that listed it, as a manifest. Nothing is opened or read,
+/// and the listing runs on several threads.
 fn list(folder: &Path) -> anyhow::Result<Listed> {
-    let (set, _) = local::listed(folder, Rules::Copy, None)?;
+    let set = local::listed_stats(folder)?;
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
-    let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
-    let stats = stat_all(&files);
-    let mut items = Vec::with_capacity(files.len() + set.links.len());
-    let mut kept = Vec::with_capacity(files.len());
-    for ((relative, file), stat) in files.into_iter().zip(stats) {
-        // A file gone or changed into something else since the listing is left out.
+    let stats = set.stats.unwrap_or_default();
+    let mut items = Vec::with_capacity(set.files.len() + set.links.len());
+    let mut kept = Vec::with_capacity(set.files.len());
+    for (relative, file) in set.files {
+        // Made here (a cleaned config or reflog): its bytes' length; else as listed.
+        let stat = stats.get(&relative).copied().or_else(|| stat(&file));
         let Some((size, mtime)) = stat else { continue };
         items.push(Item {
             path: relative.clone(),
@@ -440,26 +571,11 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served })
+    Ok(Listed { manifest, served, folder: folder.to_path_buf(), relisted: Default::default() })
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
     meta.mtime().saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec())
-}
-
-/// Every file's size and modification time, read on a few threads (a stat each, no bytes).
-fn stat_all(files: &[(String, LocalFile)]) -> Vec<Option<(u64, i64)>> {
-    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get).min(16);
-    let per = files.len().div_ceil(threads).max(1);
-    std::thread::scope(|scope| {
-        let parts: Vec<_> = files
-            .chunks(per)
-            .map(|part| {
-                scope.spawn(move || part.iter().map(|(_, file)| stat(file)).collect::<Vec<_>>())
-            })
-            .collect();
-        parts.into_iter().flat_map(|part| part.join().unwrap_or_default()).collect()
-    })
 }
 
 fn stat(file: &LocalFile) -> Option<(u64, i64)> {
@@ -492,9 +608,22 @@ fn open(file: &LocalFile) -> anyhow::Result<std::fs::File> {
     }
 }
 
+impl Listed {
+    /// File `entry` as it is served now: as listed again since it changed, else as the manifest
+    /// listed it.
+    fn served(&self, entry: u32) -> Option<Served> {
+        if let Some(now) =
+            self.relisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&entry)
+        {
+            return Some(now.clone());
+        }
+        self.served.get(entry as usize)?.clone()
+    }
+}
+
 impl Source for Listed {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
-        let Some(Some(served)) = self.served.get(entry as usize) else {
+        let Some(served) = self.served(entry) else {
             return Part::status(wire::REFUSED);
         };
         if let Origin::Bytes(bytes) = &served.file.source {
@@ -502,7 +631,16 @@ impl Source for Listed {
             let end = start.saturating_add(len as usize).min(bytes.len());
             return Part::ok(bytes.get(start..end).unwrap_or_default().to_vec());
         }
-        let Ok(opened) = open(&served.file) else { return Part::status(wire::FAILED) };
+        let opened = match open(&served.file) {
+            Ok(opened) => opened,
+            // Another file at its path now (git writes its index to a new file and renames it
+            // over the old one): changed, for the machine to list it again.
+            Err(_) => {
+                let replaced = matches!(&served.file.source, Origin::File(path)
+                    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file()));
+                return Part::status(if replaced { wire::CHANGED } else { wire::FAILED });
+            }
+        };
         // The file the manifest named, unchanged: else the machine is told it changed.
         let Ok(meta) = opened.metadata() else { return Part::status(wire::FAILED) };
         if meta.len() != served.size || mtime_ns(&meta) != served.mtime_ns {
@@ -524,15 +662,36 @@ impl Source for Listed {
     }
 
     fn whole(&self, entry: u32) -> Part {
-        let size = self
-            .served
-            .get(entry as usize)
-            .and_then(Option::as_ref)
-            .map_or(0, |served| served.size);
+        let size = self.served(entry).map_or(0, |served| served.size);
         match u32::try_from(size) {
             Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
             _ => Part::status(wire::FAILED),
         }
+    }
+
+    /// The file at `entry`'s path listed again (RFD 0007 hard case 7), found one name at a time
+    /// with no symlink followed, as the listing found it: its identity, size and time from then
+    /// on. A file made here (a cleaned config or reflog) never changes.
+    fn relist(&self, entry: u32) -> Part {
+        let Some(served) = self.served(entry) else { return Part::status(wire::REFUSED) };
+        let Origin::File(path) = &served.file.source else { return Part::status(wire::FAILED) };
+        let (root, relative) = match path.strip_prefix(&self.folder) {
+            Ok(relative) => (self.folder.as_path(), relative),
+            Err(_) => match (path.parent(), path.file_name()) {
+                (Some(parent), Some(name)) => (parent, Path::new(name)),
+                _ => return Part::status(wire::FAILED),
+            },
+        };
+        let Some(relative) = relative.to_str() else { return Part::status(wire::FAILED) };
+        let Ok((opened, identity, _)) = super::place::open_beneath(root, relative) else {
+            return Part::status(wire::FAILED);
+        };
+        let Ok(meta) = opened.metadata() else { return Part::status(wire::FAILED) };
+        let file = LocalFile { id: Some(identity), ..served.file };
+        let now = Served { file, size: meta.len(), mtime_ns: mtime_ns(&meta) };
+        let stat = wire::stat_bytes(now.size, now.mtime_ns);
+        self.relisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(entry, now);
+        Part::ok(stat)
     }
 }
 

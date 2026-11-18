@@ -53,7 +53,7 @@ pub struct Entry {
 }
 
 /// One path as the Mac lists it, for [`Manifest::build`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// Relative to the folder, `/`-separated, with no `.`, `..` or empty component.
     pub path: String,
@@ -88,47 +88,13 @@ impl Manifest {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
-            let names = split(&item.path)?;
-            let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
-            let mut at = &mut root;
-            for name in above {
-                anyhow::ensure!(
-                    matches!(at.kind, None | Some(Kind::Dir)),
-                    "{} is below a file",
-                    item.path
-                );
-                at = at.children.entry((*name).to_owned()).or_insert_with(|| Node {
-                    mode: 0o755,
-                    mtime_ns: root_mtime_ns,
-                    ..Node::default()
-                });
-            }
-            anyhow::ensure!(
-                matches!(at.kind, None | Some(Kind::Dir)),
-                "{} is below a file",
-                item.path
-            );
-            let node = at.children.entry((*last).to_owned()).or_default();
-            anyhow::ensure!(
-                node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
-                "{} is listed twice",
-                item.path
-            );
-            anyhow::ensure!(
-                item.kind == Kind::Dir || node.children.is_empty(),
-                "{} has paths below it but is not a folder",
-                item.path
-            );
-            node.kind = Some(item.kind);
-            node.mode = item.mode & 0o7777;
-            node.size = match item.kind {
-                Kind::File => item.size,
-                Kind::Dir => 0,
-                Kind::Link => item.link.as_ref().map_or(0, |text| text.len() as u64),
-            };
-            node.mtime_ns = item.mtime_ns;
-            node.link = if item.kind == Kind::Link { item.link } else { None };
+            insert(&mut root, item, root_mtime_ns)?;
         }
+        Self::from_tree(root)
+    }
+
+    /// The manifest of the tree `root` (the folder itself), laid out breadth first.
+    fn from_tree(mut root: Node) -> anyhow::Result<Self> {
         let mut entries = Vec::new();
         let mut queue: VecDeque<(u32, BTreeMap<String, Node>)> = VecDeque::new();
         let children = std::mem::take(&mut root.children);
@@ -153,6 +119,67 @@ impl Manifest {
         }
         anyhow::ensure!(entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
         Ok(Self { entries })
+    }
+
+    /// The manifest as a tree again, for [`Manifest::apply`].
+    fn to_tree(&self) -> Node {
+        fn below(manifest: &Manifest, index: u32) -> Node {
+            let Some(entry) = manifest.entry(index) else {
+                return Node::default();
+            };
+            let (first, children) = manifest.children(index);
+            let mut node = Node {
+                kind: Some(entry.kind),
+                mode: entry.mode,
+                size: entry.size,
+                mtime_ns: entry.mtime_ns,
+                link: entry.link.clone(),
+                children: BTreeMap::new(),
+            };
+            for (at, child) in children.iter().enumerate() {
+                let at = first.saturating_add(u32::try_from(at).unwrap_or(u32::MAX));
+                node.children.insert(child.name.clone(), below(manifest, at));
+            }
+            node
+        }
+        below(self, ROOT)
+    }
+
+    /// Which manifest this is: FNV-1a of its bincode (the machine's cache and a delta's base and
+    /// target go by it).
+    pub fn id(&self) -> anyhow::Result<u64> {
+        Ok(fnv(&bincode::serialize(self)?))
+    }
+
+    /// What turns `base` into `new`, for a Mac that sent `base` to the machine before: the paths
+    /// gone and the files and links added or changed. Both must come from a Mac's listing (every
+    /// folder implied by what is in it, 0755 at the folder's own time), as [`Manifest::apply`]
+    /// lays folders out that way.
+    #[must_use]
+    pub fn delta(base: &Self, new: &Self) -> Delta {
+        let mut delta = Delta {
+            root_mtime_ns: new.entries.first().map_or(0, |root| root.mtime_ns),
+            removed: Vec::new(),
+            upserts: Vec::new(),
+        };
+        diff(base, ROOT, new, ROOT, "", &mut delta);
+        delta
+    }
+
+    /// `delta` applied to `self` (its base): the new manifest, which the caller checks against the
+    /// id the Mac sent.
+    pub fn apply(&self, delta: &Delta) -> anyhow::Result<Self> {
+        let mut root = self.to_tree();
+        for path in &delta.removed {
+            remove(&mut root, &split(path)?);
+        }
+        for item in &delta.upserts {
+            remove(&mut root, &split(&item.path)?);
+            insert(&mut root, item.clone(), delta.root_mtime_ns)?;
+        }
+        folders_at(&mut root, delta.root_mtime_ns);
+        root.mode = 0o755;
+        Self::from_tree(root)
     }
 
     /// How many entries, the folder itself included.
@@ -246,7 +273,8 @@ impl Manifest {
     fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.entries.is_empty(), "the manifest has no folder");
         anyhow::ensure!(self.entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        let root = self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
+        let root =
+            self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
         anyhow::ensure!(
             root.kind == Kind::Dir && root.name.is_empty(),
             "entry 0 is not the folder"
@@ -282,13 +310,207 @@ impl Manifest {
                 *seen = true;
                 anyhow::ensure!(node.parent as usize == index, "entry {child}'s folder disagrees");
                 if let Some(before) = before {
-                    anyhow::ensure!(before.name < node.name, "entry {index}'s children are not sorted");
+                    anyhow::ensure!(
+                        before.name < node.name,
+                        "entry {index}'s children are not sorted"
+                    );
                 }
                 before = Some(node);
             }
         }
         Ok(())
     }
+}
+
+/// What a Mac sends instead of a whole manifest the machine has seen the base of
+/// ([`Manifest::delta`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delta {
+    /// The folder's own modification time (every folder's, as the Mac lists them).
+    pub root_mtime_ns: i64,
+    /// Paths gone, each a file, a link or a whole folder.
+    pub removed: Vec<String>,
+    /// Files and links added or changed.
+    pub upserts: Vec<Item>,
+}
+
+impl Delta {
+    /// As the wire carries it (bincode, then zstd).
+    pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(zstd::encode_all(bincode::serialize(self)?.as_slice(), 3)?)
+    }
+
+    pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
+        let mut raw = Vec::new();
+        zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the delta is too large");
+        Ok(bincode::deserialize(&raw)?)
+    }
+
+    /// How many paths it names.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.removed.len() + self.upserts.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Adds `item` to the tree `root`, with any folder above it that is missing (0755, at
+/// `root_mtime_ns`).
+fn insert(root: &mut Node, item: Item, root_mtime_ns: i64) -> anyhow::Result<()> {
+    let names = split(&item.path)?;
+    let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
+    let mut at = root;
+    for name in above {
+        anyhow::ensure!(matches!(at.kind, None | Some(Kind::Dir)), "{} is below a file", item.path);
+        at = at.children.entry((*name).to_owned()).or_insert_with(|| Node {
+            mode: 0o755,
+            mtime_ns: root_mtime_ns,
+            ..Node::default()
+        });
+    }
+    anyhow::ensure!(matches!(at.kind, None | Some(Kind::Dir)), "{} is below a file", item.path);
+    let node = at.children.entry((*last).to_owned()).or_default();
+    anyhow::ensure!(
+        node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
+        "{} is listed twice",
+        item.path
+    );
+    anyhow::ensure!(
+        item.kind == Kind::Dir || node.children.is_empty(),
+        "{} has paths below it but is not a folder",
+        item.path
+    );
+    node.kind = Some(item.kind);
+    node.mode = item.mode & 0o7777;
+    node.size = match item.kind {
+        Kind::File => item.size,
+        Kind::Dir => 0,
+        Kind::Link => item.link.as_ref().map_or(0, |text| text.len() as u64),
+    };
+    node.mtime_ns = item.mtime_ns;
+    node.link = if item.kind == Kind::Link { item.link } else { None };
+    Ok(())
+}
+
+/// Removes the path `names` from the tree, and each folder above it left empty (a Mac lists no
+/// empty folder).
+fn remove(root: &mut Node, names: &[&str]) {
+    let Some((first, rest)) = names.split_first() else { return };
+    if rest.is_empty() {
+        root.children.remove(*first);
+        return;
+    }
+    let Some(child) = root.children.get_mut(*first) else { return };
+    remove(child, rest);
+    if child.children.is_empty() && matches!(child.kind, None | Some(Kind::Dir)) {
+        root.children.remove(*first);
+    }
+}
+
+/// Every folder of the tree at `mtime_ns`, 0755, as a Mac's listing makes them.
+fn folders_at(node: &mut Node, mtime_ns: i64) {
+    if matches!(node.kind, None | Some(Kind::Dir)) {
+        node.mtime_ns = mtime_ns;
+        node.mode = 0o755;
+        node.size = 0;
+    }
+    for child in node.children.values_mut() {
+        folders_at(child, mtime_ns);
+    }
+}
+
+/// [`Manifest::delta`] of folder `at` of `base` against folder `now` of `new`, both at `path`.
+fn diff(base: &Manifest, at: u32, new: &Manifest, now: u32, path: &str, delta: &mut Delta) {
+    let (base_first, before) = base.children(at);
+    let (new_first, after) = new.children(now);
+    let (mut b, mut n) = (0usize, 0usize);
+    let index =
+        |first: u32, offset: usize| first.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX));
+    loop {
+        let (old, fresh) = (before.get(b), after.get(n));
+        let order = match (old, fresh) {
+            (Some(old), Some(fresh)) => old.name.cmp(&fresh.name),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => break,
+        };
+        match (order, old, fresh) {
+            (std::cmp::Ordering::Less, Some(old), _) => {
+                delta.removed.push(join(path, &old.name));
+                b += 1;
+            }
+            (std::cmp::Ordering::Greater, _, Some(fresh)) => {
+                everything(new, index(new_first, n), &join(path, &fresh.name), delta);
+                n += 1;
+            }
+            (_, Some(old), Some(fresh)) => {
+                let here = join(path, &fresh.name);
+                match (old.kind, fresh.kind) {
+                    (Kind::Dir, Kind::Dir) => {
+                        diff(base, index(base_first, b), new, index(new_first, n), &here, delta);
+                    }
+                    (Kind::Dir, _) | (_, Kind::Dir) => {
+                        delta.removed.push(here.clone());
+                        everything(new, index(new_first, n), &here, delta);
+                    }
+                    _ if old.mode != fresh.mode
+                        || old.size != fresh.size
+                        || old.mtime_ns != fresh.mtime_ns
+                        || old.kind != fresh.kind
+                        || old.link != fresh.link =>
+                    {
+                        delta.upserts.push(item_of(fresh, here));
+                    }
+                    _ => {}
+                }
+                b += 1;
+                n += 1;
+            }
+            // `order` came from these two, so nothing else is left.
+            _ => break,
+        }
+    }
+}
+
+/// Every file and link at and below entry `index` of `manifest` (at `path`) as upserts.
+fn everything(manifest: &Manifest, index: u32, path: &str, delta: &mut Delta) {
+    let Some(entry) = manifest.entry(index) else { return };
+    if entry.kind != Kind::Dir {
+        delta.upserts.push(item_of(entry, path.to_owned()));
+        return;
+    }
+    let (first, children) = manifest.children(index);
+    for (at, child) in children.iter().enumerate() {
+        let at = first.saturating_add(u32::try_from(at).unwrap_or(u32::MAX));
+        everything(manifest, at, &join(path, &child.name), delta);
+    }
+}
+
+fn item_of(entry: &Entry, path: String) -> Item {
+    Item {
+        path,
+        kind: entry.kind,
+        mode: entry.mode,
+        size: entry.size,
+        mtime_ns: entry.mtime_ns,
+        link: entry.link.clone(),
+    }
+}
+
+fn join(parent: &str, name: &str) -> String {
+    if parent.is_empty() { name.to_owned() } else { format!("{parent}/{name}") }
+}
+
+/// FNV-1a over `bytes` (stable across builds and machines).
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 fn entry(name: String, parent: u32, node: Node) -> Entry {

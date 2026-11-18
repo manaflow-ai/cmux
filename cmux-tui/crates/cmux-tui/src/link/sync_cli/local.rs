@@ -35,7 +35,7 @@
 //! which are counted.
 
 use cmux_process::Command;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
@@ -95,6 +95,9 @@ pub(super) struct LocalSet {
     /// What a first pass ([`first_pass`]) left on this Mac, for the note on the machine
     /// ([`super::left_note`]); none for a copy sent whole.
     pub left: Option<super::left_note::LeftOnMac>,
+    /// Each file's size and modification time by path, from the one `stat` that listed it, for a
+    /// projection's manifest ([`listed_stats`]); a listing that keeps them opens no file.
+    pub stats: Option<HashMap<String, (u64, i64)>>,
 }
 
 impl LocalSet {
@@ -107,6 +110,7 @@ impl LocalSet {
             git: false,
             cap: None,
             left: None,
+            stats: None,
         }
     }
 
@@ -299,8 +303,13 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
 /// [`super::size_cap::FileLimit`] among them).
 fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<()> {
     let Some(git) = GitDirs::of(folder)? else {
+        if set.stats.is_some() {
+            return walk_plain_parallel(set, rules, folder);
+        }
         return walk_plain(set, rules, &|_| true, folder, folder);
     };
+    // A projection's listing reaches each file git names on several threads.
+    let mut named: Option<Vec<String>> = set.stats.as_ref().map(|_| Vec::new());
     set.git = true;
     // Each untracked heavy folder is named once, as the folder.
     let mut heavy_named: BTreeSet<String> = BTreeSet::new();
@@ -326,9 +335,29 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
             set.skips.note(&path, why);
             return Ok(());
         }
+        if let Some(named) = named.as_mut() {
+            named.push(path);
+            return Ok(());
+        }
         add_working(set, &top, folder, &path)
     })?;
     set.skipped += skipped;
+    if let Some(named) = named {
+        let parts = on_threads(
+            &named,
+            |part, paths| {
+                let top = place::Dir::open(folder)?;
+                for path in paths {
+                    add_working(part, &top, folder, path)?;
+                }
+                Ok(())
+            },
+            folder,
+        );
+        for part in parts {
+            set.absorb(part?);
+        }
+    }
     // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
     // an unreadable reflog or config never fails it.
     if rules == Rules::Share {
@@ -895,7 +924,7 @@ fn walk_plain(
             }
         }
     }
-    walk_plain_in(set, rules, enter, top, dir, &handle)
+    walk_plain_in(set, rules, enter, top, dir, &handle, None)
 }
 
 /// Whether opening a folder failed because something else is at its name
@@ -912,6 +941,7 @@ fn walk_plain_in(
     top: &Path,
     dir: &Path,
     handle: &place::Dir,
+    folders: Option<&Folders>,
 ) -> anyhow::Result<()> {
     let names = handle.names().with_context(|| format!("cannot list {}", dir.display()))?;
     for name in names {
@@ -940,7 +970,12 @@ fn walk_plain_in(
                     set.skipped = set.skipped.saturating_add(1);
                 } else {
                     match handle.child(name) {
-                        Ok(Some(child)) => walk_plain_in(set, rules, enter, top, &path, &child)?,
+                        Ok(Some(child)) => match folders {
+                            Some(folders) if folders.wants_more() => {
+                                folders.push(path.clone(), child);
+                            }
+                            _ => walk_plain_in(set, rules, enter, top, &path, &child, folders)?,
+                        },
                         Ok(None) => {}
                         // A symlink or file there since it was listed: as any entry.
                         Err(error) if swapped(&error) => {
@@ -958,6 +993,178 @@ fn walk_plain_in(
             }
             other => entry_in(set, rules, relative, &path, handle, name, other)?,
         }
+    }
+    Ok(())
+}
+
+/// [`listed`] for a projection's manifest: by the copy's rules, with no cap, every file's size and
+/// time taken from the one `stat` that lists it ([`LocalSet::stats`]; no file is opened), and the
+/// folder walked (or git's files reached) on several threads.
+pub(super) fn listed_stats(folder: &Path) -> anyhow::Result<LocalSet> {
+    let mut set = LocalSet::for_stats(folder);
+    list_into(&mut set, folder, Rules::Copy)?;
+    Ok(set)
+}
+
+impl LocalSet {
+    fn for_stats(folder: &Path) -> Self {
+        let mut set = Self::new(Skips::new(folder));
+        set.stats = Some(HashMap::new());
+        set
+    }
+
+    /// Takes in what another thread listed of the same folder (no path is in both).
+    fn absorb(&mut self, part: Self) {
+        self.files.extend(part.files);
+        self.links.extend(part.links);
+        self.skipped = self.skipped.saturating_add(part.skipped);
+        self.skips.absorb(part.skips);
+        if let (Some(stats), Some(more)) = (self.stats.as_mut(), part.stats) {
+            stats.extend(more);
+        }
+    }
+}
+
+/// How many threads a projection's listing uses.
+fn listing_threads() -> usize {
+    std::thread::available_parallelism().map_or(4, std::num::NonZero::get).clamp(2, 16)
+}
+
+/// `work` over `paths` in a part per thread, each listed into a set of its own.
+fn on_threads(
+    paths: &[String],
+    work: impl Fn(&mut LocalSet, &[String]) -> anyhow::Result<()> + Sync,
+    folder: &Path,
+) -> Vec<anyhow::Result<LocalSet>> {
+    let per = paths.len().div_ceil(listing_threads()).max(1);
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = paths
+            .chunks(per)
+            .map(|part| {
+                let work = &work;
+                scope.spawn(move || {
+                    let mut set = LocalSet::for_stats(folder);
+                    work(&mut set, part).map(|()| set)
+                })
+            })
+            .collect();
+        threads
+            .into_iter()
+            .map(|thread| {
+                thread.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a listing thread panicked")))
+            })
+            .collect()
+    })
+}
+
+/// Folders a parallel walk has yet to list, each held open, and how many are being listed.
+struct Folders {
+    state: std::sync::Mutex<Waiting>,
+    wake: std::sync::Condvar,
+}
+
+/// [`Folders`]' state.
+struct Waiting {
+    folders: Vec<(PathBuf, place::Dir)>,
+    /// Folders being listed now.
+    busy: usize,
+    /// A listing failed: the walk ends.
+    stopped: bool,
+}
+
+/// The most folders waiting at once: past it a thread walks a folder it finds itself, so the
+/// descriptors held open stay bounded.
+const WAITING_FOLDERS: usize = 64;
+
+impl Folders {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn wants_more(&self) -> bool {
+        self.lock().folders.len() < WAITING_FOLDERS
+    }
+
+    fn push(&self, path: PathBuf, dir: place::Dir) {
+        self.lock().folders.push((path, dir));
+        self.wake.notify_one();
+    }
+
+    /// The next folder to list; None once every folder is listed or the walk stopped.
+    fn pop(&self) -> Option<(PathBuf, place::Dir)> {
+        let mut state = self.lock();
+        loop {
+            if state.stopped {
+                return None;
+            }
+            if let Some(next) = state.folders.pop() {
+                state.busy += 1;
+                return Some(next);
+            }
+            if state.busy == 0 {
+                return None;
+            }
+            state = self.wake.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// One folder listed; `failed` stops the walk.
+    fn done(&self, failed: bool) {
+        let mut state = self.lock();
+        state.busy = state.busy.saturating_sub(1);
+        state.stopped |= failed;
+        let finished = state.stopped || (state.busy == 0 && state.folders.is_empty());
+        drop(state);
+        if finished {
+            self.wake.notify_all();
+        }
+    }
+}
+
+/// [`walk_plain`] of all of `top` on several threads ([`listed_stats`]): each takes a folder
+/// another found and walks it into a set of its own.
+fn walk_plain_parallel(set: &mut LocalSet, rules: Rules, top: &Path) -> anyhow::Result<()> {
+    let handle = place::Dir::open(top).with_context(|| format!("cannot list {}", top.display()))?;
+    let folders = Folders {
+        state: std::sync::Mutex::new(Waiting {
+            folders: vec![(top.to_path_buf(), handle)],
+            busy: 0,
+            stopped: false,
+        }),
+        wake: std::sync::Condvar::new(),
+    };
+    let parts: Vec<anyhow::Result<LocalSet>> = std::thread::scope(|scope| {
+        let threads: Vec<_> = (0..listing_threads())
+            .map(|_| {
+                let folders = &folders;
+                scope.spawn(move || {
+                    let mut part = LocalSet::for_stats(top);
+                    while let Some((dir, handle)) = folders.pop() {
+                        let walked = walk_plain_in(
+                            &mut part,
+                            rules,
+                            &|_| true,
+                            top,
+                            &dir,
+                            &handle,
+                            Some(folders),
+                        );
+                        folders.done(walked.is_err());
+                        walked?;
+                    }
+                    Ok(part)
+                })
+            })
+            .collect();
+        threads
+            .into_iter()
+            .map(|thread| {
+                thread.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a listing thread panicked")))
+            })
+            .collect()
+    });
+    for part in parts {
+        set.absorb(part?);
     }
     Ok(())
 }
