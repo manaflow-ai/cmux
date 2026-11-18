@@ -782,8 +782,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4e4dbef6b64e1f9daae38cc90bc42f094633cfef6e5012d4062351a777127894",
-      "size": 84749
+      "sha256": "c8e8089b1faa02b0808d750911ef4478eca8016639b287a7cf0f37c2d3e05104",
+      "size": 84836
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1767,8 +1767,8 @@
     },
     {
       "path": "ListNotificationsRequest.java",
-      "sha256": "bdff23eca2ccce2d1fc61e308bcb25efd2a3734da304028aaf08c085619ff087",
-      "size": 2010
+      "sha256": "7fa48f406cbe4044ac08fee5ed1e0660060d296efa7c09bee304eed6b8a94533",
+      "size": 2626
     },
     {
       "path": "ListPersonalRequest.java",
@@ -2232,7 +2232,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "72f1c17fb6438b5abfa01880c933c4642119c5ff1479bad562336d0dfd24cee3",
+      "sha256": "a8bcf00be58b2b59ec819fc07f80de4f9729faaaf0ca82c6d81a90f071d4d339",
       "size": 8310
     },
     {
@@ -3772,7 +3772,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8",
+  "ir_sha256": "d54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

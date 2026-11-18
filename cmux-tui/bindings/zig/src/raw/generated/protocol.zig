@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
+pub const ir_sha256 = "d54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7049,6 +7049,7 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
 
 pub const ListNotificationsRequest = struct {
     limit: wire.Field(u64) = .absent,
+    since: wire.Field([]const u8) = .absent,
 };
 
 pub const ListNotificationsResult = JsonValue;
@@ -7061,6 +7062,9 @@ pub fn listNotifications(client: anytype, request: ListNotificationsRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "notification-ack-v1",
+            .fields = &.{
+                .{ .name = "since", .since = 12, .capability = "notification-ledger-delta-v1" },
+            },
         },
         request,
     );

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8'
+IR_SHA256 = 'd54d766841d61b593c6571ad1e10913b52e4e78c62c9f731c14ba9cc041de311'
 
 
 @dataclass(frozen=True)
@@ -1858,6 +1858,7 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+            'since': CommandFieldMetadata(12, 'notification-ledger-delta-v1'),
         },
     ),
     'list-personal': CommandMetadata(

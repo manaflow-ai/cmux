@@ -428,6 +428,13 @@ extension DaemonConnection {
         try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }
 
+    /// The whole ledger with its `version`, or with `since` (a reply's `version`) only the rows changed since it
+    /// (`notification-ledger-delta-v1`); a daemon without it answers the whole ledger.
+    public func notificationLedger(since version: String?) async throws -> ListNotificationsRequest.Response {
+        let since = identity?.supports(DaemonCapability.notificationLedgerDelta.rawValue) == true ? version : nil
+        return try await requestNew(ListNotificationsRequest(since: since))
+    }
+
     /// Hands the session off (the daemon exits). With `endTerminals`
     /// (`terminal-reap-v1`) it first ends every terminal and waits for their
     /// hosts, so no PTY outlives it; returns the ended count then.

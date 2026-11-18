@@ -26801,6 +26801,11 @@ Result<Json> Codec<ListNotificationsRequest>::encode(const ListNotificationsRequ
         if (!encoded) return std::move(encoded).error();
         object.emplace("limit", std::move(encoded).value());
     }
+    if (!value.since.is_absent()) {
+        auto encoded = encode_value(value.since);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("since", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -26816,6 +26821,16 @@ Result<ListNotificationsRequest> Codec<ListNotificationsRequest>::decode(const J
             auto decoded = decode_value<std::uint64_t>(*field_limit);
             if (!decoded) return std::move(decoded).error();
             result.limit = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_since = value.find("since");
+    if (field_since) {
+        if (field_since->is_null()) {
+            result.since = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_since);
+            if (!decoded) return std::move(decoded).error();
+            result.since = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -47282,6 +47297,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand129FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand137FieldRequirements{{
+    {"since", 12U, "notification-ledger-delta-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 2> kCommand145FieldRequirements{{
     {"known", 12U, "list-workspaces-known-v1"},
     {"limit", 12U, "list-workspaces-limit-v1"},
@@ -47608,7 +47626,7 @@ constexpr std::array<CommandMetadata, 305> kCommands{{
     {"list-agents", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-bookmarks", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-clients", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"list-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"list-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand137FieldRequirements)},
     {"list-personal", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-saved-screen-groups", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"list-saved-tab-groups", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
