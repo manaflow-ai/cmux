@@ -188,6 +188,15 @@ final class LayoutViewContext {
     /// show in one frame with it on or off. A test that pins `reduceMotionOverride` pins this too.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout(in: window()) }
 
+    /// Asks for the panes' move at a split, a close and a zoom in a test that pins `reduceMotionOverride`
+    /// (``movesPanesAtCommit``); nil: the pin alone gives none.
+    var commitMotionOverride: Bool?
+
+    /// Whether a split, a close and a zoom move their panes (``PaneCommitMotion``): movement animates and
+    /// `ui.paneAnimations` is on. A test that pins `reduceMotionOverride` gets no move unless it asks for one, so a
+    /// fixture that counts the frames of a change that shows in one commit keeps its count.
+    var movesPanesAtCommit: Bool { !reduceMotion && (commitMotionOverride ?? (reduceMotionOverride == nil && animatesPaneLayout)) }
+
     /// `pane`'s host: the one it has, the one a change kept for it, or a new one. A host that comes back hidden (a pane
     /// a zoom covered) stays hidden: its screen shows it in the pass that places it
     /// (`ScreenContentView.showSnapReturning`), never a frame earlier at the place it had.
@@ -199,7 +208,7 @@ final class LayoutViewContext {
             // Before it shows again, in this turn: a release held for it ran after its new content, and took it (base order).
             runClosingWork(of: pane, now: true)
             entry.host.isLeaving = false
-            entry.host.chrome.isHidden = entry.host.isHidden
+            entry.host.chrome.isHidden = entry.host.hidesRing // a move still keeps it under the others: no ring in this turn
             // Its ring is placed again by the next overlay sync, whatever it last showed.
             entry.host.overlaySyncKey = nil
             hosts[pane] = entry.host
