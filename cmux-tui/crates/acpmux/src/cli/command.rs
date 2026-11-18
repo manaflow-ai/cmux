@@ -440,16 +440,17 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill,
-    /// background (Ctrl-B: move a chat's running work there).
+    /// Background processes agents left running (dev servers, watchers): list, show (everything
+    /// one printed, live with --follow), kill, background (Ctrl-B: move a chat's running work there).
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
-    /// This machine's git worktrees, cleaned up after the agents that made
-    /// them: list, clean (archive work only there, then remove), restore,
-    /// archives.
+    /// This machine's git worktrees, cleaned up after the agents that made them: list, clean
+    /// (archive work only there, then remove), restore, archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for checks or a run with reads that cost no quota while nothing changes.
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
@@ -849,9 +850,8 @@ pub enum HarnessCmd {
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
-        /// ID is an ACP Registry agent (`cmux harness registry`): write a
-        /// profile that starts it at the registry's pinned version (its
-        /// installed program, else npx, else uvx).
+        /// ID is an ACP Registry agent (`cmux harness registry`): write a profile that starts it
+        /// at the registry's pinned version (its installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
         /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent

@@ -258,6 +258,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
     // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
     ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
+    ("cmux-quota-care/SKILL.md", include_str!("../skills/cmux-quota-care/SKILL.md")),
 ];
 
 /// The skills that are only about one MCP server's tools, and that server. A session without
@@ -328,9 +329,8 @@ pub struct Inputs {
     /// is `0`, so a daemon on another machine or under its own unit offers
     /// too, not only the one the Mac app starts.
     pub offers: bool,
-    /// Sub-session tools are on (settings `agents.subsessions.enabled`, on
-    /// by default): sessions get `start_session` and the rest
-    /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
+    /// Sub-session tools are on (settings `agents.subsessions.enabled`, on by default): sessions
+    /// get `start_session` and the rest (`subsession_mcp.rs`, `hub/subsessions.rs`).
     pub subsessions: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.

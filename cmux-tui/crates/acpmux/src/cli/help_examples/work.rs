@@ -158,6 +158,33 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "ci",
+        &[
+            (
+                "Wait up to 40 minutes for a pull request's checks",
+                "acpmux ci wait pr 812 --timeout 2400",
+            ),
+            (
+                "Wait for a workflow run in another repository",
+                "acpmux ci wait run 123456789 --repo octo/app --timeout 1800",
+            ),
+        ],
+    ),
+    (
+        "ci wait",
+        &[
+            (
+                "Wait up to 40 minutes for a pull request's checks",
+                "acpmux ci wait pr 812 --timeout 2400",
+            ),
+            (
+                "Wait for a workflow run, as JSON",
+                "acpmux ci wait run 123456789 --timeout 1800 --json",
+            ),
+            ("Name the repository", "acpmux ci wait pr 812 --repo octo/app --timeout 2400"),
+        ],
+    ),
+    (
         "worktree",
         &[
             ("List worktrees a cleanup would touch", "acpmux worktree list"),

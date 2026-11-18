@@ -8,6 +8,7 @@ pub mod beads;
 pub(crate) use crate::bounded_child;
 pub mod bridge;
 pub mod chats;
+pub mod ci_wait;
 pub mod cli_agent;
 pub mod cloud_join;
 pub mod command;
