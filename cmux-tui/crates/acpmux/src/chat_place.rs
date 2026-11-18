@@ -222,7 +222,7 @@ fn weigh_local(input: &Input) -> Value {
             .is_some_and(|hosts| placement::registry_lanes(&hosts, &input.local.name).is_some())
     });
     let v = placement::place(std::slice::from_ref(&input.local), reg, work(&input.needs));
-    v["hosts"].get(0).cloned().unwrap_or(Value::Null)
+    v.get("hosts").and_then(|h| h.get(0)).cloned().unwrap_or(Value::Null)
 }
 
 /// This Mac has room for the work: it takes it, is not over its budget, and has room for one lane
@@ -349,8 +349,9 @@ fn decide_with(input: &Input, leave_local: bool) -> Verdict {
     let busy = local_ok.err().unwrap_or_default();
     // 6. The best joined machine with room.
     if let Some(peer) = pick_peer(input, &peers) {
-        let row = peers["hosts"]
-            .as_array()
+        let row = peers
+            .get("hosts")
+            .and_then(Value::as_array)
             .and_then(|r| r.iter().find(|h| h["name"] == peer.as_str()))
             .and_then(|h| h["why"].as_str())
             .unwrap_or_default()

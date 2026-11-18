@@ -1125,9 +1125,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         "needs": {"macos": has("macos"), "gpu": has("gpu"), "longBuild": has("build")},
                         "cloud": {"available": cloud},
                     });
-                    if let Some(r) = running {
-                        p["running"] = serde_json::from_str(&r)
+                    if let (Some(r), Some(obj)) = (running, p.as_object_mut()) {
+                        let parsed: Value = serde_json::from_str(&r)
                             .map_err(|e| anyhow!("--running is JSON ({e})"))?;
+                        obj.insert("running".into(), parsed);
                     }
                     let v = client.request("_acpmux/place_chat", p).await?;
                     if json_out {
