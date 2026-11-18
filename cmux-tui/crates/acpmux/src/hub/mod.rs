@@ -1276,7 +1276,7 @@ pub struct Hub {
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
     /// Machines whose own remote chain refused a start this daemon forwarded there, which the
-    /// automatic pick skips while fresh (`start_refusals.rs`).
+    /// automatic pick puts last while fresh (`start_refusals.rs`).
     pub(crate) start_refusals: crate::start_refusals::StartRefusals,
 }
 

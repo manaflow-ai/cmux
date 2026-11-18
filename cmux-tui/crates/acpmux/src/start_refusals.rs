@@ -3,10 +3,12 @@
 //! every later remote start there is refused the same way until that machine is fixed. Such a
 //! machine answers, so `peer_down` never sees it, yet an automatic pick that chose it started
 //! nothing (coordinator, 2026-11-18: automatic placement picked a host that refuses every remote
-//! start). While its record is fresh (`FRESH_MS`) the automatic pick ranks it as it ranks a peer
-//! that does not answer (`server/place.rs`): never room, never picked, listed with the reason and
-//! the time. A start there that works clears it; a start that names the machine still goes there,
-//! which is how it clears once the machine is fixed.
+//! start). While its record is fresh (`FRESH_MS`) the automatic pick puts it after every machine
+//! with no record (`placement::place_demoting`), listed with the reason and the time; it is
+//! still picked when none of those qualifies, so a record never makes "no machine has room". A
+//! start there that works clears it; a start that names the machine still goes there, which is
+//! how it clears once the machine is fixed. A refusal of the start's own inputs
+//! (`START_REASON`) is never recorded: it says nothing about the machine.
 //!
 //! In memory on the daemon that forwards starts (`Hub::start_refusals`), keyed by canonical host
 //! name, at most `MAX` machines: no disk, and constant cost whatever the number of sessions.
@@ -16,10 +18,16 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// The reason a remote chain's refusal carries (`remote_sandbox.rs`).
+/// The reason a refusal by the machine's own remote chain carries (`remote_sandbox.rs`
+/// `Refused::Host`: its sandbox canary, keeper, bwrap or platform): recorded here.
 pub const REASON: &str = "remote.sandbox_refused";
 
-/// How long a refusal keeps the machine out of the automatic pick: 30 minutes.
+/// The reason a refusal of the start's own inputs carries (`remote_sandbox.rs` `Refused::Start`:
+/// its folder, session id, a profile argument or env value, `sr` options): the same start is
+/// refused on every machine, so it says nothing about this one and is never recorded.
+pub const START_REASON: &str = "remote.start_refused";
+
+/// How long a refusal keeps the machine last in the automatic pick: 30 minutes.
 pub const FRESH_MS: u64 = 30 * 60 * 1000;
 
 /// The most machines kept; the oldest record goes first.
@@ -107,7 +115,7 @@ fn core<'a>(host: &str, message: &'a str) -> &'a str {
 pub fn line(r: &Refusal, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(r.at_ms) / 60_000;
     format!(
-        "its remote chain refused a start at {} ({minutes} min ago; skipped for 30 min, or until \
+        "its remote chain refused a start at {} ({minutes} min ago; picked last for 30 min, or until \
          a start there works): {}",
         crate::clock_text::iso(r.at_ms),
         r.why
@@ -150,6 +158,12 @@ mod tests {
         assert_eq!(book.fresh("box", t + 7).unwrap().why, "remote chain refused: canary");
         // A failure that is no chain refusal records nothing.
         book.note::<()>("vm", &Err(RpcError::internal("no")), t);
+        assert_eq!(book.fresh("vm", t), None);
+        // Nor does a refusal of the start's own inputs: only the host's kind is recorded.
+        let start =
+            RpcError::new(-32000, "remote start refused: a remote chain needs a session id")
+                .with_data(json!({"reason": START_REASON}));
+        book.note::<()>("vm", &Err(start), t);
         assert_eq!(book.fresh("vm", t), None);
     }
 
