@@ -192,7 +192,7 @@ impl SocketDaemon {
                 return Err(DaemonError::Unreachable("the daemon closed the connection".into()));
             }
             let Ok(reply) = serde_json::from_str::<Value>(&reply) else { continue };
-            if reply["id"] != json!(id) {
+            if reply.get("id") != Some(&json!(id)) {
                 continue; // an event or another answer
             }
             return daemon_reply(&reply);
@@ -331,9 +331,9 @@ fn open_admitted(
     hello.push('\n');
     reader.get_mut().write_all(hello.as_bytes()).map_err(transport)?;
     let answer = read_json(&mut reader).map_err(transport)?;
-    if answer["ok"] != json!(true) {
+    if answer.get("ok").and_then(Value::as_bool) != Some(true) {
         // A stale secret after a worker restart: ask the daemon again.
-        let reason = answer["reason"].as_str().unwrap_or("refused");
+        let reason = answer.get("reason").and_then(Value::as_str).unwrap_or("refused");
         return Err(Attempt::Transport(format!("the worker refused this connection: {reason}")));
     }
     Ok((reader, unbounded))
@@ -349,14 +349,14 @@ fn exchange(endpoint: &Endpoint, request: &Value) -> Result<Value, Attempt> {
     reader.get_mut().flush().map_err(transport)?;
     loop {
         let reply = read_json(&mut reader).map_err(transport)?;
-        if reply["id"] != request["id"] {
+        if reply.get("id") != request.get("id") {
             continue;
         }
-        if reply["ok"] == json!(true) {
+        if reply.get("ok").and_then(Value::as_bool) == Some(true) {
             return Ok(reply.get("result").cloned().unwrap_or(Value::Null));
         }
-        let error = reply["error"].as_str().unwrap_or("error");
-        let reason = reply["reason"].as_str().unwrap_or_default();
+        let error = reply.get("error").and_then(Value::as_str).unwrap_or("error");
+        let reason = reply.get("reason").and_then(Value::as_str).unwrap_or_default();
         return Err(Attempt::Worker(if reason.is_empty() {
             error.to_owned()
         } else {
@@ -380,11 +380,11 @@ fn read_json(reader: &mut BufReader<Box<dyn Duplex>>) -> io::Result<Value> {
                 "the worker closed the connection",
             ));
         }
-        let (used, done) = match available.iter().position(|b| *b == b'\n') {
-            Some(at) => (at + 1, true),
-            None => (available.len(), false),
-        };
-        buf.extend_from_slice(&available[..used]);
+        // Up to and including the first newline, or all of it when there is none.
+        let chunk = available.split_inclusive(|b| *b == b'\n').next().unwrap_or(available);
+        let done = chunk.last() == Some(&b'\n');
+        let used = chunk.len();
+        buf.extend_from_slice(chunk);
         reader.consume(used);
         total += used;
         if total > wire::MAX_LINE {
@@ -789,10 +789,12 @@ impl<D: Daemon> Caller<D> {
                 Ok(data) => {
                     return match data.get("result").and_then(ToolOutput::from_json) {
                         Some(out) => Outcome::Output(out),
-                        None if data["state"] == "off" => Outcome::Off(format!(
-                            "on {machine}: {}",
-                            data["reason"].as_str().unwrap_or("off")
-                        )),
+                        None if data.get("state").and_then(Value::as_str) == Some("off") => {
+                            Outcome::Off(format!(
+                                "on {machine}: {}",
+                                data.get("reason").and_then(Value::as_str).unwrap_or("off")
+                            ))
+                        }
                         None => Outcome::Failed {
                             code: "worker_error".into(),
                             message: format!("{machine} sent a result this cmux cannot read"),

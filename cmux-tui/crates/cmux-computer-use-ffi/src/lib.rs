@@ -216,8 +216,8 @@ impl Host {
             )
         };
         if status != 0 {
-            let end = error.iter().position(|b| *b == 0).unwrap_or(error.len());
-            let message = String::from_utf8_lossy(&error[..end]).into_owned();
+            let message_bytes = error.split(|b| *b == 0).next().unwrap_or_default();
+            let message = String::from_utf8_lossy(message_bytes).into_owned();
             return Err(if message.contains("permission") {
                 DesktopError::PermissionMissing("screen_capture".into())
             } else {
@@ -652,7 +652,9 @@ pub unsafe extern "C" fn cmux_cu_serve_stop(server: *mut CmuxCuServer) {
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_cu_tools_list() -> CmuxCuBuffer {
     let mut list = tools::mcp_list();
-    list["instructions"] = json!(tools::INSTRUCTIONS);
+    if let Some(object) = list.as_object_mut() {
+        object.insert("instructions".to_owned(), json!(tools::INSTRUCTIONS));
+    }
     CmuxCuBuffer::from_string(list.to_string())
 }
 

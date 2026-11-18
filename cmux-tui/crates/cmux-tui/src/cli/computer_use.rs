@@ -10,6 +10,7 @@ use acpmux::computer_use::client::{
 };
 use acpmux::computer_use::tools;
 use base64::Engine as _;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, parse_globals};
@@ -128,8 +129,9 @@ fn legacy(global: &GlobalArgs, cmd: &str, params: Value) -> Result<Value, Daemon
     request.insert("id".into(), json!(1));
     request.insert("cmd".into(), json!(cmd));
     super::remote_host::daemon_value(global, &Value::Object(request)).map_err(|error| {
-        let code = error["code"].as_str().unwrap_or("refused").to_owned();
-        let message = error["message"].as_str().unwrap_or("the daemon refused").to_owned();
+        let code = error.get("code").and_then(Value::as_str).unwrap_or("refused").to_owned();
+        let message =
+            error.get("message").and_then(Value::as_str).unwrap_or("the daemon refused").to_owned();
         if code.starts_with("transport.") {
             DaemonError::Unreachable(message)
         } else {
@@ -173,13 +175,16 @@ fn print(global: &GlobalArgs, outcome: Outcome) -> i32 {
         Outcome::Output(out) if !out.is_error => {
             let mut body = out.body;
             if out.png_base64.is_some() {
-                body["image"] =
-                    json!("png (use `cmux computer-use screenshot --out FILE` to save it)");
+                body.set(
+                    "image",
+                    json!("png (use `cmux computer-use screenshot --out FILE` to save it)"),
+                );
             }
             super::wire::print_local_success(&body, global.output)
         }
         Outcome::Output(out) => {
-            let message = out.body["error"].as_str().unwrap_or("refused").to_owned();
+            let message =
+                out.body.get("error").and_then(Value::as_str).unwrap_or("refused").to_owned();
             let code = out.code.unwrap_or_else(|| "refused".into());
             super::wire::print_local_error(
                 &json!({"code": code, "message": message}),
@@ -250,7 +255,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Request::Screenshot { out, window, machine } => {
             let mut args = json!({"force": true});
             if let Some(window) = window {
-                args["window_id"] = json!(window);
+                args.set("window_id", json!(window));
             }
             let args = with_machine(args, machine.as_deref());
             match caller(global).call("screenshot", &args, &new_call_id()) {
@@ -280,8 +285,8 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                         );
                     }
                     let mut body = shot.body;
-                    body["out"] = json!(out);
-                    body["bytes"] = json!(bytes.len());
+                    body.set("out", json!(out));
+                    body.set("bytes", json!(bytes.len()));
                     super::wire::print_local_success(&body, global.output)
                 }
                 other => print(global, other),
@@ -300,7 +305,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             }
             let mut params = json!({"action": action});
             if let Some(app) = app {
-                params["app_id"] = json!(app);
+                params.set("app_id", json!(app));
             }
             match legacy(global, APPROVALS_CMD, params) {
                 Ok(value) => super::wire::print_local_success(&value, global.output),

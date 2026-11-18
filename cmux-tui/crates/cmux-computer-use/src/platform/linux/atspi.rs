@@ -404,7 +404,7 @@ impl Atspi {
                 DesktopError::Unsupported("this element has no accessibility action".into())
             })?;
         self.do_action(obj, index)?;
-        Ok(names[index].clone())
+        Ok(names.get(index).cloned().unwrap_or_default())
     }
 
     fn do_action(&self, obj: &Obj, index: usize) -> DResult<()> {
@@ -594,8 +594,8 @@ pub fn pick_frame(mut mine: Vec<Frame>, title: &str, frame: Option<Rect>) -> Opt
     }
     let by_title: Vec<&Frame> =
         mine.iter().filter(|f| !title.is_empty() && f.name == title).collect();
-    if by_title.len() == 1 {
-        return Some(by_title[0].clone());
+    if let [only] = by_title.as_slice() {
+        return Some((*only).clone());
     }
     let near = |a: &Rect, b: &Rect| {
         (a.x - b.x).abs() <= 2.0
@@ -606,13 +606,13 @@ pub fn pick_frame(mut mine: Vec<Frame>, title: &str, frame: Option<Rect>) -> Opt
     if let Some(want) = frame {
         let by_rect: Vec<&Frame> =
             mine.iter().filter(|f| f.extents.is_some_and(|e| near(&e, &want))).collect();
-        if by_rect.len() == 1 {
-            return Some(by_rect[0].clone());
+        if let [only] = by_rect.as_slice() {
+            return Some((*only).clone());
         }
     }
     let showing: Vec<&Frame> = mine.iter().filter(|f| f.showing && !f.iconified).collect();
-    if showing.len() == 1 {
-        return Some(showing[0].clone());
+    if let [only] = showing.as_slice() {
+        return Some((*only).clone());
     }
     None
 }

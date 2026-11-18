@@ -352,18 +352,24 @@ fn to_rgba(
     y_invert: bool,
 ) -> DResult<Vec<u8>> {
     use wl_shm::Format as F;
-    let order: [usize; 3] = match fmt {
-        F::Argb8888 | F::Xrgb8888 => [2, 1, 0],
-        F::Abgr8888 | F::Xbgr8888 => [0, 1, 2],
+    // Little-endian ARGB/XRGB lay a pixel out as B, G, R, A.
+    let bgr = match fmt {
+        F::Argb8888 | F::Xrgb8888 => true,
+        F::Abgr8888 | F::Xbgr8888 => false,
         other => return Err(DesktopError::Unsupported(format!("screencopy format {other:?}"))),
     };
+    let row_len = w as usize * 4;
     let mut out = Vec::with_capacity((w * h * 4) as usize);
     for row in 0..h {
         let r = if y_invert { h - 1 - row } else { row };
-        let line = &src[(r * stride) as usize..];
-        for x in 0..w as usize {
-            let p = &line[x * 4..x * 4 + 4];
-            out.extend_from_slice(&[p[order[0]], p[order[1]], p[order[2]], 255]);
+        let start = (r * stride) as usize;
+        let line = src.get(start..start + row_len).ok_or_else(|| {
+            DesktopError::Failed("screencopy buffer is shorter than its frame".into())
+        })?;
+        for p in line.chunks_exact(4) {
+            if let &[c0, c1, c2, _] = p {
+                out.extend_from_slice(&if bgr { [c2, c1, c0, 255] } else { [c0, c1, c2, 255] });
+            }
         }
     }
     Ok(out)
@@ -561,7 +567,8 @@ impl Dispatch<tl_handle::ZwlrForeignToplevelHandleV1, ()> for State {
             tl_handle::Event::State { state: s } => {
                 let words: Vec<u32> = s
                     .chunks_exact(4)
-                    .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .filter_map(|c| <[u8; 4]>::try_from(c).ok())
+                    .map(u32::from_ne_bytes)
                     .collect();
                 t.activated = words.contains(&(tl_handle::State::Activated as u32));
                 t.minimized = words.contains(&(tl_handle::State::Minimized as u32));

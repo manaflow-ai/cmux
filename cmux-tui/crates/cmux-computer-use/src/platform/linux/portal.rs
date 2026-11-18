@@ -417,16 +417,16 @@ fn parse_streams(v: &OwnedValue) -> Vec<(u32, Rect)> {
 pub(crate) fn uri_path(uri: &str) -> Option<String> {
     let rest = uri.strip_prefix("file://")?;
     let mut out = Vec::new();
-    let b = rest.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            let hex = std::str::from_utf8(&b[i + 1..i + 3]).ok()?;
+    let mut b = rest.as_bytes();
+    while let Some((&c, tail)) = b.split_first() {
+        if let (b'%', [h1, h2, after @ ..]) = (c, tail) {
+            let pair = [*h1, *h2];
+            let hex = std::str::from_utf8(&pair).ok()?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
+            b = after;
         } else {
-            out.push(b[i]);
-            i += 1;
+            out.push(c);
+            b = tail;
         }
     }
     String::from_utf8(out).ok()
@@ -443,15 +443,22 @@ fn decode_png(bytes: &[u8]) -> DResult<(Vec<u8>, u32, u32)> {
         .map_err(|e| DesktopError::Failed(format!("screenshot png: {e}")))?;
     let (w, h) = (info.width, info.height);
     let px = (w * h) as usize;
+    let take = |n: usize| {
+        buf.get(..n).ok_or_else(|| DesktopError::Failed("screenshot png: short frame".into()))
+    };
     let rgba = match info.color_type {
-        png::ColorType::Rgba => buf[..px * 4].to_vec(),
-        png::ColorType::Rgb => {
-            buf[..px * 3].chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect()
-        }
-        png::ColorType::GrayscaleAlpha => {
-            buf[..px * 2].chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], 255]).collect()
-        }
-        png::ColorType::Grayscale => buf[..px].iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
+        png::ColorType::Rgba => take(px * 4)?.to_vec(),
+        png::ColorType::Rgb => take(px * 3)?
+            .chunks_exact(3)
+            .filter_map(|c| <[u8; 3]>::try_from(c).ok())
+            .flat_map(|[r, g, b]| [r, g, b, 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => take(px * 2)?
+            .chunks_exact(2)
+            .filter_map(|c| <[u8; 2]>::try_from(c).ok())
+            .flat_map(|[g, _]| [g, g, g, 255])
+            .collect(),
+        png::ColorType::Grayscale => take(px)?.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
         png::ColorType::Indexed => {
             return Err(DesktopError::Failed("indexed screenshot png".into()));
         }

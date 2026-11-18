@@ -154,7 +154,7 @@ where
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let params = message.get("params").cloned().unwrap_or(Value::Null);
-        let result = match message["method"].as_str().unwrap_or_default() {
+        let result = match message.get("method").and_then(Value::as_str).unwrap_or_default() {
             "initialize" => {
                 // The agent's own name for the person's cards, unless the env named it.
                 if std::env::var_os(LABEL_ENV).is_none()

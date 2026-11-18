@@ -97,12 +97,12 @@ pub(super) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
     }
     // `bun x PKG` is bunx, `bun run SCRIPT` runs a script like `bun SCRIPT`.
     let (program, args) = match (program.as_str(), args.first().map(String::as_str)) {
-        ("bun", Some("x")) => ("bunx".to_owned(), &args[1..]),
-        ("bun", Some("run")) => ("bun".to_owned(), &args[1..]),
+        ("bun", Some("x")) => ("bunx".to_owned(), args.get(1..).unwrap_or_default()),
+        ("bun", Some("run")) => ("bun".to_owned(), args.get(1..).unwrap_or_default()),
         ("uv", Some("tool")) if args.get(1).is_some_and(|a| a == "run") => {
-            ("uvx".to_owned(), &args[2..])
+            ("uvx".to_owned(), args.get(2..).unwrap_or_default())
         }
-        ("npm", Some("exec" | "x")) => ("npx".to_owned(), &args[1..]),
+        ("npm", Some("exec" | "x")) => ("npx".to_owned(), args.get(1..).unwrap_or_default()),
         _ => (program, args),
     };
     // A JavaScript runtime and its script, after the runtime's own options.
@@ -135,9 +135,11 @@ pub(super) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
             (args, &["-p", "--package", "--registry", "--cache", "--userconfig"], &["-c", "--call"])
         }
         "bunx" => (args, &["-p", "--package"], &[]),
-        "pnpm" if args.first().is_some_and(|a| a == "dlx") => {
-            (&args[1..], &["--package", "--dir", "-C"], &["-c", "--shell-mode"])
-        }
+        "pnpm" if args.first().is_some_and(|a| a == "dlx") => (
+            args.get(1..).unwrap_or_default(),
+            &["--package", "--dir", "-C"],
+            &["-c", "--shell-mode"],
+        ),
         "uvx" => (
             args,
             &[
@@ -165,7 +167,7 @@ pub(super) fn cmux_serve<'a>(command: &'a str, args: &'a [String]) -> Option<Cmu
             &[],
         ),
         "pipx" if args.first().is_some_and(|a| a == "run") => (
-            &args[1..],
+            args.get(1..).unwrap_or_default(),
             &[
                 "--spec",
                 "--python",

@@ -1029,7 +1029,10 @@ impl crate::mux::Mux {
         self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
             if let Some(mux) = mux.upgrade() {
                 // An agent acts: its live preview reaches the app from the worker.
-                let acting = payload["sessions"].as_array().is_some_and(|s| !s.is_empty());
+                let acting = payload
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| !s.is_empty());
                 mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
                 if acting {
                     mux.ensure_computer_use_preview();

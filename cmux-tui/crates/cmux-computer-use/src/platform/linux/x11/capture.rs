@@ -58,7 +58,9 @@ impl X11Desktop {
     }
 
     fn root_rect(&self) -> Rect {
-        let s = &self.conn.setup().roots[0];
+        let Some(s) = self.conn.setup().roots.first() else {
+            return Rect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 };
+        };
         Rect {
             x: 0.0,
             y: 0.0,
@@ -101,8 +103,9 @@ impl X11Desktop {
     pub(crate) fn covered(&self, c: &Client) -> bool {
         let Ok(Ok(tree)) = self.conn.query_tree(self.root).map(|q| q.reply()) else { return true };
         let Some(pos) = tree.children.iter().position(|w| *w == c.frame_win) else { return true };
-        tree.children[pos + 1..]
+        tree.children
             .iter()
+            .skip(pos + 1)
             .any(|w| self.stacks(*w) && self.rect_of(*w).is_some_and(|r| r.intersects(&c.rect)))
     }
 
@@ -247,19 +250,25 @@ pub(crate) fn convert(
 ) -> DResult<()> {
     let pad_bytes = usize::from(pad.max(8) / 8);
     let row_bytes = (usize::from(w) * usize::from(bpp)).div_ceil(8).div_ceil(pad_bytes) * pad_bytes;
+    let short = || DesktopError::Failed("X11 returned a short image".into());
     if data.len() < row_bytes * usize::from(h) {
-        return Err(DesktopError::Failed("X11 returned a short image".into()));
+        return Err(short());
     }
     for y in 0..usize::from(h) {
-        let line = &data[y * row_bytes..];
+        let line = data.get(y * row_bytes..).ok_or_else(short)?;
         for x in 0..usize::from(w) {
             match (depth, bpp) {
                 (24 | 32, 32) => {
-                    let p = &line[x * 4..x * 4 + 4];
-                    out.extend_from_slice(&[p[2], p[1], p[0], 255]);
+                    let Some(&[b, g, r, _]) = line.get(x * 4..x * 4 + 4) else {
+                        return Err(short());
+                    };
+                    out.extend_from_slice(&[r, g, b, 255]);
                 }
                 (16, 16) => {
-                    let v = u16::from_le_bytes([line[x * 2], line[x * 2 + 1]]);
+                    let Some(&[lo, hi]) = line.get(x * 2..x * 2 + 2) else {
+                        return Err(short());
+                    };
+                    let v = u16::from_le_bytes([lo, hi]);
                     let r = ((v >> 11) & 0x1f) as u8;
                     let g = ((v >> 5) & 0x3f) as u8;
                     let b = (v & 0x1f) as u8;

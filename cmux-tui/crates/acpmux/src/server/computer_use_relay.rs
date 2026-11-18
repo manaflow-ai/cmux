@@ -161,7 +161,7 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
 fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
     let id = id?;
     let list = hub.pairing.list();
-    let device = list["devices"].as_array()?.iter().find(|d| d["id"] == id)?;
+    let device = list.get("devices").and_then(Value::as_array)?.iter().find(|d| d["id"] == id)?;
     if !device["revoked_at"].is_null() {
         return None;
     }
@@ -269,7 +269,9 @@ pub(super) async fn state(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError
     .await
     .map_err(|e| RpcError::internal(format!("the state read stopped: {e}")))?;
     Ok(match data {
-        Ok(data) => json!({"state": data["state"].as_str().unwrap_or("unavailable")}),
+        Ok(data) => {
+            json!({"state": data.get("state").and_then(Value::as_str).unwrap_or("unavailable")})
+        }
         Err(_) => json!({"state": "unavailable"}),
     })
 }
@@ -283,8 +285,10 @@ pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcEr
     let mut rows = Vec::new();
     let mut asks = tokio::task::JoinSet::new();
     for summary in hub.peers() {
-        let Some(name) = summary["name"].as_str().map(str::to_owned) else { continue };
-        let connected = summary["connected"].as_bool().unwrap_or(false);
+        let Some(name) = summary.get("name").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        let connected = summary.get("connected").and_then(Value::as_bool).unwrap_or(false);
         match (connected, hub.peer_by_name(&name)) {
             (true, Some(peer)) => {
                 asks.spawn(async move {
@@ -294,7 +298,9 @@ pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcEr
                     )
                     .await;
                     let computer_use = match state {
-                        Ok(Ok(v)) => v["state"].as_str().unwrap_or("unknown").to_owned(),
+                        Ok(Ok(v)) => {
+                            v.get("state").and_then(Value::as_str).unwrap_or("unknown").to_owned()
+                        }
                         Ok(Err(e)) if e.message.contains("not found") => "unsupported".to_owned(),
                         Ok(Err(_)) => "refused".to_owned(),
                         Err(_) => "unknown".to_owned(),

@@ -258,9 +258,9 @@ impl Leftover {
     fn json(&self, client: Client) -> Value {
         json!({
             "config": self.config,
-            "command": redact_secrets(std::slice::from_ref(&self.command))[0],
+            "command": redact_one(&self.command),
             "args": redact_secrets(&self.args),
-            "runs": redact_secrets(std::slice::from_ref(&self.runs))[0],
+            "runs": redact_one(&self.runs),
             "remove": client.line(&client.remove_args()),
         })
     }
@@ -389,23 +389,23 @@ pub(super) fn status() -> Value {
             return json!({"task": TASK, "state": "failed", "error": error, "fix": Value::Null});
         }
     };
-    let needs_user = report["state"] == "needs_user";
+    let needs_user = report.get("state").and_then(Value::as_str) == Some("needs_user");
     json!({
         "task": TASK,
-        "state": report["state"],
+        "state": report.get("state"),
         "scope": "terminals",
-        "settings": report["settings"],
-        "enabled": report["enabled"],
-        "choice": report["choice"],
-        "clients": report["clients"].as_array().map(|clients| {
+        "settings": report.get("settings"),
+        "enabled": report.get("enabled"),
+        "choice": report.get("choice"),
+        "clients": report.get("clients").and_then(Value::as_array).map(|clients| {
             clients
                 .iter()
                 .filter(|client| client["installed"] == true)
                 .map(|client| json!({"id": client["id"], "state": client["state"]}))
                 .collect::<Vec<_>>()
         }),
-        "terminals": report["terminals"],
-        "manual": report["manual"],
+        "terminals": report.get("terminals"),
+        "manual": report.get("manual"),
         "fix": needs_user.then_some("cmux setup mcp"),
     })
 }
@@ -588,6 +588,11 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
     Ok(request)
 }
 
+/// [`redact_secrets`] of one value.
+fn redact_one(value: &str) -> String {
+    redact_secrets(&[value.to_owned()]).pop().unwrap_or_default()
+}
+
 /// `args` (a command line) with each secret-shaped value replaced by `<redacted>`: a URL's
 /// credentials ([`redact_url_credentials`]); the value of a flag whose name says secret
 /// (`--token=V`, `--api-key V`, `--password`, `--secret`, `--auth…`, `--credential…`); and a
@@ -762,17 +767,18 @@ fn redact_url_credentials(value: &str) -> String {
         let (head, tail) = rest.split_at(at + 3);
         out.push_str(head);
         let authority_end = tail.find(['/', '?', '#', ' ']).unwrap_or(tail.len());
-        match tail[..authority_end].rfind('@') {
+        let (authority, after) = tail.split_at_checked(authority_end).unwrap_or((tail, ""));
+        match authority.rfind('@') {
             Some(cut) => {
                 out.push_str("<redacted>");
-                rest = &tail[cut..];
+                rest = tail.get(cut..).unwrap_or_default();
             }
             None => rest = tail,
         }
         if rest.as_ptr() == tail.as_ptr() {
             // No credentials: copy the authority and go on after it.
-            out.push_str(&tail[..authority_end]);
-            rest = &tail[authority_end..];
+            out.push_str(authority);
+            rest = after;
         }
     }
     out.push_str(rest);

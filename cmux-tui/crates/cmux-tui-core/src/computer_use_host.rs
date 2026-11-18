@@ -570,7 +570,7 @@ fn mint_secret() -> Result<String, String> {
 pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     use sha2::{Digest, Sha256};
     let digest = format!("{:x}", Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes()));
-    let leaf = format!("cu-{}", &digest[..12]);
+    let leaf = format!("cu-{}", digest.get(..12).unwrap_or(digest.as_str()));
     #[cfg(unix)]
     let (endpoint, log) = {
         let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
@@ -666,7 +666,7 @@ fn hostname() -> String {
         // SAFETY: gethostname into a sized buffer.
         if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0 {
             let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-            return String::from_utf8_lossy(&buf[..end]).into_owned();
+            return String::from_utf8_lossy(buf.get(..end).unwrap_or(buf.as_slice())).into_owned();
         }
         String::new()
     }

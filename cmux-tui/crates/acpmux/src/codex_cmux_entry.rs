@@ -462,7 +462,7 @@ fn entry_from(ok: bool, stdout: &str, stderr: &str) -> CmuxEntry {
     let Ok(answer) = serde_json::from_str::<serde_json::Value>(stdout) else {
         return CmuxEntry::Unknown;
     };
-    let transport = &answer["transport"];
+    let Some(transport) = answer.get("transport") else { return CmuxEntry::Unknown };
     match transport["type"].as_str() {
         Some("stdio") => {
             let Some(command) = transport["command"].as_str() else { return CmuxEntry::Unknown };

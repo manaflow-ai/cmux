@@ -76,10 +76,12 @@ pub fn redact(frame: &mut RawFrame, rects: &[Rect]) -> usize {
             let row = (y as usize) * frame.width as usize * 4;
             for x in x0..x1 {
                 let i = row + x as usize * 4;
-                frame.rgba[i] = 24;
-                frame.rgba[i + 1] = 24;
-                frame.rgba[i + 2] = 28;
-                frame.rgba[i + 3] = 255;
+                // A frame shorter than its size says keeps what it has.
+                if let Some(px) = frame.rgba.get_mut(i..i.saturating_add(4)) {
+                    for (dst, value) in px.iter_mut().zip([24, 24, 28, 255]) {
+                        *dst = value;
+                    }
+                }
             }
         }
     }
@@ -109,15 +111,21 @@ pub fn downscale(frame: &RawFrame, max_edge: u32) -> (u32, u32, Vec<u8>) {
                 let row = (sy * w) as usize * 4;
                 for sx in sx0..sx1 {
                     let i = row + sx as usize * 4;
-                    for (slot, byte) in acc.iter_mut().zip(&frame.rgba[i..i + 4]) {
+                    // A frame shorter than its size says averages what it has.
+                    let Some(px) = frame.rgba.get(i..i.saturating_add(4)) else {
+                        continue;
+                    };
+                    for (slot, byte) in acc.iter_mut().zip(px) {
                         *slot += *byte as u64;
                     }
                     n += 1;
                 }
             }
             let o = ((ny * nw + nx) * 4) as usize;
-            for (dst, sum) in out[o..o + 4].iter_mut().zip(acc) {
-                *dst = (sum / n.max(1)) as u8;
+            if let Some(px) = out.get_mut(o..o.saturating_add(4)) {
+                for (dst, sum) in px.iter_mut().zip(acc) {
+                    *dst = (sum / n.max(1)) as u8;
+                }
             }
         }
     }

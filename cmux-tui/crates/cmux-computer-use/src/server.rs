@@ -33,7 +33,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::engine::{CallContext, Engine, ToolOutput};
+use crate::engine::{CallContext, Engine, ToolOutput, set_key};
 use crate::policy::OriginKind;
 use crate::wire;
 
@@ -468,13 +468,13 @@ fn handle(
         "status" => {
             let out: ToolOutput = shared.engine.call(&ctx, "status", &json!({}));
             let mut result = out.to_json();
-            result["protocol"] = json!(wire::PROTOCOL);
-            result["pid"] = json!(std::process::id());
+            set_key(&mut result, "protocol", json!(wire::PROTOCOL));
+            set_key(&mut result, "pid", json!(std::process::id()));
             send(stream, writer, &json!({"id": id, "ok": true, "result": result}));
         }
         "tools/list" => {
             let mut list = crate::tools::mcp_list();
-            list["instructions"] = json!(crate::tools::INSTRUCTIONS);
+            set_key(&mut list, "instructions", json!(crate::tools::INSTRUCTIONS));
             send(stream, writer, &json!({"id": id, "ok": true, "result": list}));
         }
         other => fail("unknown_method", format!("unknown method {other:?}")),

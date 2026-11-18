@@ -97,7 +97,10 @@ pub fn title_names_blocked_app(
         .collect();
     for start in 0..words.len() {
         for len in 1..=NAME_WORDS.min(words.len() - start) {
-            let run = words[start..start + len].join(" ");
+            let Some(run) = words.get(start..start.saturating_add(len)) else {
+                continue;
+            };
+            let run = run.join(" ");
             if guard.app_blocked("", &run) {
                 return true;
             }
@@ -350,18 +353,22 @@ pub fn pick(titles: &[String], hidden: &[bool], wanted: &str) -> Pick {
     let lower = want.to_lowercase();
     let exact = norm.iter().position(|t| *t == want);
     let case = || norm.iter().position(|t| t.to_lowercase() == lower);
+    // An item without a hidden flag counts as hidden (fail closed).
+    let hidden_at = |i: usize| hidden.get(i).copied().unwrap_or(true);
     if let Some(i) = exact.or_else(case) {
-        return if hidden[i] { Pick::Hidden } else { Pick::Item(i) };
+        return if hidden_at(i) { Pick::Hidden } else { Pick::Item(i) };
     }
-    let starts = |i: &usize| !norm[*i].is_empty() && norm[*i].to_lowercase().starts_with(&lower);
-    let visible: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).filter(starts).collect();
+    let starts = |i: &usize| {
+        norm.get(*i).is_some_and(|t| !t.is_empty() && t.to_lowercase().starts_with(&lower))
+    };
+    let visible: Vec<usize> = (0..titles.len()).filter(|i| !hidden_at(*i)).filter(starts).collect();
     match visible.as_slice() {
         [one] => Pick::Item(*one),
-        [] if (0..titles.len()).any(|i| hidden[i] && starts(&i)) => Pick::Hidden,
+        [] if (0..titles.len()).any(|i| hidden_at(i) && starts(&i)) => Pick::Hidden,
         [] => Pick::Missing(ItemMatch::NotFound),
         // Indices among the visible items, as the caller lists them.
         _ => {
-            let shown: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).collect();
+            let shown: Vec<usize> = (0..titles.len()).filter(|i| !hidden_at(*i)).collect();
             Pick::Missing(ItemMatch::Ambiguous(
                 visible.iter().filter_map(|v| shown.iter().position(|s| s == v)).collect(),
             ))

@@ -803,13 +803,23 @@ pub fn remote_origin_answer(env: &mut BTreeMap<String, String>, remote_origin: b
 /// (cmux-codex-acp: `mcp_servers.cmux.{command,args,env.KEY}`).
 pub fn send_person_entry_env(params: &mut Value, entry_env: Option<Value>) {
     let Some(entry_env) = entry_env else { return };
-    if !params.get("_meta").is_some_and(Value::is_object) {
-        params["_meta"] = json!({});
+    if params.is_null() {
+        *params = json!({});
     }
-    if !params["_meta"].get("cmux").is_some_and(Value::is_object) {
-        params["_meta"]["cmux"] = json!({});
+    // Params that are not an object carry no `_meta`; leave them as they are.
+    let Some(root) = params.as_object_mut() else { return };
+    let meta = root.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
     }
-    params["_meta"]["cmux"]["mcpServerEntry"] = entry_env;
+    let Some(meta) = meta.as_object_mut() else { return };
+    let cmux = meta.entry("cmux").or_insert_with(|| json!({}));
+    if !cmux.is_object() {
+        *cmux = json!({});
+    }
+    if let Some(cmux) = cmux.as_object_mut() {
+        cmux.insert("mcpServerEntry".to_owned(), entry_env);
+    }
 }
 
 /// A Codex session's launch, for [`persons_cmux_entry`]: its folder, its profile's argv (the

@@ -157,7 +157,10 @@ pub(in crate::cli::mcp) fn family_docs(
         .take(limit)
         .map(|tool| {
             let mut tool = compact(tool);
-            let own = tool["description"].as_str().map(crate::cli::mcp::upstream::without_rules);
+            let own = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .map(crate::cli::mcp::upstream::without_rules);
             if let Some(own) = own.map(str::to_owned) {
                 tool.set("description", json!(own));
             }
@@ -280,7 +283,12 @@ pub(in crate::cli::mcp) fn returned_images(
     }
     picked.retain(|index| *index < images.len());
     let order: Vec<usize> = if picked.is_empty() {
-        (0..images.len()).filter(|index| images[*index].get(FROM_COMPUTER_USE).is_none()).collect()
+        images
+            .iter()
+            .enumerate()
+            .filter(|(_, image)| image.get(FROM_COMPUTER_USE).is_none())
+            .map(|(index, _)| index)
+            .collect()
     } else {
         picked
     };
@@ -293,7 +301,7 @@ pub(in crate::cli::mcp) fn returned_images(
         if let Some(fields) = image.as_object_mut() {
             fields.remove(FROM_COMPUTER_USE);
         }
-        let size = image["data"].as_str().map_or(0, str::len);
+        let size = image.get("data").and_then(Value::as_str).map_or(0, str::len);
         if out.len() >= MAX_IMAGES || bytes + size > MAX_IMAGE_BYTES {
             break;
         }

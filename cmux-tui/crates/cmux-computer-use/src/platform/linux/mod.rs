@@ -602,7 +602,7 @@ pub(crate) fn crop_rgba(
     let mut out = Vec::with_capacity(cw * ch * 4);
     for row in y0 as usize..y1 as usize {
         let start = (row * width as usize + x0 as usize) * 4;
-        out.extend_from_slice(&rgba[start..start + cw * 4]);
+        out.extend_from_slice(rgba.get(start..start + cw * 4)?);
     }
     Some((out, cw as u32, ch as u32, x0, y0))
 }

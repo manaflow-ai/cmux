@@ -452,13 +452,15 @@ impl Engine {
                         "invalid_arguments",
                         format!("action {index}: {why}. Nothing in this batch ran."),
                     );
-                    let mut steps: Vec<Value> = names[..index]
+                    let mut steps: Vec<Value> = names
                         .iter()
+                        .take(index)
                         .enumerate()
                         .map(|(i, name)| json!({"step": i, "action": name, "status": "not_run"}))
                         .collect();
-                    let stopped = stop_entry(index, &names[index], &failure);
-                    steps.push(failed_entry(index, &names[index], &failure));
+                    let name = names.get(index).cloned().unwrap_or(Value::Null);
+                    let stopped = stop_entry(index, &name, &failure);
+                    steps.push(failed_entry(index, &name, &failure));
                     return Ok((reply(0, &names, steps, Some(stopped)), None));
                 }
             }
@@ -543,9 +545,9 @@ impl Engine {
                     if let Plan::Act { require, .. } = plan
                         && *require != Require::NoError
                     {
-                        entry["require"] = json!(require.as_str());
+                        set_key(&mut entry, "require", json!(require.as_str()));
                         if let Some(why) = require.unmet(&entry) {
-                            entry["require_met"] = json!(false);
+                            set_key(&mut entry, "require_met", json!(false));
                             let out = ToolOutput::error(
                                 "requirement_not_met",
                                 format!("step {index} ({}) acted, but {why}", plan.name()),
@@ -554,7 +556,7 @@ impl Engine {
                             steps.push(entry);
                             break;
                         }
-                        entry["require_met"] = json!(true);
+                        set_key(&mut entry, "require_met", json!(true));
                     }
                     steps.push(entry);
                 }
@@ -608,7 +610,7 @@ impl Engine {
                 .map_err(|e| audited(e, Some(&app)))?;
             let (n, line) =
                 self.resolve_target(ctx, &window, m).map_err(|e| audited(e, Some(&app)))?;
-            step["element_id"] = json!(n.to_string());
+            set_key(&mut step, "element_id", json!(n.to_string()));
             resolved = Some(json!({"element_id": n.to_string(), "matched": line}));
         }
         let windows_before = self.window_ids_over_target(window_id);
@@ -646,7 +648,7 @@ impl Engine {
                 opts,
             );
             if let Some(evidence) = evidence {
-                done.body["state"] = json!({"changes": evidence});
+                set_key(&mut done.body, "state", json!({"changes": evidence}));
             }
             let signals = watch.as_ref().map(|w| w.signals());
             drop(watch);
@@ -671,7 +673,7 @@ impl Engine {
             if let Some(body) = done.body.as_object_mut() {
                 body.remove("state");
             }
-            done.body["changes"] = json!(text);
+            set_key(&mut done.body, "changes", json!(text));
             if let Some(now) = now {
                 *prev = Some(now);
             }
@@ -680,7 +682,7 @@ impl Engine {
             body.remove("expect");
         }
         if let Some(resolved) = resolved {
-            done.body["target"] = resolved;
+            set_key(&mut done.body, "target", resolved);
         }
         Ok((done.body, app))
     }
@@ -895,7 +897,7 @@ impl Engine {
                     [] => None,
                     [one] => Some((*one).clone()),
                     many if w.until == Until::Disappears => {
-                        let line = element_line(many[0]);
+                        let line = many.first().map(|e| element_line(e)).unwrap_or_default();
                         return Ok((
                             Probe::Not(format!("{} still match (such as {line})", many.len())),
                             tree,
@@ -1007,16 +1009,19 @@ impl Engine {
         let text = match prev {
             Some(old) => {
                 let (changes, text) = step_diff(old, &new, opts, windows);
-                evidence["added"] = json!(changes.added.len());
-                evidence["changed"] =
-                    json!(changes.changed.len() + changes.unfolded.len() + changes.folded.len());
-                evidence["removed"] = json!(changes.removed.len());
-                evidence["renumbered"] = json!(changes.renumbered.len());
-                evidence["focus_moved"] = json!(changes.focus.is_some());
+                set_key(&mut evidence, "added", json!(changes.added.len()));
+                set_key(
+                    &mut evidence,
+                    "changed",
+                    json!(changes.changed.len() + changes.unfolded.len() + changes.folded.len()),
+                );
+                set_key(&mut evidence, "removed", json!(changes.removed.len()));
+                set_key(&mut evidence, "renumbered", json!(changes.renumbered.len()));
+                set_key(&mut evidence, "focus_moved", json!(changes.focus.is_some()));
                 format!("{text}\n({pixels_text})")
             }
             None => {
-                evidence["first_look"] = json!(true);
+                set_key(&mut evidence, "first_look", json!(true));
                 let mut lines = windows;
                 lines.push(format!(
                     "no earlier look at the window's elements to compare with ({pixels_text})"
@@ -1118,7 +1123,7 @@ fn reply(
         "results": steps,
     });
     if let Some(stopped) = stopped {
-        body["stopped_at"] = stopped;
+        set_key(&mut body, "stopped_at", stopped);
     }
     ToolOutput::ok(body)
 }

@@ -85,7 +85,9 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
             // Folded in the last look (a bare group that now has focus): shown.
             None if old.present.contains(&l.id) => c.unfolded.push(i),
             None => c.added.push(i),
-            Some(&j) if !same(&old.lines[j], l, opts) => c.changed.push((i, j)),
+            Some(&j) if old.lines.get(j).is_some_and(|o| !same(o, l, opts)) => {
+                c.changed.push((i, j));
+            }
             Some(_) => {}
         }
     }
@@ -103,15 +105,19 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
     // one element read anew: say so, with its new id.
     let mut removed = Vec::new();
     for j in std::mem::take(&mut c.removed) {
-        let o = &old.lines[j];
+        let Some(o) = old.lines.get(j) else {
+            removed.push(j);
+            continue;
+        };
         let twin = c.added.iter().position(|&i| {
-            let n = &new.lines[i];
-            n.role == o.role
-                && n.label == o.label
-                && n.value == o.value
-                && n.identifier == o.identifier
-                && n.depth == o.depth
-                && n.parent == o.parent
+            new.lines.get(i).is_some_and(|n| {
+                n.role == o.role
+                    && n.label == o.label
+                    && n.value == o.value
+                    && n.identifier == o.identifier
+                    && n.depth == o.depth
+                    && n.parent == o.parent
+            })
         });
         match twin {
             Some(k) => c.renumbered.push((c.added.remove(k), j)),
@@ -132,25 +138,22 @@ pub fn compute(old: &outline::Outline, new: &outline::Outline, opts: &Options) -
 pub fn around_change(old: &str, new: &str) -> (String, String) {
     let a: Vec<char> = old.chars().collect();
     let b: Vec<char> = new.chars().collect();
-    let mut p = 0;
-    while p < a.len() && p < b.len() && a[p] == b[p] {
-        p += 1;
-    }
-    let mut q = 0;
-    while q < a.len() - p && q < b.len() - p && a[a.len() - 1 - q] == b[b.len() - 1 - q] {
-        q += 1;
-    }
+    let p = a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count();
+    let (rest_a, rest_b) = (a.get(p..).unwrap_or(&[]), b.get(p..).unwrap_or(&[]));
+    let q = rest_a.iter().rev().zip(rest_b.iter().rev()).take_while(|(x, y)| x == y).count();
     // Where each value's changed part ends.
-    let (mut end_a, mut end_b) = (a.len() - q, b.len() - q);
+    let (mut end_a, mut end_b) = (a.len().saturating_sub(q), b.len().saturating_sub(q));
     // Two long values the platform cut at its limit end differently: find the
     // text after the change again (the old in the new: an insertion; the new
     // in the old: a deletion), so the change is what was typed or removed.
     let find = |from: &[char], to: &[char]| -> Option<usize> {
-        let probe: Vec<char> = from[p..].iter().take(24).copied().collect();
+        let probe: Vec<char> = from.get(p..).unwrap_or(&[]).iter().take(24).copied().collect();
         if probe.len() < 8 || to.len() < probe.len() {
             return None;
         }
-        (p..=to.len() - probe.len()).take(4000).find(|&i| to[i..i + probe.len()] == probe[..])
+        (p..=to.len().saturating_sub(probe.len()))
+            .take(4000)
+            .find(|&i| to.get(i..i.saturating_add(probe.len())) == Some(probe.as_slice()))
     };
     if end_a - p > CHANGE_MAX || end_b - p > CHANGE_MAX {
         if let Some(i) = find(&a, &b) {
@@ -166,10 +169,10 @@ pub fn around_change(old: &str, new: &str) -> (String, String) {
         if start > 0 {
             s.push('\u{2026}');
         }
-        s.extend(&v[start..p]);
-        let mid: String = v[p..end].iter().collect();
+        s.extend(v.get(start..p).unwrap_or(&[]));
+        let mid: String = v.get(p..end).unwrap_or(&[]).iter().collect();
         s.push_str(&clip(&mid, CHANGE_MAX));
-        s.extend(&v[end..tail]);
+        s.extend(v.get(end..tail).unwrap_or(&[]));
         if tail < v.len() {
             s.push('\u{2026}');
         }
@@ -264,15 +267,23 @@ fn changed_line(new: &Line, old: &Line, opts: &Options) -> String {
 /// `4-9, 12, 15-16`.
 pub fn ranges(ids: &mut [u32]) -> String {
     ids.sort_unstable();
+    let part = |(first, last): (u32, u32)| {
+        if first == last { first.to_string() } else { format!("{first}-{last}") }
+    };
     let mut parts: Vec<String> = Vec::new();
-    let mut i = 0;
-    while i < ids.len() {
-        let mut j = i;
-        while j + 1 < ids.len() && ids[j + 1] == ids[j] + 1 {
-            j += 1;
-        }
-        parts.push(if i == j { ids[i].to_string() } else { format!("{}-{}", ids[i], ids[j]) });
-        i = j + 1;
+    let mut run: Option<(u32, u32)> = None;
+    for &id in ids.iter() {
+        run = match run {
+            Some((first, last)) if last.checked_add(1) == Some(id) => Some((first, id)),
+            Some(done) => {
+                parts.push(part(done));
+                Some((id, id))
+            }
+            None => Some((id, id)),
+        };
+    }
+    if let Some(done) = run {
+        parts.push(part(done));
     }
     parts.join(", ")
 }
@@ -288,10 +299,10 @@ pub fn render(
         return None;
     }
     let mut out: Vec<String> = Vec::new();
-    let added_ids: HashSet<u32> = c.added.iter().map(|&i| new.lines[i].id).collect();
+    let added_ids: HashSet<u32> =
+        c.added.iter().filter_map(|&i| new.lines.get(i)).map(|l| l.id).collect();
     let mut top_depth = 0usize;
-    for &i in &c.added {
-        let l = &new.lines[i];
+    for l in c.added.iter().filter_map(|&i| new.lines.get(i)) {
         let inner = l.parent.is_some_and(|p| added_ids.contains(&p));
         if inner {
             let pad = "  ".repeat(l.depth.saturating_sub(top_depth));
@@ -302,21 +313,15 @@ pub fn render(
             out.push(format!("+ {}{place}", outline::line(l, opts)));
         }
     }
-    for &(i, j) in &c.changed {
-        out.push(changed_line(&new.lines[i], &old.lines[j], opts));
+    let pair = |&(i, j): &(usize, usize)| Some((new.lines.get(i)?, old.lines.get(j)?));
+    for (n, o) in c.changed.iter().filter_map(pair) {
+        out.push(changed_line(n, o, opts));
     }
-    for &(i, j) in &c.renumbered {
-        let l = &new.lines[i];
-        out.push(format!(
-            "~ [{}] {} (new id; was [{}])",
-            l.id,
-            line_text(l, opts),
-            old.lines[j].id
-        ));
+    for (l, o) in c.renumbered.iter().filter_map(pair) {
+        out.push(format!("~ [{}] {} (new id; was [{}])", l.id, line_text(l, opts), o.id));
     }
     // A container shown or folded only because its own state changed.
-    for &i in &c.unfolded {
-        let l = &new.lines[i];
+    for l in c.unfolded.iter().filter_map(|&i| new.lines.get(i)) {
         let was = if l.focused {
             "not focused"
         } else if l.selected {
@@ -326,8 +331,7 @@ pub fn render(
         };
         out.push(format!("~ [{}] {} (was: {was})", l.id, line_text(l, opts)));
     }
-    for &j in &c.folded {
-        let l = &old.lines[j];
+    for l in c.folded.iter().filter_map(|&j| old.lines.get(j)) {
         let was = if l.focused {
             "focused"
         } else if l.selected {
@@ -338,19 +342,24 @@ pub fn render(
         out.push(format!("~ [{}] {} (was: {was})", l.id, outline::short(l)));
     }
     if !c.removed.is_empty() {
-        let removed_ids: HashSet<u32> = c.removed.iter().map(|&j| old.lines[j].id).collect();
+        let removed_ids: HashSet<u32> =
+            c.removed.iter().filter_map(|&j| old.lines.get(j)).map(|l| l.id).collect();
         let tops: Vec<usize> = c
             .removed
             .iter()
             .copied()
-            .filter(|&j| !old.lines[j].parent.is_some_and(|p| removed_ids.contains(&p)))
+            .filter(|&j| {
+                !old.lines
+                    .get(j)
+                    .is_some_and(|l| l.parent.is_some_and(|p| removed_ids.contains(&p)))
+            })
             .collect();
         // How many removed lines sit under each removed top.
         let mut inside: HashMap<u32, usize> = HashMap::new();
         let parents: HashMap<u32, Option<u32>> =
             old.lines.iter().map(|l| (l.id, l.parent)).collect();
         for &j in &c.removed {
-            let mut cur = old.lines[j].parent;
+            let mut cur = old.lines.get(j).and_then(|l| l.parent);
             let mut top = None;
             while let Some(p) = cur {
                 if !removed_ids.contains(&p) {
@@ -363,8 +372,7 @@ pub fn render(
                 *inside.entry(t).or_default() += 1;
             }
         }
-        for &j in tops.iter().take(REMOVED_NAMED) {
-            let l = &old.lines[j];
+        for l in tops.iter().take(REMOVED_NAMED).filter_map(|&j| old.lines.get(j)) {
             let more = match inside.get(&l.id) {
                 Some(n) => format!(" (and {n} inside it)"),
                 None => String::new(),
@@ -372,8 +380,12 @@ pub fn render(
             out.push(format!("- [{}] {}{more}", l.id, outline::short(l)));
         }
         if tops.len() > REMOVED_NAMED {
-            let mut rest: Vec<u32> =
-                tops[REMOVED_NAMED..].iter().map(|&j| old.lines[j].id).collect();
+            let mut rest: Vec<u32> = tops
+                .iter()
+                .skip(REMOVED_NAMED)
+                .filter_map(|&j| old.lines.get(j))
+                .map(|l| l.id)
+                .collect();
             out.push(format!("- also removed: {}", ranges(&mut rest)));
         }
         if new.truncated {

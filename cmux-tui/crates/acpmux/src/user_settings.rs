@@ -63,7 +63,8 @@ pub fn read() -> Settings {
 /// read (`agent_tools::cmux_server`).
 pub fn resolved_path() -> PathBuf {
     let paths = paths();
-    paths.iter().find(|path| path.exists()).cloned().unwrap_or_else(|| paths[0].clone())
+    // `paths` always lists the config path first, so the empty default is never taken.
+    paths.iter().find(|path| path.exists()).or_else(|| paths.first()).cloned().unwrap_or_default()
 }
 
 /// The settings file's text, or `None` when there is none to read.

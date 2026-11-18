@@ -78,8 +78,12 @@ pub fn arrow() -> (Vec<u8>, Vec<bool>) {
             };
             if let Some([r, g, b]) = color {
                 let i = (y * n + x) * 4;
-                px[i..i + 4].copy_from_slice(&[b, g, r, 255]);
-                mask[y * n + x] = true;
+                if let Some(dst) = px.get_mut(i..i + 4) {
+                    dst.copy_from_slice(&[b, g, r, 255]);
+                }
+                if let Some(m) = mask.get_mut(y * n + x) {
+                    *m = true;
+                }
             }
         }
     }
@@ -88,14 +92,12 @@ pub fn arrow() -> (Vec<u8>, Vec<bool>) {
 
 fn point_in_poly(x: f64, y: f64, poly: &[(f64, f64)]) -> bool {
     let mut inside = false;
-    let mut j = poly.len() - 1;
-    for i in 0..poly.len() {
-        let (xi, yi) = poly[i];
-        let (xj, yj) = poly[j];
+    // Each vertex with the one before it (the last one before the first).
+    let previous = poly.iter().cycle().skip(poly.len().saturating_sub(1));
+    for (&(xi, yi), &(xj, yj)) in poly.iter().zip(previous) {
         if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
             inside = !inside;
         }
-        j = i;
     }
     inside
 }

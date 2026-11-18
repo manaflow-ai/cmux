@@ -168,7 +168,7 @@ pub fn sway_walk(
         };
         let app_id = node["app_id"]
             .as_str()
-            .or_else(|| node["window_properties"]["class"].as_str())
+            .or_else(|| node.get("window_properties")?.get("class")?.as_str())
             .unwrap_or("")
             .to_string();
         out.push(IpcWindow {
@@ -207,7 +207,7 @@ fn hypr_json(path: &PathBuf, cmd: &str) -> Result<Value, String> {
 pub fn hypr_windows(clients: &Value, monitors: &Value, active: &Value) -> Vec<IpcWindow> {
     let active_ws: Vec<i64> = monitors
         .as_array()
-        .map(|m| m.iter().filter_map(|m| m["activeWorkspace"]["id"].as_i64()).collect())
+        .map(|m| m.iter().filter_map(|m| m.get("activeWorkspace")?.get("id")?.as_i64()).collect())
         .unwrap_or_default();
     let active_addr = active["address"].as_str().unwrap_or("");
     let empty = Vec::new();
@@ -217,9 +217,12 @@ pub fn hypr_windows(clients: &Value, monitors: &Value, active: &Value) -> Vec<Ip
         .iter()
         .filter(|c| c["mapped"].as_bool().unwrap_or(true))
         .map(|c| {
-            let at = |i: usize, k: &str| c[k][i].as_f64().unwrap_or(0.0);
+            let at = |i: usize, k: &str| {
+                c.get(k).and_then(|v| v.get(i)).and_then(Value::as_f64).unwrap_or(0.0)
+            };
             let addr = c["address"].as_str().unwrap_or("");
-            let ws = c["workspace"]["id"].as_i64().unwrap_or(0);
+            let ws =
+                c.get("workspace").and_then(|w| w.get("id")).and_then(Value::as_i64).unwrap_or(0);
             IpcWindow {
                 id: format!("hypr:{addr}"),
                 app_id: c["class"].as_str().unwrap_or("").to_string(),

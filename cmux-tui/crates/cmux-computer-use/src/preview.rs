@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use crate::cursor::CursorEvent;
 use crate::desktop::{Point, Rect};
+use crate::engine::set_key;
 
 /// The stream's long side in pixels: sharp in the expanded card, scaled
 /// down by the surface in the small one.
@@ -397,8 +398,11 @@ fn card_json(session: &str, card: &Card) -> Value {
         let x = (at.x - rect.x) / rect.width;
         let y = (at.y - rect.y) / rect.height;
         if (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y) {
-            value["pointer"] =
-                json!({"x": x, "y": y, "click": card.clicks, "windowWidth": rect.width});
+            set_key(
+                &mut value,
+                "pointer",
+                json!({"x": x, "y": y, "click": card.clicks, "windowWidth": rect.width}),
+            );
         }
     }
     value

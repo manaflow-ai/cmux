@@ -175,7 +175,7 @@ fn time_token(t: &str) -> bool {
     let n = t.bytes().take_while(u8::is_ascii_digit).count();
     n > 0
         && matches!(
-            &t[n..].to_ascii_lowercase()[..],
+            t.get(n..).unwrap_or_default().to_ascii_lowercase().as_str(),
             "s" | "m" | "h" | "d" | "w" | "y" | "mo" | "min" | "hr" | "wk"
         )
 }
@@ -226,7 +226,7 @@ fn without_times(label: &str) -> String {
     let mut out: Vec<&str> = Vec::with_capacity(words.len());
     let mut i = 0;
     while i < words.len() {
-        let w = words[i];
+        let Some(&w) = words.get(i) else { break };
         let number =
             !w.is_empty() && w.trim_end_matches([',', '.']).bytes().all(|b| b.is_ascii_digit());
         if time_token(w) {
@@ -372,7 +372,9 @@ fn flatten(root: &Element) -> Vec<(Flat, &Element)> {
         }
         content.sort();
         content.dedup();
-        out[index].0.content = content.clone();
+        if let Some((f, _)) = out.get_mut(index) {
+            f.content = content.clone();
+        }
         content
     }
     let mut out = Vec::new();
@@ -404,7 +406,7 @@ fn flatten(root: &Element) -> Vec<(Flat, &Element)> {
         let mut shared: HashMap<(String, String), usize> = HashMap::new();
         let mut roles: HashMap<String, usize> = HashMap::new();
         for &i in group {
-            let (f, e) = &out[i];
+            let Some((f, e)) = out.get(i) else { continue };
             *roles.entry(e.role.clone()).or_default() += 1;
             *keys.entry((e.role.clone(), f.label.clone())).or_default() += 1;
             if !f.identifier.is_empty() {
@@ -417,8 +419,8 @@ fn flatten(root: &Element) -> Vec<(Flat, &Element)> {
             }
         }
         for &i in group {
-            let role = out[i].1.role.clone();
-            let f = &mut out[i].0;
+            let Some((f, e)) = out.get_mut(i) else { continue };
+            let role = e.role.clone();
             f.dups = keys.get(&(role.clone(), f.label.clone())).copied().unwrap_or(1);
             f.sole = roles.get(&role).copied().unwrap_or(1) == 1;
             f.ident_unique = !f.identifier.is_empty()
@@ -526,13 +528,17 @@ impl WindowIds {
                 if let Some((id, role)) = old_root
                     && role == e.role
                 {
-                    ids[i] = Some(id);
+                    if let Some(slot) = ids.get_mut(i) {
+                        *slot = Some(id);
+                    }
                     taken.insert(id);
                 }
                 continue;
             }
             let Some(h) = e.identity else { continue };
-            let Some(parent) = f.parent.and_then(|p| ids[p]) else { continue };
+            let Some(parent) = f.parent.and_then(|p| ids.get(p).copied().flatten()) else {
+                continue;
+            };
             let recycled = RECYCLED_ROLES.contains(&e.role.as_str());
             let found = by_identity.get(&(h, e.role.as_str())).and_then(|v| {
                 v.iter().copied().find(|id| {
@@ -553,7 +559,9 @@ impl WindowIds {
                 })
             });
             if let Some(id) = found {
-                ids[i] = Some(id);
+                if let Some(slot) = ids.get_mut(i) {
+                    *slot = Some(id);
+                }
                 taken.insert(id);
             }
         }
@@ -569,11 +577,11 @@ impl WindowIds {
         //   siblings in both trees, sharing at least half its labels (a list
         //   that gained a row is the same list).
         for (i, (f, e)) in flat.iter().enumerate() {
-            if ids[i].is_some() {
+            if ids.get(i).copied().flatten().is_some() {
                 continue;
             }
             let recycled = RECYCLED_ROLES.contains(&e.role.as_str());
-            let parent = f.parent.and_then(|p| ids[p]);
+            let parent = f.parent.and_then(|p| ids.get(p).copied().flatten());
             let parent_kept = parent.is_some_and(|p| old.contains_key(&p));
             let free = |id: &u32| !taken.contains(id);
             let labels_agree =
@@ -616,17 +624,19 @@ impl WindowIds {
                 *next
             });
             taken.insert(id);
-            ids[i] = Some(id);
+            if let Some(slot) = ids.get_mut(i) {
+                *slot = Some(id);
+            }
         }
         let ids: Vec<u32> = ids.into_iter().map(|id| id.unwrap_or_default()).collect();
         let mut entries: HashMap<u32, Entry> = HashMap::with_capacity(flat.len());
-        for (i, (f, e)) in flat.iter().enumerate() {
+        for ((f, e), &id) in flat.iter().zip(&ids) {
             entries.insert(
-                ids[i],
+                id,
                 Entry {
                     platform_id: e.id.clone(),
                     walk,
-                    parent: f.parent.map(|p| ids[p]),
+                    parent: f.parent.and_then(|p| ids.get(p).copied()),
                     role: e.role.clone(),
                     name: e.name.clone(),
                     value: e.value.clone(),

@@ -426,7 +426,13 @@ impl FakeDesktop {
                     ))));
                 }
             };
-            let title = level[i].clone();
+            let Some(title) = level.get(i).cloned() else {
+                return Some(Err(DesktopError::Unsupported(menus::not_found(
+                    part,
+                    &menus::ItemMatch::NotFound,
+                    &level,
+                ))));
+            };
             let sub =
                 p.submenus.iter().find(|(parent, _)| *parent == title).map(|(_, l)| l.clone());
             match (n + 1 == path.len(), sub) {

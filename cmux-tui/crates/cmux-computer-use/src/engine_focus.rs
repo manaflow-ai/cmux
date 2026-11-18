@@ -110,7 +110,7 @@ impl FocusReport {
     /// when focus did not simply stay.
     pub(super) fn attach(&self, out: &mut ToolOutput) {
         if (!out.is_error || *self != FocusReport::Kept) && out.body.is_object() {
-            out.body["focus"] = self.to_json();
+            set_key(&mut out.body, "focus", self.to_json());
         }
     }
 

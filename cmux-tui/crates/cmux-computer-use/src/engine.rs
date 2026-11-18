@@ -768,7 +768,7 @@ impl Engine {
         // put back) stays with the call.
         for key in ["completed", "of", "stopped_at", "results", "focus"] {
             if let Some(value) = out.body.get(key) {
-                stopped.body[key] = value.clone();
+                set_key(&mut stopped.body, key, value.clone());
             }
         }
         stopped
@@ -799,8 +799,8 @@ impl Engine {
                         let t = TargetApp { id: a.id.clone(), name: a.name.clone() };
                         let mut v = serde_json::to_value(&a).unwrap_or(Value::Null);
                         if let Some(r) = self.blocked(&config, &saved, &t) {
-                            v["denied"] = json!(true);
-                            v["denied_reason"] = json!(r.code());
+                            set_key(&mut v, "denied", json!(true));
+                            set_key(&mut v, "denied_reason", json!(r.code()));
                         }
                         v
                     })
@@ -820,15 +820,15 @@ impl Engine {
                         let t = self.target_of(&w, &names);
                         let blocked = self.blocked(&config, &saved, &t);
                         let mut v = serde_json::to_value(&w).unwrap_or(Value::Null);
-                        v["window_id"] = json!(w.id);
+                        set_key(&mut v, "window_id", json!(w.id));
                         if let Some(o) = v.as_object_mut() {
                             o.remove("id");
                         }
-                        v["app_name"] = json!(t.name);
+                        set_key(&mut v, "app_name", json!(t.name));
                         if let Some(r) = blocked {
-                            v["title"] = json!("");
-                            v["denied"] = json!(true);
-                            v["denied_reason"] = json!(r.code());
+                            set_key(&mut v, "title", json!(""));
+                            set_key(&mut v, "denied", json!(true));
+                            set_key(&mut v, "denied_reason", json!(r.code()));
                         }
                         v
                     })
@@ -1502,13 +1502,14 @@ impl Engine {
                     Ok(out) => out,
                     Err(e) if sent > 0 => {
                         let mut out = ToolOutput::desktop(&e);
-                        out.body["typed_before_refusal"] = Value::from(sent as u64);
-                        out.body["error"] = Value::from(format!(
+                        set_key(&mut out.body, "typed_before_refusal", Value::from(sent as u64));
+                        let error = Value::from(format!(
                             "{}; {sent} of {} characters were typed {} before this, and none after",
-                            out.body["error"].as_str().unwrap_or("refused"),
+                            out.body.get("error").and_then(Value::as_str).unwrap_or("refused"),
                             chars.len(),
                             if element.is_some() { "into the element" } else { "at the caret" }
                         ));
+                        set_key(&mut out.body, "error", error);
                         return Err(out);
                     }
                     Err(e) => return Err(ToolOutput::desktop(&e)),
@@ -1582,7 +1583,7 @@ impl Engine {
                     false,
                     Check::Authorize,
                 )?;
-                out.body["state"] = shot.body;
+                set_key(&mut out.body, "state", shot.body);
                 out.png_base64 = shot.png_base64;
                 Ok((out, None))
             }
@@ -1654,7 +1655,7 @@ impl Engine {
                                     .and_then(|r| r.since_last_ms)
                                     .is_none_or(|ms| ms >= QUIET_MS);
                             signals_then = signals_now;
-                            let shot = if shot.body["unchanged"] != json!(true) {
+                            let shot = if shot.body.get("unchanged") != Some(&json!(true)) {
                                 changed_shot = Some(shot);
                                 None
                             } else {
@@ -1686,11 +1687,12 @@ impl Engine {
         let (shot, elapsed) = match shot {
             Ok(shot) => shot,
             Err(e) => {
-                out.body["state"] = json!({
+                let state = json!({
                     "available": false,
                     "reason": e.body.get("error").or_else(|| e.body.get("message")).cloned().unwrap_or(json!(e.code)),
                     "next": "call list_windows, then screenshot the window you need",
                 });
+                set_key(&mut out.body, "state", state);
                 return None;
             }
         };
@@ -1699,9 +1701,9 @@ impl Engine {
         let settled =
             (mode == SettleMode::Adaptive && captures >= 1).then_some(elapsed.as_millis() as u64);
         let mut state = shot.body.clone();
-        state["settle"] = json!(mode.as_str());
-        state["waited_ms"] = json!(elapsed.as_millis() as u64);
-        state["captures"] = json!(captures);
+        set_key(&mut state, "settle", json!(mode.as_str()));
+        set_key(&mut state, "waited_ms", json!(elapsed.as_millis() as u64));
+        set_key(&mut state, "captures", json!(captures));
         let config = self.config();
         if self.still_allowed(&config, ctx, window_id, app).is_ok()
             && let Ok(mut tree) = self.walk_tree_for(
@@ -1717,11 +1719,11 @@ impl Engine {
             if let Some(geometry) = seen {
                 rewrite_frames(&mut tree.root, &geometry);
             }
-            state["frames_in"] = json!("screenshot pixels");
-            state["truncated"] = json!(tree.truncated);
-            state["root"] = serde_json::to_value(&tree.root).unwrap_or(Value::Null);
+            set_key(&mut state, "frames_in", json!("screenshot pixels"));
+            set_key(&mut state, "truncated", json!(tree.truncated));
+            set_key(&mut state, "root", serde_json::to_value(&tree.root).unwrap_or(Value::Null));
         }
-        out.body["state"] = state;
+        set_key(&mut out.body, "state", state);
         out.png_base64 = shot.png_base64;
         settled
     }
@@ -1761,7 +1763,7 @@ impl Engine {
         // without such a read-back, or one whose wanted state already held,
         // is delivered.
         let mut already = false;
-        let confirmed = out.body["evidence"] == json!("confirmed");
+        let confirmed = out.body.get("evidence") == Some(&json!("confirmed"));
         let read = expect.map(|expect| {
             already = !expect.states_change();
             match self.desktop.read_back(&expect) {
@@ -1776,7 +1778,7 @@ impl Engine {
         let shown = settled_ms.is_some()
             && read.as_deref().is_some_and(|r| !matches!(r, "already" | "failed" | "unread"));
         if shown {
-            out.body["evidence"] = json!("confirmed");
+            set_key(&mut out.body, "evidence", json!("confirmed"));
         } else {
             let why = match read.as_deref() {
                 Some("already") => Some(
@@ -1795,24 +1797,29 @@ impl Engine {
                 _ => None,
             };
             if confirmed {
-                out.body["evidence"] = json!("delivered");
+                set_key(&mut out.body, "evidence", json!("delivered"));
             }
             if let Some(why) = why {
                 let mut note =
                     out.body.get("note").and_then(Value::as_str).unwrap_or_default().to_string();
                 crate::outcome::append(&mut note, why);
-                out.body["note"] = json!(note);
+                set_key(&mut out.body, "note", json!(note));
             }
         }
         if let Some(read) = read {
-            out.body["read_back"] = json!(read);
+            set_key(&mut out.body, "read_back", json!(read));
         }
         // no_effect needs the target read back after the settle: a read-back
         // that could not be read leaves the effect unknown (a web field's
         // value that does not answer).
-        let shows = if out.body["read_back"] == json!("unread") { None } else { shows };
+        let shows = if out.body.get("read_back") == Some(&json!("unread")) { None } else { shows };
         let facts = crate::outcome::Facts {
-            evidence: out.body["evidence"].as_str().unwrap_or_default().to_string(),
+            evidence: out
+                .body
+                .get("evidence")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
             shows,
             menu: out.body.get("menu").is_some_and(|m| !m.is_null()),
             settled_ms,
@@ -2049,7 +2056,7 @@ impl Engine {
             "route": out.body.get("route"),
         });
         if let Some(report) = focus {
-            line["focus"] = report.to_json();
+            set_key(&mut line, "focus", report.to_json());
         }
         let mut options = std::fs::OpenOptions::new();
         options.create(true).append(true);
@@ -2123,6 +2130,18 @@ mod menus_glue;
 /// How long after its last accessibility signal an app counts as quiet.
 const QUIET_MS: u64 = 60;
 
+/// Sets `key` on a JSON object, as `target[key] = value` does (a `Null`
+/// becomes an empty object first), without its panic on any other value:
+/// a non-object is left as it is.
+pub(crate) fn set_key(target: &mut Value, key: &str, value: Value) {
+    if target.is_null() {
+        *target = Value::Object(serde_json::Map::new());
+    }
+    if let Value::Object(map) = target {
+        map.insert(key.to_string(), value);
+    }
+}
+
 /// The note a `delivered` result gets when nothing visible changed through
 /// a real settle wait: the window's pixels, and the windows over it (sheets,
 /// panels, a Save panel another process serves).
@@ -2138,11 +2157,15 @@ pub(crate) fn no_visible_change_note(waited_ms: u64) -> String {
 fn provisional_record(out: &ToolOutput) -> String {
     let mut record = out.clone();
     if record.body.get("evidence") == Some(&json!("confirmed")) {
-        record.body["evidence"] = json!("delivered");
+        set_key(&mut record.body, "evidence", json!("delivered"));
     }
     if record.body.get("evidence").is_some() {
-        record.body["outcome"] = json!("uncertain");
-        record.body["outcome_reason"] = json!("the call was cut off before its outcome was read");
+        set_key(&mut record.body, "outcome", json!("uncertain"));
+        set_key(
+            &mut record.body,
+            "outcome_reason",
+            json!("the call was cut off before its outcome was read"),
+        );
     }
     retry_record(&record)
 }

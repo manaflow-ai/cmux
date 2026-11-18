@@ -482,7 +482,7 @@ impl Upstream {
         }
         if self.tools.is_none() && self.spec.name == acpmux::computer_use::tools::SERVER_NAME {
             let catalog = acpmux::computer_use::tools::mcp_list();
-            self.tools = catalog["tools"].as_array().cloned();
+            self.tools = catalog.get("tools").and_then(Value::as_array).cloned();
             self.instructions = rules(&self.spec, Some(acpmux::computer_use::tools::INSTRUCTIONS));
         }
         if self.tools.is_none() {

@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
 
-use crate::engine::ToolOutput;
+use crate::engine::{ToolOutput, set_key};
 
 /// The tool error code of a stopped session's calls.
 pub const STOPPED_CODE: &str = "stopped_by_person";
@@ -107,8 +107,8 @@ pub fn stopped() -> ToolOutput {
 /// have acted before its checkpoint (`acted`), and says so.
 pub fn stopped_in_flight(acted: bool) -> ToolOutput {
     let mut out = stopped();
-    out.body["stopped_during_call"] = json!(true);
-    out.body["acted_before_stop"] = json!(acted);
+    set_key(&mut out.body, "stopped_during_call", json!(true));
+    set_key(&mut out.body, "acted_before_stop", json!(acted));
     out
 }
 

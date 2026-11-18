@@ -411,13 +411,17 @@ impl Engine {
             match old.filter(|_| !look.full) {
                 Some(old) => {
                     let changes = diff::compute(&old, &new, &opts);
-                    evidence["added"] = json!(changes.added.len());
-                    evidence["changed"] = json!(
-                        changes.changed.len() + changes.unfolded.len() + changes.folded.len()
+                    set_key(&mut evidence, "added", json!(changes.added.len()));
+                    set_key(
+                        &mut evidence,
+                        "changed",
+                        json!(
+                            changes.changed.len() + changes.unfolded.len() + changes.folded.len()
+                        ),
                     );
-                    evidence["removed"] = json!(changes.removed.len());
-                    evidence["renumbered"] = json!(changes.renumbered.len());
-                    evidence["focus_moved"] = json!(changes.focus.is_some());
+                    set_key(&mut evidence, "removed", json!(changes.removed.len()));
+                    set_key(&mut evidence, "renumbered", json!(changes.renumbered.len()));
+                    set_key(&mut evidence, "focus_moved", json!(changes.focus.is_some()));
                     match diff::render(&old, &new, &changes, &opts) {
                         // A look of its own (get_ui_tree) needs no account of
                         // pixels or effects: one sentence, and no evidence
@@ -464,7 +468,7 @@ impl Engine {
         if evidence.get("added").is_some() {
             body.insert("changes".into(), evidence);
         } else if first_look && !pure_look {
-            evidence["first_look"] = json!(true);
+            set_key(&mut evidence, "first_look", json!(true));
             body.insert("changes".into(), evidence);
         }
         body.insert("tree".into(), json!(parts.join("\n")));
@@ -540,7 +544,7 @@ impl Engine {
             }
             None => {}
         }
-        out.body["state"] = Value::Object(state);
+        set_key(&mut out.body, "state", Value::Object(state));
     }
 
     /// The small id of the element an acting call names, taken before it acts
@@ -845,11 +849,12 @@ impl Engine {
                 "next": "menu bar menus stay closed in the background; click an item's id to run it (or press_key its shortcut)",
             },
         }));
-        out.body["tree"] = json!(format!(
+        let tree = json!(format!(
             "Menu {} (not opened; its items):\n{}",
             outline::quote(&title),
             outline::render_lines(&items, &opts)
         ));
+        set_key(&mut out.body, "tree", tree);
         Some(out)
     }
 }

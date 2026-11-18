@@ -1292,11 +1292,12 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     if failed && let Some(body) = &json_body {
         let message = body["error"]
             .as_str()
-            .or_else(|| body["error"]["message"].as_str())
+            .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
             .or_else(|| body["message"].as_str());
         if let Some(message) = message {
             let mut error = json!({"message": message});
-            if let Some(code) = body["code"].as_str().or_else(|| body["error"]["code"].as_str()) {
+            let text_at = |pointer: &str| body.pointer(pointer).and_then(Value::as_str);
+            if let Some(code) = text_at("/code").or_else(|| text_at("/error/code")) {
                 error.set("code", json!(code));
             }
             return json!({"error": error, "body": body});
@@ -1328,7 +1329,11 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     // they were in the result) and images: each outline back in its place, the
     // images in `images`.
     let outline = |block: &Value| -> Option<String> {
-        block["_meta"][acpmux::computer_use::OUTLINE_META].as_str().map(str::to_owned)
+        block
+            .get("_meta")
+            .and_then(|meta| meta.get(acpmux::computer_use::OUTLINE_META))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     };
     if let Some(mut body) = json_body
         && blocks.len() > 1
@@ -1337,10 +1342,10 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     {
         let mut images = Vec::new();
         for block in blocks.into_iter().skip(1) {
-            match (outline(&block), block["text"].as_str()) {
+            match (outline(&block), block.get("text").and_then(Value::as_str)) {
                 (Some(place), Some(text)) => match place.as_str() {
-                    "state.tree" if body["state"].is_object() => {
-                        body["state"].set("tree", json!(text));
+                    "state.tree" if body.get("state").is_some_and(Value::is_object) => {
+                        body.set_path(&["state", "tree"], json!(text));
                     }
                     _ => {
                         body.set("tree", json!(text));

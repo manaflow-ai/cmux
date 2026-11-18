@@ -115,7 +115,7 @@ fn watch(mux: &std::sync::Weak<Mux>, inner: &Inner) -> std::io::Result<()> {
         .ok_or_else(|| std::io::Error::other("no Computer Use worker runs"))?;
     let mut connection = Connection::open(&endpoint.0, &endpoint.1)?;
     let answer = connection.request(&json!({"id": 1, "method": "preview/watch"}))?;
-    if answer["ok"] != true {
+    if answer.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err(std::io::Error::other(answer.to_string()));
     }
     connection.unbounded()?;
@@ -125,13 +125,15 @@ fn watch(mux: &std::sync::Weak<Mux>, inner: &Inner) -> std::io::Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error),
         };
-        if line["event"] != "preview" {
+        if line.get("event").and_then(Value::as_str) != Some("preview") {
             continue;
         }
         let Some(mux) = mux.upgrade() else { return Ok(()) };
-        let session = line["session"].as_str().unwrap_or_default().to_string();
-        line["event"] = json!("computer-use-preview");
-        line["surface"] = surface_of(&session);
+        let session = line.get("session").and_then(Value::as_str).unwrap_or_default().to_string();
+        // A preview line is an object (its "event" field matched above).
+        let Some(fields) = line.as_object_mut() else { continue };
+        fields.insert("event".to_owned(), json!("computer-use-preview"));
+        fields.insert("surface".to_owned(), surface_of(&session));
         mux.emit(crate::MuxEvent::ComputerUsePreview(Arc::new(line)));
     }
 }

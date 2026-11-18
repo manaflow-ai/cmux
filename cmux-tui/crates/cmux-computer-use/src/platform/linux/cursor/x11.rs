@@ -38,7 +38,7 @@ impl XOverlay {
     fn create() -> Result<Self, Box<dyn std::error::Error>> {
         let (conn, screen_num) = x11rb::connect(None)?;
         conn.extension_information(shape::X11_EXTENSION_NAME)?.ok_or("no SHAPE extension")?;
-        let screen = conn.setup().roots[screen_num].clone();
+        let screen = conn.setup().roots.get(screen_num).ok_or("no X screen")?.clone();
         let argb = screen
             .allowed_depths
             .iter()
@@ -146,9 +146,9 @@ impl XOverlay {
 
 fn to_depth16(bgra: &[u8]) -> Vec<u8> {
     bgra.chunks_exact(4)
-        .flat_map(|p| {
-            let v =
-                (u16::from(p[2] >> 3) << 11) | (u16::from(p[1] >> 2) << 5) | u16::from(p[0] >> 3);
+        .filter_map(|p| <[u8; 4]>::try_from(p).ok())
+        .flat_map(|[b, g, r, _]| {
+            let v = (u16::from(r >> 3) << 11) | (u16::from(g >> 2) << 5) | u16::from(b >> 3);
             v.to_le_bytes()
         })
         .collect()

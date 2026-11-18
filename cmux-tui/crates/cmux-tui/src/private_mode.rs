@@ -42,7 +42,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // The Linux and Windows Computer Use worker the daemon supervises.
         #[cfg(not(target_os = "macos"))]
         Some(cmux_tui_core::computer_use_host::WORKER_MODE) => {
-            Some(crate::computer_use_worker::run(&args[1..]))
+            Some(crate::computer_use_worker::run(args.get(1..).unwrap_or_default()))
         }
         _ => None,
     }

@@ -310,9 +310,11 @@ fn tool_servers(
         names.push(format!("cmux-entry:{:016x}", std::hash::Hasher::finish(&h)));
         let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
         if let Some(sent) = crate::agent_tools::person_entry_env(&listed, launch, env, "") {
-            let answer = sent[crate::agent_tools::CMUX_SERVER]["env"]
-                [crate::agent_tools::TOOLS_ANSWER_ENV]
-                .as_str()
+            let answer = sent
+                .get(crate::agent_tools::CMUX_SERVER)
+                .and_then(|server| server.get("env"))
+                .and_then(|env| env.get(crate::agent_tools::TOOLS_ANSWER_ENV))
+                .and_then(serde_json::Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
             names.push(format!("cmux-entry-env:{answer}"));

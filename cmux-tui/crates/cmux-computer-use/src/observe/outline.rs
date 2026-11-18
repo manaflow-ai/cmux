@@ -376,9 +376,9 @@ fn folds(
     // A row that only holds one cell (Finder's sidebar): the cell stands for it.
     if bare
         && is_row(&e.role)
-        && e.children.len() == 1
-        && is_cell(&e.children[0].role)
-        && (!e.selected || e.children[0].selected)
+        && let [only] = e.children.as_slice()
+        && is_cell(&only.role)
+        && (!e.selected || only.selected)
     {
         return true;
     }
@@ -480,8 +480,11 @@ impl Walk<'_> {
             && !self.on_focus_path(e)
             && let Some(side) = out_of_view(e, at.clip)
         {
-            if let Some(owner) = at.owner {
-                self.out.lines[owner].out_of_view[side] += 1;
+            if let Some(owner) = at.owner
+                && let Some(n) =
+                    self.out.lines.get_mut(owner).and_then(|l| l.out_of_view.get_mut(side))
+            {
+                *n += 1;
             }
             self.hide(e, false, true);
             return;
@@ -580,7 +583,7 @@ impl Walk<'_> {
         if let Some(index) = line_at
             && index + 1 == self.out.lines.len()
         {
-            let l = &self.out.lines[index];
+            let Some(l) = self.out.lines.get(index) else { return };
             if is_item(&l.role)
                 && l.label.is_empty()
                 && l.identifier.is_empty()
