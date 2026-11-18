@@ -32,13 +32,6 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
         return all[index]
     }
 
-    /// Shows `new` in `table` by reloading every row (the old path, measured).
-    package func reloadAll(_ new: [Row], in table: NSTableView) {
-        all = new
-        fullReloads += 1
-        table.reloadData()
-    }
-
     /// Shows `new` in `table`, whose data source answers from these rows.
     package func show(_ new: [Row], in table: NSTableView) {
         let old = all

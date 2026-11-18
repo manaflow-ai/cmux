@@ -54,6 +54,7 @@ struct FileExplorerRenderCountTests {
     }
 
     static func window(_ view: NSView) -> NSWindow {
+        _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 400), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.contentView = view

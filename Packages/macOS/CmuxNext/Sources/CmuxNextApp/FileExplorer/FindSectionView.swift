@@ -111,7 +111,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     }
 
     func render() {
-        results.reloadAll(model.results, in: table)
+        results.show(model.results, in: table)
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root

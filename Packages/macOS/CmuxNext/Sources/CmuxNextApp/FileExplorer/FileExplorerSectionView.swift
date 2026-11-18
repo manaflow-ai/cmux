@@ -151,7 +151,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
 
     func render() {
         header.stringValue = model.failure ?? model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
-        rows.reloadAll(model.rows, in: table)
+        rows.show(model.rows, in: table)
         showContents.isHidden = !model.held
         if let selection = model.selection, let index = rows.all.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
