@@ -11,7 +11,12 @@ import Foundation
 /// different threads never interleave. The descriptor is nonblocking: a
 /// reader that stopped reading loses lines instead of stalling the app.
 public nonisolated struct LaunchMarkSink: Sendable {
-    public static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
+    public static let shared: LaunchMarkSink = {
+        let sink = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
+        // Experiment (lane/rtc-premain-a, not for merge): made by the main_start mark, so these describe pre-main.
+        for (name, value) in PremainUsage().marks() { sink.write(name: name, ms: value) }
+        return sink
+    }()
 
     public static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
     public static let pathKey = "CMUX_NEXT_LAUNCH_MARKS_PATH"
