@@ -457,12 +457,6 @@ impl Upstream {
         Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
     }
 
-    /// Whether its process runs and its output is open (tests).
-    #[cfg(test)]
-    pub(super) fn alive(&self) -> bool {
-        self.conn.as_ref().is_some_and(|conn| conn.alive())
-    }
-
     /// Whether the server's process runs.
     #[cfg(test)]
     pub(super) fn started(&self) -> bool {
