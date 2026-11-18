@@ -1,0 +1,224 @@
+/* The RFD reader. Colors come from cmux's theme variables, so light, dark and custom themes follow. */
+:root {
+  --text: var(--cmux-text, #1d1d1f);
+  --text2: var(--cmux-text-secondary, #6e6e73);
+  --accent: var(--cmux-accent, #0a84ff);
+  --line: var(--cmux-separator, rgba(127, 127, 127, 0.25));
+  --bg: var(--cmux-surface-background, #fff);
+  --raise: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --raise2: color-mix(in srgb, var(--text) 8%, var(--bg));
+  --ok: #30a46c;
+  --warm: #d6872b;
+  --measure: 680px;
+  color-scheme: light dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line);
+  background: var(--raise);
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+button:active { background: var(--raise2); }
+button.ghost { border-color: transparent; background: transparent; color: var(--text2); }
+button.ghost:hover { background: var(--raise); }
+button.ghost:active { background: var(--raise2); }
+kbd { font: 11px ui-monospace, monospace; color: var(--text2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.muted { color: var(--text2); }
+.grow { flex: 1; }
+
+/* Bar */
+#bar { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+#bar .title { font-weight: 600; border: 0; background: none; padding: 2px 4px; }
+#crumb { color: var(--text2); font-variant-numeric: tabular-nums; }
+#variants { display: inline-flex; margin-left: 8px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+#variants button { border: 0; border-radius: 0; background: transparent; padding: 2px 8px; color: var(--text2); font-size: 12px; }
+#variants button[aria-checked="true"] { background: var(--accent); color: #fff; }
+
+/* Status */
+body > footer, #refresh { font-size: 12px; }
+#status { padding: 4px 14px; color: var(--text2); border-top: 1px solid var(--line); }
+#status[data-tone="warn"] { color: var(--warm); }
+#refresh { position: fixed; right: 10px; bottom: 2px; z-index: 2; }
+
+/* List */
+#app { min-height: 0; display: grid; }
+#list { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+#filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; color: var(--text2); background: transparent; }
+.chip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+#filter { border: 1px solid var(--line); border-radius: 6px; background: var(--raise); padding: 4px 8px; }
+#rows { list-style: none; margin: 0; padding: 0; }
+.row { display: grid; grid-template-columns: 3.4em 1fr auto; grid-template-areas: "num title state" "num authors when"; column-gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.row:hover { background: var(--raise); }
+.row.selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.row .num { grid-area: num; color: var(--text2); font: 12px ui-monospace, monospace; padding-top: 2px; }
+.row .rtitle { grid-area: title; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .state { grid-area: state; justify-self: end; }
+.row .authors { grid-area: authors; color: var(--text2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .when { grid-area: when; color: var(--text2); font-size: 12px; justify-self: end; }
+.row .pr { display: none; }
+.empty { color: var(--text2); padding: 12px 8px; list-style: none; }
+
+.state { font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid currentColor; line-height: 17px; white-space: nowrap; }
+.state.ok { color: var(--ok); }
+.state.accent { color: var(--accent); }
+.state.warm { color: var(--warm); }
+.state.muted { color: var(--text2); }
+
+/* Document */
+#doc { min-height: 0; overflow: auto; padding: 28px 32px 80px; outline: none; }
+.placeholder { color: var(--text2); display: grid; place-items: center; height: 60%; }
+.dochead { max-width: var(--measure); margin-bottom: 18px; }
+.docnum { font: 12px ui-monospace, monospace; color: var(--text2); letter-spacing: 0.04em; }
+.dochead h1 { font-size: 26px; line-height: 1.2; margin: 4px 0 10px; letter-spacing: -0.01em; }
+.docmeta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13px; }
+.extlink { color: var(--accent); text-decoration: none; cursor: pointer; }
+.extlink:hover { text-decoration: underline; }
+
+.blocks .blk { display: grid; grid-template-columns: minmax(0, var(--measure)) minmax(0, 300px); column-gap: 28px; }
+.blk .margin { min-width: 0; }
+.prose { font-size: 15px; line-height: 1.65; }
+.prose h2 { font-size: 19px; margin: 28px 0 8px; }
+.prose h3 { font-size: 16px; margin: 22px 0 6px; }
+.prose p, .prose ul, .prose ol, .prose table, .prose pre, .prose blockquote { margin: 0 0 12px; }
+.prose a { color: var(--accent); text-decoration: none; }
+.prose a:hover { text-decoration: underline; }
+.prose a[data-rfd], .prose .rfdref { border-bottom: 1px dotted var(--accent); }
+.prose code { font: 0.88em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--raise); padding: 1px 4px; border-radius: 4px; }
+.prose pre { background: var(--raise); padding: 10px 12px; border-radius: 8px; overflow: auto; }
+.prose pre code { background: none; padding: 0; }
+.prose table { border-collapse: collapse; font-size: 13px; display: block; overflow: auto; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 4px 8px; vertical-align: top; text-align: left; }
+.prose th { background: var(--raise); }
+.prose blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text2); }
+
+/* Comment threads */
+.thread { font-size: 12.5px; line-height: 1.45; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 6px 8px; margin: 2px 0 8px; }
+.thread summary { cursor: pointer; list-style: none; }
+.thread summary::-webkit-details-marker { display: none; }
+.thread .who { font-weight: 600; }
+.thread .replies { color: var(--accent); }
+.comment { margin-top: 6px; }
+.cby { color: var(--text2); font-size: 11.5px; }
+.cbody { white-space: pre-wrap; overflow-wrap: anywhere; }
+.thread .extlink { display: inline-block; margin-top: 6px; font-size: 11.5px; }
+.blk.has-comments > .content { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warm) 60%, transparent); padding-left: 10px; margin-left: -13px; }
+
+/* Hover card */
+#hovercard { position: fixed; z-index: 10; width: 300px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); display: grid; gap: 4px; pointer-events: none; }
+#hovercard[hidden] { display: none; }
+#hovercard .htitle { font-weight: 600; }
+
+/* Dialogs */
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); padding: 0; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.3); }
+dialog::backdrop { background: rgba(0, 0, 0, 0.25); }
+dialog > input[type="search"] { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 12px 14px; font-size: 16px; outline: none; }
+#jump-dialog { width: min(560px, 90vw); margin-top: 12vh; }
+#search-dialog { width: min(980px, 94vw); height: min(620px, 80vh); margin-top: 8vh; }
+#search-dialog[open] { display: grid; grid-template-rows: auto 1fr; }
+#search-dialog .split { display: grid; grid-template-columns: 2fr 3fr; min-height: 0; }
+#search-results, #jump-results { list-style: none; margin: 0; padding: 6px; overflow: auto; }
+#jump-results { max-height: 50vh; }
+#search-results li, #jump-results li { padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+#search-results li.active, #jump-results li.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+#search-results .num, #jump-results .num { font: 12px ui-monospace, monospace; color: var(--text2); }
+.excerpt { color: var(--text2); font-size: 12.5px; margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+mark { background: color-mix(in srgb, var(--warm) 35%, transparent); color: inherit; border-radius: 2px; }
+#search-preview { border-left: 1px solid var(--line); padding: 14px 18px; overflow: auto; font-size: 13.5px; }
+#search-preview h2 { margin: 2px 0 10px; font-size: 18px; }
+#new-dialog { width: min(640px, 92vw); }
+#new-form { display: grid; gap: 10px; padding: 16px 18px; }
+#new-form h2 { margin: 0; font-size: 17px; }
+#new-form label { display: grid; gap: 4px; font-size: 12.5px; color: var(--text2); }
+#new-form input, #new-form select, #new-form textarea { border: 1px solid var(--line); border-radius: 6px; background: var(--raise); padding: 6px 8px; color: var(--text); font-size: 14px; }
+#new-form textarea { font: 13px/1.5 ui-monospace, monospace; resize: vertical; }
+#new-form .actions { display: flex; justify-content: flex-end; gap: 8px; }
+#new-submit { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* A: directory. The list beside the document; comments in the right margin. */
+body[data-variant="directory"] #app { grid-template-columns: 340px 1fr; }
+body[data-variant="directory"] #list { border-right: 1px solid var(--line); }
+
+/* B: index. A full-width table first; the document alone after a pick; comments as markers. */
+body[data-variant="index"] #app { grid-template-columns: 1fr; }
+body[data-variant="index"][data-view="list"] #doc,
+body[data-variant="index"][data-view="doc"] #list { display: none; }
+body[data-variant="index"] #list { padding: 20px 28px; max-width: 1100px; width: 100%; margin: 0 auto; }
+body[data-variant="index"] .row { grid-template-columns: 4em minmax(0, 1fr) 9em 14em 8em 4em; grid-template-areas: "num title state authors when pr"; align-items: center; border-bottom: 1px solid var(--line); border-radius: 0; }
+body[data-variant="index"] .row .state { justify-self: start; }
+body[data-variant="index"] .row .authors { grid-area: authors; }
+body[data-variant="index"] .row .pr { display: block; grid-area: pr; color: var(--text2); font-size: 12px; justify-self: end; }
+body[data-variant="index"] #doc { max-width: 1100px; width: 100%; margin: 0 auto; }
+body[data-variant="index"] .blocks .blk { grid-template-columns: minmax(0, var(--measure)) 28px; column-gap: 10px; position: relative; }
+body[data-variant="index"] .thread { position: relative; border: 0; padding: 0; background: none; }
+body[data-variant="index"] .thread > summary { width: 22px; height: 22px; border-radius: 11px; background: color-mix(in srgb, var(--warm) 22%, var(--bg)); color: transparent; overflow: hidden; }
+body[data-variant="index"] .thread > summary::before { content: "💬"; color: var(--text); font-size: 11px; display: grid; place-items: center; width: 22px; height: 22px; }
+body[data-variant="index"] .thread[open] { position: absolute; right: 34px; top: 0; z-index: 3; width: 320px; }
+body[data-variant="index"] .thread[open] > :not(summary) { background: var(--bg); }
+body[data-variant="index"] .thread[open] { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16); }
+body[data-variant="index"] .thread[open] > summary { width: auto; height: auto; background: none; color: inherit; }
+body[data-variant="index"] .thread[open] > summary::before { display: none; }
+body[data-variant="index"] .blk.has-comments > .content { box-shadow: none; padding-left: 0; margin-left: 0; }
+
+/* C: focus. The document alone in a centered column; comments under their paragraph. */
+body[data-variant="focus"] #app { grid-template-columns: 1fr; }
+body[data-variant="focus"] #list { display: none; }
+body[data-variant="focus"] #doc { display: block; }
+body[data-variant="focus"] .dochead, body[data-variant="focus"] .blocks { max-width: var(--measure); margin-left: auto; margin-right: auto; }
+body[data-variant="focus"] .dochead h1 { font-size: 30px; }
+body[data-variant="focus"] .blocks .blk { display: block; }
+body[data-variant="focus"] .blk .margin:not(:empty) { margin: -4px 0 14px 14px; padding-left: 12px; border-left: 2px solid color-mix(in srgb, var(--warm) 50%, transparent); }
+body[data-variant="focus"] .thread { border: 0; padding: 2px 0; background: none; }
+body[data-variant="focus"] .blk.has-comments > .content { box-shadow: none; padding-left: 0; margin-left: 0; }
+body[data-variant="focus"] .prose { font-size: 16px; line-height: 1.7; }
+
+@media (max-width: 900px) {
+  body[data-variant="directory"] #app { grid-template-columns: 260px 1fr; }
+  .blocks .blk { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Header fields (state, RFD, authors, updated, access) and links, as a document's front page. */
+.docnum .state { margin-right: 6px; vertical-align: 1px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, max-content)); column-gap: 28px; row-gap: 6px; margin: 4px 0 10px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.fields .field { min-width: 0; }
+.fields dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); }
+.fields dd { margin: 1px 0 0; font-size: 13px; }
+.fields .access { font: 12px ui-monospace, monospace; padding: 0 6px; border-radius: 4px; background: var(--raise2); }
+.links { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-bottom: 6px; }
+.links a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.links .link-recording::before { content: "▶ "; font-size: 10px; }
+.links .link-discussion::before { content: "💬 "; font-size: 11px; }
+
+/* Contents: the body sections, numbered. */
+.toc { font-size: 13px; }
+.toc-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); margin-bottom: 4px; }
+.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: sec; }
+.toc li.d2 { counter-increment: sec; }
+.toc li.d2::before { content: counter(sec) ". "; color: var(--text2); font-variant-numeric: tabular-nums; }
+.toc li.d3 { padding-left: 1.4em; font-size: 12.5px; }
+.toc a { color: var(--text); text-decoration: none; }
+.toc a:hover { color: var(--accent); }
+
+/* A: contents as a row under the header (the margin holds comments). */
+body[data-variant="directory"] .toc { max-width: var(--measure); margin: 0 0 18px; padding: 8px 12px; background: var(--raise); border-radius: 8px; }
+body[data-variant="directory"] .toc li.d3 { display: none; }
+body[data-variant="directory"] .toc ol { display: flex; flex-wrap: wrap; gap: 2px 16px; }
+/* B: contents as a sticky rail left of the text. */
+body[data-variant="index"] .docbody { display: grid; grid-template-columns: 190px minmax(0, 1fr); column-gap: 28px; align-items: start; }
+body[data-variant="index"] .toc { position: sticky; top: 0; padding-top: 4px; }
+body[data-variant="index"] .toc li { padding-top: 2px; padding-bottom: 2px; }
+/* C: contents like a book's, under the title. */
+body[data-variant="focus"] .toc { max-width: var(--measure); margin: 0 auto 22px; padding-left: 0; padding-right: 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+body[data-variant="focus"] .toc li { padding-top: 1px; padding-bottom: 1px; }
+body[data-variant="focus"] .fields, body[data-variant="focus"] .links, body[data-variant="focus"] .docmeta { max-width: var(--measure); }

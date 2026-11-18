@@ -163,8 +163,9 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         caller_token: adopt.caller_token.clone(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::build().to_owned(),
+        host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
+        claude_translator: spec.translator.is_some(),
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -246,8 +247,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::build().to_owned(),
+        host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
+        claude_translator: spec.translator.is_some(),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {

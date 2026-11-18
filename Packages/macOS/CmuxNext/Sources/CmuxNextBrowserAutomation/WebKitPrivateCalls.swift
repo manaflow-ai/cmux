@@ -54,6 +54,8 @@ public struct WebKitPrivateCalls: Sendable {
     public func afterActivityStateUpdate(_ webView: WKWebView) async {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterActivityStateUpdate:")
+        // A suspended page raises on both calls below (`WKWebView.cmuxIsSuspended`) and sends no update.
+        guard !webView.cmuxIsSuspended else { return }
         guard isVerified, webView.responds(to: selector) else {
             // Bounded too: a page whose web process never answers must not
             // hang the call.
@@ -79,7 +81,7 @@ public struct WebKitPrivateCalls: Sendable {
     public func afterNextPresentationUpdate(_ webView: WKWebView) async {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
-        guard webView.responds(to: selector) else { return }
+        guard webView.responds(to: selector), !webView.cmuxIsSuspended else { return }
         typealias Action = @convention(block) () -> Void
         typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
         let function = unsafeBitCast(webView.method(for: selector), to: Function.self)

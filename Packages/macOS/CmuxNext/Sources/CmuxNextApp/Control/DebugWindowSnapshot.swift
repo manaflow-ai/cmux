@@ -145,7 +145,7 @@ enum DebugWindowSnapshot {
                 childrenIncluded += pageChildren
             }
             var failed = 0
-            for webView in webViews where base.method == .appkit {
+            for webView in webViews where base.method == .appkit && !webView.cmuxIsSuspended { // WebKit raises on a frozen page's snapshot
                 do {
                     let image = try await webView.takeSnapshot(configuration: nil)
                     var proposedRect = NSRect.zero

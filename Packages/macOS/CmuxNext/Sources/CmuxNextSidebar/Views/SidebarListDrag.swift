@@ -77,6 +77,8 @@ final class SidebarListDrag {
     var blockTarget: SidebarBlockGap?
     /// Each block's laid-out items without the dragged one, at the drag's begin (its hit test's base).
     var blockBases: [String: SidebarRegionLayout] = [:]
+    /// The open block gap as the row rule reads it (`SidebarListView.rowGap`), laid out once per gap; `rows` is nil for a gap among tiles.
+    var blockGapShape: (gap: SidebarBlockGap, rows: SidebarRowGap?)?
     /// The lifted card's shape as a list row (list coordinates; x and size):
     /// a row drag's own row, a tile drag's row look. The card morphs to it
     /// over the list and to a slot's shape over a block (`SidebarListView.morphLift`).

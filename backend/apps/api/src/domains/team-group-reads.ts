@@ -1,6 +1,6 @@
 import type { ReadResult } from "../owner-do.ts"
 import type { RowsWithScan } from "./team-members.ts"
-import { groupItems, groupLinks, groupOf, groupView, roleIn, TABLE_GROUP_MEMBER, type GroupRow } from "./team-groups.ts"
+import { groupItems, groupLinks, groupMembers, groupOf, groupView, roleIn, TABLE_GROUP_MEMBER, type GroupRow } from "./team-groups.ts"
 import type { TeamState } from "./team.ts"
 
 /** Rows that also read a key range (SqlRows.keyRange); pure test readers may lack it and answer empty. */
@@ -19,6 +19,11 @@ export const groupRead = (state: TeamState, op: string, params: unknown, user: s
     const g = typeof q.group === "string" ? groupOf(rows, q.group) : undefined
     if (!g || !roleIn(g, user)) return { ok: false, code: "selector.not_found", message: "no such group" }
     return { ok: true, value: { group: groupView(g, user), items: groupItems(rows, g.id), ...groupLinks(g.id) }, revision: "" }
+  }
+  if (op === "group.members.list") {
+    const g = typeof q.group === "string" ? groupOf(rows, q.group) : undefined
+    if (!g || !roleIn(g, user)) return { ok: false, code: "selector.not_found", message: "no such group" }
+    return { ok: true, value: { group: g.id, members: groupMembers(state, rows, g) }, revision: "" }
   }
   const limit = typeof q.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), PAGE) : PAGE
   const cursor = typeof q.cursor === "string" && q.cursor.startsWith("grp_") && q.cursor.length <= 128 ? q.cursor : undefined

@@ -17,7 +17,12 @@
 //   stream    with --modes idle,stream: the same keys while the chat streams a reply (60 deltas/s, a tool call every
 //             30), and, with no typing, the composer's renders per streamed event (reply text and tool calls, then a
 //             tool's output ticking while another chat changes: debug loadRun and loadTick). A stream event the
-//             composer does not show should render it 0 times.
+//             composer does not show should render it 0 times. The same run reports the transcript's and its rows'
+//             renders per streamed event (transcript_per_stream_event, rows_per_stream_event): the per-key columns
+//             divide the window's renders by the key count, so only these separate the stream's own draw cost from
+//             anything a keypress causes. One render per event is a coalesced draw; more is a frame it will redraw.
+//             STREAM-SPANS lines carry that run's spans (perf.ts `span`), which name the work each streamed frame
+//             spends its time in (flush.scroll, flush.drawn, vt.body, row.renders) where a render count cannot.
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
@@ -26,8 +31,12 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
+import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
+import { reportTrace, traceWindow } from "./styleInvalidationTrace";
+import { sourceMapper } from "./sourceMapper";
+let mapUrl: (file: string, line: number, column: number) => string = (file, line) => `${file}:${line + 1}`;
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -41,6 +50,10 @@ const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
 const DEV = argv.includes("--dev");
+/// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
+/// stream with no typing; it prints elements restyled per key and per token and what restyled them
+/// (styleInvalidationTrace.ts; `STYLE-TRACE ... SUMMARY` lines).
+const TRACE = argv.includes("--trace");
 const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
@@ -65,8 +78,15 @@ const METRICS = [
 ] as const;
 
 async function openChat(page: Page, port: number, turns: number) {
+  // Before the page's own code (bench/support/benchPage.ts installReactWatch).
+  await installReactWatch(page);
   await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // `servePane` builds the pane unless `--dev`; the check reads which React the page loaded
+  // (bench/support/benchPage.ts).
   await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+  // After the pane is up: react-dom rides a lazy chunk the page fetches when it mounts, so asking
+  // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
+  await requireProductionReact(page, { dev: DEV });
   const seeded = (await page.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -136,7 +156,14 @@ function printProfile(length: number, profile: CpuProfile) {
 // dev server's pane instead (development React, several times the script time per render). With --profile the build
 // is unminified, so the profile names functions.
 const releases: (() => unknown)[] = [];
-const serveOptions = { dev: DEV, unminified: PROFILE };
+// --trace builds unminified with source maps, so the trace names source lines (a second arm's build maps over the
+// first's).
+const serveOptions = {
+  dev: DEV,
+  unminified: PROFILE || TRACE,
+  sourcemap: TRACE,
+  built: TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
+};
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
 async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
@@ -191,10 +218,15 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     const before = await metrics();
     const since = await page.evaluate(() => performance.now());
     const letters = "abcdefghijklmnopqrstuvwxyz";
-    for (let i = 0; i < KEYS; i += 1) {
-      await page.keyboard.press(letters[i % letters.length]!);
-      await page.waitForTimeout(GAP_MS);
-    }
+    const typeKeys = async () => {
+      for (let i = 0; i < KEYS; i += 1) {
+        await page.keyboard.press(letters[i % letters.length]!);
+        await page.waitForTimeout(GAP_MS);
+      }
+    };
+    const typedAt = performance.now();
+    const typedEvents = TRACE ? await traceWindow(browser, page, typeKeys) : (await typeKeys(), undefined);
+    const typedMs = performance.now() - typedAt;
     await page.waitForTimeout(500);
     const after = await metrics();
     const until = await page.evaluate(() => performance.now());
@@ -212,15 +244,57 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
+    if (typedEvents) {
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
+      console.log(
+        `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
+      );
+    }
+    if (TRACE && mode === "stream") {
+      let run: Record<string, any> = {};
+      const events = await traceWindow(browser, page, async () => {
+        run = (await page.evaluate(() =>
+          (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 2, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
+        )) as Record<string, any>;
+      });
+      const tokens = Number(run.deltas ?? 0) + Number(run.tools ?? 0);
+      console.log(
+        `STYLE-TRACE stream-only ${rows}rows RUN ${JSON.stringify({ deltas: run.deltas, tools: run.tools, frames: run.frames, rows: run.rows })}`,
+      );
+      await cdp.send("DOM.getDocument", { depth: 0 });
+      await reportTrace(`stream-only ${rows}rows`, events, { tokens }, mapUrl, cdp);
+    }
     // Per stream event, nobody typing: the composer's renders while a reply and tool calls stream
     // (loadRun), then while a tool's output ticks and another chat changes (loadTick).
     let composerPerEvent: number | undefined;
     let composerPerTick: number | undefined;
+    /// The transcript's and its rows' renders per streamed event with nobody typing: the stream's own
+    /// draw cost, which the per-key columns above divide by the key count and so cannot separate. One
+    /// render per event is a coalesced draw; more than one is the stream drawing a frame it will redraw.
+    let transcriptPerEvent: number | undefined;
+    let rowsPerEvent: number | undefined;
     if (mode === "stream") {
       const run = (await page.evaluate(() =>
         (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 3, chunk_ms: 16, tool_every: 10, scroll_speed: 0 }),
-      )) as { renders: Record<string, number>; deltas: number; tools: number };
-      composerPerEvent = Math.round(((run.renders.composer ?? 0) / Math.max(1, run.deltas + run.tools)) * 1000) / 1000;
+      )) as {
+        renders: Record<string, number>;
+        deltas: number;
+        tools: number;
+        spans?: Record<string, { p50_ms?: number; p95_ms?: number; max_ms?: number }>;
+      };
+      const runEvents = Math.max(1, run.deltas + run.tools);
+      // Which work each streamed frame spends its time in, with nobody typing: the spans name the
+      // update that draws the transcript again (perf.ts `span`), which a render count cannot.
+      console.log(
+        `STREAM-SPANS ${rows}rows ${JSON.stringify({ events: runEvents, spans: run.spans, renders: run.renders })}`,
+      );
+      composerPerEvent = Math.round(((run.renders.composer ?? 0) / runEvents) * 1000) / 1000;
+      transcriptPerEvent = Math.round(((run.renders.transcript ?? 0) / runEvents) * 1000) / 1000;
+      const runRows = Object.entries(run.renders)
+        .filter(([name]) => name.startsWith("row:") || name.startsWith("content:"))
+        .reduce((total, [, value]) => total + value, 0);
+      rowsPerEvent = Math.round((runRows / runEvents) * 1000) / 1000;
       const tick = (await page.evaluate(() =>
         (window as any).cmuxAcpmuxDebug.loadTick({ seconds: 3, tick_ms: 50, sidebar_ms: 100, scroll_speed: 0 }),
       )) as { renders: Record<string, number>; ticks?: number; sidebar?: number };
@@ -258,6 +332,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,
       composer_per_tick_event: composerPerTick,
+      transcript_per_stream_event: transcriptPerEvent,
+      rows_per_stream_event: rowsPerEvent,
       nativePosts: JSON.stringify(typing.native_posts ?? {}),
       busiest: Object.entries(renders)
         .sort((a, b) => b[1] - a[1])
