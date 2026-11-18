@@ -28,6 +28,10 @@
 #                       (default 300; its timer is then 30 s, not 4 s). measure=S is its window with the focus.
 #                       With cells=, measure= is a multiple of 4 and unfocused= a multiple of 30 (the page's
 #                       2 timers), so each window holds a whole count of reads.
+#   home=1              after each arm's idle launches of a round, one more fresh launch of that arm
+#                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
+#                       which Home view asked for it; then Home's first open and the first Chief reply after it.
+#                       Prints IDLE-AB home <arm> <round> ... and IDLE-AB home median <metric> base ... head ...
 # The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
@@ -57,7 +61,7 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
 own_sha="$(git rev-parse HEAD)"
-base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false
+base="" head="" rounds=5 chats="0,1,10" measure=60 trace=10 kinds="app,cef-gpu" cells="" unfocused=300 chats_given=false home=0
 for arg in "$@"; do
   case "$arg" in
     base=*) base="${arg#base=}" ;;
@@ -69,6 +73,7 @@ for arg in "$@"; do
     kinds=*) kinds="${arg#kinds=}" ;;
     cells=*) cells="${arg#cells=}" ;;
     unfocused=*) unfocused="${arg#unfocused=}" ;;
+    home=*) home="${arg#home=}" ;;
     *) echo "perf-idle-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -93,7 +98,7 @@ disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
 for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
-         scripts/cmux-next/tag_teardown.py \
+         scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }
 done
@@ -224,6 +229,13 @@ run_arm() {  # run_arm ARM ROUND
     rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-cell$k.log"; }
     python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
   done
+  if [ "$home" = 1 ]; then
+    # Not a .json: the summary below reads every runs/*.json as a bench_memory report.
+    python3 "$harness/chief-start-probe.py" --app "$app" --out "$out/runs/$arm-$i-home.probe" > "$out/runs/$arm-$i-home.log" 2>&1
+    rc=$?; (( rc )) && { status=1; tail -n 30 "$out/runs/$arm-$i-home.log"; }
+    grep -h '^CHIEF-START ' "$out/runs/$arm-$i-home.log" | sed "s/^CHIEF-START /IDLE-AB home $arm $i /"
+    python3 "$harness/tag_teardown.py" "$app" >/dev/null 2>&1
+  fi
   grep -h '^PERF-ATTR .* wakes ' "$out/runs/$arm-$i-"*.log 2>/dev/null | head -n 80 | sed "s/^/IDLE-AB $arm $i /"
 }
 for i in $(seq 1 "$rounds"); do
@@ -334,6 +346,41 @@ for cell in sorted(focus):
 for cell, what in faults:
     print(f"IDLE-AB fault cell {cell} {what}")
 sys.exit(1 if faults else 0)
+PY
+# The memory of each sample (phys_footprint summed over the app's processes, bench_memory's
+# total_footprint_mb) and, with home=1, the probe's times: medians per arm.
+python3 -I - "$out/runs" <<'PY' || status=1
+import collections, glob, json, os, statistics, sys
+runs = sys.argv[1]
+mem = collections.defaultdict(lambda: collections.defaultdict(list))
+for path in sorted(glob.glob(os.path.join(runs, "*.json"))):
+    arm, i, mode = os.path.basename(path)[:-5].split("-")
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for s in data.get("samples", []):
+        brains = sum(1 for p in s.get("processes", []) if "optchat-chief" in p.get("command", ""))
+        print(f"IDLE-AB footprint {arm} {i} {mode} {s['label']} total_mb {s.get('total_footprint_mb')} chief_processes {brains}")
+        mem[(mode, s["label"])][arm].append(s.get("total_footprint_mb"))
+home = collections.defaultdict(lambda: collections.defaultdict(list))
+for path in sorted(glob.glob(os.path.join(runs, "*-home.probe"))):
+    arm = os.path.basename(path).split("-")[0]
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for key in ("home_open_ms", "brain_after_open_ms", "brain_logged_ms", "typing_ms", "first_text_ms", "reply_ms"):
+        if data.get(key) is not None:
+            home[key][arm].append(data[key])
+    home["brain_at_rest"][arm].append(1 if data.get("brain_at_rest") else 0)
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return f"{round(statistics.median(xs), 1)} [{min(xs)}-{max(xs)}] n {len(xs)}" if xs else "none"
+for (mode, label), arms in sorted(mem.items()):
+    print(f"IDLE-AB footprint median {mode} {label} base {med(arms['base'])} head {med(arms['head'])}")
+for key, arms in home.items():
+    print(f"IDLE-AB home median {key} base {med(arms['base'])} head {med(arms['head'])}")
 PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
 # Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
