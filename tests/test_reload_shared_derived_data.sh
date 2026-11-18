@@ -59,6 +59,58 @@ grep -Fq 'rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-bui
 grep -Fq 'rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
   || fail "reload.sh no longer drops the last build's marker before a measurement build (an interrupted build must leave none)"
 
+# The worker keeps a measurement step's DerivedData between steps, so a later step can meet a module of the app
+# FFI that is older than its header: xcodebuild then fails with exit 65 (the line in `stale` below). That
+# build clears the folder's build state and runs ONE more time. Another build error, a second failure, a
+# DerivedData that is not the measurement one and a build that is no measurement step run the build once.
+eval "$(awk '/^build_with_stale_module_second_try\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+declare -F build_with_stale_module_second_try >/dev/null || fail "build_with_stale_module_second_try not found in reload.sh"
+grep -Fq 'build_with_stale_module_second_try python3 -c' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh's xcodebuild call does not go through build_with_stale_module_second_try"
+(
+  co="$(mktemp -d /var/tmp/cmux-reload-second-build.XXXXXX)"; trap 'rm -rf "$co"' EXIT
+  co="$(cd "$co" && pwd -P)"
+  mkdir -p "$co/scripts/cmux-next"
+  cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$co/scripts/cmux-next/"
+  SCRIPT_DIR="$co/scripts"; RELOAD_LOG="$co/reload.log"; measure="$co/.build/DerivedData/cmux-measure"
+  stale="<unknown>:0: error: file '/checkout/.build/DerivedData/cmux-measure/Build/Products/Release/include/CAcpmuxClientFFI/acpmux_client.h' has been modified since the module file '/checkout/.build/DerivedData/cmux-measure/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/CAcpmuxClientFFI-B8DKNIPA8HRBV100IOQXLN9HL.pcm' was built"
+  other="/checkout/Packages/macOS/CmuxNext/Sources/CmuxNextAgentList/AcpmuxClient.swift:12:5: error: cannot find 'missing' in scope"
+  # The build's stand-in: each call is one line in `builds`; the first $fails calls print $line and exit $code.
+  fake_build() {
+    echo build >> "$co/builds"
+    if [[ "$(wc -l < "$co/builds")" -le "$fails" ]]; then printf '%s\n** BUILD FAILED **\n' "$line"; return "$code"; fi
+    echo "** BUILD SUCCEEDED **"
+  }
+  # Runs the real function as reload.sh does (its output and the build's go to the reload log) on a DerivedData
+  # that holds a build and its packages.
+  second_try() {
+    DERIVED_DATA="$1"; rm -rf "$co/.build" "$co/elsewhere" "$co/builds"
+    mkdir -p "$DERIVED_DATA/Build/Products" "$DERIVED_DATA/SourcePackages"; : > "$RELOAD_LOG"
+    status=0
+    build_with_stale_module_second_try fake_build >> "$RELOAD_LOG" 2>&1 3>&1 || status=$?
+    builds="$(wc -l < "$co/builds" | tr -d ' ')"
+  }
+  export CMUX_CI_STEP_CLASS=exclusive
+  fails=1 line="$stale" code=65; second_try "$measure"
+  [[ "$status" -eq 0 && "$builds" -eq 2 ]] || fail "a stale module in a measurement step: exit $status after $builds builds (want 0 after 2)"
+  grep -q 'stale module: second build' "$RELOAD_LOG" || fail "the second build is not said in the log"
+  [[ ! -e "$measure/Build" && -d "$measure/SourcePackages" ]] || fail "the second build kept the stale build state or lost the packages"
+  fails=1 line="$other" code=65; second_try "$measure"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
+    || fail "another build error: exit $status after $builds builds (want 65 after 1, the build state kept)"
+  fails=2 line="$stale" code=66; second_try "$measure"
+  [[ "$status" -eq 66 && "$builds" -eq 2 ]] || fail "a second failure: exit $status after $builds builds (want 66 after 2, no third build)"
+  fails=0 line="$stale" code=65; second_try "$measure"
+  [[ "$status" -eq 0 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] || fail "a build that passed: exit $status after $builds builds"
+  fails=1 line="$stale" code=65; second_try "$co/elsewhere/cmux-one"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$co/elsewhere/cmux-one/Build/Products" ]] \
+    || fail "a DerivedData that is not the measurement one: exit $status after $builds builds (want 65 after 1)"
+  export CMUX_CI_STEP_CLASS=isolated
+  fails=1 line="$stale" code=65; second_try "$measure"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
+    || fail "a build that is no measurement step: exit $status after $builds builds (want 65 after 1)"
+)
+
 # The parser must record --derived-data and the tag default must go through the resolver with it.
 awk '/^    --derived-data\)/,/;;/' "$ROOT/scripts/reload.sh" | grep -q 'DERIVED_SET=1' \
   || fail "the --derived-data parser no longer sets DERIVED_SET=1"
