@@ -2390,9 +2390,9 @@ jobs:
         name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ACCOUNT_ID: &r2a ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: &r2k ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: &r2s ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
         run: bash -e scripts/ci/nightly-steps/app-fetch-chromium-engine.sh
@@ -2794,7 +2794,21 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           HELPER_ARCHS: ${{ contains(needs.decide.outputs.variants, 'x86_64') && 'arm64 x86_64' || 'arm64' }}
+          CMUX_CEF_R2_ACCOUNT_ID: *r2a
+          CMUX_CEF_R2_ACCESS_KEY_ID: *r2k
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: *r2s
+          CMUX_CEF_R2_ENV_FILE: /dev/null
         run: bash scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh
+
+      - &x43u
+        name: Keep a source-built Computer Use helper
+        if: ${{ !env.LEFT_SLOT }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-cua-helper-unsigned
+          path: ${{ runner.temp }}/cmux-cua-helper-prebuilt/
+          if-no-files-found: ignore
+          retention-days: 3
 
       - &x44
         name: Resolve immutable SSH daemon metadata
@@ -7263,6 +7277,7 @@ jobs:
       - *x39
       - *x40
       - *x43
+      - *x43u
       - *x44
       - *x45
       - *x46
