@@ -205,6 +205,18 @@ class Evidence(unittest.TestCase):
         # The switch probes every member of the linux pool, so each one has health of its own.
         self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.load_pools()["linux"]["members"]))
 
+    def test_every_x64_linux_label_a_pool_can_name_is_probed(self) -> None:
+        # 2026-11-18: linux_16 and linux_32 sat on blacksmith-32vcpu-ubuntu-2404 while it started nothing
+        # from about 23:12Z (488 jobs queued, none running, at 01:01Z). The probe asked only for 4 and 16
+        # vCPU, and the janitor's snapshot was truncated (2,500 queued runs), so nothing ever said 32 vCPU
+        # was dead. Every x64 Linux label a pool can point at, release valve included, has probe health.
+        import cloud_overflow_switch as switch
+        pools = runner_pools.load_pools()
+        reachable = {label for spec in pools.values() for label in runner_pools.allowed(spec, pools)
+                     if runner_pools.X64_UBUNTU.match(label)}
+        self.assertEqual(set(switch.HEALTH_LABELS), reachable)
+        self.assertEqual(switch.HEALTH_LABELS[:len(switch.PROBE_LABELS)], switch.PROBE_LABELS)
+
     def test_the_recorded_snapshot_marks_nothing(self) -> None:
         dead, started, _ = runner_pools.label_evidence(None, RECORDED, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
@@ -336,8 +348,49 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(probed["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
     def test_every_member_dead_keeps_the_first(self) -> None:
+        # No smaller x64 size is declared in POOLS, so the release valve has nowhere to go.
         value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
+
+    def test_every_member_dead_releases_to_the_next_smaller_live_size(self) -> None:
+        # 2026-11-18 01:18Z: 16 vCPU marked dead, 32 vCPU starting nothing since about 23:12Z, and
+        # linux_16 / linux_32 left on 32 vCPU. 8 vCPU kept starting jobs (01:10Z, run 44211950380).
+        pools = {
+            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"]},
+            "linux_32": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
+            "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
+        }
+        both = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
+        value, lines = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
+        self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertTrue(any("release valve" in line and "linux_16" in line for line in lines), lines)
+        # The value round-trips and passes --check: the valve label is allowed, not reset.
+        current, dropped = runner_pools.parse_value(runner_pools.render(value), pools)
+        self.assertEqual(dropped, [])
+        self.assertEqual(current["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.value_problems(value, pools), [])
+        # 8 vCPU dead too: the next smaller declared size that is not.
+        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404"},
+                                          served_now=(), now=NOW)
+        self.assertEqual(value["linux_16"], "blacksmith-4vcpu-ubuntu-2404")
+        # Nothing smaller alive: the first member, as before.
+        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404",
+                                                               "blacksmith-4vcpu-ubuntu-2404"},
+                                          served_now=(), now=NOW)
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        # A member starting again takes the pool back from the valve.
+        released, _ = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
+        back, _ = runner_pools.reconcile(released, pools, dead_now=(), served_now={"blacksmith-32vcpu-ubuntu-2404"},
+                                         now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(back["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
+        self.assertEqual(back["linux_16"], "blacksmith-32vcpu-ubuntu-2404")
+        # macOS pools and any other label stay out of the valve.
+        self.assertEqual(runner_pools.allowed(pools["macos_26"], pools), runner_pools.members(pools["macos_26"]))
+        self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
 
     def test_no_change_keeps_the_value_byte_for_byte(self) -> None:
         value, _ = self.run_once({})
@@ -483,6 +536,32 @@ class Main(unittest.TestCase):
         def set_variable(self, name, value):
             self.writes.append((name, value))
             self.variables[name] = value
+
+    def test_the_2026_11_18_pass_moves_linux_16_and_linux_32_off_the_dead_sizes(self) -> None:
+        # The live RUNNER_POOLS at 01:18:46Z and a probe pass over every x64 size, with the declared pools.
+        live = json.dumps({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-11-18T01:18:46Z",
+                                     "blacksmith-4vcpu-ubuntu-2404": "2026-11-18T01:18:46Z"},
+                           "_updated": "2026-11-18T01:18:46Z",
+                           "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux_8": "blacksmith-8vcpu-ubuntu-2404"})
+        now = dt.datetime(2026, 11, 18, 1, 28, 46, tzinfo=dt.timezone.utc)
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
+            "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
+            "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(None), switch=switch, now=now), 0)
+        value = json.loads(switch.writes[0][1])
+        self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
+        # The next pass reads it back unchanged (the writer used to reset any label outside the members).
+        again = self.Switch(switch.variables)
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]}, api=self.Api(None),
+                                           switch=again, now=now + dt.timedelta(minutes=1)), 0)
+        self.assertEqual([name for name, _ in again.writes if name == "RUNNER_POOLS"], [])
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
+                                                         "LINUX_RUNNER": value["linux"]}), 0)
 
     def test_a_stalled_size_flips_linux_once(self) -> None:
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
