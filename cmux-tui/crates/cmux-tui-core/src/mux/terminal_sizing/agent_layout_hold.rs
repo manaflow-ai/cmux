@@ -35,6 +35,16 @@ fn may_shrink_panes(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneViewportWidthSet
             | ResourceOperation::ColumnUpdate
             | ResourceOperation::WorkspaceLayoutApply
+            | ResourceOperation::ScreenLayoutUndo
+    )
+}
+
+/// The operations that set one size value with one plan: when one is
+/// refused or its plan does not commit, no pane changed.
+fn sets_one_size_value(operation: ResourceOperation) -> bool {
+    matches!(
+        operation,
+        ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneViewportWidthSet
     )
 }
 
@@ -45,11 +55,12 @@ fn is_agent(actor: &Actor) -> bool {
     matches!(actor, Actor::Terminal { .. } | Actor::AcpSession { .. } | Actor::App { .. })
 }
 
-/// The marks one agent layout change set: their instant, and the marks of
+/// The marks one agent layout change set: their instant with the change's
+/// number (two changes in one clock tick are two changes), and the marks of
 /// earlier changes that they replaced.
 pub(in crate::mux) struct AgentLayoutMarks {
-    at: Instant,
-    earlier: Vec<(SurfaceId, Instant)>,
+    at: (Instant, u64),
+    earlier: Vec<(SurfaceId, (Instant, u64))>,
 }
 
 impl AgentLayoutMarks {
@@ -96,15 +107,19 @@ impl Mux {
         let now = Instant::now();
         let mut sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         let sizing = &mut *sizing;
-        sizing.agent_layout_marks.retain(|_, at| now.duration_since(*at) < AGENT_LAYOUT_WINDOW);
+        sizing
+            .agent_layout_marks
+            .retain(|_, (at, _)| now.duration_since(*at) < AGENT_LAYOUT_WINDOW);
+        sizing.agent_layout_changes = sizing.agent_layout_changes.wrapping_add(1);
+        let at = (now, sizing.agent_layout_changes);
         let placements = sizing.terminal_runtime_by_placement.keys().copied().collect::<Vec<_>>();
         let mut earlier = Vec::new();
         for placement in placements {
-            if let Some(before) = sizing.agent_layout_marks.insert(placement, now) {
+            if let Some(before) = sizing.agent_layout_marks.insert(placement, at) {
                 earlier.push((placement, before));
             }
         }
-        Some(AgentLayoutMarks { at: now, earlier })
+        Some(AgentLayoutMarks { at, earlier })
     }
 
     /// After the change committed: keeps its marks only on the placements of
@@ -141,6 +156,23 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         let marked = marks.placements(&sizing);
         marks.take_back(&mut sizing, marked);
+    }
+
+    /// After `operation` returned `result`: a change that committed keeps
+    /// its marks on its workspace. A size value that failed changed no pane,
+    /// so it holds no report. Another operation can fail after its effect
+    /// ran: its marks stay until the window ends.
+    pub(in crate::mux) fn settle_agent_layout_marks(
+        &self,
+        marks: &AgentLayoutMarks,
+        operation: ResourceOperation,
+        result: &anyhow::Result<ResourcePatchCommit>,
+    ) {
+        match result {
+            Ok(commit) => self.narrow_agent_layout_marks(marks, &commit.result),
+            Err(_) if sets_one_size_value(operation) => self.drop_agent_layout_marks(marks),
+            Err(_) => {}
+        }
     }
 
     fn workspace_of_topology_result(&self, result: &Value) -> Option<WorkspaceId> {
@@ -184,7 +216,7 @@ impl Mux {
         let marked = sizing
             .agent_layout_marks
             .get(&placement)
-            .is_some_and(|at| at.elapsed() < AGENT_LAYOUT_WINDOW);
+            .is_some_and(|(at, _)| at.elapsed() < AGENT_LAYOUT_WINDOW);
         let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else { return };
         let id = participant.id.as_str();
         let Some(reported) = participant.viewport.map(TerminalGridSize::clamped) else {
