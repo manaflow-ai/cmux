@@ -115,26 +115,27 @@ out="$(CARGO_BUILD_JOBS=3 "$script" "$td" "$t" \
   "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "caller jobs run failed: $out"
 [[ "$(grep -c ' jobs=3$' "$FAKE_LOG")" == 2 ]] || fail "a caller's CARGO_BUILD_JOBS did not reach every group: $(cat "$FAKE_LOG")"
 
-# 6. Memory for two groups: group 1 runs beside the others (it waits for a
-#    file group 3 writes), and groups 2 and 3 share the other slot, one after
-#    the other. One slot runs every group in order.
+# 6. Weights: on 16 GB the two 12 GB groups (as cmux-tui and acpmux-standalone
+#    under fat LTO) never run together, and the 2 GB group runs beside the
+#    first (group 1 waits for a file group 2 writes). A group heavier than the
+#    memory still runs, alone; groups with no weight count 6 GB.
 rm -rf "$td"; : > "$FAKE_LOG"
-out="$(CARGO_GROUPS_MEM_GB=12 CARGO_GROUPS_GROUP_GB=6 "$script" "$td" "$t" \
-  "cmux-tui" "cargo build --bin cmux-tui --target $t --wait $work/relay-2-started" \
-  "acpmux" "cargo build --bin acpmux --target $t" \
-  "cmux-relay" "touch $work/relay-2-started && cargo build --bin cmux-relay --target $t" 2>&1)" \
-  || fail "two slots failed: $out"
-grep -q "cargo groups: 3, 2 at once" <<<"$out" || fail "two slots not announced: $out"
-[[ "$(grep -n '^ended acpmux' "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n '^started cmux-relay' "$FAKE_LOG" | cut -d: -f1)" ]] \
-  || fail "group 3 started before group 2 ended in a shared slot: $(cat "$FAKE_LOG")"
-for b in cmux-tui acpmux cmux-relay; do [[ -f "$td/$t/release/$b" ]] || fail "$b missing with two slots"; done
+out="$(CARGO_GROUPS_MEM_GB=16 CARGO_GROUPS_GB="12 2 12" "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t --wait $work/light-started" \
+  "cmux-relay" "touch $work/light-started && cargo build --bin cmux-relay --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" \
+  || fail "weighted groups failed: $out"
+grep -q "cargo groups: 3, 2 at first" <<<"$out" || fail "the first admission is not announced: $out"
+[[ "$(grep -n '^ended cmux-tui' "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n '^started acpmux' "$FAKE_LOG" | cut -d: -f1)" ]] \
+  || fail "the two heavy groups ran together: $(cat "$FAKE_LOG")"
+for b in cmux-tui cmux-relay acpmux; do [[ -f "$td/$t/release/$b" ]] || fail "$b missing with weights"; done
 rm -rf "$td"; : > "$FAKE_LOG"
-out="$(CARGO_GROUPS_MEM_GB=4 CARGO_GROUPS_GROUP_GB=6 "$script" "$td" "$t" \
+out="$(CARGO_GROUPS_MEM_GB=4 "$script" "$td" "$t" \
   "cmux-tui" "cargo build --bin cmux-tui --target $t" \
-  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "one slot failed: $out"
-grep -q "cargo groups: 2, 1 at once" <<<"$out" || fail "one slot not announced: $out"
+  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "groups over the memory failed: $out"
+grep -q "cargo groups: 2, 1 at first" <<<"$out" || fail "one at first not announced: $out"
 [[ "$(tr '\n' ' ' < "$FAKE_LOG")" == "started cmux-tui "*"ended cmux-tui started acpmux "*"ended acpmux " ]] \
-  || fail "one slot did not run the groups in order: $(cat "$FAKE_LOG")"
+  || fail "groups over the memory did not run one by one in order: $(cat "$FAKE_LOG")"
 
 # 7. A rustc killed by signal 9 is named as the runner's memory, not the code.
 rm -rf "$td"

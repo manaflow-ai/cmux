@@ -654,6 +654,11 @@ jobs:
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
+          # Each group's memory in GB, in group order: cmux-tui and acpmux-standalone link cmux-tui-core
+          # under fat LTO (largest process 10.2 and 12.2 GB, all six at once 30.3 GB in use: x86_64 musl
+          # on 4 cores, cmux-ci run 44333520267), the others under 2 GB. On a 16 GB runner the two big
+          # ones never run together; on 64 GB all six still start at once.
+          export CARGO_GROUPS_GB="13 2 2 2 13 2"
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
             "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \

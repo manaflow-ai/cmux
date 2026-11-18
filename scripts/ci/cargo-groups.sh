@@ -34,17 +34,19 @@
 # extra ones all go to it once the short groups end. A caller's CARGO_BUILD_JOBS
 # still applies to every group.
 #
-# Memory: at most max(1, MEM_GB / CARGO_GROUPS_GROUP_GB) groups run at once
-# (MEM_GB: the job's cgroup limit, else MemTotal; CARGO_GROUPS_MEM_GB sets it
-# for a test). The fat-LTO groups each compile cmux-tui-core or acpmux at
-# codegen-units=1, and all six at once on a 4 vCPU Blacksmith runner were
-# killed by the OOM killer: rustc ended "(signal: 9, SIGKILL: kill)" with no
-# compiler error (run 44284933048, 2026-11-18, while RUNNER_POOLS had spilled
-# linux_16 to 4 vCPU). With fewer slots than groups, group 1 keeps a slot of
-# its own and the others take turns in the rest, in group order. The script
-# prints the peak memory in use and each group's largest process, and names a
-# group whose compiler was killed by signal 9 as the runner's memory, not the
-# code ("[cmux-ci machine: runner-oom]").
+# Memory: each group has a weight in GB, CARGO_GROUPS_GB (one number per
+# group, in order; 6 for a group it does not list). A group starts, in group
+# order, once the weights of the running groups and its own fit in MEM_GB (the
+# job's cgroup limit, else MemTotal; CARGO_GROUPS_MEM_GB sets it for a test),
+# or when nothing else runs. All six Linux musl groups at once on a 4 vCPU
+# Blacksmith runner were killed by the OOM killer: rustc ended "(signal: 9,
+# SIGKILL: kill)" with no compiler error (run 44284933048, 2026-11-18, while
+# RUNNER_POOLS had spilled linux_16 to 4 vCPU). The cmux-tui and
+# acpmux-standalone groups each link cmux-tui-core under fat LTO and need
+# 10-12 GB; the others under 2 (cmux-tui-build-package.yml). The script prints
+# the peak memory in use and each group's largest process, and names a group
+# whose compiler was killed by signal 9 as the runner's memory, not the code
+# ("[cmux-ci machine: runner-oom]").
 set -euo pipefail
 set -o noglob # BINS entries like '?name' are names, not patterns
 
@@ -59,7 +61,7 @@ target_dir="$(cd "$target_dir" && pwd)"
 logs="$(mktemp -d)"
 trap 'rm -rf "$logs"' EXIT
 
-bins=() commands=() dirs=() pids=() starts=() failed=() missing=()
+bins=() commands=() dirs=() starts=() failed=() missing=()
 while (($#)); do
   bins+=("$1") commands+=("$2")
   shift 2
@@ -77,16 +79,26 @@ if [[ "$limit" =~ ^[0-9]+$ ]] && { [[ -z "$mem_kb" ]] || ((limit / 1024 < mem_kb
   mem_kb=$((limit / 1024))
 fi
 [[ -z "${CARGO_GROUPS_MEM_GB:-}" ]] || mem_kb=$((CARGO_GROUPS_MEM_GB * 1048576))
-group_gb=${CARGO_GROUPS_GROUP_GB:-6}
-slots=$groups
-if [[ -n "$mem_kb" ]]; then
-  slots=$((mem_kb / (group_gb * 1048576)))
-  ((slots >= 1)) || slots=1
-  ((slots <= groups)) || slots=$groups
-fi
-echo "cargo groups: $groups, $slots at once ($cores vCPU, $(gb "${mem_kb:-0}") GB, $group_gb GB a group)"
+read -r -a listed <<< "${CARGO_GROUPS_GB:-}"
+weights=()
+for i in "${!commands[@]}"; do
+  w=${listed[i]:-6}
+  [[ "$w" =~ ^[0-9]+$ ]] || { echo "error: CARGO_GROUPS_GB entry '$w' is not a whole number of GB" >&2; exit 2; }
+  weights+=("$w")
+done
+# fits USED I: group I+1 fits beside running groups weighing USED GB.
+fits() { [[ -z "$mem_kb" ]] || ((($1 + weights[$2]) * 1048576 <= mem_kb)); }
+# How many start at once: the job split assumes that many share the cores.
+first=0 used=0
+for i in "${!commands[@]}"; do
+  if ((first == 0)) || fits "$used" "$i"; then
+    first=$((first + 1)) used=$((used + weights[i]))
+  fi
+done
+echo "cargo groups: $groups, $first at first ($cores vCPU, $(gb "${mem_kb:-0}") GB; GB a group: ${weights[*]})"
 
 if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+  slots=$first
   jobs=$(((2 * cores + slots - 1) / slots))
   ((jobs <= cores)) || jobs=$cores
   ((jobs >= 1)) || jobs=1
@@ -175,27 +187,31 @@ run_group() {
   echo "$status $(date +%s)" > "$logs/$n.done"
 }
 
-# Each slot runs its groups one after another: a slot per group runs them all
-# at once; with fewer slots group 1 has slot 0 to itself (when there are two
-# or more) and the others go round the rest in group order.
-lanes=()
-for i in "${!commands[@]}"; do
-  if ((slots >= groups)); then
-    lane=$i
-  elif ((slots == 1 || i == 0)); then
-    lane=0
-  else
-    lane=$((1 + (i - 1) % (slots - 1)))
-  fi
-  lanes[lane]="${lanes[lane]:-}$i "
+# Start every pending group that fits, in group order; when none does, wait
+# for one to end and look again. A group that fits nowhere starts alone.
+pending=("${!commands[@]}") used=0
+declare -A running=()
+while ((${#pending[@]})); do
+  rest=()
+  for i in "${pending[@]}"; do
+    if ((${#running[@]} == 0)) || fits "$used" "$i"; then
+      run_group "$i" &
+      running[$!]=$i
+      used=$((used + weights[i]))
+    else
+      rest+=("$i")
+    fi
+  done
+  pending=("${rest[@]}")
+  ((${#pending[@]})) || break
+  ended=""
+  wait -n -p ended "${!running[@]}" || true
+  [[ -n "$ended" && -n "${running[$ended]:-}" ]] || continue
+  done_group=${running[$ended]}
+  used=$((used - weights[done_group]))
+  unset -v 'running[$ended]'
 done
-for lane in "${!lanes[@]}"; do
-  (
-    for i in ${lanes[lane]}; do run_group "$i"; done
-  ) &
-  pids+=("$!")
-done
-for pid in "${pids[@]}"; do wait "$pid" || true; done
+for pid in "${!running[@]}"; do wait "$pid" || true; done
 if [[ -n "$sampler" ]]; then
   kill "$sampler" 2>/dev/null || true
   wait "$sampler" 2>/dev/null || true
