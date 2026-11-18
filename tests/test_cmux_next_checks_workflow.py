@@ -2868,10 +2868,11 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
             # Blacksmith on every attempt, never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735).
-            for attempt, overflow, expected in ((1, "", "blacksmith-8vcpu-ubuntu-2404"),
-                                                (1, "1", "blacksmith-16vcpu-ubuntu-2404"),
-                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
-                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+            # A few seconds of work: the 2 vCPU size like the other placement bootstraps, overflow or not.
+            for attempt, overflow, expected in ((1, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (1, "1", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "", "blacksmith-2vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
                     context = {"github.repository_owner": "manaflow-ai",
                                "github.event_name": "pull_request",
