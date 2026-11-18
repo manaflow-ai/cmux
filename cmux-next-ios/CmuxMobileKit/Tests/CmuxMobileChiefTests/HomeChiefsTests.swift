@@ -47,6 +47,11 @@ import Testing
     @Test func aCloudChiefTheMacAlsoListsIsListedOnceAsTheMacsRow() {
         let chiefs = HomeChiefs(macRows: Self.rows + [Self.row("c-ops")], macChief: "mac", cloud: Self.cloud, open: Self.cloud[0])
         #expect(chiefs.list.conversations == ["mac", "mac-named", "c-ops", "c-hosted"])
+        // Tagged where it runs, as the Mac tags its cloud owner's rows: "Cloud", not the Mac's name.
+        #expect(chiefs.tag(for: "c-ops", macName: "Aziz's MacBook") == "Cloud")
+        let mac = ChiefListMacInputs.list(rows: ["mac", "mac-named", "c-ops", "c-hosted"], cloud: ["c-hosted", "c-ops"],
+                                          local: "mac", hosted: "c-hosted", prefersLocal: true)
+        #expect(chiefs.list == mac)
     }
 
     @Test func aPlacedChiefTheUserOpenedIsMainAndNamesItsServer() {
@@ -54,6 +59,16 @@ import Testing
         let chiefs = HomeChiefs(macRows: [], macChief: nil, cloud: Self.cloud + [placed], open: placed)
         #expect(chiefs.list.main == "c-mini")
         #expect(chiefs.tag(for: "c-mini", macName: nil) == "Main \u{00B7} cmux20")
+    }
+
+    @Test func aPlacedChiefIsTaggedWithItsServersNameElseItsHostID() {
+        // The Mac's rule (`serverName(of:)`): the paired server's name, its host id while unknown.
+        let placed = Self.cloud("mini", main: "c-mini", host: "host-7f3a")
+        let named = HomeChiefs(macRows: [], macChief: nil, cloud: Self.cloud + [placed], open: placed,
+                               serverName: { $0 == "host-7f3a" ? "Studio mini" : nil })
+        #expect(named.tag(for: "c-mini", macName: nil) == "Main \u{00B7} Studio mini")
+        let unknown = HomeChiefs(macRows: [], macChief: nil, cloud: Self.cloud + [placed], open: placed)
+        #expect(unknown.tag(for: "c-mini", macName: nil) == "Main \u{00B7} host-7f3a")
     }
 
     @Test func pickersLeadWithTheMainChief() {

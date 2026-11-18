@@ -19,8 +19,14 @@ struct HomeChiefs: Equatable {
     ///   - macChief: The Mac's own Chief conversation (its session's, else the one its list names).
     ///   - cloud: The account's Cloud Chiefs (`chief.list`, archived ones already left out).
     ///   - open: The Cloud Chief this phone has open: a placed one is the user's pick, as the Mac's Chief tab choice.
-    init(macRows: [MacHomeRow]?, macChief: String?, cloud: [CloudChief], open: CloudChief?) {
-        let mac = (macRows ?? []).filter { $0.kind == .chief }.map { ChiefList.Chief(conversation: $0.id, isCloud: false) }
+    ///   - serverName: The paired server's name for a host id, nil when this phone does not know it
+    ///     (the Mac's rule: the server's name, else its host id).
+    init(macRows: [MacHomeRow]?, macChief: String?, cloud: [CloudChief], open: CloudChief?,
+         serverName: (String) -> String? = { _ in nil }) {
+        // A Mac row that is a cloud Chief's conversation is that cloud Chief, as the Mac's roster marks it.
+        let cloudMains = Set(cloud.compactMap(\.mainConversation))
+        let mac = (macRows ?? []).filter { $0.kind == .chief }
+            .map { ChiefList.Chief(conversation: $0.id, isCloud: cloudMains.contains($0.id)) }
         let macIDs = Set(mac.map(\.conversation))
         // A Cloud Chief the Mac's list also has is listed once, as the Mac's row (Home shows that row).
         let clouds = ChiefList.cloudChiefs(cloud).filter { !macIDs.contains($0.conversation) }
@@ -31,7 +37,7 @@ struct HomeChiefs: Equatable {
         let listed = macChief.map(macIDs.contains) ?? false
         list = ChiefList(chiefs: mac + clouds, local: macChief,
                          hosted: ChiefList.hosted(in: cloud)?.mainConversation, placed: placed?.mainConversation,
-                         server: placed?.brainPlace?.host, showsPlaced: open?.isPlaced == true,
+                         server: placed?.brainPlace.map { serverName($0.host) ?? $0.host }, showsPlaced: open?.isPlaced == true,
                          prefersLocal: ChiefDefault.auto.prefersLocal(localRunning: listed))
     }
 

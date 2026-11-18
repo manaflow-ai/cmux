@@ -193,8 +193,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Mac's Chief rows and every Cloud Chief, which one is Main and where each runs.
     private var chiefs: HomeChiefs {
         // Every row, as the Mac's roster reads its store's rows: hiding a row here never moves Main.
-        HomeChiefs(macRows: feed.rows, macChief: sources.mac.conversationID ?? feed.macChiefID,
-                   cloud: sources.isCloudReady ? sources.cloudChiefs : [], open: sources.cloudChief)
+        let labels = labels
+        return HomeChiefs(macRows: feed.rows, macChief: sources.mac.conversationID ?? feed.macChiefID,
+                          cloud: sources.isCloudReady ? sources.cloudChiefs : [], open: sources.cloudChief,
+                          serverName: { labels.macName($0) })
     }
 
     /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`, the same
