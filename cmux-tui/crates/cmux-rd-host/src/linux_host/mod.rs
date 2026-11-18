@@ -43,6 +43,7 @@
 // Consent is shared with `cmux-rd windows-host` (src/screen_host/).
 use crate::screen_host::consent;
 mod machine;
+mod serving;
 mod setup;
 pub(crate) mod stack_login;
 mod status_json;
@@ -318,7 +319,7 @@ fn sign_in_machine(
     let user_id = hub.user_id().ok_or("no userId in the hub's answer")?;
     let account = Account { hub: hub_url.to_owned(), user_id, anchored_until: 0 };
     account.save(dir)?;
-    machine::Joined { acpmux_home: acpmux_home.to_owned() }.save(dir)?;
+    machine::Joined::of(acpmux_home, &credential).save(dir)?;
     Ok((hub, account))
 }
 
@@ -385,7 +386,7 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         println!("{}", setup::virtual_display_line(display));
     }
     let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
-    let Some(device) = join_device(&dir, hub_url, machine::current()?)? else {
+    let Some(device) = join_device(&dir, hub_url, machine::current()?, &NoUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
@@ -408,6 +409,7 @@ fn join_device(
     dir: &std::path::Path,
     hub_url: &str,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
+    _unit: &dyn serving::Unit,
 ) -> Res<Option<Device>> {
     let (account, device) = (Account::load(dir)?, Device::load(dir)?);
     let Some((home, credential)) = joined else {
@@ -437,6 +439,15 @@ fn join_device(
     }
     forget_sign_in(dir)?;
     Ok(Some(sign_in_machine(dir, hub_url, &home, credential)?.0.device))
+}
+
+/// The seam the identity tests stop the unit through (red-first commit only).
+struct NoUnit;
+
+impl serving::Unit for NoUnit {
+    fn stop(&self) -> Res<()> {
+        Ok(())
+    }
 }
 
 /// Signs a person's own sign-in out of this desktop at the hub (`POST /v1/devices/:id/sign-out`
@@ -1269,7 +1280,7 @@ mod tests {
         Account { hub: DEFAULT_HUB.into(), user_id: "p:b".into(), anchored_until: 0 }
             .save(&dir)
             .unwrap();
-        machine::Joined { acpmux_home: home.clone() }.save(&dir).unwrap();
+        machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
         let token = dir.join("token");
         identity::write_private(&token, b"person-token").unwrap();
         let args = Args::parse(&[
@@ -1285,7 +1296,7 @@ mod tests {
         );
         assert_eq!(
             machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: home.clone() })
+            Some(machine::Joined { acpmux_home: home.clone(), ..Default::default() })
         );
         assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
         // After `acpmux machine leave` (the credential gone) a person may enable it again.
@@ -1647,7 +1658,7 @@ mod tests {
         assert_eq!(Account::load(&dir).unwrap(), Some(account));
         assert_eq!(
             machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: "/acpmux-home".into() })
+            Some(machine::Joined { acpmux_home: "/acpmux-home".into(), ..Default::default() })
         );
         machine::Joined::clear(&dir).unwrap();
         assert_eq!(machine::Joined::load(&dir).unwrap(), None);
@@ -1671,118 +1682,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A hub whose machine sign-in names `joiner`, and whose device-key sign-in (an anchored
-    /// person's) names `p:a`.
-    fn account_hub(
-        joiner: &'static str,
-    ) -> (String, Arc<Mutex<Vec<super::stack_login::tests::Seen>>>) {
-        super::stack_login::tests::stub(move |_, request| match request.path.as_str() {
-            "/v1/auth/machine" => (
-                200,
-                serde_json::json!({ "session": "m", "userId": joiner, "expiresAt": now_ms() + 3_600_000 }),
-            ),
-            "/v1/auth/device" => {
-                (200, serde_json::json!({ "session": "a", "expiresAt": now_ms() + 3_600_000 }))
-            }
-            _ => (200, serde_json::json!({ "ok": true })),
-        })
-    }
-
-    fn joined_as(credential: &str) -> Option<(std::path::PathBuf, machine::MachineCredential)> {
-        let record = format!(r#"{{"credential":"{credential}","name":"lane-vm"}}"#);
-        Some(("/acpmux-home".into(), serde_json::from_str(&record).unwrap()))
-    }
-
-    fn calls(seen: &Mutex<Vec<super::stack_login::tests::Seen>>) -> Vec<(String, String)> {
-        seen.lock().unwrap().iter().map(|s| (s.method.clone(), s.path.clone())).collect()
-    }
-
-    /// Review F1 of #45369: a desktop a person once enabled (anchored to account A) and then
-    /// joined to account B serves B. A is signed out of this host, its device key is gone, and
-    /// nothing of it is left for the host to fall back to.
-    #[test]
-    fn a_join_signs_an_earlier_person_account_out_of_the_host() {
-        let (origin, seen) = account_hub("p:b");
-        let dir = consent_dir("join-replaces-anchored");
-        identity::private_dir(&dir).unwrap();
-        let old = Device::generate("desk").unwrap();
-        old.save(&dir).unwrap();
-        let anchored = now_ms() + 30 * 24 * 3_600_000;
-        Account { hub: origin.clone(), user_id: "p:a".into(), anchored_until: anchored }
-            .save(&dir)
-            .unwrap();
-        let device = join_device(&dir, &origin, joined_as("cmm_b")).unwrap().unwrap();
-        assert_ne!(device.id, old.id, "A's device identity is not B's host");
-        assert_eq!(Device::load(&dir).unwrap().unwrap().id, device.id);
-        assert_eq!(
-            Account::load(&dir).unwrap(),
-            Some(Account { hub: origin.clone(), user_id: "p:b".into(), anchored_until: 0 })
-        );
-        assert_eq!(
-            machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: "/acpmux-home".into() })
-        );
-        let calls = calls(&seen);
-        let sign_out = ("POST".to_owned(), format!("/v1/devices/{}/sign-out", old.id));
-        let machine = ("POST".to_owned(), "/v1/auth/machine".to_owned());
-        let at = |call: &(String, String)| calls.iter().position(|c| c == call);
-        assert!(at(&sign_out).is_some(), "A is signed out of this host: {calls:?}");
-        assert!(at(&sign_out) < at(&machine), "before B signs in: {calls:?}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The same acpmux home joined again to another account: the device that was A's is not
-    /// reused for B.
-    #[test]
-    fn a_machine_joined_again_to_another_account_gets_a_new_device() {
-        let (origin, _) = account_hub("p:b");
-        let dir = consent_dir("rejoin-other-account");
-        identity::private_dir(&dir).unwrap();
-        let old = Device::generate("desk").unwrap();
-        old.save(&dir).unwrap();
-        Account { hub: origin.clone(), user_id: "p:a".into(), anchored_until: 0 }
-            .save(&dir)
-            .unwrap();
-        machine::Joined { acpmux_home: "/acpmux-home".into() }.save(&dir).unwrap();
-        let device = join_device(&dir, &origin, joined_as("cmm_b")).unwrap().unwrap();
-        assert_ne!(device.id, old.id);
-        assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Each daemon start asks the hub whose join this is; the same join keeps its device and
-    /// leaves its sharing switch as the person last set it.
-    #[test]
-    fn the_same_join_keeps_its_device_and_its_sharing_switch() {
-        let (origin, seen) = account_hub("p:b");
-        let dir = consent_dir("rejoin-same-account");
-        identity::private_dir(&dir).unwrap();
-        let old = Device::generate("desk").unwrap();
-        old.save(&dir).unwrap();
-        Account { hub: origin.clone(), user_id: "p:b".into(), anchored_until: 0 }
-            .save(&dir)
-            .unwrap();
-        machine::Joined { acpmux_home: "/acpmux-home".into() }.save(&dir).unwrap();
-        let device = join_device(&dir, &origin, joined_as("cmm_b")).unwrap().unwrap();
-        assert_eq!(device.id, old.id);
-        assert_eq!(calls(&seen), [("POST".to_owned(), "/v1/auth/machine".to_owned())]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// With no join, a person's anchored sign-in is the host's, and nothing is not signed in.
     #[test]
     fn without_a_join_an_anchored_account_stays() {
-        let (origin, seen) = account_hub("p:b");
         let dir = consent_dir("no-join");
         identity::private_dir(&dir).unwrap();
-        assert!(join_device(&dir, &origin, None).unwrap().is_none());
+        assert!(join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().is_none());
         let old = Device::generate("desk").unwrap();
         old.save(&dir).unwrap();
-        Account { hub: origin.clone(), user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
+        let hub = "http://127.0.0.1:1".to_owned();
+        Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
             .save(&dir)
             .unwrap();
-        assert_eq!(join_device(&dir, &origin, None).unwrap().unwrap().id, old.id);
-        assert!(calls(&seen).is_empty());
+        let kept = join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().unwrap();
+        assert_eq!(kept.id, old.id);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -27,6 +27,12 @@ pub struct MachineCredential {
     /// Copied here from the box that joined it: never used here (acpmux's `cloned`).
     #[serde(default)]
     pub cloned: bool,
+    /// Which join this credential is (acpmux's `mark_of`): a new join line gives another
+    /// machine id or generation, even for the same account.
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub credential_generation: u64,
 }
 
 impl std::fmt::Debug for MachineCredential {
@@ -73,12 +79,32 @@ pub const JOINED_FILE: &str = "joined.json";
 
 /// What [`JOINED_FILE`] keeps: the acpmux home whose credential signs this host in, so every
 /// session comes from `POST /v1/auth/machine` and nothing is anchored.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Joined {
     pub acpmux_home: PathBuf,
+    /// The join it was signed in for ([`MachineCredential::machine_id`] and generation): a
+    /// record written before these existed names no join, so it is never the current one.
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub credential_generation: u64,
 }
 
 impl Joined {
+    /// The record of a sign-in with `credential` from `acpmux_home`.
+    pub fn of(acpmux_home: &Path, credential: &MachineCredential) -> Self {
+        Self {
+            acpmux_home: acpmux_home.to_owned(),
+            machine_id: credential.machine_id.clone(),
+            credential_generation: credential.credential_generation,
+        }
+    }
+
+    /// Whether this record is the join `credential` from `acpmux_home` is now.
+    pub fn is(&self, acpmux_home: &Path, credential: &MachineCredential) -> bool {
+        !self.machine_id.is_empty() && *self == Self::of(acpmux_home, credential)
+    }
+
     pub fn load(dir: &Path) -> Res<Option<Self>> {
         match identity::read_private(&dir.join(JOINED_FILE))? {
             Some(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
