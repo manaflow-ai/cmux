@@ -386,11 +386,11 @@ final class AgentTabStore {
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
         host = resolvedHost
-        // Start acpmux while the first pane is loading. The page still owns
-        // the authenticated WebSocket handshake and session selection. Then
-        // other machines' daemons get this build, in the background (DaemonUpdates).
+        // Start acpmux off the main actor at once, beside the window build (CMUX-571); then other machines'
+        // daemons get this build (DaemonUpdates). task-owner: one launch prewarm, awaited by the task below
+        let prewarm = Task.detached(priority: .userInitiated) { try? await resolvedHost.prewarmForRestoredChats() }
         Task {
-            try? await resolvedHost.prewarmForRestoredChats()
+            await prewarm.value
             guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
             updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
