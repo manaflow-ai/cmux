@@ -77,7 +77,7 @@ mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
-mod pr;
+pub(crate) mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
