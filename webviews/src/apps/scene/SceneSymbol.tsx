@@ -54,7 +54,7 @@ const SYMBOLS: Record<string, string> = {
   "chevron.down": "disclosure.expanded",
   "chevron.right": "disclosure.collapsed",
   "clock.arrow.circlepath": "history.recent",
-  "laptopcomputer": "machine.mac",
+  laptopcomputer: "machine.mac",
   desktopcomputer: "machine.local",
   "folder.badge.plus": "folder",
   "line.3.horizontal.decrease": "filter",
