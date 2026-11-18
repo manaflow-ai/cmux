@@ -57,6 +57,7 @@ pub(super) fn data_frame(frame: &str) -> bool {
     frame_command(frame).is_some()
         || crate::git_seed::frame_command(frame).is_some()
         || crate::blob_fetch::frame_command(frame).is_some()
+        || crate::projection::frame_command(frame).is_some()
         || crate::cloud_repos::frame_command(frame)
             .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
 }
@@ -209,10 +210,15 @@ pub(super) fn route_first_line_of(
     native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
 ) -> Option<Box<dyn transport::Stream>> {
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
-    let request = std::str::from_utf8(&first)
+    let admitted = std::str::from_utf8(&first)
         .ok()
-        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line))
-        .and_then(StreamRequest::parse);
+        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line));
+    // A projection's dial (projection.rs): its manifest, then the Mac's answers, raw.
+    if let Some(line) = admitted.filter(|line| crate::projection::frame_command(line).is_some()) {
+        serve_projection(mux, peer, entry.service, line, rest, stream);
+        return None;
+    }
+    let request = admitted.and_then(StreamRequest::parse);
     let Some(request) = request else {
         let mut prefix = first;
         prefix.extend_from_slice(&rest);
@@ -311,6 +317,66 @@ fn serve_stream(
     super::disconnect_client(mux, client, false);
     // A refused registration has no record to disconnect: drop the peer
     // binding (and stop the watcher) here too.
+    mux.unbind_conversation_principal(client);
+    writer.close();
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
+}
+
+/// Serves a projection's dial ([`crate::projection::serve`]) as a registered remote client, as
+/// [`serve_stream`] does a byte stream: a kick, a revocation or the entry's shutdown closes it.
+/// No idle limit: the dial lives as long as the chat's projection, quiet between reads.
+fn serve_projection(
+    mux: &Arc<Mux>,
+    peer: &RemotePeer,
+    service: Option<&FsService>,
+    first: &str,
+    leftover: Vec<u8>,
+    stream: UnixStream,
+) {
+    let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    let control = SinkControl::unix(Box::new(control));
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new_with_render_service(
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
+        Arc::new(RenderService::new()),
+    );
+    let watcher =
+        std::thread::Builder::new().name("mux-projection-close".into()).spawn(move || {
+            while outbound.recv().is_some() {}
+            let _ = closer.shutdown(std::net::Shutdown::Both);
+        });
+    if watcher.is_err() {
+        return;
+    }
+    let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
+    let bound = writer.is_open() && mux.bind_remote_peer(client, peer).is_ok();
+    if bound {
+        let roots: Vec<std::path::PathBuf> = service
+            .map(|service| {
+                service.roots().canonical_paths().map(std::path::Path::to_path_buf).collect()
+            })
+            .unwrap_or_default();
+        if roots.is_empty() || crate::projection::advertised().is_empty() {
+            let id = serde_json::from_str::<Value>(first)
+                .ok()
+                .and_then(|value| value.get("id").cloned())
+                .unwrap_or(Value::Null);
+            let line = serde_json::json!({
+                "id": id,
+                "ok": false,
+                "error": "this machine does not serve projected folders",
+                "error_code": "projection.unavailable",
+            });
+            if let Ok(mut bytes) = serde_json::to_vec(&line) {
+                bytes.push(b'\n');
+                let _ = (&stream).write_all(&bytes);
+            }
+        } else {
+            crate::projection::serve(&stream, first, leftover, &roots);
+        }
+    }
+    super::disconnect_client(mux, client, false);
     mux.unbind_conversation_principal(client);
     writer.close();
     let _ = stream.shutdown(std::net::Shutdown::Both);

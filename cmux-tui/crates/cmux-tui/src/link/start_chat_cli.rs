@@ -179,7 +179,7 @@ pub(super) fn run(args: &[String]) -> i32 {
                 if copy.seed_only {
                     push_seed_only(socket, local, remote, &copy.subpath)
                 } else {
-                    push(socket, local, remote, &copy.subpath)
+                    push(socket, local, remote, &copy.subpath, &copy.key)
                 }
             })
         }),
@@ -1188,7 +1188,26 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
 /// done (`seed_cli`'s record).
-fn push(socket: &Path, local: &Path, remote: &str, subpath: &str) -> Result<Value, Value> {
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+    chat: &str,
+) -> Result<Value, Value> {
+    // A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the
+    // chat opens on all of it at once, its files read from this Mac on first use. Anything else,
+    // and any failure to project, copies as before.
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            return Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()}));
+        }
+        Ok(Err(_)) => {}
+        Err(error) => eprintln!(
+            "cmux link start-chat: projecting {} failed: {error:#}; copying it",
+            local.display()
+        ),
+    }
     super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))

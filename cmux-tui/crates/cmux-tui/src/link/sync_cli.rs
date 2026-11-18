@@ -79,6 +79,8 @@ pub(super) use seed_pull::{
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
 pub(crate) mod estimate;
+pub(crate) mod project;
+pub(crate) mod project_back;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
