@@ -154,7 +154,9 @@ extension PaneCommitMotionTests {
     }
 
     /// A close in a strip of columns changes the place of each column after it. A column that is out of sight before
-    /// and after the close gets no move: no part of its way shows. The column that comes into sight gets its move.
+    /// and after the close gets no move, and no divider line there gets one: no part of such a way shows. A column
+    /// whose way ends on the screen's edge shows no point of itself, so it gets no move either. The column that comes
+    /// into sight gets its move.
     @Test func aPaneWhoseWayIsOutOfSightGetsNoMove() throws {
         let harness = Commit.Harness(Commit.strip([1, 2, 3, 4, 5, 6]), focused: "p1", holds: false) { $0.rowsEnabledOverride = true }
         defer { harness.window.closeAfterTest() }
@@ -163,15 +165,24 @@ extension PaneCommitMotionTests {
         Commit.rest(harness)
         let screen = try #require(harness.screen)
         let was = try #require(Self.hosts(of: screen)["p6"]?.layer?.frame, "SETUP: the last column has no host before the close")
+        // The lines that are more than one column out of sight: each is out of sight after the close too.
+        let lines = screen.dividerViews.values.filter { !$0.isHidden && $0.frame.minX > screen.bounds.maxX + was.width }.compactMap(\.layer)
+        let linesWere = lines.map(\.frame)
+        try #require(!lines.isEmpty, "SETUP: no divider line is out of sight before the close")
         harness.model.apply(screens: Commit.strip([1, 3, 4, 5, 6]))
         harness.root.syncWithModel()
         _ = harness.root.advanceFrame(Self.dt)
         let hosts = Self.hosts(of: screen)
-        let near = try #require(hosts["p3"]?.layer), far = try #require(hosts["p6"]?.layer)
+        let near = try #require(hosts["p3"]?.layer), far = try #require(hosts["p6"]?.layer), edge = try #require(hosts["p4"]?.layer)
         try #require(far.frame != was && !was.union(far.frame).intersects(screen.bounds),
                      "SETUP: the last column did not change its place out of sight: \(was) to \(far.frame)")
+        try #require(abs(edge.frame.minX - screen.bounds.maxX) < 0.5, "SETUP: the fourth column's way does not end on the screen's edge: \(edge.frame)")
+        try #require(zip(lines, linesWere).allSatisfy { $0.frame != $1 && $0.frame.minX > screen.bounds.maxX },
+                     "SETUP: a divider line kept its place at the close, or it came into sight: \(linesWere) to \(lines.map(\.frame))")
         try #require(Self.move(of: near).moves, "SETUP: the column that comes into sight has no move: the close shows in one frame")
         #expect(!Self.move(of: far).moves, "a column that is out of sight before and after the close has a move on its layer")
+        #expect(!Self.move(of: edge).moves, "a column whose way only touches the screen's edge has a move on its layer")
+        #expect(lines.allSatisfy { !Self.move(of: $0).moves }, "a divider line that is out of sight before and after the close has a move on its layer")
     }
 
     /// The pane that a close took out shows in each frame of the motion, so its neighbour grows over it and not over
