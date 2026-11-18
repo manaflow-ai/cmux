@@ -249,4 +249,12 @@ pub struct WatchParams {
     /// The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_epoch: Option<String>,
+    /// Whether the page that watches is shown (capability `session-list-shown-v1`,
+    /// `server/list_shown.rs`). False: the connection hears `_acpmux/session_changed` only for
+    /// the chats it is attached to (the reply is the usual list or follow). True after false,
+    /// with `afterSeq`: the follow starts no later than the last position the connection was
+    /// sent while shown, so it holds exactly the rows changed while hidden. Absent: unchanged
+    /// (shown for a client that never says).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shown: Option<bool>,
 }
