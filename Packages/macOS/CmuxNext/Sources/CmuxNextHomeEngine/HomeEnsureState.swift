@@ -1,5 +1,5 @@
 public import CmuxNextWindowRules
-import Observation
+public import Observation
 
 /// This app's `ensure_home` requests (`HomeService.ensureHomeWorkspace`), and what the launch rule
 /// (cmux-window-rules `launch::fresh_landing`) reads of them: whether Home is not ensured yet.
