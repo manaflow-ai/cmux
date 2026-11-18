@@ -8,13 +8,13 @@ import Foundation
 
 /// Favicons of pages that are not open tabs (a bookmark, a recent page) and favicons as a
 /// cmux page draws them (cx-d0d.8).
-extension AppServices {
-    /// The favicon URL of the site at `origin` (`https://host[:port]`): the icon an open,
-    /// not incognito, browser tab on that origin shows, else the origin's `/favicon.ico`. One read of the kept table: no
-    /// workspace is visited. After a change of an open tab the table has the new answer some main actor turns later.
-    func siteFaviconAddress(origin: String) -> String { openTabFaviconTable.address(origin: origin) }
-    /// The app's one table of open tab favicons (the sidebar document holds it), started at its first ask: the sidebar's set-up or an icon question.
-    var openTabFaviconTable: OpenTabFavicons { sidebarDoc.openTabFavicons.started { $0.start(workspaces: { [local = self.machines.local] in local.store.workspaces }, favicons: { [weak self] workspace in self?.openTabFavicons(of: workspace) ?? [] }) } }
+extension AppServices: OpenTabFaviconSource {
+    /// The favicon URL of the site at `origin` (`https://host[:port]`): the icon an open, not incognito, browser tab on
+    /// that origin shows, else the origin's `/favicon.ico`. One read of the kept table, no walk: after a change of an open
+    /// tab it has the new answer some main actor turns later. Its one workspace for the site is asked if it is incognito now.
+    func siteFaviconAddress(origin: String) -> String { openTabFaviconTable.address(origin: origin) { windows.isIncognito(workspace: $0) } }
+    /// The app's one table of open tab favicons (the sidebar document holds it), started at its first ask over this Mac's store.
+    var openTabFaviconTable: OpenTabFavicons { sidebarDoc.openTabFavicons.started(over: machines.local.store, from: self) }
 
     /// The favicon address an open (not incognito) browser tab shows, by the tab's site origin (`BookmarkURL.faviconKey`),
     /// the first tab per origin as `siteFaviconAddress` picks it; the site's own `/favicon.ico` is left out (a link
