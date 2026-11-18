@@ -1,6 +1,6 @@
 //! The terminal and project writers stop at rest (REGISTRY WAL, PR 1 part B).
 //!
-//! On Lawrence's Mac (826 workspaces, 798 terminals) a terminal that only
+//! In a large session (826 workspaces, 798 terminals) a terminal that only
 //! prints cost one registry commit per 5 s: `terminal.progress` was 11 % of
 //! the journal rows at 3,922 bytes each (199 MB a day), and its lock site
 //! (`mux/terminal_progress.rs`) took the workspace registry 4,692 times in

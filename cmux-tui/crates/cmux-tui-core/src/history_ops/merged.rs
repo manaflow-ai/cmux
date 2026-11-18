@@ -48,6 +48,11 @@ const AGENT_FOLD_STATE_VERSION: u32 = 1;
 /// A long fold (the first one over a large journal) saves its progress at
 /// least every this many journal sequences, so a restart midway keeps it.
 const SAVE_STRIDE: u64 = 50_000;
+/// Once the fold has reached the journal head, folded agent records wait
+/// for a save until the cursor is this many journal sequences past the saved
+/// one. The saved fold is a cache: the journal has each record, and a start
+/// folds the records after the saved cursor again.
+const AGENT_SAVE_STRIDE: u64 = 512;
 
 /// The session's history state: the journal folds, the journal cursor they
 /// reached and the history revision.
@@ -69,6 +74,9 @@ struct HostState {
     saved_cursor: u64,
     /// Agent records folded since the last save.
     unsaved_agents: bool,
+    /// The fold reached the journal head with each agent record saved, at
+    /// least once in this process: its saves go by `AGENT_SAVE_STRIDE`.
+    at_head: bool,
     /// A test's fold budget of a list in place of `LIST_FOLD_BUDGET` (zero:
     /// the list answers before its fold reaches the journal head).
     #[cfg(test)]
@@ -85,6 +93,7 @@ impl Default for HistoryHost {
                 restored: false,
                 saved_cursor: 0,
                 unsaved_agents: false,
+                at_head: false,
                 #[cfg(test)]
                 list_fold_budget: None,
             }),
@@ -161,16 +170,22 @@ impl HistoryHost {
         }
     }
 
-    /// Saves the agent fold and its cursor when agent records were folded
-    /// since the last save, or the cursor moved `SAVE_STRIDE` past it (a
-    /// cursor moved only by terminal output is not worth a write each
-    /// commit). Call with the turn held.
+    /// Saves the agent fold and its cursor when the cursor is a stride past
+    /// the saved one. The stride is 1 sequence while agent records are
+    /// unsaved and the fold has not reached the journal head (a long first
+    /// fold keeps each page), `AGENT_SAVE_STRIDE` for unsaved agent records
+    /// after that (the end of each agent turn is not worth a write of the
+    /// whole fold), and `SAVE_STRIDE` for a cursor moved only by other
+    /// records. Call with the turn held.
     pub(super) fn save(&self, mux: &Mux) {
         let (cursor, snapshot) = {
             let state = self.lock();
-            let due = state.unsaved_agents
-                || state.cursor.saturating_sub(state.saved_cursor) >= SAVE_STRIDE;
-            if state.cursor <= state.saved_cursor || !due {
+            let stride = match (state.unsaved_agents, state.at_head) {
+                (true, false) => 1,
+                (true, true) => AGENT_SAVE_STRIDE,
+                (false, _) => SAVE_STRIDE,
+            };
+            if state.cursor.saturating_sub(state.saved_cursor) < stride {
                 return;
             }
             match serde_json::to_string(&state.agents) {
@@ -200,12 +215,24 @@ impl HistoryHost {
         }
     }
 
-    /// Marks the agent fold unsaved; returns its cursor.
+    /// Notes that a fold found nothing after its cursor: the journal head.
+    /// A save that failed keeps the fold on the stride of 1, so the next
+    /// fold tries it again. Call with the turn held, after `save`.
+    pub(super) fn reached_head(&self) {
+        let mut state = self.lock();
+        if !state.unsaved_agents {
+            state.at_head = true;
+        }
+    }
+
+    /// Marks the agent fold unsaved, as before its first reach of the
+    /// journal head; returns its cursor.
     #[cfg(test)]
     pub(super) fn mark_unsaved_for_test(&self) -> u64 {
         let mut state = self.lock();
         state.saved_cursor = 0;
         state.unsaved_agents = true;
+        state.at_head = false;
         state.cursor
     }
 
