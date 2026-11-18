@@ -177,7 +177,9 @@ async fn a_retry_and_a_notice_start_no_turn_while_the_rate_limit_holds() {
     assert!(acpmux::store::now_ms() < until_ms);
     assert_eq!(of_kind(&hub, &id, "turn_started").len(), 1, "{:?}", kinds(&hub, &id));
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
-    assert_eq!(row["rateLimitedUntil"], until_ms, "{row}");
+    // The continuation re-sets the same hold when it starts waiting: its deadline, not earlier.
+    assert!(row["rateLimitedUntil"].as_u64().is_some_and(|u| u >= until_ms), "{row}");
+    assert_eq!(row["queue"][0]["promptId"], "n-bg", "the notice waits in the queue: {row}");
 }
 
 /// Leo, 2026-11-18: "claude-sr2-coord fell into a weird "rate limited" loop again 429 and
