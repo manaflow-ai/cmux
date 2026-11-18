@@ -49,6 +49,7 @@ import Testing
         try #require(closing.stripModel.tabs.isEmpty, "SETUP: the key's turn left the tab in the tab bar's model")
         try #require(host.superview != nil && !host.isHidden,
                      "SETUP: the key's own turn hid the pane, so no frame shows the pane after the key")
+        try #require(strip.isShownInWindow, "SETUP: after the key's turn the tab bar does not count as shown, so it keeps its tabs by the out-of-sight rule")
         // Between the key's turn and the frame tick: the tab bar follows its model.
         strip.syncFromModel()
         #expect(strip.cells[tab] != nil, "before a frame tick the closing pane still shows, and its tab bar is empty")
@@ -104,6 +105,7 @@ import Testing
         _ = leave(true) { _ in }
         try #require(app.content.layoutModel.isClosing(leaving.layoutPaneID), "SETUP: the move's turn did not show the old pane's close")
         try #require(host.superview != nil && !host.isHidden, "SETUP: the move's own turn hid the old pane, so no frame shows it after the key")
+        try #require(old.isShownInWindow, "SETUP: after the move's turn the old tab bar does not count as shown, so it follows no model change")
         // The jobs that follow the turn.
         leaving.apply(leaving.snapshot())
         target.apply(target.snapshot())
@@ -131,5 +133,117 @@ import Testing
         #expect(both.isEmpty, "the moved tab shows in two tab bars in the frames \(both) after the move")
         new.syncFromModel()
         #expect(new.cells[tab] != nil, "after the frame that hides the old pane the new tab bar does not show the moved tab")
+    }
+
+    /// When the tree without the old pane reaches the store, for a move that the daemon reports.
+    enum TreeArrival: CaseIterable, Sendable {
+        /// After the jobs that follow the daemon's events ran: the client asks for the tree after it applied the events.
+        case afterTheJobs
+        /// In the same turn as the daemon's events, before a job ran: the hardest order for the tab bar.
+        case inTheSameTurn
+    }
+
+    /// A move of a pane's last tab that this client did not make (another client of the daemon): the tab shows in one
+    /// tab bar only, the new one.
+    ///
+    /// No code of this client marks that move (`TabMoves.depart` does not run): the old tab bar has only the store to
+    /// follow. The daemon reports the move in two parts. First its events: `tree-changed`, the screen's
+    /// `layout-changed` and the tab's `tab-changed`, which takes the tab out of the old pane's record while the store
+    /// still lists the pane. Then the tree that the client reads again, which takes the pane out. The test applies the
+    /// two parts and lets the main actor run the jobs that follow them (the panes' and the tab bars' own
+    /// observations); then it makes each tab bar's one call again, so it waits for no time to pass.
+    @Test(.timeLimit(.minutes(1)), arguments: TreeArrival.allCases)
+    func aPanesLastTabMovedByTheDaemonShowsInOneBarOnly(_ arrival: TreeArrival) async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        app.content.layoutModel.newColumnWidthModeOverride = .fitScreen
+        app.content.applyCurrent()
+        app.settle()
+
+        let leaving = try app.pane(2), target = try app.pane(1)
+        let old = leaving.view.stripView, new = target.view.stripView
+        let moved = try #require(leaving.pane.tabs.first, "SETUP: the pane has no tab in the store")
+        try #require(leaving.pane.tabs.count == 1, "SETUP: the pane has \(leaving.pane.tabs.count) tabs, not 1")
+        let tab = StripTabID(moved.id)
+        old.syncFromModel()
+        new.syncFromModel()
+        try #require(old.isShownInWindow && new.isShownInWindow, "SETUP: a tab bar does not count as shown in its window")
+        try #require(old.cells[tab] != nil && new.cells[tab] == nil, "SETUP: before the move the tab is not in the old tab bar only")
+        let host = try #require(app.root.context.hosts[leaving.layoutPaneID], "SETUP: the pane has no host in the layout")
+        try #require(host.superview != nil && !host.isHiddenOrHasHiddenAncestor, "SETUP: the pane does not show before the move")
+        /// What the old side shows and holds now, for a failure's message.
+        func oldSide() -> String {
+            "the old tab bar's model has \(leaving.stripModel.tabs.count) tab(s), the old tab bar counts as shown: \(old.isShownInWindow), the old pane leaves: \(host.isLeaving)"
+        }
+
+        // Part 1, the daemon's events. The store can not place the layout (it names one pane less than the store
+        // lists), so the tab's own event is the one that changes the store.
+        let events: [DaemonEvent] = [
+            .treeChanged(transaction: nil),
+            .layoutChanged(screen: 1, layout: ScreenLayoutDelta(activePane: 1, layout: .leaf(1), columns: Self.columns([1, 3])), transaction: nil),
+            .tabChanged(TabDelta(workspace: 1, screen: 1, pane: 1, surface: 2, index: 1, entity: Self.terminal(2))),
+        ]
+        _ = app.store.apply(batch: events.enumerated().map { DaemonEventEnvelope(sequence: UInt64($0.offset + 1), event: $0.element) })
+        try #require(leaving.pane.tabs.isEmpty, "SETUP: the daemon's events left the tab in the old pane's record")
+        try #require(target.pane.tabs.contains { $0.id == moved.id }, "SETUP: the daemon's events did not put the tab in the new pane's record")
+        if arrival == .afterTheJobs {
+            await Self.drainMain()
+            old.syncFromModel()
+            new.syncFromModel()
+            #expect(new.cells[tab] != nil, "after the daemon's events the new tab bar does not show the moved tab")
+            #expect(old.cells[tab] == nil, "after the daemon's events the moved tab shows in two tab bars (\(oldSide()))")
+        }
+
+        // Part 2, the tree without the old pane.
+        app.store.apply(snapshot: Self.treeAfterTheMove())
+        await Self.drainMain()
+        app.content.applyLayoutIfChanged()
+        try #require(app.store.pane(2) == nil, "SETUP: the tree did not take the old pane out of the store")
+        old.syncFromModel()
+        new.syncFromModel()
+        #expect(new.cells[tab] != nil, "after the tree without the old pane the new tab bar does not show the moved tab")
+        #expect(old.cells[tab] == nil, "after the tree without the old pane the moved tab shows in two tab bars (\(oldSide()))")
+
+        // Each frame tick until the one that hides the old pane: the tab shows in the new tab bar only.
+        var both: [Int] = []
+        var hidden: Int? = host.isHidden || host.superview == nil ? 0 : nil
+        var frame = 0
+        while hidden == nil, frame < Self.frames {
+            frame += 1
+            _ = app.root.advanceFrame(ClosedPaneContentStaysUntilLandingTests.dt)
+            if host.isHidden || host.superview == nil {
+                hidden = frame
+                break
+            }
+            old.syncFromModel()
+            new.syncFromModel()
+            if old.cells[tab] != nil { both.append(frame) }
+        }
+        _ = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the old pane")
+        #expect(both.isEmpty, "the moved tab shows in two tab bars in the frames \(both) after the tree without the old pane")
+        new.syncFromModel()
+        #expect(new.cells[tab] != nil, "after the frame that hides the old pane the new tab bar does not show the moved tab")
+    }
+
+    /// Lets the main actor run what is queued (the panes' and the tab bars' observations): a fixed number of yields,
+    /// no wait for time to pass.
+    private static func drainMain() async {
+        for _ in 0..<40 { await Task.yield() }
+    }
+
+    private static func terminal(_ surface: UInt64) -> TabSnapshot {
+        TabSnapshot(surface: CmuxNextDaemon.SurfaceID(rawValue: surface), title: "~")
+    }
+
+    /// The fixture's columns, one pane in each, for `panes`.
+    private static func columns(_ panes: [UInt64]) -> [ColumnSnapshot] {
+        panes.map { ColumnSnapshot(id: CmuxNextDaemon.ColumnID(rawValue: 10 + $0), width: 1.0 / 3, layout: .leaf(CmuxNextDaemon.PaneID(rawValue: $0))) }
+    }
+
+    /// The fixture's tree after the move: pane 2 is gone, and its tab is pane 1's second tab.
+    private static func treeAfterTheMove() -> DaemonTree {
+        let panes = [PaneSnapshot(id: 1, tabs: [terminal(1), terminal(2)]), PaneSnapshot(id: 3, tabs: [terminal(3)])]
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns([1, 3]), panes: panes)
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
     }
 }
