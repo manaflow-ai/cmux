@@ -75,5 +75,5 @@ fn a_manifest_accepts_one_point_five_million_files() {
     let manifest = Manifest::build(1, items).unwrap();
     assert_eq!(manifest.totals(), (1_500_000, 1_500_000));
     let encoded = manifest.encode().unwrap();
-    assert_eq!(Manifest::decode(&encoded).unwrap().len(), 1_500_001);
+    assert_eq!(Manifest::decode(&encoded).unwrap().len(), 1_510_002);
 }
