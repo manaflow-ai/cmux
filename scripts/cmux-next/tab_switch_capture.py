@@ -154,7 +154,7 @@ class CuaSession:
         except CaptureError as error:
             if "has ended" not in str(error):
                 raise
-            # CuaDriver ends a session that made no tool call for a while (cmux21, 2026-11-18): a new one records.
+            # CuaDriver ends a session that made no tool call for a while (a CI mini, 2026-11-18): a new one records.
             self.close()
             self.open()
             self.tool("start_recording", arguments)

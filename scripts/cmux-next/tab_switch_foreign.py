@@ -19,7 +19,7 @@ process's window (NotificationCenter), so it counts.
 
 Only a window in front of the app covers it. The list is front to back, so `ForeignLog.add` keeps the foreign windows
 listed before the app's first own window: the desktop (Finder, WindowManager) and a dialog the app is in front of are
-behind it. On cmux21 (macOS 27, 2026-11-18) every round of a run was left out over those, a stale accessibility prompt
+behind it. On a CI mini (macOS 27, 2026-11-18) every round of a run was left out over those, a stale accessibility prompt
 behind the app among them. A sample without an own window keeps every foreign window.
 """
 from __future__ import annotations

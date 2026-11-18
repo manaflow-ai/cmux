@@ -88,7 +88,7 @@ class SettledTime(unittest.TestCase):
 
     def test_a_cursor_and_a_caret_blinking_together_do_not_unsettle(self):
         # A terminal cursor across two tiles and a caret in a third blink on and off every 600 ms, as a split's
-        # terminal and the chat's composer did on cmux21 (2026-11-18): three tiles, more than BLINK_TILES.
+        # terminal and the chat's composer did on a CI mini (2026-11-18): three tiles, more than BLINK_TILES.
         new = paint(BASE, (0, 0, 64, 16), 0)
         on = paint(paint(new, (12, 20, 20, 30), 255), (40, 36, 44, 46), 255)
         frames = [(at(-100), BASE), (at(8), new)]
@@ -98,7 +98,7 @@ class SettledTime(unittest.TestCase):
         self.assertEqual(s["changed_after_first"], 0)
 
     def test_compression_noise_is_no_change(self):
-        # The recorder redraws a still window with a few gray levels of noise (cmux21, 2026-11-18): 1 to 6 levels on
+        # The recorder redraws a still window with a few gray levels of noise (a CI mini, 2026-11-18): 1 to 6 levels on
         # every pixel of the window, 3 s after the action, is not a late change.
         new = paint(BASE, (0, 0, 64, 16), 0)
         rng = random.Random(3)

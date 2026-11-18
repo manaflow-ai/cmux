@@ -59,7 +59,7 @@ ODDITY_KINDS = ("placement", "retarget", "flicker", "blank", "layout-after-conte
 _NONZERO = re.compile(b"[^\x00]")
 # Two coarse gray grids, the second offset by half a step: a pixel changed when it moved a step in both, so a change of
 # less than 8 gray levels never counts. The recording's compression redraws a still window with +-1 to 6 levels of
-# noise, which flipped the judge's 8-level grid and read as late changes seconds after an action (cmux21, 2026-11-18).
+# noise, which flipped the judge's 8-level grid and read as late changes seconds after an action (a CI mini, 2026-11-18).
 COARSE = bytes(v >> 4 for v in range(256))
 COARSE_SHIFTED = bytes(min(255, v + 8) >> 4 for v in range(256))
 
@@ -155,7 +155,7 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
     if cols * rows:
         out["ambient_share"] = round(len(set(ambient_tiles)) / (cols * rows), 3)
     before = [f for f in frames if f[0] <= mark][-1:] or frames[:1]
-    # The end flip's own frame is the harness's, not the action's: on cmux21 (2026-11-18) it carried a change in the
+    # The end flip's own frame is the harness's, not the action's: on a CI mini (2026-11-18) it carried a change in the
     # window in most rounds, "still changing 0 ms before the recording ended" at any record length (3 s and 6 s).
     after = [f for f in frames if f[0] > mark and (end is None or f[0] < end)]
     if not before or not after:
@@ -190,7 +190,7 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
         prev = q
     # A tile that went back to an earlier picture OSCILLATION_RETURNS times or more, among at most OSCILLATION_STATES
     # pictures (the one before the action, then off and on), blinks: a terminal cursor and a composer caret at once,
-    # more than BLINK_TILES tiles (cmux21, 2026-11-18). A change of only such tiles is a blink, its first showing
+    # more than BLINK_TILES tiles (a CI mini, 2026-11-18). A change of only such tiles is a blink, its first showing
     # included. A tile cycling through more pictures (a running animation) still counts.
     oscillating = {k for k, n in returns.items() if n >= OSCILLATION_RETURNS and len(pictures[k]) <= OSCILLATION_STATES}
     real = []

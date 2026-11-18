@@ -1048,7 +1048,7 @@ class Harness:
             pending = []  # (scenario name, what to judge), in the order driven
             blocks = []  # (that block's pending, frames, flips)
             # The matrix records a block per round: CuaDriver ends a session with no tool call for a while, and one
-            # block of five rounds at Leo's scale (about 20 minutes) lost every row on cmux21 (2026-11-18).
+            # block of five rounds at Leo's scale (about 20 minutes) lost every row on a CI mini (2026-11-18).
             per_round = any(s in scenarios for s in matrix.MATRIX_SCENARIOS)
             setup = []
             try:
