@@ -373,9 +373,13 @@ impl Outbox {
         if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
         }
+        // A change whose write failed waits in memory for the next write: this is one, even when
+        // no journal was started yet. Read before the disk's lock: a write takes the book's under
+        // it.
+        let changes = self.book().changes;
         {
             let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
-            if disk.journal == 0 && !disk.snapshot_next {
+            if disk.journal == 0 && !disk.snapshot_next && disk.saved >= changes {
                 return;
             }
             disk.snapshot_next = true;
@@ -584,7 +588,10 @@ impl Outbox {
     pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
         let mut book = self.book();
         let Some(d) = book.deliveries.get_mut(id) else { return true };
-        f(d);
+        // A closure that panics part way has still changed the delivery: that change is marked
+        // and saved like any other before the panic goes on, so memory never holds what no
+        // write will take (a restart went back to before it and sent it again).
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
         book.dirty.insert(id.to_owned());
         let change = book.changed();
@@ -594,6 +601,9 @@ impl Outbox {
             tracing::warn!("outbox: could not save: {e:#}");
         }
         self.changed.notify_waiters();
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
         saved.is_ok()
     }
 
@@ -996,6 +1006,10 @@ pub fn local_only() -> RpcError {
 fn projected_message(d: &Delivery) -> Option<&Value> {
     d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
 }
+
+#[cfg(test)]
+#[path = "outbox_model_tests.rs"]
+mod model_tests;
 
 #[cfg(test)]
 mod tests {

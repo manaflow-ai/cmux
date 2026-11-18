@@ -183,3 +183,56 @@ fn cmux_setup_notifications_reports_an_unanswered_prompt_a_failure_and_banners_o
     assert!(text.contains("banners are turned off"), "{text}");
     assert_eq!(world.json(&["setup", "status"])["checks"][6]["state"], "needs_user");
 }
+
+/// `cmux notification banners` and `cmux notification open ID` against a
+/// fake app: the list is the app's `notifications.banners` answer as it is,
+/// the open sends `notifications.open {id}` and prints `{opened, surface}`,
+/// an unknown id is the app's `not_found` (exit 1, the error on stderr), and
+/// a missing id is a usage error that reaches no app.
+#[test]
+fn cmux_notification_banners_lists_and_opens_the_app_banners() {
+    let mut world = World::new("nb");
+    let socket = world.home.parent().unwrap().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    world.app = Some(socket);
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let banner = json!({"id": "turn-1", "title": "Claude finished", "subtitle": null,
+        "body": "Done.", "surface": 9, "reply": false, "approval": false,
+        "category": "cmux.notification.default"});
+    let listed = json!({"banners": [banner], "authorization": "authorized"});
+    let answer = listed.clone();
+    serve_app(listener, requests.clone(), move |method, params| {
+        Some(match method {
+            "notifications.banners" => Ok(answer.clone()),
+            "notifications.open" if params["id"] == "turn-1" => {
+                Ok(json!({"opened": "turn-1", "surface": 9}))
+            }
+            "notifications.open" => Err(json!({"code": "not_found",
+                "message": format!("No banner {}", params["id"].as_str().unwrap_or_default())})),
+            _ => Err(json!({"code": "method_not_found", "message": "unknown method"})),
+        })
+    });
+    let sent = |method: &str| -> Vec<Value> {
+        requests.lock().unwrap().iter().filter(|r| r["method"] == method).cloned().collect()
+    };
+
+    assert_eq!(world.json(&["notification", "banners", "--json"]), listed);
+    assert_eq!(
+        world.json(&["--json", "notification", "open", "turn-1"]),
+        json!({"opened": "turn-1", "surface": 9})
+    );
+    let opens = sent("notifications.open");
+    assert_eq!(opens.len(), 1, "{opens:?}");
+    assert_eq!(opens[0]["params"], json!({"id": "turn-1", "after": "sync"}));
+
+    let unknown = world.run(&["notification", "open", "gone", "--json"]);
+    assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
+    let stderr = String::from_utf8_lossy(&unknown.stderr);
+    let error: Value = serde_json::from_str(stderr.lines().last().unwrap_or_default())
+        .unwrap_or_else(|e| panic!("{e}: {stderr}"));
+    assert_eq!(error["code"], "not_found", "{error}");
+
+    let missing = world.run(&["notification", "open"]);
+    assert_eq!(missing.status.code(), Some(2), "{missing:?}");
+    assert_eq!(sent("notifications.open").len(), 2, "a usage error reached the app");
+}

@@ -1,3 +1,4 @@
+import CmuxNextCloud
 public import CmuxNextSettings
 import CryptoKit
 public import Foundation
@@ -118,23 +119,10 @@ public final class GitHubConnections {
     }
 
     /// Only the App installation page returned by integration.connect may open.
-    public nonisolated static func installationURL(_ raw: String) -> URL? {
-        guard let url = URL(string: raw), url.scheme == "https", url.host == "github.com",
-              url.user == nil, url.password == nil, url.port == nil,
-              url.path.range(of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#, options: .regularExpression) != nil else { return nil }
-        return url
-    }
+    public nonisolated static func installationURL(_ raw: String) -> URL? { CloudGitHubApp.installationURL(raw) }
 
     /// Expiry is only a cache hint; the API still verifies the signed state on completion.
-    private nonisolated static func authorizationExpiration(_ url: URL) -> Date? {
-        guard let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "state" })?.value else { return nil }
-        let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return nil }
-        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload), let value = try? JSONValue.parse(data), let expires = value["exp"]?.doubleValue else { return nil }
-        return Date(timeIntervalSince1970: expires)
-    }
+    private nonisolated static func authorizationExpiration(_ url: URL) -> Date? { CloudGitHubApp.authorizationExpiry(url) }
 
     /// The existing API identity contract (`domains/user.ts::stackTeamIdFor`).
     public nonisolated static func backendTeam(project: String, stackTeam: String?) -> String? {

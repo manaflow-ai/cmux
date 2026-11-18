@@ -291,6 +291,8 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
+    // A partial copy of a Mac folder (a Cloud chat's first pass): what stayed on the Mac.
+    parts.extend(crate::left_on_mac::part(&meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -517,7 +519,9 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     push_blocks(
         parts.into_iter().flatten().filter(|p| {
             p.included
-                && (is_rule(p) || p.source == crate::folder_instructions::SOURCE)
+                && (is_rule(p)
+                    || p.source == crate::folder_instructions::SOURCE
+                    || p.source == crate::left_on_mac::SOURCE)
                 && p.channel.as_deref().is_none_or(|channel| channel == USER_CONTEXT)
         }),
         blocks,

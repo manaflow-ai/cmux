@@ -169,9 +169,10 @@ test("the transcript's mask leaves the rail's lane in full ink", () => {
     )?.[1];
   expect(rule).toBeDefined();
   // The view's mask, the scrollbar's lane, and the rail's lane: the gutter the rows never reach.
-  // Find in Chat's full-ink box may follow as a fourth layer (ChatFindBar).
+  // Find in Chat's full-ink box may follow as a fourth layer (ChatFindBar), then the rows beside
+  // the bottom stack (besideStack.ts).
   expect(rule).toContain("var(--acpmux-view-mask)");
   expect(rule).toMatch(
-    /mask-size:\s*100% 100%,\s*var\(--acpmux-scrollbar-lane, 16px\) 100%,\s*var\(--cv-inset\) 100%(,\s*var\(--acpmux-find-hole-size, 0px 0px\))?;/,
+    /mask-size:\s*100% 100%,\s*var\(--acpmux-scrollbar-lane, 16px\) 100%,\s*var\(--cv-inset\) 100%(,\s*var\(--acpmux-find-hole-size, 0px 0px\))?(,\s*var\(--acpmux-beside-sizes, 0px 0px\))?;/,
   );
 });

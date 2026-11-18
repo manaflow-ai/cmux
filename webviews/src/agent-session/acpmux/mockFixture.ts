@@ -521,6 +521,7 @@ export const mockSessions: MockSession[] = [
     ago: 2000,
     host: LOCAL_HOST,
     hostKind: "local",
+    // motion-allow: mock reply text
     reply: "Restoring 40 workspaces now takes 180 ms; terminals start lazily when first shown.",
   },
   {
