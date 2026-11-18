@@ -389,7 +389,7 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
+        if let w = window, w.pendingCreationOwnsKeyboard || !(w.firstResponder === w || w.firstResponder == nil) { DebugTimings.markLaunch(w.pendingCreationOwnsKeyboard ? "home.open_skipped_creation" : "home.open_skipped_responder") } else { focusPrimaryInput() } // unasked; a skip is marked (piece 8)
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
