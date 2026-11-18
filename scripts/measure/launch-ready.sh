@@ -31,33 +31,64 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
+#                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
+#                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
+
+#   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
+#                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
+#                LR-HOT-HOST and exit 5. preflight=0 skips it.
 #   keys=1       each measured launch types into the app from the moment its window shows: one key every 100 ms (a-z
 #                then 0-9, 36 at most, posted to the app's pid), 3 more once Home's first page is up and took keys, then
 #                Return, and the probe reads the sent message back from the app's daemon. Its row carries first_key_ms
 #                (when the earliest key the sent message holds went out, ms from process start), keys_sent, keys_landed
 #                and keys_text; LR-KEYS SIDE MEDIAN N/M prints the side's median first_key_ms and how many of its M
 #                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
-#                request moves focus). Default keys=0: no keys.
-#   front=home   (state=kept) before every quit the probe shows Home (action.run home.show), so each measured launch
-#                is a relaunch whose last front was Home: LR-USABLE then says whether Home's box took keys on a
-#                relaunch to Home. Default: the front the session's own last launch left.
+#                request moves focus). It takes no front=tab: that launch reopens a terminal, which would take the keys
+#                and run them as a command. Default keys=0: no keys.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
 # on-screen window, and the app's own marks. Prints LR-RUN per launch, LR-MEDIAN per side, LR-PROFILE with profile=1.
-# Each launch's row carries load_1m, the Mac's 1-minute load average just before it (LR-MEDIAN: the side's highest).
+# Each launch waits (at most 10 min, LR-LOAD-WAIT) until the Mac's 1-minute load is under 8, then its row carries
+# load_1m, the load just before it (LR-MEDIAN: the side's highest).
 # Each side has its own app defaults (side_defaults, through launch-ready-defaults.py); the account's are set aside for
 # the run and put back at its end. A launch that left a launch snapshot path outside its own side's home read the
 # other side's state: LR-CROSS-ARM, and the step fails. Each row's front is what the launch had in front just before
 # its quit; a measured launch whose front is not its side's previous launch's front did not reopen what was open last
-# (Leo, 2026-11-17: "my recently opened thing"): an LR-FAIL row, counted in LR-REOPENED SIDE N/M.
+# (Leo, 2026-11-17: "my recently opened thing"): an LR-FAIL row, counted in LR-REOPENED SIDE N/M. The stress3 seed
+# writes its own front just before it quits the app. A launch whose previous launch left no readable front is an
+# LR-SKIP, outside N/M.
+# Restore cases (Leo, 2026-11-18: "fresh startup opening home is obv fine but if it's not first time and the user was
+# on a workspace and a tab, obv just take them there"; "ofc reopening home if they were prev on home is fine"): each
+# measured launch must land exactly where the person was, Home included. Each case's expectation is one entry of
+# EXPECT in launch-ready-summary.py (LR-CASE, LR-REOPENED SIDE N/M):
+#   state=fresh  the same as state=bare: no saved state, so Home
+#   front=home|tab  with state=kept (and any kept case below): the priming launch's front is made Home (a workspace
+#                made, then Home shown) or a terminal tab (a workspace made and left in front) by launch-ready-seed.py
+#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab)
+#   case=update  with base= (dmg=build): base is the old copy, head the new one, both at head's path with head's home.
+#                The priming launch and one launch before each measured one run the old copy (its state, its front);
+#                then the copy is replaced by head's, whose first launch is measured (copy=fresh's first exec). It
+#                must reopen the old copy's last front. Only head is measured.
+#   daemon=cold  before each measured launch the side's kept daemons end, as a reboot ends them (state kept, daemon
+#                cold): the launch must still reopen the last front. Default daemon=warm
+#   snapshot=unknown  the launch snapshot's front workspace no longer exists in the daemon (same session, same registry
+#                id, so not foreign): the priming launch leaves a tab in front (front=tab, the default here); its launch
+#                snapshot file (cmuxNext.launchSnapshotPath.<session>) and defaults are kept; one more launch closes that
+#                workspace through the control socket (closeWorkspace, launch-ready-seed.py --close-workspace KEY);
+#                then, before each measured launch, the kept snapshot and defaults are put back. Expects Home
+# Per side: LR-SURFACE SIDE first=<home|tabs> home_page_drawn=N/M, the surface the launches showed first; an A/B whose
+# arms differ there prints LR-SURFACE-DIFF ...: not like for like.
 set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 arg rc=0 i side
+
+  local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_KEYS=0 LR_FRONT=
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -71,24 +102,36 @@ main() {
       runs=*) runs="${arg#runs=}" ;;
       profile=0|profile=1) profile="${arg#profile=}" ;;
       state=kept|state=bare) LR_STATE="${arg#state=}" ;;
+      state=fresh) LR_STATE=bare ;;
+      case=update) LR_CASE=update ;;
+      daemon=warm|daemon=cold) LR_DAEMON="${arg#daemon=}" ;;
+      snapshot=own|snapshot=unknown) LR_SNAPSHOT="${arg#snapshot=}" ;;
+      front=home|front=tab) LR_FRONT="${arg#front=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
-      front=home) LR_FRONT=home ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
+      late=*) late="${arg#late=}" ;;
       machines=*) machines="${arg#machines=}" ;;
+      preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
+      preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
-  [[ -z "$LR_FRONT" || "$LR_STATE" == kept ]] || { echo "front=home is a relaunch case: it takes state=kept" >&2; exit 2; }
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
+  [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
+  [[ "$late" =~ ^[0-9]+$ && "$late" -le 10000 ]] || { echo "late= takes 0 to 10000 ms" >&2; exit 2; }
+  LR_LATE="$late"
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  case_args_ok "$base" "$session" || exit 2
+  if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
+  echo "LR case case=${LR_CASE:-none} daemon=$LR_DAEMON snapshot=$LR_SNAPSHOT front=${LR_FRONT:-as-left}"
   [[ "$LR_KEYS" == 0 ]] || echo "LR keys 1: one key per 100 ms from the window, then Return, read back from the daemon"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
@@ -98,6 +141,9 @@ main() {
   cp scripts/measure/launch-ready-seed.py "$out/seed.py"
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
+  cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
+
+  cp scripts/measure/launch-ready-summary.py "$out/summary.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   echo "LR session $session prerun $prerun copy $copy machines $machines"
   local sides=(head)
@@ -136,99 +182,48 @@ main() {
   fi
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
+  [[ "$late" == 0 ]] || sides+=(late)
+
+  # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
+  if [[ "$preflight" == 1 ]]; then bash "$out/preflight.sh" "$preflight_cpu" || { echo "LR-FAIL hot host: a system indexer above ${preflight_cpu}% CPU or cmux-ci's noisy mark (preflight=0 skips this check)"; exit 5; }; fi
   for side in "${sides[@]}"; do
-    local mount="$out/mnt-$side"
+    local mount="$out/mnt-$side" image="$side"
+    [[ "$side" != late ]] || image=head # the late side runs the head's build
     mkdir -p "$mount" "$out/$side"
-    hdiutil attach "$out/$side.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
+    hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
     local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
-    if [[ "$copy" == fresh ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
+    if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
     hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
-    echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/$side/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
+    local info="$out/$side/$(basename "$found")/Contents/Info.plist"
+    [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
+    echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
-    probe "$out" "$side" prime 10 0 || rc=1
+    if [[ "$LR_CASE" == update && "$side" == base ]]; then continue; fi # the old copy: launched at head's path below
+    if [[ "$LR_CASE" == update ]]; then old_copy "$out" "$side" || rc=1; fi
+    if [[ -n "$LR_FRONT" ]]; then front_prime "$out" "$side" || rc=1; else probe "$out" "$side" prime 10 0 || rc=1; fi
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
+    if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
   done
+  if [[ "$LR_CASE" == update ]]; then sides=(head); fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
-      if [[ "$copy" == fresh ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
+      if [[ "$LR_CASE" == update ]]; then
+        old_copy "$out" "$side" && probe "$out" "$side" "old$i" 6 0 || rc=1
+      fi
+      if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
+      if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_restore "$out" "$side" || rc=1; fi
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
-  local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
-  [[ -n "$pids" ]] && kill $pids 2>/dev/null
-  summary "$out/runs.jsonl" "$LR_STATE" "$LR_KEYS"
+  end_left "$out/"
+  # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
+  python3 -I "$out/summary.py" "$out/runs.jsonl" --state "$LR_STATE" --case "$LR_CASE" --daemon "$LR_DAEMON" \
+    --snapshot "$LR_SNAPSHOT" --front "$LR_FRONT" --keys "$LR_KEYS" --out "$out"
   tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
-}
-
-# summary RUNS STATE KEYS: from the runs.jsonl rows, per side LR-FAIL rows, LR-MEDIAN, LR-REOPENED and LR-USABLE, and
-# with KEYS 1 LR-KEYS (tests/launch-ready-keys.test.sh).
-summary() {
-  python3 -I - "$1" "$2" "${3:-0}" <<'PY'
-import json, statistics, sys
-from collections import Counter
-rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
-bare = sys.argv[2] == "bare"
-keys = sys.argv[3] == "1"
-for side in dict.fromkeys(r["side"] for r in rows):
-    done = [r for r in rows if r["side"] == side and r["label"].startswith("run") and r.get("window_on_screen") is not None]
-    loads = [r["load_1m"] for r in done if r.get("load_1m") is not None]
-    med = {"n": len(done), "max_load_1m": max(loads) if loads else None}
-    for key in ("finished_launching", "window_on_screen", "active", "request_to_start", "shell_requested"):
-        vals = [r[key] for r in done if r.get(key) is not None]
-        med[key] = round(statistics.median(vals), 1) if vals else None
-    # Which region each launch showed first, counted (a side that opens on a pane is not timed as Home).
-    med["first_reveal"] = dict(sorted(Counter(r.get("first_reveal") or "none" for r in done).items()))
-    names = dict.fromkeys(name for r in done for name in r["marks"])
-    for key in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
-        vals = [r["marks"][key] for r in done if key in r["marks"]]
-        med[key] = round(statistics.median(vals), 1)
-    # Reopened last open: each measured launch's front against its side's previous launch's (Leo, 2026-11-17: "well
-    # for one, at least on my end, it indeed would need to be like... my recently opened thing"). The workspace (its
-    # model key) and the top page are compared; the tab id is kept in the row only.
-    # state=bare: every launch starts from an empty home, so there is nothing to reopen (each launch's workspace is
-    # new: its id comes from the emptied home). What a bare launch owes is Home's page (home.first_page) and the window
-    # taking keys in it (window_usable) before the probe quits it.
-    prev, measured, reopened, usable = None, 0, 0, 0
-    for r in (r for r in rows if r["side"] == side):
-        front = r.get("front")
-        if r["label"].startswith("run"):
-            measured += 1
-            usable += "window_usable" in r["marks"]
-            if r.get("cross_arm"):
-                reason = "cross-arm " + json.dumps(r["cross_arm"])
-            elif bare:
-                reason = ("not on Home: no home.first_page" if "home.first_page" not in r["marks"]
-                          else None if "window_usable" in r["marks"] else "no window_usable: Home's message field never took keys")
-            elif not front or "error" in front:
-                reason = "no front: " + str((front or {}).get("error") or r.get("error") or "none read")
-            elif not prev or "error" in prev:
-                reason = "no front for the launch before"
-            elif (front.get("workspace"), front.get("page")) != (prev.get("workspace"), prev.get("page")):
-                reason = "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
-            else:
-                reopened += 1
-                reason = None
-            if reason:
-                print("LR-FAIL", side, r["label"], reason, flush=True)
-        prev = front
-    med["reopened"] = "n/a (bare: expects Home)" if bare else f"{reopened}/{measured}"
-    med["usable"] = f"{usable}/{measured}"
-    print("LR-MEDIAN", side, json.dumps(med), flush=True)
-    print("LR-REOPENED", side, med["reopened"], flush=True)
-    print("LR-USABLE", side, med["usable"], flush=True)
-    # keys=1: the side's median first_key_ms (the first key Home's box kept, ms from process start) over the measured
-    # launches whose sent message held a key, and how many of the M measured launches sent one.
-    if keys:
-        runs = [r for r in rows if r["side"] == side and r["label"].startswith("run")]
-        firsts = [r["first_key_ms"] for r in runs if r.get("first_key_ms") is not None]
-        landed = sum(1 for r in runs if (r.get("keys_landed") or 0) > 0)
-        median = round(statistics.median(firsts), 1) if firsts else None
-        print("LR-KEYS", side, median, f"{landed}/{len(runs)}", flush=True)
-PY
 }
 
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
@@ -245,23 +240,30 @@ probe() {
     [[ "${PIPESTATUS[0]}" == 0 ]] || { echo "LR-FAIL $side $label no sidebar snapshot to seed machines into"; return 1; }
   fi
   quiesce "$app" "$side" "$label"
-  # state=bare: the launch finds an empty home (launch-ready.swift makes its folders again), empty defaults (no
-  # defaults.plist, so the load leaves the side's domain clear) and no daemon, as a first launch does. The daemons
-  # the last launch kept (a quit keeps them) end first: one left running while its home was removed under it was
-  # found by the next launch, which then never got a first tree, never ensured Home and showed no workspace
-  # (4 of 13 bare prerun=60 launches on a quiet Mac, 2026-11-17). Only this side's copy's processes, then its home.
+  # state=bare: the launch finds no daemon (the ones the last launch kept end first, as daemon=cold ends them: a kept
+  # daemon survived the emptied home, and the next launch's ensure found it, so it never showed Home's first page), an
+  # empty home (launch-ready.swift makes its folders again) and empty defaults (no defaults.plist, so the load leaves
+  # the side's domain clear). Only this run's own copy's processes and home.
   if [[ "$LR_STATE" == bare ]]; then
-    bare_stop "$out/$side/" "$side" "$label"
+    cold_daemon "$out" "$side" "$label" | sed 's/^LR-COLD /LR-BARE-STOP /'
     rm -rf "$out/home-$side/h" "$out/home-$side/t" "$out/home-$side/defaults.plist"
   fi
   side_defaults "$out" load "$app" "$out/home-$side/defaults.plist" \
     || { echo "LR-FAIL $side $label defaults not loaded"; return 1; }
+  # daemon=cold: a measured launch finds no daemon running.
+  if [[ "$label" == run* && "${LR_DAEMON:-warm}" == cold ]]; then
+    cold_daemon "$out" "$side" "$label" || return 1
+  fi
+  wait_load "$side" "$label"
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
     sleep 5 # the recorder's own start (a measurement script, not runtime code)
+  fi
+  if [[ "$side" == late && "$label" == run* ]]; then
+    sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
   fi
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
     $(probe_mode "$label") 2>>"$out/probe.log" | grep '^LR-RUN ')"
@@ -287,19 +289,14 @@ probe() {
   [[ "$line" != *'"error"'* ]]
 }
 
-# probe_mode LABEL: the probe's last argument, comma-separated modes. keys=1 types into a measured launch (runN) and
-# opens no terminal; else state=bare opens one (shell). front=home shows Home before every quit (home), so each next
-# launch is a relaunch to Home.
+# probe_mode LABEL: the probe's last argument. keys=1 types into a measured launch (runN: keys) and opens no terminal;
+# else state=bare opens one (shell).
 probe_mode() {
-  local modes=()
   if [[ "${LR_KEYS:-0}" == 1 ]]; then
-    [[ "$1" == run* ]] && modes+=(keys)
+    if [[ "$1" == run* ]]; then echo keys; fi
   elif [[ "$LR_STATE" == bare ]]; then
-    modes+=(shell)
+    echo shell
   fi
-  [[ "${LR_FRONT:-}" == home ]] && modes+=(home)
-  local IFS=,
-  echo "${modes[*]}"
 }
 
 # seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3
@@ -310,7 +307,7 @@ seed() {
   probe "$out" "$side" seed 600 0 >"$out/seed-$side.probe" &
   launch=$!
   GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
-    2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
+    --front-out "$out/seed-$side.front.json" 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-SEED $side /"
   status=${PIPESTATUS[0]}
   wait "$launch"; probed=$?
   cat "$out/seed-$side.probe"
@@ -373,24 +370,123 @@ defaults_restore() {
 fresh_copy() {
   local out="$1" side="$2" app name
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
-  name="$(basename "$app")"
+  name="$(basename "$(find "$out/$side-dmg" -maxdepth 1 -name '*.app' | head -1)")" # case=update: the old copy's may differ
   quiesce "$app" "$side" "copy$3" >/dev/null
   rm -rf "$app" && ditto "$out/$side-dmg/$name" "$out/$side/$name"
 }
 
-# bare_stop DIR SIDE LABEL: ends every process run from DIR (this side's app copy: its daemons a quit kept), TERM then
-# KILL after 10 s, and prints LR-BARE-STOP with how many there were. The path reaches awk through ENVIRON, as in
-# quiesce_left.
-bare_stop() {
-  local pids n=0
-  pids="$(ps -axo pid=,command= | LR_DIR="$1" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
+# old_copy OUT SIDE: case=update's old copy: SIDE's copy replaced, once its processes are gone, by base's (from
+# base-dmg) at the same folder, so the next launch runs the old build with SIDE's home, as before an update in place.
+old_copy() {
+  local out="$1" side="$2" app old
+  app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
+  old="$(find "$out/base-dmg" -maxdepth 1 -name '*.app' | head -1)"
+  [[ -n "$old" ]] || { echo "LR-FAIL $side case=update has no old copy"; return 1; }
+  if [[ -n "$app" ]]; then quiesce "$app" "$side" old >/dev/null && rm -rf "$app"; fi
+  ditto "$old" "$out/$side/$(basename "$old")"
+}
+
+# front_prime OUT SIDE: front=home|tab's priming launch. launch-ready-seed.py --front makes one workspace (a terminal
+# in front) and, for home, shows Home, without quitting; the probe reads that front at its quit, and every measured
+# launch is judged against it (launch-ready-summary.py). The 20 s settle leaves the seed its time after the window.
+front_prime() {
+  local out="$1" side="$2" launch status probed
+  rm -f "$LR_SOCKETS/$side.sock"
+  probe "$out" "$side" prime 20 0 >"$out/prime-$side.probe" &
+  launch=$!
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
+    --windows 1 --workspaces 1 --front "$LR_FRONT" --stay 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-FRONT $side /"
+  status=${PIPESTATUS[0]}
+  wait "$launch"; probed=$?
+  cat "$out/prime-$side.probe"
+  [[ "$status" == 0 && "$probed" == 0 ]]
+}
+
+# cold_daemon OUT SIDE LABEL: daemon=cold: every process still running from SIDE's copy (the daemons a quit keeps)
+# ends, TERM then KILL after 10 s, as a reboot ends them. Prints LR-COLD. Only this run's copy: the path reaches awk
+# through ENVIRON, as in quiesce_left.
+cold_daemon() {
+  local out="$1" side="$2" pids n=0
+  end_left "$out/$side/"; pids="$LR_LEFT"
   if [[ -n "$pids" ]]; then
     n="$(echo "$pids" | wc -l | tr -d ' ')"
-    kill $pids 2>/dev/null
-    for _ in $(seq 100); do ps -p "$(echo $pids | tr " " ,)" >/dev/null || break; sleep 0.1; done
-    kill -9 $pids 2>/dev/null
+    for _ in $(seq 100); do ps -p "$(echo $pids | tr ' ' ,)" >/dev/null || break; sleep 0.1; done
+    end_left "$out/$side/" KILL
   fi
-  echo "LR-BARE-STOP $2 $3 stopped=$n"
+  echo "LR-COLD $side $3 stopped=$n"
+}
+
+# end_left DIR [SIG]: SIG (TERM by default) to every process started from DIR, one of this run's copies, and nothing
+# else; the path reaches awk through ENVIRON, as in quiesce_left. LR_LEFT holds the pids it signalled. The one kill in
+# this script (the fleet rule lint allowlists one): a lookup by this run's own path, not by a name.
+end_left() {
+  LR_LEFT="$(ps -axo pid=,command= | LR_DIR="$1" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
+  if [[ -n "$LR_LEFT" ]]; then kill -"${2:-TERM}" $LR_LEFT 2>/dev/null; fi
+  return 0
+}
+
+# unknown_seed OUT SIDE: snapshot=unknown's state. The priming launch left a tab in front of workspace KEY (its row's
+# front). Its launch snapshot file (the defaults' cmuxNext.launchSnapshotPath.<session>) and SIDE's defaults plist are
+# kept beside the home; one more launch (label forget) closes KEY through the control socket and stays up until the
+# probe quits it; then unknown_restore puts the kept files back: the snapshot names KEY, with the same session and
+# registry id, and the daemon no longer has it. As the console user: the app saves the snapshot owner-only.
+unknown_seed() {
+  local out="$1" side="$2" key snap launch status probed
+  key="$(python3 -I -c 'import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+print(next(((r.get("front") or {}).get("workspace") or "" for r in reversed(rows) if r["side"] == sys.argv[2] and r["label"] == "prime"), ""))' \
+    "$out/runs.jsonl" "$side")"
+  snap="$(launch_snapshot_path "$out/home-$side/defaults.plist")"
+  [[ -n "$key" && -n "$snap" ]] || { echo "LR-FAIL $side snapshot=unknown: no front workspace ($key) or launch snapshot ($snap)"; return 1; }
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/cp -p "$snap" "$out/home-$side/unknown-snapshot.keep" || return 1
+  cp -p "$out/home-$side/defaults.plist" "$out/home-$side/unknown-defaults.keep" || return 1
+  printf '%s\n' "$snap" >"$out/home-$side/unknown-snapshot.path"
+  rm -f "$LR_SOCKETS/$side.sock"
+  probe "$out" "$side" forget 20 0 >"$out/forget-$side.probe" &
+  launch=$!
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$out/seed.py" "$LR_SOCKETS/$side.sock" \
+    --close-workspace "$key" --stay 2>>"$out/seed.log" | sed "s/^LR-SEED /LR-UNKNOWN $side /"
+  status=${PIPESTATUS[0]}
+  wait "$launch"; probed=$?
+  cat "$out/forget-$side.probe"
+  unknown_restore "$out" "$side" && [[ "$status" == 0 && "$probed" == 0 ]]
+}
+
+# unknown_restore OUT SIDE: puts unknown_seed's kept launch snapshot and defaults back, before each measured launch.
+unknown_restore() {
+  local out="$1" side="$2" snap
+  snap="$(cat "$out/home-$side/unknown-snapshot.path" 2>/dev/null)"
+  [[ -n "$snap" ]] || { echo "LR-FAIL $side snapshot=unknown has no kept snapshot"; return 1; }
+  GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh /bin/cp -p "$out/home-$side/unknown-snapshot.keep" "$snap" \
+    && cp -p "$out/home-$side/unknown-defaults.keep" "$out/home-$side/defaults.plist"
+}
+
+# launch_snapshot_path PLIST: the value of the defaults plist's cmuxNext.launchSnapshotPath.<session> key, or nothing.
+launch_snapshot_path() {
+  python3 -I -c 'import plistlib, sys
+try:
+    data = plistlib.load(open(sys.argv[1], "rb"))
+except (OSError, ValueError):
+    data = {}
+print(next((v for k, v in data.items() if k.startswith("cmuxNext.launchSnapshotPath.") and isinstance(v, str)), ""))' "$1"
+}
+
+# case_args_ok BASE SESSION: the restore case arguments (LR_STATE, LR_CASE, LR_DAEMON, LR_SNAPSHOT, LR_FRONT) and
+# LR_KEYS combine.
+case_args_ok() {
+  if [[ "$LR_STATE" == bare && ( -n "$LR_CASE" || "$LR_DAEMON" == cold || "$LR_SNAPSHOT" != own || -n "$LR_FRONT" ) ]]; then
+    echo "state=fresh (bare) has no saved state: it takes no case=, daemon=cold, snapshot= or front=" >&2; return 1
+  fi
+  [[ "$LR_CASE" != update || -n "$1" ]] || { echo "case=update needs base= (the old copy), with dmg=build" >&2; return 1; }
+  [[ -z "$LR_FRONT" || "$2" == small ]] || { echo "front= seeds the priming launch's front: it takes no session=$2" >&2; return 1; }
+  [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
+    || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
+  # keys=1 types into Home's box from the window on; front=tab's launch reopens a terminal, which takes the keys and
+  # runs them as a command at Return. front=home and the default front are Home's: no conflict (the priming launch,
+  # where front= seeds, types nothing).
+  [[ "${LR_KEYS:-0}" != 1 || "$LR_FRONT" != tab ]] \
+    || { echo "keys=1 types into Home: it takes no front=tab (a terminal in front would take the keys)" >&2; return 1; }
+  return 0
 }
 
 # quiesce_left APP: how many processes run from APP/Contents/MacOS or APP/Contents/Frameworks. The paths reach awk
@@ -401,10 +497,29 @@ quiesce_left() {
     awk 'index($0, ENVIRON["LR_MACOS"]) || index($0, ENVIRON["LR_FRAMEWORKS"]) { n++ } END { print n + 0 }'
 }
 
+# wait_load SIDE LABEL: a launch starts only once the 1-minute load is under LR_LOAD_MAX (default 8), as
+# launch-premain's pairs do. The step's own two builds leave the load at 12-21 for the first pairs, so without this
+# every such step came back NOT VALID. At most LR_LOAD_WAIT_S (default 600) seconds; past that the launch runs and its
+# row carries the load, as before. LR-LOAD-WAIT says how long it waited whenever it waited.
+wait_load() {
+  local max="${LR_LOAD_MAX:-8}" limit="${LR_LOAD_WAIT_S:-600}" waited=0 l
+  while l="$(load_1m)"; [[ -n "$l" ]] && ! awk -v l="$l" -v m="$max" 'BEGIN { exit !(l < m) }'; do
+    if (( waited >= limit )); then
+      echo "LR-LOAD-WAIT $1 $2 waited_s=$waited load_1m=$l still over $max"
+      return 0
+    fi
+    sleep 5 # the Mac's own load average settling (a measurement script, not runtime code)
+    waited=$((waited + 5))
+  done
+  if (( waited > 0 )); then echo "LR-LOAD-WAIT $1 $2 waited_s=$waited load_1m=$l"; fi
+  return 0
+}
+
 # load_1m: the Mac's 1-minute load average (`sysctl -n vm.loadavg` prints "{ 1.92 2.10 2.31 }"), empty if unread.
 load_1m() {
   sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }'
 }
 
-# Sourced (tests/launch-ready-quiesce.test.sh, tests/launch-ready-defaults.test.sh), it only defines its functions.
+# Sourced (tests/launch-ready-quiesce.test.sh, tests/launch-ready-defaults.test.sh, tests/launch-ready-keys.test.sh), it
+# only defines its functions.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; exit $?; fi

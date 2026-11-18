@@ -354,18 +354,18 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 #[test]
 fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint-33f597");
-    assert_eq!(remote_name("/"), format!("folder-{}", &remote_name("/")[7..]));
+    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
+    assert_eq!(remote_name("/"), "folder");
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint-33f597"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint-33f597/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint-33f597"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -408,7 +408,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint-33f597").unwrap();
+    let place = place.strip_suffix("/paint").unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
@@ -2106,6 +2106,71 @@ fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
     for body in &bodies[1..] {
         assert!(body.get(super::ENSURE_SIZE_FIELD).is_none(), "{body}");
         assert!(body.get("reservationKey").is_some(), "{body}");
+    }
+}
+
+/// Under a plan known (`plan_max`), a size whose own disk is below the folder's needed disk asks it grown, in GiB rounded
+/// up to 4 and at most the plan's largest disk (`disk_gib`); with no plan known, a folder the size holds, unknown bytes
+/// or the chat size, none.
+#[test]
+fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let bodies = RefCell::new(Vec::new());
+    let ensure = |ask: &Ensure, _: &str| {
+        bodies.borrow_mut().push(ask.body());
+        Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
+    };
+    let asks = [
+        // cmux NEXT Pro, 48 GiB: `lg` grown to 72.
+        (Some("lg"), Some(48 * GIB), Some("lg"), Some(72)),
+        // cmux NEXT Pro, 60 GiB: `lg` grown to 92.
+        (Some("lg"), Some(60 * GIB), Some("lg"), Some(92)),
+        // cmux NEXT Pro, 100 GiB: `lg` grown to Pro's 128 at most.
+        (Some("lg"), Some(100 * GIB), Some("lg"), Some(128)),
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136; 200 GiB: `2xl` grown to Max's 256 at most.
+        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
+        (Some("2xl"), Some(200 * GIB), Some("2xl"), Some(256)),
+        // No plan known: the size's own disk, as before.
+        (Some("lg"), Some(48 * GIB), None, None),
+        (Some("xl"), Some(100 * GIB), None, None),
+        (Some("lg"), None, Some("lg"), None),
+        (Some("sm"), Some(50 * GIB), Some("lg"), None),
+    ];
+    for (size, bytes, plan_max, _) in asks {
+        let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
+            "local": folder.to_str().unwrap(), "credential_on_stdin": true});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        if let Some(bytes) = bytes {
+            request["bytes"] = json!(bytes);
+        }
+        if let Some(plan_max) = plan_max {
+            request["plan_max"] = json!(plan_max);
+        }
+        let answer = super::plan_with_calls(
+            &path,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &ensure,
+            &|_, _| panic!("the ensure made the machine"),
+        );
+        assert!(answer["machine"].is_string(), "{answer}");
+    }
+    let bodies = bodies.borrow();
+    assert_eq!(bodies.len(), asks.len());
+    for ((size, _, _, disk), body) in asks.iter().zip(bodies.iter()) {
+        if *size != Some("sm") {
+            assert_eq!(body[super::ENSURE_SIZE_FIELD], json!(size), "{body}");
+        }
+        match disk {
+            Some(disk) => assert_eq!(body[super::ENSURE_DISK_FIELD], json!(disk), "{body}"),
+            None => assert!(body.get(super::ENSURE_DISK_FIELD).is_none(), "{body}"),
+        }
     }
 }
 

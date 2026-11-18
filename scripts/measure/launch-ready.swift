@@ -1,9 +1,6 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES]]]   MODES: shell, keys, home, comma-separated
-//
-// With `home` (launch-ready.sh front=home) it shows Home before the quit (`action.run home.show`, focus allowed), so
-// the next launch is a relaunch whose last front was Home; `front` is read after that.
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES]]]   MODES: shell, keys, comma-separated
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -46,7 +43,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
     FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
 }
 let modes = Set(args.count > 6 ? args[6].split(separator: ",").map(String.init) : [])
-let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), showsHome = modes.contains("home")
+let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -150,13 +147,6 @@ func ownWindowOnScreen(_ pid: pid_t) -> Bool {
 }
 
 // One request on the app's control socket (line JSON, release methods only): its result, or nil.
-/// front=home: Home in front before the quit (the docked Home, the dock tab selected), then a moment for the window to
-/// commit it, so the quit saves Home as the last front.
-func showHome() {
-    _ = lineRequest(socketPath, ["id": 1, "method": "action.run", "params": ["action": "home.show", "focus": true, "wait": true] as [String: Any]])
-    Thread.sleep(forTimeInterval: 0.5)
-}
-
 func rpc(_ method: String) -> [String: Any]? {
     guard let object = lineRequest(socketPath, ["id": 1, "method": method, "params": [String: Any]()]),
           object["ok"] as? Bool == true else { return nil }
@@ -197,10 +187,14 @@ func lineRequest(_ path: String, _ message: [String: Any]) -> [String: Any]? {
 // the docked Home, or Home covers the window (topPage "home", which a launch's docked Home never sets). Read once, after the
 // settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
 // launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
+// snapshot.get is asked up to 3 times, 250 ms apart: one missed answer is not taken as nothing in front.
 func front() -> [String: Any] {
-    guard let snapshot = rpc("snapshot.get"), let topology = snapshot["topology"] as? [String: Any] else {
-        return ["error": "snapshot.get did not answer"]
+    var topology: [String: Any]?
+    for attempt in 0..<3 where topology == nil {
+        if attempt > 0 { usleep(250_000) }
+        topology = rpc("snapshot.get")?["topology"] as? [String: Any]
     }
+    guard let topology else { return ["error": "snapshot.get did not answer 3 times"] }
     let focus = topology["focus"] as? [String: Any] ?? [:]
     let focused = focus["workspace"] as? String
     let workspace = (topology["workspaces"] as? [[String: Any]] ?? []).first { $0["id"] as? String == focused }?["key"] as? String ?? focused
@@ -374,7 +368,6 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         }
     }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
-        if showsHome { showHome() }
         frontAtQuit = front()
         if typesKeys { keysRead = sentText(since: returnSent ?? seen, sent: Array(keySequence.prefix(keyPosts.count))) }
         quitSent = now(); kill(pid, SIGTERM)

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # launch-ready.sh keys=1: LR-KEYS SIDE MEDIAN N/M is the side's median first_key_ms over its measured launches and how
-# many of them sent a message holding a key; without keys=1 the summary prints no LR-KEYS. A keys=1 measured launch's
-# probe types (keys) and opens no terminal, even with state=bare; its other launches neither type nor open one.
+# many of them sent a message holding a key (launch-ready-summary.py --keys 1, the flag main passes); without keys=1
+# the summary prints no LR-KEYS. A keys=1 measured launch's probe types (keys) and opens no terminal, even with
+# state=bare; its other launches neither type nor open one. keys=1 takes front=home but not front=tab.
 set -euo pipefail
 
-script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/launch-ready.sh"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 
 # shellcheck source=../launch-ready.sh
-source "$script"
+source "$here/launch-ready.sh"
 
 fail() { echo "launch-ready keys: $*" >&2; exit 1; }
 
@@ -22,12 +23,12 @@ fail() { echo "launch-ready keys: $*" >&2; exit 1; }
   echo '{"side":"base","label":"run1","window_on_screen":600,"marks":{},"first_key_ms":null,"keys_sent":36,"keys_landed":0,"keys_text":null}'
 } >"$root/runs.jsonl"
 
-out="$(summary "$root/runs.jsonl" kept 1)"
+out="$(python3 -I "$here/launch-ready-summary.py" "$root/runs.jsonl" --state kept --keys 1)"
 grep -qx 'LR-KEYS head 1000.0 2/3' <<<"$out" || fail "head: want 'LR-KEYS head 1000.0 2/3' in: $out"
 grep -qx 'LR-KEYS base None 0/1' <<<"$out" || fail "base: want 'LR-KEYS base None 0/1' in: $out"
 echo 'launch-ready keys: LR-KEYS prints the median first key and the launches that kept one'
 
-out="$(summary "$root/runs.jsonl" kept 0)"
+out="$(python3 -I "$here/launch-ready-summary.py" "$root/runs.jsonl" --state kept --keys 0)"
 grep -q '^LR-KEYS' <<<"$out" && fail "keys=0 printed LR-KEYS: $out"
 grep -q '^LR-USABLE head' <<<"$out" || fail "keys=0 lost LR-USABLE: $out"
 echo 'launch-ready keys: no LR-KEYS without keys=1'
@@ -40,3 +41,11 @@ LR_KEYS=0
 LR_STATE=kept
 [[ -z "$(probe_mode run1)" ]] || fail "state=kept keys=0 run1: want nothing"
 echo 'launch-ready keys: only a keys=1 measured launch types, and it opens no terminal'
+
+ok() { LR_STATE="$1" LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="$2" LR_KEYS="$3" case_args_ok "" small 2>/dev/null; }
+ok kept home 1 || fail "keys=1 front=home refused"
+ok kept "" 1 || fail "keys=1 refused"
+ok bare "" 1 || fail "state=bare keys=1 refused"
+ok kept tab 0 || fail "front=tab refused"
+! ok kept tab 1 || fail "keys=1 front=tab accepted"
+echo 'launch-ready keys: keys=1 takes front=home, not front=tab'
