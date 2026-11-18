@@ -23,43 +23,102 @@ export type KeptHeight = {
   scale?: number;
 };
 
-/// What a chat's layout keeps. `drawn` is the transcript's drawn heights (each names its chat, version
-/// and width). `look`, `view` and `registry` are what it was measured with: another one measures again.
-export type KeptLayout<D> = {
+/// A row as the store reads it: its id, version and text say whether it is the same row.
+export type KeptRow = { id: string; version: number; text?: string };
+
+/// A row's estimated height as the transcript holds it (model.ts `RowHeights` values).
+export type RowHeight = { width: number; height: number; edge?: string; scale?: number };
+
+/// What a chat's layout keeps: references only, recorded after every commit, so recording is O(1). `rows`
+/// and `heights` are the transcript's last estimate's rows and its estimates by row object; `drawn` its
+/// drawn heights (each names its chat, version and width). `look`, `view` and `registry` are what it was
+/// measured with: another one measures again.
+export type KeptLayout<D, R extends KeptRow = KeptRow> = {
   drawn: D;
-  heights: ReadonlyMap<string, KeptHeight>;
+  rows: readonly R[];
+  heights: WeakMap<R, RowHeight>;
   look: unknown;
   view: unknown;
   registry: unknown;
 };
 
+/// A chat shown again seeds its estimates for this many passes and this long (its kept tail's draw, its
+/// attach page and the records after it each build new row objects), then measures as usual.
+const SEED_PASSES = 4;
+const SEED_MS = 2_000;
+
+type Seeding = { heights: ReadonlyMap<string, KeptHeight>; passes: number; since?: number };
+
 /// Chats whose layout one page keeps, as many as their tails it keeps a while (tailCache.ts).
 export const KEPT_LAYOUTS = 12;
 
-export class KeptLayouts<D> {
-  /// Least recently kept first.
-  private kept = new Map<string, KeptLayout<D>>();
+export class KeptLayouts<D, R extends KeptRow = KeptRow> {
+  /// Least recently recorded first.
+  private kept = new Map<string, KeptLayout<D, R>>();
+  /// Chats shown again whose first estimates take their rows' heights from what they left.
+  private seeding = new Map<string, Seeding>();
 
-  constructor(private readonly limit = KEPT_LAYOUTS) {}
+  constructor(
+    private readonly limit = KEPT_LAYOUTS,
+    private readonly now: () => number = () => performance.now(),
+  ) {}
 
-  /// Keeps `layout` for `sessionId`, replacing what was kept for it, and drops the oldest past the limit.
-  keep(sessionId: string, layout: KeptLayout<D>): void {
+  /// Records what the transcript showing `sessionId` laid out, replacing what was recorded for it, and
+  /// drops the oldest chat past the limit.
+  record(sessionId: string, layout: KeptLayout<D, R>): void {
     this.kept.delete(sessionId);
     this.kept.set(sessionId, layout);
     while (this.kept.size > this.limit) {
       const oldest = this.kept.keys().next().value;
       if (oldest === undefined) break;
       this.kept.delete(oldest);
+      this.seeding.delete(oldest);
     }
   }
 
-  /// The layout kept for `sessionId` when it was measured with the same look, view and registry; taken
-  /// out either way (the transcript keeps it again when it leaves the chat).
-  take(sessionId: string, look: unknown, view: unknown, registry: unknown): KeptLayout<D> | undefined {
+  /// The transcript shows `sessionId` again: the drawn heights its layout left, when it was measured with
+  /// the same look, view and registry, and its next estimates seed (`seed`) from that layout's heights, by
+  /// row id. One pass over the rows it left, once per switch.
+  show(sessionId: string, look: unknown, view: unknown, registry: unknown, scale: number): D | undefined {
+    this.seeding.delete(sessionId);
     const kept = this.kept.get(sessionId);
-    if (!kept) return undefined;
+    if (!kept || kept.look !== look || kept.view !== view || kept.registry !== registry) return undefined;
+    const heights = new Map<string, KeptHeight>();
+    for (const row of kept.rows) {
+      const known = kept.heights.get(row);
+      if (known && (known.scale ?? 1) === scale)
+        heights.set(row.id, { version: row.version, textLength: row.text?.length ?? 0, ...known });
+    }
+    this.seeding.set(sessionId, { heights, passes: 0 });
+    return kept.drawn;
+  }
+
+  /// Gives each of `rows` with no estimate in `into` yet the height `sessionId`'s kept layout holds for it
+  /// (same id, version, text length and scale), so the estimate keeps it instead of measuring it. Stops
+  /// after SEED_PASSES passes and SEED_MS.
+  seed(sessionId: string, rows: readonly R[], into: WeakMap<R, RowHeight>, scale: number): void {
+    const seeding = this.seeding.get(sessionId);
+    if (!seeding) return;
+    for (const row of rows) {
+      if (into.has(row)) continue;
+      const kept = keptHeightFor(seeding.heights, row, scale);
+      if (kept)
+        into.set(row, {
+          width: kept.width,
+          height: kept.height,
+          ...(kept.edge !== undefined ? { edge: kept.edge } : {}),
+          ...(kept.scale !== undefined ? { scale: kept.scale } : {}),
+        });
+    }
+    seeding.passes += 1;
+    seeding.since ??= this.now();
+    if (seeding.passes >= SEED_PASSES && this.now() - seeding.since >= SEED_MS) this.seeding.delete(sessionId);
+  }
+
+  /// `sessionId` is measured with another look or registry: nothing it kept places a row now.
+  forget(sessionId: string): void {
     this.kept.delete(sessionId);
-    return kept.look === look && kept.view === view && kept.registry === registry ? kept : undefined;
+    this.seeding.delete(sessionId);
   }
 
   get size(): number {
@@ -68,6 +127,7 @@ export class KeptLayouts<D> {
 
   clear(): void {
     this.kept.clear();
+    this.seeding.clear();
   }
 }
 

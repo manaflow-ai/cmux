@@ -124,21 +124,40 @@ test("a chat shown again measures only its rows that changed while it was away",
   }
 });
 
-test("a kept layout is taken once, only for the look it was measured with, and bounded", () => {
-  const kept = new KeptLayouts<string>(2);
+test("a kept layout seeds only the look it was measured with, at its scale, and is bounded", () => {
+  let now = 0;
+  const kept = new KeptLayouts<string, AcpmuxRow>(2, () => now);
   const look = {};
-  const layout = { drawn: "drawn", heights: new Map(), look, view: "attachments", registry: defaultRegistry };
-  kept.keep("a", layout);
-  expect(kept.take("a", {}, "attachments", defaultRegistry)).toBeUndefined();
-  expect(kept.take("a", look, "attachments", defaultRegistry)).toBeUndefined();
-  kept.keep("a", layout);
-  expect(kept.take("a", look, "attachments", defaultRegistry)).toBe(layout);
-  kept.keep("a", layout);
-  kept.keep("b", layout);
-  kept.keep("c", layout);
+  const rows = chat("a", 3);
+  const heights = new WeakMap(rows.map((row) => [row, { width: 700, height: 42, scale: 1 }] as const));
+  const layout = { drawn: "drawn", rows, heights, look, view: "attachments", registry: defaultRegistry };
+  kept.record("a", layout);
+  expect(kept.show("a", {}, "attachments", defaultRegistry, 1)).toBeUndefined();
+  expect(kept.show("a", look, "attachments", defaultRegistry, 1)).toBe("drawn");
+  // The rows built again for the return take the kept heights; a row that changed does not.
+  const back = chat("a", 3);
+  back[2] = { ...back[2]!, version: 2 };
+  const into = new WeakMap<AcpmuxRow, { width: number; height: number }>();
+  kept.seed("a", back, into, 1);
+  expect([into.get(back[0]!)?.height, into.get(back[1]!)?.height, into.get(back[2]!)]).toEqual([42, 42, undefined]);
+  // Seeding stops after its passes and its time.
+  for (let pass = 0; pass < 3; pass += 1) kept.seed("a", back, new WeakMap(), 1);
+  now = 2_000;
+  kept.seed("a", back, new WeakMap(), 1);
+  const late = new WeakMap<AcpmuxRow, { width: number; height: number }>();
+  kept.seed("a", back, late, 1);
+  expect(late.has(back[0]!)).toBe(false);
+  // At another Interface Size nothing seeds.
+  kept.show("a", look, "attachments", defaultRegistry, 1.25);
+  const scaled = new WeakMap<AcpmuxRow, { width: number; height: number }>();
+  kept.seed("a", back, scaled, 1.25);
+  expect(scaled.has(back[0]!)).toBe(false);
+  kept.record("b", layout);
+  kept.record("c", layout);
   expect(kept.size).toBe(2);
-  expect(kept.take("a", look, "attachments", defaultRegistry)).toBeUndefined();
-  expect(kept.take("c", look, "attachments", defaultRegistry)).toBe(layout);
+  expect(kept.show("a", look, "attachments", defaultRegistry, 1)).toBeUndefined();
+  kept.forget("c");
+  expect(kept.show("c", look, "attachments", defaultRegistry, 1)).toBeUndefined();
 });
 
 test("a kept height stands only for the same row at the same scale", () => {
