@@ -199,6 +199,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
+    /// `cloud.plan.subscribe {plan}`: the pricing card's Subscribe (`pro` or `max`), on its click
+    /// (``AgentPaneModel/subscribeToCloudPlan(_:)``).
+    case cloudPlanSubscribe(plan: String)
     case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).

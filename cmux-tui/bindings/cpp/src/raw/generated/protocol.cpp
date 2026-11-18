@@ -7143,6 +7143,49 @@ Result<ReattachViewResult> Codec<ReattachViewResult>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<RemoteHostAppPermissions>::encode(const RemoteHostAppPermissions& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.accessibility.is_absent()) {
+        auto encoded = encode_value(value.accessibility);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("accessibility", std::move(encoded).value());
+    }
+    if (!value.screen_recording.is_absent()) {
+        auto encoded = encode_value(value.screen_recording);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("screen_recording", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<RemoteHostAppPermissions> Codec<RemoteHostAppPermissions>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    RemoteHostAppPermissions result{};
+    const Json* field_accessibility = value.find("accessibility");
+    if (field_accessibility) {
+        if (field_accessibility->is_null()) {
+            result.accessibility = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_accessibility);
+            if (!decoded) return std::move(decoded).error();
+            result.accessibility = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_screen_recording = value.find("screen_recording");
+    if (field_screen_recording) {
+        if (field_screen_recording->is_null()) {
+            result.screen_recording = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_screen_recording);
+            if (!decoded) return std::move(decoded).error();
+            result.screen_recording = Field<bool>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<RemoteHostAppResult>::encode(const RemoteHostAppResult& value) {
     (void)value;
     Json::Object object;
@@ -31614,6 +31657,11 @@ Result<RemoteHostCallRequest> Codec<RemoteHostCallRequest>::decode(const Json& v
 Result<Json> Codec<RemoteHostConfigRequest>::encode(const RemoteHostConfigRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.app_permissions.is_absent()) {
+        auto encoded = encode_value(value.app_permissions);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("app_permissions", std::move(encoded).value());
+    }
     if (!value.computer_use.is_absent()) {
         auto encoded = encode_value(value.computer_use);
         if (!encoded) return std::move(encoded).error();
@@ -31636,6 +31684,16 @@ Result<RemoteHostConfigRequest> Codec<RemoteHostConfigRequest>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     RemoteHostConfigRequest result{};
+    const Json* field_app_permissions = value.find("app_permissions");
+    if (field_app_permissions) {
+        if (field_app_permissions->is_null()) {
+            result.app_permissions = Field<RemoteHostAppPermissions>::null();
+        } else {
+            auto decoded = decode_value<RemoteHostAppPermissions>(*field_app_permissions);
+            if (!decoded) return std::move(decoded).error();
+            result.app_permissions = Field<RemoteHostAppPermissions>(std::move(decoded).value());
+        }
+    }
     const Json* field_computer_use = value.find("computer_use");
     if (field_computer_use) {
         if (field_computer_use->is_null()) {
