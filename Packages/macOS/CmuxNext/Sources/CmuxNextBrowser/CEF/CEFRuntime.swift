@@ -106,6 +106,9 @@ final class CEFRuntime {
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
+    /// The last shown pane of a regular profile's web tabs (`CEFPaneHost.hostsExtensionWindows`): an
+    /// extension's popup window opens over it (`popupWindowOpener`).
+    weak var lastShownWebHost: CEFPaneHost?
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
@@ -169,6 +172,7 @@ final class CEFRuntime {
     private(set) lazy var windowGuard: ChromiumWindowGuard = {
         let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
         guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
         return guard_
     }()
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
