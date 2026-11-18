@@ -181,6 +181,7 @@ import {
   LIST_FOLLOW_CAPABILITY,
   allSessionsWanted,
   onWantAllSessions,
+  inNewestOrder,
   wantAllSessions,
   withSession,
 } from "./sessionPages";
@@ -5866,8 +5867,7 @@ export class AcpmuxDirectClient {
     const shown = this.selectedSessionId;
     // The chat on screen older than the rows held (a list read anew holds its first page): asked
     // by itself before it is called gone.
-    if (shown !== undefined && !this.sessions.some((session) => session.sessionId === shown))
-      await this.listOne(shown);
+    if (shown !== undefined && !this.sessions.some((session) => session.sessionId === shown)) await this.listOne(shown);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -6149,7 +6149,13 @@ export class AcpmuxDirectClient {
     this.laterRead = this.sessionPages
       .later(() => this.sessions, this.addSessions)
       .then(
-        () => undefined,
+        (whole) => {
+          if (!whole || this.closed) return;
+          const ordered = inNewestOrder(this.sessions);
+          if (ordered === this.sessions) return;
+          this.sessions = ordered;
+          this.emit("session changed");
+        },
         () => this.rereadSessionsLater(),
       )
       .finally(() => {

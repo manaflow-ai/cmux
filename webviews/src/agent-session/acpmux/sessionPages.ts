@@ -97,7 +97,7 @@ export function allSessionsWanted(): boolean {
  *  search): each connected pane reads the later pages once, and follows from then on. */
 export function wantAllSessions(): void {
   allWanted = true;
-  for (const want of [...wantsAll]) want();
+  for (const want of wantsAll) want();
 }
 
 /** `list` with `row` in place of its own copy (the same id and peer), newest first as acpmux sorts. */
@@ -144,6 +144,13 @@ function wholePageOf<S extends Summary>(reply: any, after?: string): SessionPage
       `the ${after === undefined ? "first page" : `page after cursor ${JSON.stringify(after)}`} lists no sessions`,
     );
   return { sessions: pageOf<S>(reply).sessions, ...(typeof cursor === "string" ? { next: cursor } : {}) };
+}
+/** `list` in acpmux's order, the same array when it already is: a chat that changed or was added while
+ *  later pages came is put where its change sorts it, as the list read at once sorts it. */
+export function inNewestOrder<S extends Summary>(list: S[]): S[] {
+  for (let index = 1; index < list.length; index += 1)
+    if (newestFirst(list[index - 1]!, list[index]!) > 0) return [...list].sort(newestFirst);
+  return list;
 }
 
 /** acpmux's order (hub/session_pages.rs `sort_session_summaries`): newest first, then by

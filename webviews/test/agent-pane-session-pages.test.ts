@@ -465,9 +465,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     requests.length = 0;
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
-    await until("the pane read the list again", () =>
-      requests.some((r) => r.method === "_acpmux/watch" && r.answered),
-    );
+    await until("the pane read the list again", () => requests.some((r) => r.method === "_acpmux/watch" && r.answered));
     await caughtUp(page);
     const after = await state(page);
     expect(after.sessionId).toBe(LATE);
@@ -514,8 +512,9 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const page = await open(NEWEST);
     await until("the pane attached", () => requests.some((request) => request.method === "_acpmux/attach"), 30_000);
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
-    await until("the pane read the list again", () =>
-      requests.filter((r) => r.method === "_acpmux/watch" && r.answered).length >= 2,
+    await until(
+      "the pane read the list again",
+      () => requests.filter((r) => r.method === "_acpmux/watch" && r.answered).length >= 2,
     );
     releaseAttach();
     await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });

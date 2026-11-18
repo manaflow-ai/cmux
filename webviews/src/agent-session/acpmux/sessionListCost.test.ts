@@ -116,7 +116,11 @@ async function page(count: number) {
       setTimeout(() => {
         let reply: string;
         try {
-          reply = JSON.stringify({ jsonrpc: "2.0", id: request.id, result: daemon!.answer(request.method, request.params ?? {}) });
+          reply = JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: daemon!.answer(request.method, request.params ?? {}),
+          });
         } catch (error) {
           const message = (error as Error).message;
           reply = JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32001, message } });
