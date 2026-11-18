@@ -22,6 +22,7 @@ while (($#)); do
     --bin) bins+=("$2"); shift ;;
     --target) target="$2"; shift ;;
     --fail) fail=1 ;;
+    --sigkill) fail=9 ;;
     --wait) wait_for="$2"; shift ;;
   esac
   shift
@@ -33,12 +34,16 @@ if [[ -n "$wait_for" ]]; then
   [[ -e "$wait_for" ]] || { echo "error: never saw $wait_for" >&2; exit 3; }
 fi
 echo "compiling ${bins[*]} into $CARGO_TARGET_DIR"
+# What cargo prints when the kernel killed rustc (job 134786831617).
+((fail != 9)) || { echo "error: could not compile \`${bins[*]}\`"; echo "  process didn't exit successfully: \`rustc --crate-name x\` (signal: 9, SIGKILL: kill)"; exit 101; } >&2
 ((fail == 0)) || { echo "error: could not compile ${bins[*]}" >&2; exit 101; }
 mkdir -p "$CARGO_TARGET_DIR/$target/release"
 for b in "${bins[@]}"; do echo "$b from $CARGO_TARGET_DIR" > "$CARGO_TARGET_DIR/$target/release/$b"; done
+echo "ended ${bins[*]}" >> "$FAKE_LOG"
 FAKE
 chmod +x "$work/bin/cargo"
-export PATH="$work/bin:$PATH" FAKE_LOG="$work/log"
+# Room for every group at once unless a case says otherwise.
+export PATH="$work/bin:$PATH" FAKE_LOG="$work/log" CARGO_GROUPS_MEM_GB=1000
 t=x86_64-unknown-linux-musl
 td="$work/target"
 
@@ -59,7 +64,7 @@ grep -q "cmux-relay from $td/groups/3\$" "$td/$t/release/cmux-relay" || fail "gr
 # Each group's output is printed whole, in group order, with its time.
 [[ "$(grep -n 'compiling cmux-tui' <<<"$out" | cut -d: -f1)" -lt "$(grep -n 'compiling acpmux' <<<"$out" | cut -d: -f1)" ]] \
   || fail "group logs are not in group order: $out"
-grep -Eq '^cargo group 2 \(acpmux\): [0-9]+ s$' <<<"$out" || fail "no time line for group 2: $out"
+grep -Eq '^cargo group 2 \(acpmux\): [0-9]+ s(, largest process [0-9.]+ GB)?$' <<<"$out" || fail "no time line for group 2: $out"
 
 # 2. A failed group fails the run after every group finished, and names it.
 rm -rf "$td"; : > "$FAKE_LOG"
@@ -109,5 +114,58 @@ out="$(CARGO_BUILD_JOBS=3 "$script" "$td" "$t" \
   "cmux-tui" "cargo build --bin cmux-tui --target $t" \
   "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "caller jobs run failed: $out"
 [[ "$(grep -c ' jobs=3$' "$FAKE_LOG")" == 2 ]] || fail "a caller's CARGO_BUILD_JOBS did not reach every group: $(cat "$FAKE_LOG")"
+
+# 6. Weights: on 16 GB the two 12 GB groups (as cmux-tui and acpmux-standalone
+#    under fat LTO) never run together, and the 2 GB group runs beside the
+#    first (group 1 waits for a file group 2 writes). A group heavier than the
+#    memory still runs, alone; groups with no weight count 6 GB.
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(CARGO_GROUPS_MEM_GB=16 CARGO_GROUPS_GB="12 2 12" "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t --wait $work/light-started" \
+  "cmux-relay" "touch $work/light-started && cargo build --bin cmux-relay --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" \
+  || fail "weighted groups failed: $out"
+grep -q "cargo groups: 3, 2 at first" <<<"$out" || fail "the first admission is not announced: $out"
+[[ "$(grep -n '^ended cmux-tui' "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n '^started acpmux' "$FAKE_LOG" | cut -d: -f1)" ]] \
+  || fail "the two heavy groups ran together: $(cat "$FAKE_LOG")"
+for b in cmux-tui cmux-relay acpmux; do [[ -f "$td/$t/release/$b" ]] || fail "$b missing with weights"; done
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(CARGO_GROUPS_MEM_GB=4 "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "groups over the memory failed: $out"
+grep -q "cargo groups: 2, 1 at first" <<<"$out" || fail "one at first not announced: $out"
+[[ "$(tr '\n' ' ' < "$FAKE_LOG")" == "started cmux-tui "*"ended cmux-tui started acpmux "*"ended acpmux " ]] \
+  || fail "groups over the memory did not run one by one in order: $(cat "$FAKE_LOG")"
+# The job split is sized for the most groups that can run together, not the
+# first admission: on 16 GB with the Linux cross step's weights two start, but
+# four 2 GB groups can run at once later, so each of the others gets
+# ceil(2 x cores / 4), not every core (review of #46436, F1).
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(env -u CARGO_BUILD_JOBS CARGO_GROUPS_MEM_GB=16 CARGO_GROUPS_GB="13 2 2 2 13 2" "$script" "$td" "$t" \
+  "g1" "cargo build --bin g1 --target $t" "g2" "cargo build --bin g2 --target $t" \
+  "g3" "cargo build --bin g3 --target $t" "g4" "cargo build --bin g4 --target $t" \
+  "g5" "cargo build --bin g5 --target $t" "g6" "cargo build --bin g6 --target $t" 2>&1)" \
+  || fail "the Linux cross weights failed: $out"
+grep -q "cargo groups: 6, 2 at first, at most 4 at once" <<<"$out" || fail "the peak is not announced: $out"
+peak_share=$(((2 * cores + 3) / 4))
+((peak_share <= cores)) || peak_share=$cores
+for g in g2 g3 g4 g5 g6; do
+  grep -qx "started $g jobs=$peak_share" "$FAKE_LOG" \
+    || fail "$g did not get $peak_share jobs (sized for the peak of 4): $(cat "$FAKE_LOG")"
+done
+grep -qx "started g1 jobs=$cores" "$FAKE_LOG" || fail "group 1 did not keep every core: $(cat "$FAKE_LOG")"
+
+# 7. A rustc killed by signal 9 is named as the runner's memory, not the code.
+rm -rf "$td"
+if out="$(GITHUB_ACTIONS=true RUNNER_NAME=blacksmith-4vcpu-test "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t --sigkill" 2>&1)"; then
+  fail "a killed group passed: $out"
+fi
+grep -q '^::error title=runner out of memory::cargo group 2 (acpmux): .*\[cmux-ci machine: runner-oom\].*blacksmith-4vcpu-test' <<<"$out" \
+  || fail "the killed group is not named as runner OOM: $out"
+rm -rf "$td"
+out="$("$script" "$td" "$t" "cmux-tui" "cargo build --bin cmux-tui --target $t --fail" 2>&1)" && fail "a failed group passed: $out"
+! grep -q "runner-oom" <<<"$out" || fail "a compile error was named as runner OOM: $out"
 
 echo "PASS: cargo-groups.sh"
