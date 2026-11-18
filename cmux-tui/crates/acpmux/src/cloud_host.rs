@@ -4,8 +4,9 @@
 //! `CMUX_VM_ID` is set.
 //!
 //! A chat on a Cloud machine never fails over onto the local CodeRouter (`hub/turns.rs`), and a
-//! sign-in failure there says only how to sign the machine in (`claude_auth.rs`): the Mac's
-//! "Set up Claude Code credentials" button on the turn. Leo, 2026-10-31: "STOP USING CODEROUTER".
+//! sign-in failure there points at the machine's model route (`claude_auth.rs`): the Cloud
+//! service's account or the person's model gateway. The machine holds no provider login, and the
+//! Mac copies none to it.
 //!
 //! Not a security boundary: anything on the VM can remove these files. It only picks which
 //! fallback and which words a chat there gets.

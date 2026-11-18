@@ -45,22 +45,28 @@ fn fixture(dir: &str, name: &str) -> PathBuf {
 
 struct Session {
     chunks: Vec<(u64, Vec<u8>)>,
+    /// Terminal size changes (`{"t_ms", "resize": [cols, rows]}` lines of `pty.jsonl`).
+    resizes: Vec<(u64, u16, u16)>,
     moments: Vec<(String, u64)>,
     transcript: Vec<(Option<u64>, String)>,
 }
 
 fn load(dir: &str) -> Session {
     let read = |name: &str| std::fs::read_to_string(fixture(dir, name)).unwrap_or_default();
-    let chunks = read("pty.jsonl")
-        .lines()
-        .map(|line| {
-            let v: Value = serde_json::from_str(line).unwrap();
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(v["b64"].as_str().unwrap())
-                .unwrap();
-            (v["t_ms"].as_u64().unwrap(), bytes)
-        })
-        .collect();
+    let mut chunks = Vec::new();
+    let mut resizes = Vec::new();
+    for line in read("pty.jsonl").lines() {
+        let v: Value = serde_json::from_str(line).unwrap();
+        let t = v["t_ms"].as_u64().unwrap();
+        if let Some(size) = v["resize"].as_array() {
+            let dim = |i: usize| u16::try_from(size[i].as_u64().unwrap()).unwrap();
+            resizes.push((t, dim(0), dim(1)));
+            continue;
+        }
+        let bytes =
+            base64::engine::general_purpose::STANDARD.decode(v["b64"].as_str().unwrap()).unwrap();
+        chunks.push((t, bytes));
+    }
     let moments: Value = serde_json::from_str(&read("moments.json")).unwrap();
     let moments = moments
         .as_array()
@@ -75,7 +81,7 @@ fn load(dir: &str) -> Session {
             (acpmux::adopt_replay::record_time(&v), line.to_owned())
         })
         .collect();
-    Session { chunks, moments, transcript }
+    Session { chunks, resizes, moments, transcript }
 }
 
 /// The real screen at `t`: every PTY byte written by then, through ghostty-vt.
@@ -885,5 +891,374 @@ fn export_sessions_for_the_phone_bench() {
         let path = Path::new(&dir).join(format!("{dir_name}.json"));
         std::fs::write(&path, serde_json::to_vec(&out).unwrap()).unwrap();
         println!("wrote {}", path.display());
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The phone's parity fixtures (cmux-next-ios `AgentCLIHybridParityTests`, Leo 2026-11-16:
+// "prove it correct").
+//
+// The reference is ghostty-vt fed the session's PTY bytes: the terminal the daemon reads every
+// frame from and the engine the phone draws with, not this crate (whose encoder is what is under
+// test). For each of the four sessions (Claude Code, Codex, opencode and a plain bash session
+// with resizes, scrollback, the alternate screen, wide and combined glyphs, 256-color and
+// truecolor) the daemon's stream is replayed as the daemon paces it, with a 4 s drop and a
+// resume on a new connection. Each frame the phone gets is one step: its lean bytes, its v1
+// delta, the terminal bytes `vt::frame_bytes` makes of it, and the reference screen at that
+// frame, cell by cell (text, width, colors, attributes) with its cursor. Here every step's bytes
+// are also drawn into a second ghostty-vt and checked against the reference, so the phone's
+// Swift test only has to show that it reads the same frames and makes the same bytes.
+
+/// A plain bash 5.2 session on the same 100x32 terminal, recorded on a fleet lane VM
+/// (`pty.jsonl` also holds its two resizes, to 80x24 and back).
+const SHELL: &str = "shell-bash-5.2";
+
+/// The phone misses every frame sent in this window (ms from the start), then reconnects.
+const PHONE_DROP: (u64, u64) = (8_000, 12_000);
+
+fn sized_terminal(cols: u16, rows: u16) -> ghostty_vt::Terminal {
+    let mut term =
+        ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    term.resize(cols, rows, 8, 16).unwrap();
+    term
+}
+
+/// The terminal's screen as the daemon reads it ([`live_screen`]), with each cell's width role:
+/// 1 narrow (an end-of-row spacer too), 2 the lead of a wide glyph, 0 its trailing half.
+fn reference_screen(term: &mut ghostty_vt::Terminal) -> (Grid, Vec<Vec<u8>>, vt::Cursor) {
+    let mut state = ghostty_vt::RenderState::new().unwrap();
+    state.update(term).unwrap();
+    let frame = state.build_frame().unwrap();
+    let (cols, rows) = frame.size;
+    let mut widths: Vec<Vec<u8>> = frame
+        .styled_rows()
+        .iter()
+        .map(|row| {
+            let mut widths: Vec<u8> = row
+                .iter()
+                .map(|cell| match cell.width {
+                    ghostty_vt::CellWidth::Wide => 2,
+                    ghostty_vt::CellWidth::SpacerTail => 0,
+                    _ => 1,
+                })
+                .collect();
+            widths.resize(usize::from(cols), 1);
+            widths
+        })
+        .collect();
+    widths.resize(usize::from(rows), vec![1; usize::from(cols)]);
+    let (grid, cursor) = live_screen(term);
+    (grid, widths, cursor)
+}
+
+fn color_json(color: Color) -> Value {
+    match color {
+        Color::Default => Value::Null,
+        Color::Palette(i) => json!(i),
+        Color::Rgb(r, g, b) => json!([r, g, b]),
+    }
+}
+
+/// The fixture's tables: styles, distinct rows, and the width ghostty-vt gave each non-ASCII
+/// glyph (the phone's test lays glyphs out as the phone's Ghostty does).
+#[derive(Default)]
+struct ParityTables {
+    styles: Vec<Style>,
+    rows: Vec<Value>,
+    row_ids: std::collections::HashMap<String, usize>,
+    widths: std::collections::BTreeMap<String, u8>,
+}
+
+impl ParityTables {
+    fn style(&mut self, style: Style) -> usize {
+        if let Some(i) = self.styles.iter().position(|known| *known == style) {
+            return i;
+        }
+        self.styles.push(style);
+        self.styles.len() - 1
+    }
+
+    /// A row as runs of one style: `[style, "text"]` when every cell is one narrow ASCII
+    /// character (a blank as a space), else `[style, [cell, ...]]` with `null` for the trailing
+    /// half of a wide glyph (the cell before it is that glyph).
+    fn row(&mut self, cells: &[Cell], widths: &[u8]) -> usize {
+        let mut runs = Vec::new();
+        let mut i = 0;
+        while i < cells.len() {
+            let style = cells[i].style;
+            let start = i;
+            while i < cells.len() && cells[i].style == style {
+                i += 1;
+            }
+            let plain = (start..i).all(|k| {
+                let text = cells[k].text.as_bytes();
+                widths[k] == 1
+                    && (text.is_empty() || (text.len() == 1 && (0x20..=0x7e).contains(&text[0])))
+            });
+            let payload = if plain {
+                Value::String(
+                    (start..i).map(|k| cells[k].text.chars().next().unwrap_or(' ')).collect(),
+                )
+            } else {
+                Value::Array(
+                    (start..i)
+                        .map(|k| {
+                            if widths[k] == 0 {
+                                return Value::Null;
+                            }
+                            let text = &cells[k].text;
+                            if !text.is_empty() && !text.is_ascii() {
+                                self.widths.insert(text.clone(), widths[k]);
+                            }
+                            json!(text)
+                        })
+                        .collect(),
+                )
+            };
+            runs.push(json!([self.style(style), payload]));
+        }
+        let key = serde_json::to_string(&runs).unwrap();
+        if let Some(id) = self.row_ids.get(&key) {
+            return *id;
+        }
+        self.rows.push(Value::Array(runs));
+        self.row_ids.insert(key, self.rows.len() - 1);
+        self.rows.len() - 1
+    }
+}
+
+/// The daemon's stream of one session as one phone gets it (see the section's note).
+struct PhoneRun {
+    name: &'static str,
+    mac: ghostty_vt::Terminal,
+    phone: ghostty_vt::Terminal,
+    cols: u16,
+    rows: u16,
+    hybrid: HybridStream,
+    pacer: FramePacer,
+    encoder: LeanEncoder,
+    decoder: LeanDecoder,
+    connection: u64,
+    applied: u64,
+    dropped: bool,
+    start: u64,
+    tables: ParityTables,
+    steps: Vec<Value>,
+}
+
+impl PhoneRun {
+    fn offline(&self, now: u64) -> bool {
+        (PHONE_DROP.0..PHONE_DROP.1).contains(&(now - self.start))
+    }
+
+    /// The phone gets `frame` (its cursor `cursor`) at `now`.
+    fn deliver(
+        &mut self,
+        frame: &cmux_agent_cli_render::stream::Frame,
+        cursor: vt::Cursor,
+        now: u64,
+    ) {
+        let lean = self.encoder.encode(STREAM_ID, self.cols, self.rows, frame, cursor).unwrap();
+        let decoded = self.decoder.decode(&lean).expect("the phone reads every lean frame");
+        assert_eq!(
+            (decoded.frame.frame, decoded.frame.base, decoded.cursor, decoded.cols, decoded.rows),
+            (frame.frame, frame.base, cursor, self.cols, self.rows)
+        );
+        let bytes = vt::frame_bytes(&decoded.frame, self.rows, decoded.cursor).unwrap();
+        if frame.base.is_none() {
+            // A keyframe: the phone's mirror starts over at the frame's size.
+            self.phone = sized_terminal(self.cols, self.rows);
+        }
+        self.phone.vt_write(&bytes);
+        let (real, widths, real_cursor) = reference_screen(&mut self.mac);
+        let (shown, shown_widths, shown_cursor) = reference_screen(&mut self.phone);
+        let total = usize::from(self.cols) * usize::from(self.rows);
+        assert_eq!(
+            real.parity(&shown),
+            (total, total),
+            "{} frame {}: {}",
+            self.name,
+            frame.frame,
+            diff_rows(&real, &shown)
+        );
+        assert_eq!(widths, shown_widths, "{} frame {}: cell widths", self.name, frame.frame);
+        assert_eq!(
+            (real_cursor, shown_cursor),
+            (cursor, cursor),
+            "{} frame {}",
+            self.name,
+            frame.frame
+        );
+        let screen: Vec<usize> = real
+            .cells
+            .iter()
+            .zip(&widths)
+            .map(|(cells, widths)| self.tables.row(cells, widths))
+            .collect();
+        self.steps.push(json!({
+            "c": self.connection, "f": frame.frame, "b": frame.base, "at": now - self.start,
+            "cols": self.cols, "rows": self.rows,
+            "lean": b64(&lean), "d": b64(&frame.data), "vt": b64(&bytes),
+            "cursor": [cursor.x, cursor.y, cursor.visible], "screen": screen,
+        }));
+        self.applied = frame.frame;
+    }
+
+    /// A frame check at `now`, as the daemon's pacer makes it.
+    fn check(&mut self, now: u64) {
+        let (real, cursor) = live_screen(&mut self.mac);
+        let at = now - self.start;
+        let Some(frame) = self.hybrid.update(&real, at) else { return };
+        if self.offline(now) {
+            self.dropped = true;
+            return;
+        }
+        let frame = if self.dropped {
+            self.reconnect();
+            self.hybrid.resume(self.applied, at).unwrap_or_else(|| self.hybrid.keyframe(at))
+        } else {
+            frame
+        };
+        self.deliver(&frame, cursor, now);
+    }
+
+    /// A new connection: its lean encoder and decoder start empty.
+    fn reconnect(&mut self) {
+        self.dropped = false;
+        self.connection += 1;
+        self.encoder = LeanEncoder::new();
+        self.decoder = LeanDecoder::new();
+    }
+
+    /// The terminal changed size at `now`: a keyframe at the new size at once (the daemon's
+    /// `HybridViewer::resized`).
+    fn resize(&mut self, cols: u16, rows: u16, now: u64) {
+        self.mac.resize(cols, rows, 8, 16).unwrap();
+        (self.cols, self.rows) = (cols, rows);
+        self.hybrid.resize(cols, rows);
+        self.pacer = FramePacer::default();
+        let (real, cursor) = live_screen(&mut self.mac);
+        let at = now - self.start;
+        self.hybrid.update(&real, at);
+        let key = self.hybrid.keyframe(at);
+        if self.offline(now) {
+            self.dropped = true;
+            return;
+        }
+        if self.dropped {
+            self.reconnect();
+        }
+        self.deliver(&key, cursor, now);
+    }
+}
+
+/// A session's PTY chunk (`Some`) or resize (`None`, to the size) at a time.
+type SessionEvent<'a> = (u64, Option<&'a [u8]>, (u16, u16));
+
+/// `session`'s parity fixture for the phone (see the section's note).
+fn phone_parity(name: &'static str, session: &Session) -> Value {
+    let origin = std::time::Instant::now();
+    let at = |ms: u64| origin + std::time::Duration::from_millis(ms);
+    let ms = |due: std::time::Instant| u64::try_from((due - origin).as_millis()).unwrap();
+    let start = session.chunks.first().unwrap().0;
+    let end = session.moments.last().unwrap().1;
+    let mut run = PhoneRun {
+        name,
+        mac: sized_terminal(COLS, ROWS),
+        phone: sized_terminal(COLS, ROWS),
+        cols: COLS,
+        rows: ROWS,
+        hybrid: HybridStream::new(COLS, ROWS),
+        pacer: FramePacer::default(),
+        encoder: LeanEncoder::new(),
+        decoder: LeanDecoder::new(),
+        connection: 0,
+        applied: 0,
+        dropped: false,
+        start,
+        tables: ParityTables::default(),
+        steps: Vec::new(),
+    };
+    // The attach: the daemon's first frame is a keyframe of the screen then.
+    let (real, cursor) = live_screen(&mut run.mac);
+    run.hybrid.update(&real, 0);
+    let key = run.hybrid.keyframe(0);
+    run.deliver(&key, cursor, start);
+    let mut events: Vec<SessionEvent<'_>> = session
+        .chunks
+        .iter()
+        .map(|(t, bytes)| (*t, Some(bytes.as_slice()), (0, 0)))
+        .chain(session.resizes.iter().map(|(t, c, r)| (*t, None, (*c, *r))))
+        .filter(|(t, _, _)| *t <= end)
+        .collect();
+    events.sort_by_key(|(t, _, _)| *t);
+    for (t, bytes, (cols, rows)) in events {
+        while let Some(due) = run.pacer.due().filter(|due| *due <= at(t)) {
+            run.check(ms(due));
+            run.pacer.sent(due);
+        }
+        match bytes {
+            Some(bytes) => {
+                run.mac.vt_write(bytes);
+                run.pacer.wrote(at(t));
+            }
+            None => run.resize(cols, rows, t),
+        }
+    }
+    if let Some(due) = run.pacer.due() {
+        run.check(ms(due));
+    }
+    assert!(run.connection >= 1, "{name}: a resume after the drop");
+    let styles: Vec<Value> = run
+        .tables
+        .styles
+        .iter()
+        .map(|s| json!([color_json(s.fg), color_json(s.bg), s.attrs]))
+        .collect();
+    json!({
+        "name": name, "stream": STREAM_ID, "drop_ms": [PHONE_DROP.0, PHONE_DROP.1],
+        "reference": "ghostty-vt fed the session's PTY bytes",
+        "styles": styles, "grid_rows": run.tables.rows, "widths": run.tables.widths,
+        "steps": run.steps,
+    })
+}
+
+fn phone_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../cmux-next-ios/verify/agent-cli-hybrid/parity")
+        .join(format!("{name}.json"))
+}
+
+/// Every frame of the four sessions draws the reference screen through `vt::frame_bytes` on a
+/// second ghostty-vt, through a 4 s drop and (bash) two resizes, and the phone's fixtures are
+/// what this makes now. `HYBRID_PARITY_EXPORT_DIR=dir` writes them there instead of comparing.
+#[test]
+fn the_phones_parity_fixtures_hold_and_are_current() {
+    let export = std::env::var_os("HYBRID_PARITY_EXPORT_DIR");
+    for name in [CLAUDE, CODEX, OPENCODE, SHELL] {
+        let made = phone_parity(name, &load(name));
+        let steps = made["steps"].as_array().unwrap();
+        println!(
+            "{name}: {} frames checked cell for cell, {} after the resume",
+            steps.len(),
+            steps.iter().filter(|s| s["c"] != 0).count()
+        );
+        if let Some(dir) = &export {
+            let path = Path::new(dir).join(format!("{name}.json"));
+            std::fs::write(&path, serde_json::to_vec(&made).unwrap()).unwrap();
+            println!("wrote {}", path.display());
+            continue;
+        }
+        let path = phone_fixture(name);
+        let committed: Value = serde_json::from_slice(
+            &std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+        )
+        .unwrap();
+        assert!(
+            committed == made,
+            "{} is stale: regenerate it with HYBRID_PARITY_EXPORT_DIR",
+            path.display()
+        );
     }
 }

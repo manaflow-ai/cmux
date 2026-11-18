@@ -218,6 +218,16 @@ pub struct SessionMeta {
     /// canonical, each once, never `cwd` itself.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_directories: Vec<PathBuf>,
+    /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `hub/stop_condition.rs`):
+    /// every start of its Claude Code gets it as a prompt Stop hook, so a would-be stop is
+    /// checked against it and the agent goes on until it holds; a Codex (codex-acp) chat gets it
+    /// once as Codex's own goal. Kept only for those two; None for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_condition: Option<String>,
+    /// A Codex chat's stop condition was written to Codex as its goal (`stop_condition.rs`):
+    /// Codex keeps the goal in its thread, so it is set once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop_condition_sent: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -439,7 +449,7 @@ pub struct SessionMeta {
     /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
     /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle_launch: Option<crate::hub::StoredLaunch>,
+    pub idle_launch: Option<crate::sidecar_census::StoredLaunch>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -574,11 +584,11 @@ pub struct SessionMeta {
     pub subsession_limits: SubsessionLimits,
     /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
     #[serde(default)]
-    pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    pub races: std::sync::Arc<Vec<crate::race_records::Race>>,
     /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
     /// acpmux alone, never from a request. Shared as `races` is.
-    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
-    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
+    #[serde(default, skip_serializing_if = "crate::plan_build_records::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::plan_build_records::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or

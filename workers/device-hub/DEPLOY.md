@@ -78,6 +78,23 @@ Without `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, the Worker still runs:
 subscribers get `ice: []`, as free users do, and the apps fall back to direct
 paths and the user's own relays.
 
+### cmux relay ICE from cmux-platform
+
+cmux-platform runs the one TURN minter. The hub asks it for each grant
+(`POST <PLATFORM_TURN_ORIGIN>/v1/relay/ice-servers`, src/turn.ts) and keeps its
+own mint (`TURN_KEY_*` above) only as the fallback until that is removed.
+
+- `TURN_SOURCE` (var, wrangler.toml): `platform-first` in both environments.
+  The hub asks the platform; on a non-200, no answer within 4.5 s, a bad body
+  or an empty list it logs a warning and mints locally (`[]` without
+  `TURN_KEY_*`). `platform` uses the platform only (`[]` on failure); `local`,
+  or any other value, only the hub's own mint.
+- `PLATFORM_TURN_ORIGIN` (var, wrangler.toml): the production platform for the
+  top level, the development platform for `[env.dev]`.
+- `DEVICE_HUB_TURN_TOKEN` (secret): the bearer for that route. A cmux-platform
+  workflow puts it into each hub environment; nobody sets it by hand. Without
+  it, every `TURN_SOURCE` behaves as `local`.
+
 Rotating `SESSION_KEY` signs every device out (their hub sessions stop
 verifying and their sealed Stack tokens stop opening; the apps exchange their
 Stack token again). Rotating `TICKET_KEY`

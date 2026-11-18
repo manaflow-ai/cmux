@@ -141,6 +141,12 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
             "ms": started.elapsed().as_millis() as u64,
         })
     };
+    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
+        return answer(
+            ProbeStatus::Unknown,
+            "a Cloud connection: its credential goes to a Cloud machine's agent".into(),
+        );
+    }
     if route.file.kind == RouteKind::DirectSubscription && route.file.health_url.is_none() {
         return answer(
             ProbeStatus::Unknown,

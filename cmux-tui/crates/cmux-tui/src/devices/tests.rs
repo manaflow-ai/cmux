@@ -726,6 +726,8 @@ fn device_help_names_every_device_verb_and_points_vms_at_vm() {
         "device add",
         "device invite",
         "device remove",
+        "device setup",
+        "device start",
         "SELECTOR show",
         "device revoke|rotate",
         "device doctor",

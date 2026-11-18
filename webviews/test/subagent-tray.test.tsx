@@ -1860,7 +1860,7 @@ describe("subagents show their harness logos", () => {
 
 // A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
 // ring Leo rejected (2026-11-01).
-test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
+test("a plan-only tray's header draws the Plan mode mark over its rows' status column, not the ring (2026-11-14)", async () => {
   const { root, done } = await render(
     createElement(SubagentTray, {
       items: [],
@@ -1873,7 +1873,9 @@ test("a plan-only tray's header keeps a blank slot, not the ring", async () => {
   try {
     const head = root.querySelector(".acpmux-running-tray__head")!;
     expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
-    expect(head.querySelector(".acpmux-lineage__icon")?.hasAttribute("data-blank")).toBe(true);
+    const mark = head.querySelector(".acpmux-lineage__icon");
+    expect(mark?.hasAttribute("data-blank")).toBe(false);
+    expect(mark?.querySelector('[data-icon="mode.plan"]')).not.toBeNull();
   } finally {
     await done();
   }
