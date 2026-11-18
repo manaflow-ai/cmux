@@ -64,7 +64,7 @@ enum DebugInstantCreateBench {
         // `header_terminal`: the focused pane's agent chat, shown and wired (opened as a tab of the pane when it shows none), before the timed press of its header's Terminal.
         @MainActor func chat() -> AgentPaneView? { controller.content?.focusedPane?.currentTabKey.flatMap { services.agentTabs.existingView($0) }.flatMap { $0.isShownReady && $0.model.header != nil ? $0 : nil } }
         if command == .headerTerminal, chat() == nil, let pane = controller.content?.focusedPane { services.agentTabs.openTab(in: pane); frames.start(); _ = await frames.settled(until: { chat() != nil }, start: .now, window: 0, deadline: 15_000); _ = frames.stop() }
-        let before = Probe(controller)
+        let before = Probe(controller), webKitSpare = (state: services.cache.webKit.spareTab.state, taken: services.cache.webKit.spareTab.taken) // a new WebKit tab takes the spare made ahead, or builds its view on the key's turn
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
         frames.start(); BenchSpans.begin()
@@ -137,7 +137,7 @@ enum DebugInstantCreateBench {
             "visible_ms": visible.map { .number($0) } ?? .null, "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
             "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "shown_ms": shown.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "omnibar": omnibar.report(editing: Probe(controller).browser?.chrome?.addressBar.editsAsFirstResponder, text: Probe(controller).browser?.chrome?.addressBar.displayedText), "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
-            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"), "spare_window": .string(services.cache.cef.spareWindowState),
+            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"), "spare_window": .string(services.cache.cef.spareWindowState), "webkit_spare": .string(webKitSpare.state), "webkit_spare_taken": .bool(services.cache.webKit.spareTab.taken > webKitSpare.taken),
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null, "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
