@@ -34,6 +34,10 @@ fn workspace_rail_at(n: usize) -> FrameWork {
     let mux = Mux::new("frame-work-workspace-rail", SurfaceOptions::default());
     let mut app = test_app(Session::Local(mux));
     app.tree = workspaces(n);
+    // A rail 30 columns wide, as a person shows it (the test app starts with none).
+    app.sidebar_visible = true;
+    app.sidebar_width = 30;
+    app.sidebar_view = SidebarView::Workspaces;
     let mut terminal = Terminal::new(TestBackend::new(140, 40)).unwrap();
     terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
     let work = measure(|| {
