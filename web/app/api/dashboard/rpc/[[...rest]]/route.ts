@@ -3,6 +3,10 @@ import { dashboardRouter } from "@/orpc/server/dashboard/router";
 
 const handler = new RPCHandler(dashboardRouter);
 
+// `cloud.resumeMachine` waits for the provider to report the machine running,
+// the same budget as `POST /api/vm/{id}/resume`.
+export const maxDuration = 960;
+
 async function handleRequest(request: Request): Promise<Response> {
   const { response } = await handler.handle(request, {
     prefix: "/api/dashboard/rpc",

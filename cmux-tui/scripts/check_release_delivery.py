@@ -8,6 +8,8 @@ import datetime as dt
 import json
 import os
 import re
+import sys
+import urllib.error
 import urllib.request
 
 
@@ -66,13 +68,53 @@ def assess_delivery(
     return {"version": version, "status": status, "problems": problems}
 
 
-def fetch_json(url: str, token: str = ""):
+# A refused token: the App's budget or permission, or github.token's shared pool.
+REFUSED = {401, 403, 429}
+
+
+class FetchError(RuntimeError):
+    pass
+
+
+def github_message(error: urllib.error.HTTPError) -> str:
+    try:
+        raw = error.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - a body that will not read leaves only the status
+        raw = ""
+    try:
+        message = json.loads(raw).get("message")
+    except (ValueError, AttributeError):
+        message = None
+    return str(message or raw.strip())[:300]
+
+
+def _get(url: str, token: str):
     headers = {"User-Agent": "cmux-tui-release-delivery/1", "Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
+
+
+def fetch_json(url: str, token: str = "", fallback_token: str = ""):
+    """GET url as JSON. A refused token is tried once more as fallback_token (github.token); a
+    failure names GitHub's own message ("API rate limit exceeded for installation", run 43989417033
+    showed only "HTTP Error 403: Forbidden")."""
+    try:
+        return _get(url, token)
+    except urllib.error.HTTPError as error:
+        if error.code not in REFUSED or not fallback_token or fallback_token == token:
+            raise FetchError(f"GET {url} failed with HTTP {error.code}: {github_message(error)}") from error
+        print(
+            f"GET {url} refused on the read token (HTTP {error.code}: {github_message(error)}); "
+            "asking again with the workflow token",
+            file=sys.stderr,
+        )
+    try:
+        return _get(url, fallback_token)
+    except urllib.error.HTTPError as error:
+        raise FetchError(f"GET {url} failed with HTTP {error.code}: {github_message(error)}") from error
 
 
 def main() -> int:
@@ -84,15 +126,24 @@ def main() -> int:
     repository = "manaflow-ai/cmux"
     api = f"https://api.github.com/repos/{repository}"
     token = os.environ.get("GH_TOKEN", "")
-    refs = fetch_json(f"{api}/git/matching-refs/tags/cmux-tui-v", token)
+    fallback = os.environ.get("GH_FALLBACK_TOKEN", "")
+    try:
+        return check(api, repository, token, fallback, args.grace_seconds)
+    except FetchError as error:
+        print(f"check_release_delivery: {error}", file=sys.stderr)
+        return 1
+
+
+def check(api: str, repository: str, token: str, fallback: str, grace_seconds: int) -> int:
+    refs = fetch_json(f"{api}/git/matching-refs/tags/cmux-tui-v", token, fallback)
     tag = newest_stable_tag(refs)
     version = tag["ref"][len(TAG_PREFIX):]
     obj = tag["object"]
     if obj["type"] == "tag":
-        annotation = fetch_json(f"{api}/git/tags/{obj['sha']}", token)
+        annotation = fetch_json(f"{api}/git/tags/{obj['sha']}", token, fallback)
         tagged_at = annotation["tagger"]["date"]
     else:
-        commit = fetch_json(f"{api}/commits/{obj['sha']}", token)
+        commit = fetch_json(f"{api}/commits/{obj['sha']}", token, fallback)
         tagged_at = commit["commit"]["committer"]["date"]
     result = assess_delivery(
         version,
@@ -100,7 +151,7 @@ def main() -> int:
         fetch_json("https://pypi.org/pypi/cmux/json"),
         fetch_json("https://registry.npmjs.org/cmux/latest"),
         dt.datetime.now(dt.timezone.utc),
-        args.grace_seconds,
+        grace_seconds,
     )
     print(json.dumps(result, indent=2))
     if result["status"] == "complete":

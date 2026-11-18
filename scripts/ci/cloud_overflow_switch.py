@@ -95,6 +95,13 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+# Every x64 Linux label a RUNNER_POOLS pool can point at (members and release valve,
+# runner_pools.allowed(); tests/test_ci_runner_pools.py), decision probes first. The others are probed for
+# CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
+# blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
+# and the janitor's snapshot (truncated at 2,500 queued runs) said nothing either.
+HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                 "blacksmith-32vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
@@ -667,6 +674,28 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
         sleep(POLL_SECONDS)
 
 
+def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
+                    deadline: dt.datetime, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                    log: Callable[[str], None]) -> tuple[list[str], list[str]]:
+    """(decided, stalled) for the health-only probes (HEALTH_LABELS beyond PROBE_LABELS), never past `deadline`.
+
+    They decide nothing about overflow; one that never decides is left out of the health."""
+    if not labels:
+        return [], []
+    while True:
+        try:
+            jobs = api.jobs(run_id, attempt)
+        except RuntimeError as error:
+            log(f"could not list this run's jobs ({error}); trying again")
+            jobs = []
+        by_name = {str(job.get("name")): job for job in jobs}
+        outcomes = {label: probe_outcome(by_name.get(probe_job_name(label)), now(), minutes) for label in labels}
+        decided = [label for label in labels if outcomes[label] != "waiting"]
+        if len(decided) == len(labels) or now() >= deadline:
+            return decided, [label for label in decided if outcomes[label] == "stalled"]
+        sleep(POLL_SECONDS)
+
+
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
                       failovers: Iterable[str] = (), linux_moves: bool = True) -> list[str]:
@@ -807,14 +836,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")
 
+    health_deadline = now() + dt.timedelta(minutes=minutes + 5)
     outcome, stalled = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log)
+    extra = () if drill else tuple(item for item in HEALTH_LABELS if item not in labels)
+    extra_decided, extra_stalled = wait_for_health(api, run_id, attempt, minutes, extra, deadline=health_deadline,
+                                                   now=now, sleep=sleep, log=log)
     stamp = iso(now())
     code = 0
     started = [item for item in labels if item not in stalled] if outcome != "unknown" else []
     failover = toward_started(failover, started)
     if outcome != "unknown" and not args.dry_run and switch is not None:
-        health = label_health(labels, stalled, checked=stamp, run=f"https://github.com/{repo}/actions/runs/{run_id}",
-                              minutes=minutes)
+        health = label_health([*labels, *extra_decided], [*stalled, *extra_stalled], checked=stamp,
+                              run=f"https://github.com/{repo}/actions/runs/{run_id}", minutes=minutes)
         try:
             switch.set_variable(HEALTH_VARIABLE, json.dumps(health, sort_keys=True))
         except RuntimeError as error:
@@ -922,6 +955,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if out:
         with open(out, "a", encoding="utf-8") as handle:
             handle.write(f"outcome={outcome}\n")
+            # Whether every probe job, health-only ones included, started: otherwise one may still be
+            # queued, and the workflow's last step force-cancels this run so it frees the concurrency group.
+            every = outcome == "started" and len(extra_decided) == len(extra) and not extra_stalled
+            handle.write(f"all_started={'true' if every else 'false'}\n")
     write_summary(env, lines)
     return code
 
