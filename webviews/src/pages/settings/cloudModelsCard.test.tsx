@@ -162,6 +162,51 @@ test("Sign in with ChatGPT runs the sign-in and waits with Cancel on its row", a
   expect(row(rendered, "chatgpt").querySelector('[data-chatgpt="pending"]')).not.toBeNull();
 });
 
+const menuItem = async (rendered: Rendered, id: string, value: string) => {
+  await click(row(rendered, id).querySelector<HTMLElement>('[data-menu^="cloud-connection-"]')!);
+  await click(document.querySelector<HTMLElement>(`[role="menuitem"][data-value="${value}"]`)!);
+};
+
+test("a connected ChatGPT plan signs in again or signs out from its row", async () => {
+  const rendered = await render(mockModels.chatgptForCloud);
+  await menuItem(rendered, "chatgpt", "signInAgain");
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT", id: "chatgpt" }]);
+  await menuItem(rendered, "chatgpt", "remove");
+  expect(row(rendered, "chatgpt").querySelector("[data-cloud-remove]")?.textContent).toContain("ChatGPT plan");
+  await click(row(rendered, "chatgpt").querySelector('[data-cloud-action="confirmRemove"]')!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "remove", id: "chatgpt" });
+  expect(statuses(rendered).chatgpt).toBe("missing");
+});
+
+test("Replace on a Claude Code token adds the new one, then removes the old", async () => {
+  const rendered = await render(mockModels.claudeForCloud);
+  const old = row(rendered, "claude").querySelector("[data-cloud-via]")?.textContent;
+  await menuItem(rendered, "claude", "replace");
+  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
+  await changeValue(
+    form.querySelector<HTMLInputElement>('input[type="password"]')!,
+    "sk-ant-oat01-newsecret0123456789",
+  );
+  await click(form.querySelector('[data-models-action="addClaudeToken"]')!);
+  const runs = rendered.provider.modelRuns;
+  expect(runs.at(-2)).toEqual({ action: "addClaudeToken", token: "sk-ant-oat01-newsecret0123456789" });
+  expect(runs.at(-1)).toMatchObject({ action: "remove" });
+  expect(statuses(rendered).claude).toBe("ready");
+  expect(old).toBe("Claude Code token");
+  expect(rendered.provider.models!.personal.connections.filter((c) => c.kind === "claude-token")).toHaveLength(1);
+});
+
+test("a row served by the team's key has no menu of its own", async () => {
+  const team = structuredClone(mockModels.macOnly);
+  team.organization = {
+    team: { id: "t", name: "Acme" },
+    canEdit: false,
+    keys: [{ agent: "claude", set: true, last4: null }],
+  };
+  const rendered = await render(team);
+  expect(row(rendered, "claude").querySelector('[data-menu^="cloud-connection-"]')).toBeNull();
+});
+
 test("Add an API Key opens the chosen provider's key form", async () => {
   const rendered = await render(mockModels.empty);
   await click(row(rendered, "apiKey").querySelector('[data-menu="cloud-api-key"]')!);

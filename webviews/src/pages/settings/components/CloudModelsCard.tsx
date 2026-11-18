@@ -6,17 +6,19 @@
 // serves Cloud and the family, else the team's shared key for it. Each row fixes itself in place: Sign in
 // with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Turn On runs
 // `enable` on a connection turned off, and Set Up opens Settings > Models' own Add a Connection steps
-// (`claudeSetupToken` and `addClaudeToken`, `addKey`); this card adds no second way in.
+// (`claudeSetupToken` and `addClaudeToken`, `addKey`); this card adds no second way in. A row's connection is
+// changed in place from its more menu: a ChatGPT plan signs in again or signs out, a Claude Code token or an
+// API key is replaced (the same add steps, then the old one is removed) or removed.
 // `?focus=cloud.claude`, `cloud.chatgpt` or `cloud.apiKey` (the chat's Set up Cloud card,
 // cmux://settings/cloud/...) opens the page on that row.
-import { useState } from "react";
+import { useId, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { Button } from "../../../ui/Button";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { useSettingsState } from "../context";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
-import type { ModelConnection, ModelProvider, ModelsState } from "../ops";
+import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
 import { t } from "../strings";
 import { AddConnectionSheet, ChatGPTStatus, PROVIDERS, useModelsRun, type Run, type SheetStart } from "./ModelsCard";
 
@@ -68,8 +70,17 @@ function readiness(serving: ModelConnection[]): CloudReadiness {
 export function CloudModelsCard({ focus }: { focus: string | null }) {
   const models = useSettingsState().models;
   const { busy, error, run } = useModelsRun();
-  const [sheet, setSheet] = useState<{ start: SheetStart } | null>(null);
+  const [sheet, setSheet] = useState<{ start: SheetStart; replacing: string | null } | null>(null);
   if (!models) return null;
+  // Replace: the sheet adds the new token or key, then the one it replaces goes, so the row keeps one.
+  const replacing = sheet?.replacing ?? null;
+  const sheetRun: Run = async (gesture: ModelsRun) => {
+    const ok = await run(gesture);
+    if (ok && replacing && (gesture.action === "addClaudeToken" || gesture.action === "addKey")) {
+      return run({ action: "remove", id: replacing });
+    }
+    return ok;
+  };
   const available = models.personal.available;
   return (
     <section className="group" data-card="cloudModels" aria-busy={busy}>
@@ -94,13 +105,19 @@ export function CloudModelsCard({ focus }: { focus: string | null }) {
               focused={focus === `cloud.${row}`}
               busy={busy}
               run={run}
-              onSetUp={(start) => setSheet({ start })}
+              onSetUp={(start, replacing) => setSheet({ start, replacing: replacing ?? null })}
             />
           ))
         )}
       </div>
       {sheet && (
-        <AddConnectionSheet models={models} busy={busy} run={run} start={sheet.start} onClose={() => setSheet(null)} />
+        <AddConnectionSheet
+          models={models}
+          busy={busy}
+          run={sheetRun}
+          start={sheet.start}
+          onClose={() => setSheet(null)}
+        />
       )}
     </section>
   );
@@ -119,8 +136,10 @@ function CloudModelRow({
   focused: boolean;
   busy: boolean;
   run: Run;
-  onSetUp(start: SheetStart): void;
+  onSetUp(start: SheetStart, replacing?: string): void;
 }) {
+  const nameId = useId();
+  const [confirming, setConfirming] = useState(false);
   const { state, via, connection } = cloudReadiness(models, row);
   const title = row === "apiKey" ? t("settingsWindow.harnesses.accounts.apiKey") : ROW_NAMES[row];
   // Off: signed out needs a sign-in (a ChatGPT plan's reauth); turned off needs Turn On.
@@ -161,7 +180,9 @@ function CloudModelRow({
           )}
         </span>
         <div className="row-label">
-          <div className="row-title">{title}</div>
+          <div className="row-title" id={nameId}>
+            {title}
+          </div>
           {row === "apiKey" && <div className="row-help">{t("settingsWindow.cloud.apiKey.help")}</div>}
           <div className="row-help" data-cloud-status-text="">
             {status}
@@ -229,13 +250,99 @@ function CloudModelRow({
               </MenuPopup>
             </Menu>
           )}
+          {connection && (
+            <ManageMenu
+              connection={connection}
+              busy={busy}
+              run={run}
+              onReplace={(start) => onSetUp(start, connection.id)}
+              onRemove={() => setConfirming(true)}
+            />
+          )}
         </div>
       </div>
+      {confirming && connection && (
+        <div className="accounts-body">
+          <div className="accounts-form" role="alertdialog" aria-labelledby={nameId} data-cloud-remove="">
+            <span className="row-help">{t("settingsWindow.models.removeConfirm", connection.label)}</span>
+            <div className="accounts-buttons">
+              <Button
+                danger
+                type="button"
+                className="button danger"
+                data-cloud-action="confirmRemove"
+                disabled={busy}
+                onClick={() => {
+                  setConfirming(false);
+                  void run({ action: "remove", id: connection.id });
+                }}
+              >
+                {t("settingsWindow.remove")}
+              </Button>
+              <Button type="button" className="button" onClick={() => setConfirming(false)}>
+                {t("settingsWindow.cancel")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {row === "chatgpt" && pending && (
         <div className="accounts-body">
           <ChatGPTStatus chatgpt={models.chatgpt} busy={busy} run={run} />
         </div>
       )}
     </div>
+  );
+}
+
+/** A row's connection, changed in place: a ChatGPT plan signs in again or signs out; a Claude Code token
+ * or an API key is replaced (Models' own add steps, then the old one goes) or removed. */
+function ManageMenu({
+  connection,
+  busy,
+  run,
+  onReplace,
+  onRemove,
+}: {
+  connection: ModelConnection;
+  busy: boolean;
+  run: Run;
+  onReplace(start: SheetStart): void;
+  onRemove(): void;
+}) {
+  const plan = connection.kind === "chatgpt-plan";
+  const replaceStart: SheetStart =
+    connection.kind === "claude-token"
+      ? "claude"
+      : connection.kind === "api-key" && CLOUD_KEY_PROVIDERS.includes(connection.provider as ModelProvider)
+        ? (connection.provider as ModelProvider)
+        : null;
+  if (!plan && !replaceStart) return null;
+  return (
+    <Menu>
+      <MenuButton
+        className="button models-more"
+        label={t("settingsWindow.models.more", connection.label)}
+        data-menu={`cloud-connection-${connection.id}`}
+        disabled={busy}
+      >
+        <Icon name="ellipsis" />
+      </MenuButton>
+      <MenuPopup align="end">
+        {plan && (
+          <MenuItem data-value="signInAgain" onSelect={() => void run({ action: "connectChatGPT", id: connection.id })}>
+            {t("settingsWindow.models.signInAgain")}
+          </MenuItem>
+        )}
+        {replaceStart && (
+          <MenuItem data-value="replace" onSelect={() => onReplace(replaceStart)}>
+            {t("settingsWindow.models.org.replace")}
+          </MenuItem>
+        )}
+        <MenuItem data-value="remove" onSelect={onRemove}>
+          {plan ? t("settingsWindow.harnesses.accounts.signOut") : t("settingsWindow.remove")}
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
