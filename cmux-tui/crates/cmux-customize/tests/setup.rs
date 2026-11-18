@@ -103,6 +103,7 @@ fn receipt(setup: &setup::Setup, installed: &setup::Installed) -> Receipt {
         prior_actions: installed.prior_actions.clone(),
         extensions: Vec::new(),
         installed_ms: 10,
+        local: None,
     }
 }
 

@@ -124,11 +124,25 @@ impl Setup {
     pub fn actions(&self) -> &BTreeMap<String, Value> {
         &self.manifest.actions
     }
+
+    /// The same setup under another id (a local try of a look not
+    /// published yet: `cmux setup install ./DIR --as OWNER/NAME`). The
+    /// library entry it becomes is named for the new id.
+    pub fn renamed(mut self, id: &str) -> Setup {
+        self.manifest.id = id.to_owned();
+        self.profile.name = profile_name(id);
+        self
+    }
 }
 
+pub mod check;
 mod export;
 mod reference;
 mod secrets;
+pub use check::{
+    CheckOptions, Deprecated, Finding, NoHistory, Report, RetiredKeys, SettingsHistory, Severity,
+    check_dir, codes,
+};
 pub use export::readme_text;
 pub use reference::Reference;
 use reference::plain;
@@ -186,32 +200,52 @@ fn version(text: &str) -> Option<(u64, u64, u64)> {
 /// Reads the setup in `dir` (a checked-out repo, or the folder in it that
 /// holds [`SETUP_FILE`]). Reads only; checks the format, not the content.
 pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
+    let mut findings = Vec::new();
+    let setup = read_parts(dir, &mut findings).map_err(|finding| Error::Setup(finding.message))?;
+    check::first_error(findings, Error::Setup)?;
+    Ok(setup)
+}
+
+/// [`read_dir`] that goes on past a file it cannot take: the setup without
+/// it, and a finding for it in `findings`. `Err` only when there is no
+/// setup to read (no header, or one that does not read).
+pub(crate) fn read_parts(dir: &Path, findings: &mut Vec<Finding>) -> Result<Setup, Box<Finding>> {
+    let unreadable = |message: String| Finding::error(codes::SETUP_UNREADABLE, SETUP_FILE, message);
     let file = dir.join(SETUP_FILE);
     let metadata = std::fs::symlink_metadata(&file).map_err(|_| {
-        Error::Setup(format!("there is no {SETUP_FILE} at the root, so this is not a cmux setup"))
+        unreadable(format!("there is no {SETUP_FILE} at the root, so this is not a cmux setup"))
+            .fix(format!("add {SETUP_FILE} with \"cmuxSetup\": 1, an id and a name"))
     })?;
     if !metadata.is_file() || metadata.len() > MAX_SETUP_FILE_BYTES {
-        return Err(Error::Setup(format!("{SETUP_FILE} is not a file under 1 MB")));
+        return Err(unreadable(format!("{SETUP_FILE} is not a file under 1 MB")).into());
     }
     let text = std::fs::read_to_string(&file)
-        .map_err(|error| Error::Setup(format!("{SETUP_FILE}: {error}")))?;
+        .map_err(|error| unreadable(format!("{SETUP_FILE}: {error}")))?;
     let value = jsonc::parse(&text)
-        .map_err(|error| Error::Setup(format!("{SETUP_FILE} is not JSON: {error}")))?;
+        .map_err(|error| unreadable(format!("{SETUP_FILE} is not JSON: {error}")))?;
     let manifest: Manifest = serde_json::from_value(value).map_err(|error| {
-        Error::Setup(format!("{SETUP_FILE} is not a cmux setup: {}", strip_value(&error)))
+        unreadable(format!("{SETUP_FILE} is not a cmux setup: {}", strip_value(&error)))
     })?;
     if manifest.format != FORMAT {
-        return Err(Error::Setup(format!(
-            "this setup is format {}; this cmux reads format {FORMAT}",
-            manifest.format
-        )));
+        return Err(Finding::error(
+            codes::SETUP_FORMAT,
+            SETUP_FILE,
+            format!("this setup is format {}; this cmux reads format {FORMAT}", manifest.format),
+        )
+        .key("cmuxSetup")
+        .into());
     }
     let mut files = manifest.files.clone();
-    for (path, text) in repo_files(dir)? {
+    for (path, text) in repo_files(dir, findings) {
         if files.insert(path.clone(), text).is_some() {
-            return Err(Error::Setup(format!(
-                "{path} is both in {SETUP_FILE}'s files and in the repo; keep one"
-            )));
+            findings.push(
+                Finding::error(
+                    codes::FILE_UNREADABLE,
+                    path.clone(),
+                    format!("{path} is both in {SETUP_FILE}'s files and in the repo; keep one"),
+                )
+                .key(format!("files.{path}")),
+            );
         }
     }
     let profile = Profile {
@@ -225,7 +259,7 @@ pub fn read_dir(dir: &Path) -> Result<Setup, Error> {
     let sha256 = {
         let canonical =
             serde_json::to_vec(&(&manifest.settings, &manifest.actions, &profile.files))
-                .map_err(std::io::Error::other)?;
+                .unwrap_or_default();
         tree::sha256(&canonical)
     };
     Ok(Setup { manifest, profile, sha256 })
@@ -251,65 +285,89 @@ fn profile_name(id: &str) -> String {
     name.trim_end_matches('-').to_owned()
 }
 
-/// The customization files a setup repo holds at their logical paths.
-fn repo_files(dir: &Path) -> Result<BTreeMap<String, String>, Error> {
+/// The customization files a setup repo holds at their logical paths; one
+/// it cannot take is a finding, and left out.
+fn repo_files(dir: &Path, findings: &mut Vec<Finding>) -> BTreeMap<String, String> {
     let mut found = BTreeMap::new();
-    let mut take = |logical: String, file: &Path| -> Result<(), Error> {
-        let metadata = std::fs::symlink_metadata(file)?;
+    let unreadable =
+        |logical: &str, message: String| Finding::error(codes::FILE_UNREADABLE, logical, message);
+    let mut take = |logical: String, file: &Path, findings: &mut Vec<Finding>| {
+        let metadata = match std::fs::symlink_metadata(file) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return findings.push(unreadable(&logical, format!("{logical}: {error}")));
+            }
+        };
         if metadata.file_type().is_symlink() {
-            return Err(Error::Setup(format!("{logical} is a link; a setup holds plain files")));
+            return findings.push(
+                unreadable(&logical, format!("{logical} is a link; a setup holds plain files"))
+                    .fix("put the file itself in the repo"),
+            );
         }
         if !metadata.is_file() {
-            return Ok(());
+            return;
         }
         if metadata.len() > MAX_FILE_BYTES {
-            return Err(Error::Setup(format!("{logical} is larger than 2 MB")));
+            return findings.push(unreadable(&logical, format!("{logical} is larger than 2 MB")));
         }
-        let text = String::from_utf8(std::fs::read(file)?)
-            .map_err(|_| Error::Setup(format!("{logical} is not text")))?;
-        found.insert(logical, text);
-        Ok(())
+        match std::fs::read(file).map(String::from_utf8) {
+            Ok(Ok(text)) => {
+                found.insert(logical, text);
+            }
+            Ok(Err(_)) => findings.push(unreadable(&logical, format!("{logical} is not text"))),
+            Err(error) => findings.push(unreadable(&logical, format!("{logical}: {error}"))),
+        }
     };
     let keys = dir.join("keybindings.json");
-    if keys.exists() || std::fs::symlink_metadata(&keys).is_ok() {
-        take("keybindings.json".to_owned(), &keys)?;
+    if std::fs::symlink_metadata(&keys).is_ok() {
+        take("keybindings.json".to_owned(), &keys, findings);
     }
     for surface in STYLE_SURFACES {
         let css = dir.join(surface).join("theme.css");
         if std::fs::symlink_metadata(&css).is_ok() {
-            take(format!("{surface}/theme.css"), &css)?;
+            take(format!("{surface}/theme.css"), &css, findings);
         }
     }
     for part in ["themes", "customize"] {
         let mut listed = Vec::new();
-        walk(&dir.join(part), part, &mut listed)?;
+        if let Err(finding) = walk(&dir.join(part), part, &mut listed) {
+            findings.push(*finding);
+            continue;
+        }
         if listed.len() > MAX_FILES_PER_PART {
-            return Err(Error::Setup(format!(
-                "{part}/ holds more than {MAX_FILES_PER_PART} files"
-            )));
+            findings.push(unreadable(
+                part,
+                format!("{part}/ holds more than {MAX_FILES_PER_PART} files"),
+            ));
+            continue;
         }
         for (logical, file) in listed {
             if part == "themes" && !logical.ends_with(".json") {
                 continue;
             }
-            take(logical, &file)?;
+            take(logical, &file, findings);
         }
     }
-    Ok(found)
+    found
 }
 
-fn walk(dir: &Path, logical: &str, out: &mut Vec<(String, PathBuf)>) -> Result<(), Error> {
+fn walk(dir: &Path, logical: &str, out: &mut Vec<(String, PathBuf)>) -> Result<(), Box<Finding>> {
+    let unreadable = |message: String| Finding::error(codes::FILE_UNREADABLE, logical, message);
     let metadata = match std::fs::symlink_metadata(dir) {
         Ok(metadata) => metadata,
         Err(_) => return Ok(()),
     };
     if metadata.file_type().is_symlink() {
-        return Err(Error::Setup(format!("{logical} is a link; a setup holds plain files")));
+        return Err(unreadable(format!("{logical} is a link; a setup holds plain files"))
+            .fix("put the folder itself in the repo")
+            .into());
     }
     if !metadata.is_dir() {
         return Ok(());
     }
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?.collect::<Result<_, _>>()?;
+    let io = |error: std::io::Error| unreadable(format!("{logical}: {error}"));
+    let mut entries: Vec<_> =
+        std::fs::read_dir(dir).map_err(io)?.collect::<Result<_, _>>().map_err(io)?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -321,7 +379,7 @@ fn walk(dir: &Path, logical: &str, out: &mut Vec<(String, PathBuf)>) -> Result<(
         if out.len() > MAX_FILES_PER_PART {
             return Ok(());
         }
-        if entry.file_type()?.is_dir() {
+        if entry.file_type().map_err(io)?.is_dir() {
             walk(&path, &child, out)?;
         } else {
             out.push((child, path));
@@ -434,7 +492,16 @@ pub struct Receipt {
     #[serde(default)]
     pub extensions: Vec<ExtensionReceipt>,
     pub installed_ms: u64,
+    /// Installed from a folder on this machine (`cmux setup install ./DIR`),
+    /// not a repo: the folder, which `update` reads again. Its reference's
+    /// host is [`LOCAL_HOST`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<String>,
 }
+
+/// The host of a setup installed from a folder: no repo reference parses
+/// to it, so a local install never shares a receipt with a published one.
+pub const LOCAL_HOST: &str = "local";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionReceipt {
@@ -545,25 +612,7 @@ impl Customize {
     /// version (`engines.cmux`).
     pub fn plan_setup(&self, setup: &Setup, owner: &str, running: &str) -> Result<Plan, Error> {
         let manifest = &setup.manifest;
-        check_id(&manifest.id, owner)?;
-        engine_ok(manifest.engines.cmux.as_deref(), running)?;
-        for text in
-            [&manifest.name, &manifest.description].into_iter().chain(manifest.tagline.as_ref())
-        {
-            if let Some(mark) = hidden::first_hidden(text, hidden::Context::ManifestString) {
-                return Err(Error::Setup(format!(
-                    "the setup's name or description has {} ({})",
-                    mark.describe(),
-                    mark.code_point
-                )));
-            }
-        }
-        if manifest.extensions.len() > MAX_EXTENSIONS {
-            return Err(Error::Setup(format!("a setup lists at most {MAX_EXTENSIONS} extensions")));
-        }
-        for extension in &manifest.extensions {
-            Reference::parse(extension)?;
-        }
+        check::first_error(header_findings(manifest, owner, running), Error::Setup)?;
         self.check_setup(setup)?;
 
         let live = tree::read(self.roots(), SETTINGS)?
@@ -708,7 +757,7 @@ impl Customize {
     pub(crate) fn check_setup(&self, setup: &Setup) -> Result<(), Error> {
         self.check_profile(&setup.profile)?;
         check_actions(setup.actions())?;
-        secrets::check_secrets(setup)
+        check::first_error(secrets::secret_findings(setup), Error::Setup)
     }
 
     fn no_preview_open(&self) -> Result<(), Error> {
@@ -844,37 +893,122 @@ fn action_runs(value: &Value) -> String {
     }
 }
 
+/// What install refuses in the header: the id rule, `engines.cmux`, a
+/// hidden character in its text, and its extensions.
+fn header_findings(manifest: &Manifest, owner: &str, running: &str) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let refused = |code: &'static str, key: &str, error: Error| {
+        Finding::error(code, SETUP_FILE, error.to_string()).key(key)
+    };
+    if let Err(error) = check_id(&manifest.id, owner) {
+        findings.push(
+            refused(codes::SETUP_ID, "id", error)
+                .fix(format!("set id to \"{}/NAME\" in lowercase", owner.to_ascii_lowercase())),
+        );
+    }
+    if let Err(error) = engine_ok(manifest.engines.cmux.as_deref(), running) {
+        findings.push(refused(codes::SETUP_ENGINES, "engines.cmux", error));
+    }
+    let texts = [("name", &manifest.name), ("description", &manifest.description)]
+        .into_iter()
+        .chain(manifest.tagline.as_ref().map(|tagline| ("tagline", tagline)));
+    for (key, text) in texts {
+        if let Some(mark) = hidden::first_hidden(text, hidden::Context::ManifestString) {
+            findings.push(
+                Finding::error(
+                    codes::HIDDEN_TEXT,
+                    SETUP_FILE,
+                    format!(
+                        "the setup's name or description has {} ({})",
+                        mark.describe(),
+                        mark.code_point
+                    ),
+                )
+                .key(key),
+            );
+        }
+    }
+    if manifest.extensions.len() > MAX_EXTENSIONS {
+        findings.push(
+            Finding::error(
+                codes::EXTENSION,
+                SETUP_FILE,
+                format!("a setup lists at most {MAX_EXTENSIONS} extensions"),
+            )
+            .key("extensions"),
+        );
+    }
+    for (n, extension) in manifest.extensions.iter().enumerate() {
+        if let Err(error) = Reference::parse(extension) {
+            findings.push(refused(codes::EXTENSION, &format!("extensions.{n}"), error));
+        }
+    }
+    findings
+}
+
 /// Every action is a named object cmux reads (`type` command or agent, with
 /// its command or agent), with no hidden character and no secret.
 fn check_actions(actions: &BTreeMap<String, Value>) -> Result<(), Error> {
+    check::first_error(action_findings(actions), Error::Setup)
+}
+
+fn action_findings(actions: &BTreeMap<String, Value>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let refuse = |name: &str, code: &'static str, message: String| {
+        Finding::error(code, SETUP_FILE, message).key(format!("actions.{name}"))
+    };
     if actions.len() > MAX_ACTIONS {
-        return Err(Error::Setup(format!("a setup adds at most {MAX_ACTIONS} actions")));
+        findings.push(
+            Finding::error(
+                codes::ACTION_INVALID,
+                SETUP_FILE,
+                format!("a setup adds at most {MAX_ACTIONS} actions"),
+            )
+            .key("actions"),
+        );
     }
     for (name, value) in actions {
         let named = !name.is_empty()
             && name.len() <= 64
             && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
         if !named {
-            return Err(Error::Setup(format!(
-                "the action name {name:?} is not letters, digits, '.', '-' and '_'"
-            )));
+            findings.push(refuse(
+                name,
+                codes::ACTION_INVALID,
+                format!("the action name {name:?} is not letters, digits, '.', '-' and '_'"),
+            ));
+            continue;
         }
         let Some(fields) = value.as_object() else {
-            return Err(Error::Setup(format!("the action {name} is not an object")));
+            findings.push(refuse(
+                name,
+                codes::ACTION_INVALID,
+                format!("the action {name} is not an object"),
+            ));
+            continue;
         };
         let text = value.to_string();
         if text.len() > MAX_ACTION_BYTES {
-            return Err(Error::Setup(format!("the action {name} is larger than 16 KB")));
+            findings.push(refuse(
+                name,
+                codes::ACTION_INVALID,
+                format!("the action {name} is larger than 16 KB"),
+            ));
+            continue;
         }
         if let Some(mark) = hidden::first_hidden(&text, hidden::Context::ManifestString) {
-            return Err(Error::Setup(format!(
-                "the action {name} has {} ({})",
-                mark.describe(),
-                mark.code_point
-            )));
+            findings.push(refuse(
+                name,
+                codes::HIDDEN_TEXT,
+                format!("the action {name} has {} ({})", mark.describe(), mark.code_point),
+            ));
         }
         if find_secret(&text).is_some() {
-            return Err(Error::Setup(format!("the action {name} looks like it holds a secret")));
+            findings.push(refuse(
+                name,
+                codes::SECRET,
+                format!("the action {name} looks like it holds a secret"),
+            ));
         }
         let string = |key: &str| {
             fields.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty())
@@ -885,12 +1019,19 @@ fn check_actions(actions: &BTreeMap<String, Value>) -> Result<(), Error> {
             _ => false,
         };
         if !ok {
-            return Err(Error::Setup(format!(
-                "the action {name} needs type \"command\" with a command, or type \"agent\" with an agent"
-            )));
+            findings.push(
+                refuse(
+                    name,
+                    codes::ACTION_INVALID,
+                    format!(
+                        "the action {name} needs type \"command\" with a command, or type \"agent\" with an agent"
+                    ),
+                )
+                .fix(r#"{ "type": "command", "command": "..." } or { "type": "agent", "agent": "..." }"#),
+            );
         }
     }
-    Ok(())
+    findings
 }
 
 #[cfg(test)]

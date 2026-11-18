@@ -1,7 +1,8 @@
 //! `cmux setup install|update|remove|export|installed`: a whole cmux
 //! customization from a git repo, like dotfiles (cmux-customize `setup`).
 //!
-//! `install` fetches the repo at one commit, reads its `cmux-setup.json`,
+//! `install` fetches the repo at one commit (or reads a folder on this
+//! machine, `./DIR`, kept as a local install), reads its `cmux-setup.json`,
 //! shows one consent card with everything it will change (settings, theme,
 //! shortcuts, views, stylesheets, actions and the commands they run, and
 //! each extension with its scopes), then applies it through cmux-customize
@@ -22,13 +23,18 @@ use serde_json::{Value, json};
 
 use super::super::{GlobalArgs, OutputMode, wire};
 
-pub(super) const VERBS: &[&str] = &["install", "update", "remove", "export", "installed"];
+pub(super) const VERBS: &[&str] = &["install", "update", "remove", "export", "installed", "check"];
 
 pub(super) const HELP: &str = "\
 Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, views, actions, extensions).
 
+  cmux setup check DIR [--owner OWNER] [--strict]    Check a setup folder the way install would, offline: every
+                                                     problem at once, nothing installed (exit 0 ok, 1 errors, 2 usage;
+                                                     --strict: warnings fail too)
   cmux setup install HOST/OWNER/REPO[@REF] [--yes]   Fetch it at one commit, show what it changes, apply it
-  cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit
+  cmux setup install ./DIR [--as OWNER/NAME] [--yes] Try a setup folder on this machine before you publish it
+  cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit (a folder:
+                                                     to what the folder holds now)
   cmux setup remove [REPO|ID]                        Put back what you had: its layer, actions and extensions
   cmux setup installed                               The installed setups
   cmux setup export DIR --id OWNER/NAME [--name N] [--description D] [--repo OWNER/REPO] [--extension REF]...
@@ -36,15 +42,44 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 --yes skips the question (needed with --json or without a terminal). Every verb takes --json.
+
+A folder (a path starting with ./, ../, / or ~) installs the same way as a repo: the same card, one
+generation, one receipt, marked local. It is kept under its id, or under --as OWNER/NAME, which only a
+folder takes (so a look that is not published, or names another owner, can be tried); remove it by that id.
+
+check reads only DIR (no daemon, no network, not your own customization) and runs every check install
+runs, plus the theme reader on themes/*.json and the app manifest validator on customize/cmux-app.json.
+A key cmux retired is a warning whose fix names the setting that replaced it. With --json it prints
+{schema_version, setup_id, ok, findings: [{severity, code, path, key?, line?, message, fix?}]};
+severity is error (install refuses it, or cmux leaves that part out) or warning. --owner is the repo's
+owner for the id rule (default: the owner `repository` names, else the id's own).
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
-    Install { reference: String, yes: bool },
-    Update { which: Option<String>, yes: bool },
-    Remove { which: Option<String> },
+    /// `reference` is a repo, or a folder (`./DIR`); `as_id` only with a folder.
+    Install {
+        reference: String,
+        yes: bool,
+        as_id: Option<String>,
+    },
+    Update {
+        which: Option<String>,
+        yes: bool,
+    },
+    Remove {
+        which: Option<String>,
+    },
     Installed,
-    Export { dir: PathBuf, header: ExportHeader },
+    Export {
+        dir: PathBuf,
+        header: ExportHeader,
+    },
+    Check {
+        dir: PathBuf,
+        owner: Option<String>,
+        strict: bool,
+    },
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
@@ -60,10 +95,52 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         }
     };
     match verb.as_str() {
-        "install" => match one(&words)? {
-            Some(reference) => Ok(Request::Install { reference, yes }),
-            None => Err("cmux setup install needs a repo: HOST/OWNER/REPO[@REF]".to_owned()),
-        },
+        "install" => {
+            let mut words = words;
+            let as_id = match words.iter().position(|word| *word == "--as") {
+                Some(at) => {
+                    let id = words
+                        .get(at + 1)
+                        .filter(|id| !id.starts_with('-'))
+                        .map(|id| (*id).clone())
+                        .ok_or("cmux setup install: --as needs OWNER/NAME")?;
+                    words.drain(at..=at + 1);
+                    Some(id)
+                }
+                None => None,
+            };
+            match one(&words)? {
+                Some(reference) => Ok(Request::Install { reference, yes, as_id }),
+                None => Err(
+                    "cmux setup install needs a repo (HOST/OWNER/REPO[@REF]) or a folder (./DIR)"
+                        .to_owned(),
+                ),
+            }
+        }
+        "check" if !yes => {
+            let (mut dir, mut owner, mut strict) = (None, None, false);
+            let mut iter = rest.iter();
+            while let Some(word) = iter.next() {
+                match word.as_str() {
+                    "--strict" => strict = true,
+                    "--owner" => {
+                        owner = Some(
+                            iter.next()
+                                .filter(|value| !value.starts_with('-'))
+                                .cloned()
+                                .ok_or("cmux setup check: --owner needs a value")?,
+                        );
+                    }
+                    other if other.starts_with('-') => {
+                        return Err(format!("cmux setup check: unknown option {other:?}"));
+                    }
+                    other if dir.is_none() => dir = Some(PathBuf::from(other)),
+                    other => return Err(format!("cmux setup check: unexpected {other:?}")),
+                }
+            }
+            let dir = dir.ok_or("cmux setup check needs the setup folder: cmux setup check DIR")?;
+            Ok(Request::Check { dir, owner, strict })
+        }
         "update" => Ok(Request::Update { which: one(&words)?, yes }),
         "remove" if !yes => Ok(Request::Remove { which: one(&words)? }),
         "installed" if rest.is_empty() => Ok(Request::Installed),
@@ -115,6 +192,10 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Ok(request) => request,
         Err(message) => return failure(global.output, "usage.invalid", &message, Value::Null, 2),
     };
+    // Reads only the folder: never the person's customization.
+    if let Request::Check { dir, owner, strict } = &request {
+        return check(global.output, dir, owner.as_deref(), *strict);
+    }
     let customize = match Customize::from_env() {
         Ok(customize) => customize,
         Err(error) => {
@@ -123,8 +204,8 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     };
     let apps = CliApps { global };
     let answer = match request {
-        Request::Install { reference, yes } => {
-            install(&customize, &apps, global.output, &reference, yes)
+        Request::Install { reference, yes, as_id } => {
+            install_as(&customize, &apps, global.output, &reference, yes, as_id.as_deref())
         }
         Request::Update { which, yes } => {
             update(&customize, &apps, global.output, which.as_deref(), yes)
@@ -134,6 +215,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             customize.setups().map(|setups| json!({"setups": setups})).map_err(Failure::from)
         }
         Request::Export { dir, header } => export(&customize, &dir, &header),
+        Request::Check { .. } => unreachable_check(),
     };
     match answer {
         Ok(value) => {
@@ -148,6 +230,76 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             failure(global.output, code, &message, details, 1)
         }
     }
+}
+
+fn unreachable_check() -> Result<Value, Failure> {
+    Err(refused("setup.check", "cmux setup check runs before the customization is read"))
+}
+
+/// `cmux setup check DIR`: the report, and its exit code (1 on an error, or
+/// with `strict` a warning).
+pub(super) fn check(output: OutputMode, dir: &Path, owner: Option<&str>, strict: bool) -> i32 {
+    let options =
+        setup::CheckOptions { owner, running: running_version(), history: &setup::RetiredKeys };
+    let report = setup::check_dir(dir, &options);
+    let exit = check_exit(&report, strict);
+    if output == OutputMode::Human {
+        println!("{}", check_text(&report, dir, strict));
+        return exit;
+    }
+    let value = serde_json::to_value(&report).unwrap_or(Value::Null);
+    match wire::print_local_success(&value, output) {
+        0 => exit,
+        code => code,
+    }
+}
+
+pub(super) fn check_exit(report: &setup::Report, strict: bool) -> i32 {
+    i32::from(report.errors() > 0 || (strict && report.warnings() > 0))
+}
+
+/// The report as a person reads it: one block per finding, like a compiler.
+pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> String {
+    // Every string comes from the folder: shown inert.
+    let value = inert(&serde_json::to_value(report).unwrap_or(Value::Null));
+    let mut lines = Vec::new();
+    for finding in value["findings"].as_array().into_iter().flatten() {
+        let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
+        let mut place = text("path");
+        if let Some(line) = finding["line"].as_u64() {
+            place.push_str(&format!(":{line}"));
+        }
+        if let Some(key) = finding["key"].as_str() {
+            place.push_str(&format!(" ({key})"));
+        }
+        lines.push(format!("{}[{}] {place}: {}", text("severity"), text("code"), text("message")));
+        if let Some(fix) = finding["fix"].as_str() {
+            lines.push(format!("  fix: {fix}"));
+        }
+    }
+    for skipped in value["skipped"].as_array().into_iter().flatten() {
+        lines.push(format!("note: not checked: {}", skipped["why"].as_str().unwrap_or_default()));
+    }
+    let name = value["setup_id"].as_str().map_or_else(|| dir.display().to_string(), str::to_owned);
+    let (errors, warnings) = (report.errors(), report.warnings());
+    let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+    lines.push(if errors > 0 {
+        format!(
+            "{name}: {}, {}. cmux setup install would refuse it.",
+            count(errors, "error"),
+            count(warnings, "warning")
+        )
+    } else if strict && warnings > 0 {
+        format!("{name}: {} (--strict).", count(warnings, "warning"))
+    } else if warnings > 0 {
+        format!(
+            "{name}: no errors, {}. cmux setup install would take it.",
+            count(warnings, "warning")
+        )
+    } else {
+        format!("{name}: no problems. cmux setup install would take it.")
+    });
+    lines.join("\n")
 }
 
 fn failure(output: OutputMode, code: &str, message: &str, details: Value, exit: i32) -> i32 {
@@ -356,17 +508,25 @@ fn is_installed(info: &Value) -> bool {
 
 /// The consent card: the plan, the source and every extension with what it
 /// asks for.
-fn card(plan: &Plan, reference: &Reference, commit: &str, extensions: &[Value]) -> Value {
+fn card(plan: &Plan, reference: &Reference, opened: &Opened, extensions: &[Value]) -> Value {
+    let local = opened.local_text();
+    // A local install is removed by its id: its folder is no reference.
+    let undo = match &local {
+        Some(_) => format!("cmux setup remove {}", plan.id),
+        None => format!("cmux setup remove {}", reference.key()),
+    };
     json!({
         "setup": plan,
         "source": {
-            "reference": reference.to_string(),
-            "repository": reference.repository(),
-            "commit": commit,
-            "page": reference.page_url(),
+            "reference": local.clone().unwrap_or_else(|| reference.to_string()),
+            "repository": opened.repository(reference),
+            "commit": opened.commit,
+            "page": local.is_none().then(|| reference.page_url()),
+            "local": local.is_some(),
         },
         "reviewed": false,
         "extensions": extensions,
+        "undo": undo,
     })
 }
 
@@ -431,7 +591,11 @@ pub(super) fn card_text(card: &Value) -> String {
         at(card, "/source/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default(),
     )];
     if card["reviewed"] != json!(true) {
-        lines.push("Not reviewed by cmux: it comes straight from the repo.".to_owned());
+        lines.push(if card["source"]["local"] == json!(true) {
+            "Not reviewed by cmux: it comes straight from this folder.".to_owned()
+        } else {
+            "Not reviewed by cmux: it comes straight from the repo.".to_owned()
+        });
     }
     if let Some(description) = setup["description"].as_str() {
         lines.push(description.to_owned());
@@ -490,15 +654,18 @@ pub(super) fn card_text(card: &Value) -> String {
     if let Some(requires) = setup["requires"].as_str() {
         lines.push(format!("Requires cmux {requires}."));
     }
-    lines.push(format!(
-        "Undo: cmux setup remove {}",
-        at(card, "/source/reference")
-            .as_str()
-            .unwrap_or_default()
-            .split('@')
-            .next()
-            .unwrap_or_default()
-    ));
+    match card["undo"].as_str() {
+        Some(undo) => lines.push(format!("Undo: {undo}")),
+        None => lines.push(format!(
+            "Undo: cmux setup remove {}",
+            at(card, "/source/reference")
+                .as_str()
+                .unwrap_or_default()
+                .split('@')
+                .next()
+                .unwrap_or_default()
+        )),
+    }
     lines.join("\n")
 }
 
@@ -518,6 +685,90 @@ fn now_ms() -> u64 {
         .map_or(0, |since| since.as_millis() as u64)
 }
 
+/// A setup read at one version: from a repo fetched at one commit (its
+/// checkout goes away with this), or from a folder on this machine.
+struct Opened {
+    read: setup::Setup,
+    /// The commit; for a folder, `local-` and the first hex of what it
+    /// holds, so a changed folder reads as a new version.
+    commit: String,
+    local: Option<PathBuf>,
+    _checkout: Option<Checkout>,
+}
+
+impl Opened {
+    fn label(&self) -> String {
+        match &self.local {
+            Some(dir) => format!("setup {} from {}", self.read.manifest.id, dir.display()),
+            None => format!("setup {} at {}", self.read.manifest.id, short(&self.commit)),
+        }
+    }
+
+    fn repository(&self, reference: &Reference) -> String {
+        self.local_text().unwrap_or_else(|| reference.repository())
+    }
+
+    fn local_text(&self) -> Option<String> {
+        self.local.as_ref().map(|dir| dir.display().to_string())
+    }
+}
+
+/// Reads the setup `reference` names: the folder `local` when it is a
+/// local install (under the id its reference names), else the repo.
+fn open(apps: &dyn Apps, reference: &Reference, local: Option<&Path>) -> Result<Opened, Failure> {
+    if let Some(dir) = local {
+        let read =
+            setup::read_dir(dir)?.renamed(&format!("{}/{}", reference.owner, reference.repo));
+        let commit = format!("local-{}", read.sha256.get(..12).unwrap_or(&read.sha256));
+        return Ok(Opened { read, commit, local: Some(dir.to_path_buf()), _checkout: None });
+    }
+    let checkout = apps.fetch(reference)?;
+    let read = setup::read_dir(&setup_dir(&checkout, reference))?;
+    Ok(Opened { read, commit: checkout.commit.clone(), local: None, _checkout: Some(checkout) })
+}
+
+/// The folder `text` names when it is a path (`./`, `../`, `/` or `~`),
+/// made absolute; `None` for a repo reference.
+fn local_folder(text: &str) -> Result<Option<PathBuf>, Failure> {
+    let is_path = matches!(text, "." | ".." | "~")
+        || ["./", "../", "/", "~/"].iter().any(|start| text.starts_with(start));
+    if !is_path {
+        return Ok(None);
+    }
+    let path = match text.strip_prefix('~') {
+        Some(rest) => {
+            let home = std::env::var_os("HOME")
+                .ok_or_else(|| refused("setup.not_a_setup", "there is no home folder for ~"))?;
+            PathBuf::from(home).join(rest.trim_start_matches('/'))
+        }
+        None => PathBuf::from(text),
+    };
+    let dir = std::fs::canonicalize(&path)
+        .map_err(|error| refused("setup.not_a_setup", format!("{}: {error}", path.display())))?;
+    if !dir.join(SETUP_FILE).is_file() {
+        return Err(refused(
+            "setup.not_a_setup",
+            format!("{} has no {SETUP_FILE}, so it is not a cmux setup", dir.display()),
+        ));
+    }
+    Ok(Some(dir))
+}
+
+/// The reference a local install is kept under: `local/OWNER/NAME` from
+/// its id, which no repo reference parses to.
+fn local_reference(id: &str) -> Result<Reference, Failure> {
+    let owner = id.split('/').next().unwrap_or_default();
+    setup::check_id(id, owner)?;
+    let (owner, repo) = id.split_once('/').unwrap_or_default();
+    Ok(Reference {
+        host: setup::LOCAL_HOST.to_owned(),
+        owner: owner.to_owned(),
+        repo: repo.to_owned(),
+        path: String::new(),
+        git_ref: None,
+    })
+}
+
 pub(super) fn install(
     customize: &Customize,
     apps: &dyn Apps,
@@ -525,26 +776,49 @@ pub(super) fn install(
     text: &str,
     yes: bool,
 ) -> Result<Value, Failure> {
-    let reference = Reference::parse(text)?;
+    install_as(customize, apps, output, text, yes, None)
+}
+
+/// Installs the repo or folder `text` names; a folder under `as_id` when
+/// given (a look tried before it is published).
+pub(super) fn install_as(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    text: &str,
+    yes: bool,
+    as_id: Option<&str>,
+) -> Result<Value, Failure> {
+    let local = local_folder(text)?;
+    let reference = match (&local, as_id) {
+        (Some(_), Some(id)) => local_reference(id)?,
+        (Some(dir), None) => local_reference(&setup::read_dir(dir)?.manifest.id)?,
+        (None, Some(_)) => {
+            return Err(refused(
+                "usage.invalid",
+                "--as is for a folder on this machine (cmux setup install ./DIR --as OWNER/NAME); a repo installs under its own id",
+            ));
+        }
+        (None, None) => Reference::parse(text)?,
+    };
     if let Some(receipt) = customize.setup(&reference.key())? {
-        // Installed already: this is an update to the named ref.
-        return apply_update(customize, apps, output, receipt, Some(reference), yes);
+        // Installed already: this is an update to the named ref (or folder).
+        return apply_update(customize, apps, output, receipt, Some(reference), local, yes);
     }
-    let checkout = apps.fetch(&reference)?;
-    let read = setup::read_dir(&setup_dir(&checkout, &reference))?;
-    let plan = customize.plan_setup(&read, &reference.owner, running_version())?;
+    let opened = open(apps, &reference, local.as_deref())?;
+    let read = &opened.read;
+    let plan = customize.plan_setup(read, &reference.owner, running_version())?;
     let extensions = extension_rows(apps, &plan);
-    let card = card(&plan, &reference, &checkout.commit, &extensions);
+    let card = card(&plan, &reference, &opened, &extensions);
     consent(output, &card, "Install", yes)?;
-    let label = format!("setup {} at {}", read.manifest.id, short(&checkout.commit));
-    let installed = customize.install_setup(&read, &label, "cli", now_ms())?;
+    let installed = customize.install_setup(read, &opened.label(), "cli", now_ms())?;
     let (extension_receipts, extension_errors) = install_extensions(apps, &extensions, &[]);
     let receipt = Receipt {
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),
-        repository: reference.repository(),
+        repository: opened.repository(&reference),
         reference: reference.clone(),
-        commit: checkout.commit.clone(),
+        commit: opened.commit.clone(),
         sha256: read.sha256.clone(),
         version: read.manifest.version.clone(),
         generation: installed.applied.as_ref().map(|applied| applied.generation.n),
@@ -555,14 +829,15 @@ pub(super) fn install(
         prior_actions: installed.prior_actions,
         extensions: extension_receipts,
         installed_ms: now_ms(),
+        local: opened.local_text(),
     };
     customize.record_setup(receipt.clone())?;
     Ok(json!({
         "installed": receipt,
         "card": card,
         "extension_errors": extension_errors,
-        "undo": format!("cmux setup remove {}", reference.key()),
-        "page": reference.page_url(),
+        "undo": card["undo"],
+        "page": opened.local.is_none().then(|| reference.page_url()),
     }))
 }
 
@@ -630,24 +905,27 @@ fn update(
     yes: bool,
 ) -> Result<Value, Failure> {
     let receipt = find(customize, which)?;
-    apply_update(customize, apps, output, receipt, None, yes)
+    apply_update(customize, apps, output, receipt, None, None, yes)
 }
 
 /// Moves `receipt` to the newest commit of `to` (or the ref it was
-/// installed from): the old layer comes off and the new one goes on, as one
-/// question.
+/// installed from), or for a local install to what its folder (`local`, or
+/// the one it was installed from) holds now: the old layer comes off and
+/// the new one goes on, as one question.
 fn apply_update(
     customize: &Customize,
     apps: &dyn Apps,
     output: OutputMode,
     receipt: Receipt,
     to: Option<Reference>,
+    local: Option<PathBuf>,
     yes: bool,
 ) -> Result<Value, Failure> {
     let reference = to.unwrap_or_else(|| receipt.reference.clone());
-    let checkout = apps.fetch(&reference)?;
-    let read = setup::read_dir(&setup_dir(&checkout, &reference))?;
-    if checkout.commit == receipt.commit {
+    let local = local.or_else(|| receipt.local.as_ref().map(PathBuf::from));
+    let opened = open(apps, &reference, local.as_deref())?;
+    let read = &opened.read;
+    if opened.commit == receipt.commit {
         if read.sha256 != receipt.sha256 {
             return Err(refused(
                 "setup.changed_at_commit",
@@ -659,13 +937,13 @@ fn apply_update(
         }
         return Ok(json!({"current": receipt, "updated": false}));
     }
-    let plan = customize.plan_setup(&read, &reference.owner, running_version())?;
+    let plan = customize.plan_setup(read, &reference.owner, running_version())?;
     let extensions = extension_rows(apps, &plan);
-    let card = card(&plan, &reference, &checkout.commit, &extensions);
+    let card = card(&plan, &reference, &opened, &extensions);
     consent(output, &card, "Update", yes)?;
-    let label = format!("setup {} at {}", read.manifest.id, short(&checkout.commit));
+    let label = opened.label();
     // One change: when the new commit does not go on, the old one is put back.
-    let installed = customize.replace_setup(&receipt, &read, &label, "cli", now_ms())?;
+    let installed = customize.replace_setup(&receipt, read, &label, "cli", now_ms())?;
     let (mut extension_receipts, extension_errors) =
         install_extensions(apps, &extensions, &receipt.extensions);
     // An extension the new commit no longer lists, that this setup installed, goes.
@@ -681,9 +959,9 @@ fn apply_update(
     let updated = Receipt {
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),
-        repository: reference.repository(),
+        repository: opened.repository(&reference),
         reference,
-        commit: checkout.commit.clone(),
+        commit: opened.commit.clone(),
         sha256: read.sha256.clone(),
         version: read.manifest.version.clone(),
         generation: installed.applied.as_ref().map(|applied| applied.generation.n),
@@ -696,6 +974,7 @@ fn apply_update(
         prior_actions: installed.prior_actions,
         extensions: extension_receipts,
         installed_ms: now_ms(),
+        local: opened.local_text(),
     };
     customize.record_setup(updated.clone())?;
     Ok(json!({

@@ -11,7 +11,9 @@ use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
-use super::{Apps, Checkout, Failure, Request, card_text, inert, install, parse, remove, update};
+use super::{
+    Apps, Checkout, Failure, Request, card_text, inert, install, install_as, parse, remove, update,
+};
 
 fn words(text: &[&str]) -> Vec<String> {
     text.iter().map(|word| (*word).to_owned()).collect()
@@ -21,7 +23,7 @@ fn words(text: &[&str]) -> Vec<String> {
 fn the_grammar_takes_each_verb_and_refuses_the_rest() {
     assert_eq!(
         parse(&words(&["install", "github.com/a/b", "--yes"])),
-        Ok(Request::Install { reference: "github.com/a/b".to_owned(), yes: true })
+        Ok(Request::Install { reference: "github.com/a/b".to_owned(), yes: true, as_id: None })
     );
     assert_eq!(parse(&words(&["update"])), Ok(Request::Update { which: None, yes: false }));
     assert_eq!(
@@ -264,4 +266,150 @@ fn the_card_shows_repo_text_inert() {
     assert!(!text.contains("\nYou may install"), "a repo string cannot start a card line: {text}");
     assert!(text.contains("hi\u{fffd}31m"), "{text}");
     assert_eq!(inert(&json!({"k\n": ["\u{1b}x"]})), json!({"k\u{fffd}": ["\u{fffd}x"]}));
+}
+
+#[test]
+fn check_takes_a_folder_and_its_flags() {
+    assert_eq!(
+        parse(&words(&["check", "out", "--strict", "--owner", "leo"])),
+        Ok(Request::Check { dir: "out".into(), owner: Some("leo".to_owned()), strict: true })
+    );
+    assert_eq!(
+        parse(&words(&["check", "."])),
+        Ok(Request::Check { dir: ".".into(), owner: None, strict: false })
+    );
+    for bad in [
+        &["check"][..],
+        &["check", "a", "b"],
+        &["check", "a", "--owner"],
+        &["check", "a", "--fix"],
+        &["check", "a", "--yes"],
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn check_reports_every_problem_and_exits_by_severity() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let report = |dir: &Path| {
+        cmux_customize::setup::check_dir(
+            dir,
+            &cmux_customize::setup::CheckOptions {
+                owner: None,
+                running: "0.0.0",
+                history: &cmux_customize::setup::NoHistory,
+            },
+        )
+    };
+    // The sample installs, so it checks clean.
+    let clean = report(&world.repo);
+    assert_eq!(clean.findings, Vec::new());
+    assert_eq!(super::check_exit(&clean, true), 0);
+    assert!(super::check_text(&clean, &world.repo, false).ends_with("would take it."));
+    // Two mistakes: both are named, and install would refuse.
+    fs::write(
+        world.repo.join("cmux-setup.json"),
+        SETUP.replace("appearance.themeFile", "appearance.themeFiel"),
+    )
+    .unwrap();
+    fs::write(world.repo.join("themes/sample-dusk.json"), "{ \"name\": ").unwrap();
+    let broken = report(&world.repo);
+    assert_eq!(broken.errors(), 2, "{:?}", broken.findings);
+    assert_eq!(super::check_exit(&broken, false), 1);
+    let text = super::check_text(&broken, &world.repo, false);
+    assert!(text.contains("error[setting.unknown]"), "{text}");
+    assert!(text.contains("fix: did you mean appearance.themeFile?"), "{text}");
+    assert!(text.contains("error[file.invalid] themes/sample-dusk.json"), "{text}");
+    assert!(text.contains("2 errors, 0 warnings"), "{text}");
+}
+
+#[test]
+fn install_takes_a_folder_and_as_only_with_one() {
+    assert_eq!(
+        parse(&words(&["install", "./look", "--as", "leo/try", "--yes"])),
+        Ok(Request::Install {
+            reference: "./look".to_owned(),
+            yes: true,
+            as_id: Some("leo/try".to_owned())
+        })
+    );
+    assert!(parse(&words(&["install", "./look", "--as"])).is_err());
+    assert!(parse(&words(&["install", "--as", "leo/try"])).is_err());
+}
+
+#[test]
+fn a_folder_installs_like_a_repo_and_is_kept_as_local() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let home = root.path().join("home");
+    let customize = Customize::open(Roots::under(&home));
+    let folder = world.repo.to_str().unwrap().to_owned();
+
+    let answer = install(&customize, &world, OutputMode::Json, &folder, true).unwrap();
+    let installed = &answer["installed"];
+    assert_eq!(installed["id"], json!("manaflow-ai/cmux-setup-sample"));
+    assert_eq!(installed["local"], json!(world.repo.canonicalize().unwrap()));
+    assert_eq!(installed["reference"]["host"], json!("local"));
+    assert!(installed["commit"].as_str().unwrap().starts_with("local-"), "{installed}");
+    assert_eq!(answer["page"], Value::Null);
+    assert_eq!(answer["undo"], json!("cmux setup remove manaflow-ai/cmux-setup-sample"));
+    assert!(card_text(&answer["card"]).contains("straight from this folder"));
+    assert!(home.join("config/themes/sample-dusk.json").exists());
+
+    // Unchanged, an update changes nothing; changed, it moves to what the folder holds.
+    let again = update(&customize, &world, OutputMode::Json, None, true).unwrap();
+    assert_eq!(again["updated"], json!(false));
+    fs::write(world.repo.join("cmux-setup.json"), SETUP.replace("echo hello", "echo hi again"))
+        .unwrap();
+    let updated = update(&customize, &world, OutputMode::Json, None, true).unwrap();
+    assert_eq!(updated["updated"], json!(true));
+    let settings = fs::read_to_string(home.join("config/cmux-next.json")).unwrap();
+    assert!(settings.contains("echo hi again"), "{settings}");
+    assert_eq!(customize.setups().unwrap().len(), 1);
+
+    remove(&customize, &world, Some("manaflow-ai/cmux-setup-sample")).unwrap();
+    assert!(!home.join("config/themes/sample-dusk.json").exists());
+    assert!(customize.setups().unwrap().is_empty());
+}
+
+#[test]
+fn as_names_a_local_try_and_a_repo_refuses_it() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let customize = Customize::open(Roots::under(&root.path().join("home")));
+    // A look whose id is reserved installs from a folder only under an id of one's own.
+    fs::write(
+        world.repo.join("cmux-setup.json"),
+        SETUP.replace("manaflow-ai/cmux-setup-sample", "cmux/studio"),
+    )
+    .unwrap();
+    let folder = world.repo.to_str().unwrap().to_owned();
+    assert!(install(&customize, &world, OutputMode::Json, &folder, true).is_err());
+    let answer =
+        install_as(&customize, &world, OutputMode::Json, &folder, true, Some("leo/studio-try"))
+            .unwrap();
+    assert_eq!(answer["installed"]["id"], json!("leo/studio-try"));
+    assert!(answer["installed"]["library"].is_string(), "{answer}");
+    let Err(failure) = install_as(
+        &customize,
+        &world,
+        OutputMode::Json,
+        "github.com/leo/night",
+        true,
+        Some("leo/night"),
+    ) else {
+        panic!()
+    };
+    assert_eq!(failure.code, "usage.invalid");
+    // A path with no setup in it is named, and nothing is installed.
+    let empty = root.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let Err(failure) = install(&customize, &world, OutputMode::Json, empty.to_str().unwrap(), true)
+    else {
+        panic!()
+    };
+    assert_eq!(failure.code, "setup.not_a_setup");
+    assert_eq!(customize.setups().unwrap().len(), 1);
 }
