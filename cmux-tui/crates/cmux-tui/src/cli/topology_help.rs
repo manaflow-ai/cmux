@@ -273,6 +273,7 @@ USAGE
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
   cmux terminal <term_id>|current pin-tail on|off
+  cmux terminal pin-tail on|off --pane <pane_id>
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
 screen read and copy print the text; --details (or --json) gives the whole
@@ -285,6 +286,9 @@ cursor's line after the call, never a typed command's echo or older output. keep
 when it has no tab; keep off lets it end after the reap grace period.
 close --if-unplaced ends the terminal only when it has no tab, no keep mark
 and no attach stream; otherwise it fails and changes nothing.
+pin-tail on shows the terminal's last output line under its workspace in the
+sidebar (terminal.tail_pin.set); --pane pins the terminal in that pane's
+selected tab and fails when that tab is not a terminal.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
 STATE is the word list --agents shows (a finished turn somebody viewed is

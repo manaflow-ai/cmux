@@ -97,6 +97,7 @@ const SCREEN_READ: &[&str] = &[
     "terminal.screen.read",
     "terminal.history.read",
     "terminal.history.clear",
+    "terminal.tail_pin.set",
     "terminal.output_read",
     "terminal.state.read",
     "terminal.copy",

@@ -496,6 +496,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "terminal.history.read",
         ),
         (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+        (vec!["terminal", TERMINAL, "pin-tail", "on"], "terminal.tail_pin.set"),
         (
             vec!["terminal", TERMINAL, "output", "read", "--after", "4096", "--max-bytes", "65536"],
             "terminal.output_read",

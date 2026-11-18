@@ -9,6 +9,7 @@ fn wire_name_round_trips_through_serde() {
         "session.journal.append",
         "workspace.create",
         "terminal.output_read",
+        "terminal.tail_pin.set",
         "browser.close",
         "git.branches",
         "git.diff",

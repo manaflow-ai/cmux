@@ -114,6 +114,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TerminalStateRead
         | ResourceOperation::TerminalHistoryRead
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalTailPinSet
         | ResourceOperation::TerminalOutputRead
         | ResourceOperation::TerminalWait
         | ResourceOperation::TerminalWaitExit

@@ -35,6 +35,37 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
+    // Catalog request rows (`Action::request`): the app sends the daemon's `terminal.tail_pin.set` for the focused
+    // pane's terminal, what `cmux terminal pin-tail on|off --pane PANE` sends. In the sidebar category: the pinned
+    // line shows under the workspace's sidebar row.
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Pin Last Output Line to Sidebar"),
+        keywords: &["terminal", "pin", "tail", "last line", "output", "sidebar", "status", "progress", "watch"],
+        category: "sidebar",
+        symbol: "pin",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "terminal pin-tail on",
+        request: Some(Request { lane: RequestLane::Session, operation: "terminal.tail_pin.set", params: &[RequestParam { name: "pane", source: ParamSource::Target("pane") }, RequestParam { name: "pinned", source: ParamSource::Constant(BindingValue::Bool(true)) }] }),
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.unpinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.unpinTail", "Unpin Last Output Line from Sidebar"),
+        keywords: &["terminal", "unpin", "tail", "last line", "output", "sidebar", "status", "hide", "remove"],
+        category: "sidebar",
+        symbol: "pin.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "terminal pin-tail off",
+        request: Some(Request { lane: RequestLane::Session, operation: "terminal.tail_pin.set", params: &[RequestParam { name: "pane", source: ParamSource::Target("pane") }, RequestParam { name: "pinned", source: ParamSource::Constant(BindingValue::Bool(false)) }] }),
+        ..Action::DEFAULT
+    },
     Action {
         id: "focusSidebar",
         group: GROUP,

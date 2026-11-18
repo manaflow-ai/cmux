@@ -232,3 +232,61 @@ async fn the_cli_confirmation_is_the_enable_op_prompt_text() {
     assert_eq!(programs["plain"], Value::Null, "a file without the execute bit is no program");
     assert_eq!(programs["onpath"], json!(agent), "the profile's own PATH decides, as at spawn");
 }
+
+/// `_acpmux/harness_disable`, the mirror of enable: it withdraws the recorded
+/// confirmation (the next session asks again), says when there was none, and
+/// is refused to Web and peer connections as enable is.
+#[tokio::test]
+async fn the_disable_op_withdraws_the_confirmation_from_the_local_app_only() {
+    let (folder, gate) = scratch("disable");
+    acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
+    let hub = hub(&gate);
+    let cfg = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let state = || folder_profiles::load_one(&cfg, &gate, &folder, "acme").unwrap().state;
+    let mut app = connect(&hub, Origin::LocalApp).await;
+    let shown = app.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": "acme"}));
+    let sha = shown.await.unwrap()["prompt"]["sha256"].as_str().unwrap().to_owned();
+    app.request(method::MUX_HARNESS_ENABLE, json!({"folder": folder, "id": "acme", "sha256": sha}))
+        .await
+        .unwrap();
+    assert_eq!(state(), folder_profiles::FolderState::Enabled);
+
+    let ask = json!({"folder": folder, "id": "acme"});
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut c = connect(&hub, origin).await;
+        let e = c.request(method::MUX_HARNESS_DISABLE, ask.clone()).await.unwrap_err();
+        assert!(e.contains("never from"), "{origin:?}: {e}");
+    }
+    assert_eq!(state(), folder_profiles::FolderState::Enabled, "a refused disable writes nothing");
+
+    let e = app
+        .request(method::MUX_HARNESS_DISABLE, json!({"folder": "repo", "id": "acme"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("absolute"), "{e}");
+
+    let done = app.request(method::MUX_HARNESS_DISABLE, ask.clone()).await.unwrap();
+    assert_eq!(done["disabled"], true, "{done}");
+    assert_eq!(state(), folder_profiles::FolderState::NeedsEnable);
+    let again = app.request(method::MUX_HARNESS_DISABLE, ask).await.unwrap();
+    assert_eq!(again["disabled"], false, "{again}");
+}
+
+/// The CLI verb sends exactly the op (`cmux harness disable ID --folder DIR`),
+/// so the palette row that sends `_acpmux/harness_disable` cannot drift from it.
+#[test]
+fn the_cli_disable_verb_is_the_disable_op() {
+    use acpmux::cli::harness_folder::sent_request;
+    let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    let (sent, params) =
+        sent_request(&args(&["harness", "disable", "acme", "--folder", "/tmp/repo"]))
+            .expect("one request")
+            .unwrap();
+    assert_eq!(sent, method::MUX_HARNESS_DISABLE);
+    assert_eq!(params, json!({"folder": "/tmp/repo", "id": "acme"}));
+    let relative = sent_request(&args(&["harness", "disable", "acme", "--folder", "repo"]));
+    let folder = relative.unwrap().unwrap().1["folder"].as_str().unwrap().to_owned();
+    assert!(Path::new(&folder).is_absolute(), "{folder}");
+    assert!(sent_request(&args(&["harness", "list"])).is_none());
+    assert!(sent_request(&args(&["harness", "disable", "acme"])).unwrap().is_err());
+}

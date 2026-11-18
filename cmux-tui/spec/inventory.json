@@ -331,6 +331,7 @@
     "terminal.renderer_grant.create",
     "terminal.screen.read",
     "terminal.state.read",
+    "terminal.tail_pin.set",
     "terminal.viewer.release",
     "terminal.viewer.resize",
     "terminal.viewport.scroll",

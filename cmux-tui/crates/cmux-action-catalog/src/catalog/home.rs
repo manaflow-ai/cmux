@@ -318,6 +318,36 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // A catalog request row (`Action::request`): the app sends the daemon's `chief.profile.adopt`, what `cmux chief adopt AGENT` sends.
+    Action {
+        id: "home.adoptChief",
+        group: GROUP,
+        title: t("HomeActions", "action.home.adoptChief", "Adopt Agent as Chief…"),
+        keywords: &["home", "chief", "adopt", "agent", "promote", "make chief", "participant"],
+        category: "window",
+        symbol: "person.badge.plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ADOPT_AGENT],
+        cli_name: "chief adopt",
+        request: Some(Request { lane: RequestLane::Session, operation: "chief.profile.adopt", params: &[RequestParam { name: "participant_id", source: ParamSource::Argument("agent") }] }),
+        ..Action::DEFAULT
+    },
+    // The person's own picture (`participant.avatar.set` for user_local), as `cmux avatar set me FILE` sets it. The
+    // picture is a file the person picks, which no palette argument carries, so the App's step B handler opens the
+    // picker and sends the bytes, as the Chief picture does (`chief.profile.avatar.set`).
+    Action {
+        id: "home.setMyPicture",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyPicture", "Set My Picture…"),
+        keywords: &["home", "picture", "avatar", "photo", "profile", "me", "my", "image", "account"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "avatar set",
+        ..Action::DEFAULT
+    },
     Action {
         id: "home.previousConversation",
         group: GROUP,

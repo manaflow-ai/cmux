@@ -340,6 +340,8 @@ pub enum ResourceOperation {
     TerminalHistoryRead,
     #[serde(rename = "terminal.history.clear")]
     TerminalHistoryClear,
+    #[serde(rename = "terminal.tail_pin.set")]
+    TerminalTailPinSet,
     #[serde(rename = "terminal.output_read")]
     TerminalOutputRead,
     #[serde(rename = "terminal.wait")]

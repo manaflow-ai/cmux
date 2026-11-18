@@ -263,20 +263,12 @@ pub(super) fn set_terminal_tail_pin(
     terminal: Option<String>,
     pinned: bool,
 ) -> anyhow::Result<Value> {
-    let surface = match (surface, terminal) {
-        (Some(surface), None) => surface,
-        (None, Some(terminal)) => match mux.placed_surface_of_terminal(&terminal) {
-            Some(surface) => surface,
-            // A pinned terminal with no tab left still unpins by its id.
-            None if !pinned && mux.end_terminal_tail_of(&terminal) => {
-                return Ok(json!({ "terminal": terminal, "pinned": false }));
-            }
-            None => anyhow::bail!("terminal_not_found"),
-        },
+    let terminal = match (surface, terminal) {
+        (Some(surface), None) => mux.set_terminal_tail_pin(surface, pinned)?.into_string(),
+        (None, Some(terminal)) => mux.set_terminal_tail_pin_of(&terminal, pinned)?,
         _ => anyhow::bail!("bad request: exactly one of surface or terminal"),
     };
-    let terminal = mux.set_terminal_tail_pin(surface, pinned)?;
-    Ok(json!({ "terminal": terminal.as_str(), "pinned": pinned }))
+    Ok(json!({ "terminal": terminal, "pinned": pinned }))
 }
 
 #[allow(clippy::too_many_arguments)]

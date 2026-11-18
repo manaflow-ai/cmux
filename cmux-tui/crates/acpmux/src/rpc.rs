@@ -714,6 +714,10 @@ pub mod method {
     /// the user's confirmation of exactly the bytes it showed (`sha256`).
     /// The unix socket and the local app only (BRING-YOUR-OWN-HARNESS H4).
     pub const MUX_HARNESS_ENABLE: &str = "_acpmux/harness_enable";
+    /// Withdraw a folder harness profile's recorded confirmation (`{folder,
+    /// id}`), the mirror of `MUX_HARNESS_ENABLE`. The unix socket and the
+    /// local app only.
+    pub const MUX_HARNESS_DISABLE: &str = "_acpmux/harness_disable";
     // Your own harness from the app, the CLI and MCP (BRING-YOUR-OWN-HARNESS
     // H2; harness_admin.rs). add and doctor: the unix socket only; remove,
     // restore and registry: also the local app. Never Web or peer.

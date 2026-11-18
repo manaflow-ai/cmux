@@ -54,6 +54,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
         // closed.reopen by a closed workspace's old id (its link, #25659).
         (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
+        // terminal.tail_pin.set by pane: the terminal in its selected tab.
+        (vec!["terminal", "pin-tail", "off", "--pane", PANE], "terminal.tail_pin.set"),
         // Fields added since the case list last covered them: each one's CLI path.
         (
             vec![

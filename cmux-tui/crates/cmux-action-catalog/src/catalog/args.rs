@@ -218,8 +218,13 @@ pub const HARNESS: Argument = Argument { name: "harness", title: Text::raw("Harn
 pub const ENGINE_2: Argument = Argument { name: "engine", title: Text::raw("Engine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "homeChiefs", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// The agent Adopt Agent as Chief… makes a Chief, by participant id (agent_...). Its list,
+/// `homeAdoptableAgents` (the agent participants of the person's conversations that are no
+/// Chief), is the App's, bound with the row's Swift step B; until then the palette takes the id.
 #[rustfmt::skip]
-pub const CONVERSATION: Argument = Argument { name: "conversation", title: t("HomeActions", "argument.home.conversation", "Conversation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const ADOPT_AGENT: Argument = Argument { name: "agent", title: t("NewTabActions", "argument.newTab.agent", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "homeAdoptableAgents", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CONVERSATION: Argument =Argument { name: "conversation", title: t("HomeActions", "argument.home.conversation", "Conversation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PEOPLE: Argument = Argument { name: "people", title: t("HomeActions", "argument.home.groupMembers", "Members"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "homeMembers", pinned: &[], other_title: None, allows_multiple: true }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

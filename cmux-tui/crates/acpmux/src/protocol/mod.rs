@@ -439,6 +439,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // Harnesses, models, routes.
         keyed::<params::HarnessesParams>(method::MUX_HARNESSES, Request),
         keyed::<params::HarnessEnableParams>(method::MUX_HARNESS_ENABLE, Request),
+        keyed::<params::HarnessDisableParams>(method::MUX_HARNESS_DISABLE, Request),
         untyped(method::MUX_HARNESS_ADD, Request),
         untyped(method::MUX_HARNESS_REMOVE, Request),
         untyped(method::MUX_HARNESS_RESTORE, Request),

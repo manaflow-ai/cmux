@@ -157,6 +157,7 @@ impl ResourceOperation {
             Self::TerminalStateRead => "terminal.state.read",
             Self::TerminalHistoryRead => "terminal.history.read",
             Self::TerminalHistoryClear => "terminal.history.clear",
+            Self::TerminalTailPinSet => "terminal.tail_pin.set",
             Self::TerminalOutputRead => "terminal.output_read",
             Self::TerminalWait => "terminal.wait",
             Self::TerminalWaitExit => "terminal.wait_exit",

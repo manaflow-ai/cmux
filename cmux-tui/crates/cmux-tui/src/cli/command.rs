@@ -1732,6 +1732,8 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
                 | ResourceOperation::LayoutBulk
+                // A pin commits nothing to the registry, so no revision guards it.
+                | ResourceOperation::TerminalTailPinSet
         )
 }
 

@@ -1217,7 +1217,14 @@ pub(crate) fn public_workspace_topology(
 /// generation is the registry's, as here).
 pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
     let (_, generation) = mux.registry_identity();
-    let revision = match mux.registry_connection.committed_resource_revision() {
+    let revision = public_session_revision(mux)?;
+    Ok(json!({"generation": generation, "revision": revision.to_string()}))
+}
+
+/// The session's resource revision now, for a mutation that commits nothing
+/// to the registry itself (`terminal.tail_pin.set`).
+pub(crate) fn public_session_revision(mux: &Mux) -> Result<u64, ResourceError> {
+    match mux.registry_connection.committed_resource_revision() {
         Some(revision) => revision,
         None => mux
             .workspace_registry
@@ -1225,8 +1232,7 @@ pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .resource_revision(),
     }
-    .map_err(operation_failed)?;
-    Ok(json!({"generation": generation, "revision": revision.to_string()}))
+    .map_err(operation_failed)
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {

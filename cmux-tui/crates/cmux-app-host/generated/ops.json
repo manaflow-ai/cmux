@@ -478,6 +478,7 @@
     "terminal.project",
     "terminal.screen.read",
     "terminal.state.read",
+    "terminal.tail_pin.set",
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",

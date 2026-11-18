@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c65200d278b09825f2210804a789f11d213d2bbe7840c416dfe36fa86180d2b3",
+  "catalog_sha256": "0efa011d6772a7cbd68625487a28e7d6de58db98ad18b4272263d856fb8466a6",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -984,6 +984,9 @@
     },
     "terminal.state.read": {
       "class": "read"
+    },
+    "terminal.tail_pin.set": {
+      "class": "mutation"
     },
     "terminal.viewer.release": {
       "class": "connection_control"

@@ -33,8 +33,31 @@ fn cases() -> Vec<Case> {
             argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
             values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
         },
+        Case {
+            id: "home.adoptChief",
+            argv: &["chief", "adopt", "agent_release"],
+            values: vec![("argument:agent", json!("agent_release"))],
+        },
+        Case {
+            id: "agent.harness.disableFolder",
+            argv: &["harness", "disable", "review", "--folder", "/tmp/app"],
+            values: vec![("argument:id", json!("review")), ("argument:path", json!("/tmp/app"))],
+        },
+        Case {
+            id: "terminal.pinTail",
+            argv: &["terminal", "pin-tail", "on", "--pane", PANE],
+            values: vec![("target:pane", json!(PANE))],
+        },
+        Case {
+            id: "terminal.unpinTail",
+            argv: &["terminal", "pin-tail", "off", "--pane", PANE],
+            values: vec![("target:pane", json!(PANE))],
+        },
     ]
 }
+
+/// A full pane id, which the CLI passes through with no read.
+const PANE: &str = "pane_00000000000000000000000000000004";
 
 /// Whether `argv` runs the verb `cli_name`: its words in order (an id may sit between them, as
 /// in `closed <id> delete`).
@@ -47,6 +70,38 @@ fn runs_verb(argv: &[&str], cli_name: &str) -> bool {
 /// with a read first, or one that is not one typed request, is not a request row's verb.
 fn sent_by_cli(argv: &[&str]) -> Result<(RequestLane, String, Value), String> {
     let args: Vec<String> = argv.iter().map(|word| (*word).to_owned()).collect();
+    // `cmux harness …` runs acpmux's CLI in this process: the verbs that send one acpmux
+    // request say which (`harness disable`).
+    if args.first().is_some_and(|word| word == "harness") {
+        // acpmux's whole grammar is parsed, deeper than a test thread's stack: the CLI parses
+        // it on the main thread (8 MiB), so the parse gets a thread of that size here.
+        let parsed = std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(move || acpmux::cli::harness_folder::sent_request(&args))
+            .expect("a parse thread")
+            .join()
+            .expect("the parse thread");
+        return match parsed {
+            Some(Ok((method, params))) => Ok((RequestLane::Acpmux, method.to_owned(), params)),
+            Some(Err(error)) => Err(format!("`{}`: {error}", argv.join(" "))),
+            None => Err(format!("`{}` is not one acpmux request", argv.join(" "))),
+        };
+    }
+    // `cmux chief adopt …` sends its one registry write on the Chief home's owner, the session
+    // daemon the app's session requests go to; the routing defaults are the app's, as below.
+    if args.first().is_some_and(|word| word == "chief") {
+        return match super::chief::registry::sent_request(&args[1..]) {
+            Some(Ok((operation, mut params))) => {
+                if let Some(params) = params.as_object_mut() {
+                    params.entry("machine").or_insert_with(|| json!("current"));
+                    params.entry("session").or_insert_with(|| json!("current"));
+                }
+                Ok((RequestLane::Session, operation.to_owned(), params))
+            }
+            Some(Err(error)) => Err(format!("`{}`: {error}", argv.join(" "))),
+            None => Err(format!("`{}` is not one typed request", argv.join(" "))),
+        };
+    }
     match super::app::parse(&args) {
         Ok(Some(super::app::AppCommand::Call { method, params, .. })) => {
             return Ok((RequestLane::App, method.to_owned(), params));

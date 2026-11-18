@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.agent.harness.disableFolder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disable Folder Harness…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعطيل أداة تشغيل المجلد…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onemogući harness mape…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deaktiver mappens harness…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ordner-Harness deaktivieren…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desactivar harness de carpeta…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Désactiver le harness du dossier…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disattiva harness della cartella…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "フォルダのハーネスを無効にする…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ harness ថត…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "폴더 하네스 비활성화…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deaktiver mappens harness…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyłącz harness folderu…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desativar harness da pasta…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отключить оболочку папки…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิดใช้งาน harness ของโฟลเดอร์…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klasör Harness'ını Devre Dışı Bırak…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вимкнути оболонку папки…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tắt harness của thư mục…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "停用文件夹 harness…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "停用資料夾 harness…"
+          }
+        }
+      }
+    },
+    "action.terminal.pinTail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin Last Output Line to Sidebar"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تثبيت آخر سطر من المخرجات في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikači posljednju liniju izlaza na bočnu traku"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fastgør sidste outputlinje i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Letzte Ausgabezeile an Seitenleiste anheften"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fijar la última línea de salida en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Épingler la dernière ligne de sortie dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fissa l’ultima riga di output nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最後の出力行をサイドバーに固定"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ខ្ទាស់បន្ទាត់លទ្ធផលចុងក្រោយទៅរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "마지막 출력 줄을 사이드바에 고정"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fest siste utdatalinje i sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przypnij ostatni wiersz wyjścia do paska bocznego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fixar Última Linha de Saída na Barra Lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закрепить последнюю строку вывода на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปักหมุดบรรทัดเอาต์พุตล่าสุดไว้ที่แถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Son Çıktı Satırını Kenar Çubuğuna Sabitle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Закріпити останній рядок виводу на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghim dòng đầu ra cuối cùng vào thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将最后一行输出固定到侧边栏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將最後一行輸出釘選到側邊欄"
+          }
+        }
+      }
+    },
+    "action.terminal.unpinTail" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unpin Last Output Line from Sidebar"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إلغاء تثبيت آخر سطر من المخرجات من الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otkači posljednju liniju izlaza s bočne trake"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Frigør sidste outputlinje fra sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Letzte Ausgabezeile von Seitenleiste lösen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dejar de fijar la última línea de salida en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Détacher la dernière ligne de sortie de la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rimuovi l’ultima riga di output dalla barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "最後の出力行をサイドバーから固定解除"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដោះខ្ទាស់បន្ទាត់លទ្ធផលចុងក្រោយពីរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바에서 마지막 출력 줄 고정 해제"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Løsne siste utdatalinje fra sidefeltet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odepnij ostatni wiersz wyjścia od paska bocznego"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desafixar Última Linha de Saída da Barra Lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открепить последнюю строку вывода от боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลิกปักหมุดบรรทัดเอาต์พุตล่าสุดจากแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Son Çıktı Satırının Kenar Çubuğu Sabitlemesini Kaldır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкріпити останній рядок виводу від бічної панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bỏ ghim dòng đầu ra cuối cùng khỏi thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从侧边栏取消固定最后一行输出"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從側邊欄取消釘選最後一行輸出"
+          }
+        }
+      }
+    },
     "action.tabs.toolbar.togglePin": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت زر شريط علامات التبويب أو إلغاء تثبيته…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikači ili otkači dugme trake kartica…"}},"da":{"stringUnit":{"state":"needs_review","value":"Fastgør eller frigør knap på fanelinjen…"}},"de":{"stringUnit":{"state":"needs_review","value":"Schaltfläche der Tableiste anheften oder lösen…"}},"en":{"stringUnit":{"state":"translated","value":"Pin or Unpin Tab Bar Button…"}},"es":{"stringUnit":{"state":"needs_review","value":"Fijar o desfijar botón de la barra de pestañas…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Épingler ou détacher un bouton de la barre d'onglets…"}},"it":{"stringUnit":{"state":"needs_review","value":"Fissa o sblocca pulsante della barra delle schede…"}},"ja":{"stringUnit":{"state":"translated","value":"タブバーのボタンを固定/固定解除…"}},"km":{"stringUnit":{"state":"needs_review","value":"ខ្ទាស់ ឬដោះខ្ទាស់ប៊ូតុងរបារផ្ទាំង…"}},"ko":{"stringUnit":{"state":"needs_review","value":"탭 막대 버튼 고정 또는 고정 해제…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fest eller løsne knapp på fanelinjen…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przypnij lub odepnij przycisk paska kart…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fixar ou desafixar botão da barra de abas…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрепить или открепить кнопку панели вкладок…"}},"th":{"stringUnit":{"state":"needs_review","value":"ปักหมุดหรือเลิกปักหมุดปุ่มแถบแท็บ…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sekme Çubuğu Düğmesini Sabitle veya Kaldır…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закріпити або відкріпити кнопку панелі вкладок…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ghim hoặc bỏ ghim nút thanh tab…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"固定或取消固定标签栏按钮…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"釘選或取消釘選分頁列按鈕…"}}}},
     "action.tips.muteDay": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح ليوم واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 dan"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 dag"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Tag stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Day"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 día"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 giorno"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1日ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 ថ្ងៃ"}},"ko":{"stringUnit":{"state":"needs_review","value":"1일 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 dag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 dzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Dia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 день"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 วัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Gün Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 день"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 ngày"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 天"}}}},
     "action.tips.muteWeek": {"extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"كتم النصائح لأسبوع واحد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Utišaj savjete na 1 sedmicu"}},"da":{"stringUnit":{"state":"needs_review","value":"Slå tips fra i 1 uge"}},"de":{"stringUnit":{"state":"needs_review","value":"Tipps für 1 Woche stummschalten"}},"en":{"stringUnit":{"state":"translated","value":"Mute Tips for 1 Week"}},"es":{"stringUnit":{"state":"needs_review","value":"Silenciar consejos durante 1 semana"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les astuces pendant 1 semaine"}},"it":{"stringUnit":{"state":"needs_review","value":"Silenzia i suggerimenti per 1 settimana"}},"ja":{"stringUnit":{"state":"translated","value":"ヒントを1週間ミュート"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទគន្លឹះរយៈពេល 1 សប្តាហ៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"1주 동안 팁 끄기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Demp tips i 1 uke"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wycisz wskazówki na 1 tydzień"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Silenciar Dicas por 1 Semana"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отключить советы на 1 неделю"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดเคล็ดลับ 1 สัปดาห์"}},"tr":{"stringUnit":{"state":"needs_review","value":"İpuçlarını 1 Hafta Sessize Al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Вимкнути поради на 1 тиждень"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tắt mẹo trong 1 tuần"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"静音提示 1 周"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"靜音提示 1 週"}}}},

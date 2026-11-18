@@ -5620,6 +5620,28 @@
       },
       "extra": false
     },
+    "TerminalTailPinResult": {
+      "kind": "object",
+      "fields": {
+        "terminal": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          },
+          "description": "The terminal pinned or unpinned."
+        },
+        "pinned": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the terminal's tail is pinned now."
+        }
+      },
+      "extra": false
+    },
     "ProcessInfoResult": {
       "kind": "object",
       "fields": {
@@ -40503,6 +40525,94 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "terminal.tail_pin.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "terminal": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            },
+            "description": "The terminal to pin, by its id. A pinned terminal that no tab shows still unpins by its id."
+          },
+          "pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Pin the terminal in this pane's selected tab instead; operation.failed (reason not_a_terminal) when that tab is not a terminal."
+          },
+          "pinned": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true pins the terminal's tail, false unpins it."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "terminal"
+            ],
+            "forbidden": [
+              "pane"
+            ]
+          },
+          {
+            "required": [
+              "pane"
+            ],
+            "forbidden": [
+              "terminal"
+            ]
+          }
+        ],
+        "constraints": [
+          "Exactly one of terminal or pane is present.",
+          "A pinned terminal's last non-empty output line shows under its workspace as the status entry tail:<term id>, as set-terminal-tail-pin (terminal-tail-pin-v1) does; this is the same pin."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TerminalTailPinResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Pinning again, or unpinning an unpinned terminal, changes nothing more, so a replayed key does it again harmlessly.",
+        "An incognito terminal is never pinned: operation.failed with reason terminal_private.",
+        "An unknown terminal or pane is selector.not_found."
       ]
     },
     "terminal.viewer.release": {

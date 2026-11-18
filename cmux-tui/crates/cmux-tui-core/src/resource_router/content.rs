@@ -48,6 +48,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalTailPinSet
             | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
@@ -85,6 +86,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalProcessGet => terminal_process_get(mux, &request),
         ResourceOperation::TerminalMove => terminal_move(mux, request),
         ResourceOperation::TerminalProject => terminal_project(mux, request),
+        ResourceOperation::TerminalTailPinSet => super::terminal_tail_pin::set(mux, &request),
         ResourceOperation::TerminalInputWrite
         | ResourceOperation::TerminalInputKeys
         | ResourceOperation::TerminalInputMouse

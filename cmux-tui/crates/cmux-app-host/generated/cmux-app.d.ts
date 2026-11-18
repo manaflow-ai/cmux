@@ -517,6 +517,7 @@ declare namespace Cmux {
   type TerminalScreenResult = { text: string; revision?: string | null; osc_progress?: string | null; cols: number; rows: number; cursor_row: number; cursor_col: number; cursor_visible: boolean; extra?: Record<string, Cmux.JsonValue> }
   type TerminalSnapshot = { id: string /* terminal_… */; tab_id: string /* tab_… */ | null; tab_ids: Array<string /* tab_… */>; title: string; cwd?: string; cols: number; rows: number; running: boolean; lifecycle: Cmux.TerminalLifecycle; stream_revision?: string; exit?: Cmux.TerminalExit; extra?: Record<string, Cmux.JsonValue> }
   type TerminalStateResult = { state_base64: string; cols: number; rows: number }
+  type TerminalTailPinResult = { terminal: string /* terminal_… */; pinned: boolean }
   type TerminalWaitExitExited = { state: "exited"; terminal_id: string /* terminal_… */; lifecycle: "exited"; outcome: Cmux.TerminalExitOutcome; exited_at: string; revision: string }
   type TerminalWaitExitPending = { state: "pending"; terminal_id: string /* terminal_… */; lifecycle: "launching" | "running"; revision: string }
   type TerminalWaitExitResult = unknown
@@ -1814,6 +1815,10 @@ interface CmuxGlobal {
     state: {
       /** `terminal.state.read` (read, scope `terminal:read`) */
       read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalStateResult>
+    }
+    tail_pin: {
+      /** `terminal.tail_pin.set` (mutation, scope `terminal:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; terminal?: string /* terminal_… */; pane?: string /* pane_… */; pinned: boolean }, Cmux.MutationResult<Cmux.TerminalTailPinResult>>
     }
     viewport: {
       /** `terminal.viewport.scroll` (mutation, scope `terminal:write`) */
