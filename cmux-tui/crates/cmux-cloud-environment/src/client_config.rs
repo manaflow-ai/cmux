@@ -521,6 +521,37 @@ mod tests {
     }
 
     #[test]
+    fn classic_staging_host_is_approved_only_for_the_staging_sign_in_origin() {
+        // The staging sign-in page still lives on the classic host. No other field may point there:
+        // a client-config naming it for the VM, platform or share service would send that service's
+        // credentials to the classic web app.
+        const CLASSIC: &str = "https://cmux-staging.vercel.app";
+        let valid = config(crate::DEVELOPMENT_API);
+        let mut sign_in = valid.clone();
+        sign_in.configuration.auth_web_origin = CLASSIC.into();
+        validate(&sign_in, crate::DEVELOPMENT_API).unwrap();
+        type Field = fn(&mut Configuration) -> &mut String;
+        let fields: [(&str, Field); 7] = [
+            ("vm_origin", |c| &mut c.vm_origin),
+            ("platform_origin", |c| &mut c.platform_origin),
+            ("mobile_origin", |c| &mut c.mobile_origin),
+            ("device_hub_origin", |c| &mut c.device_hub_origin),
+            ("share_room_origin", |c| &mut c.share_room_origin),
+            ("share_api_origin", |c| &mut c.share_api_origin),
+            ("stack_origin", |c| &mut c.stack_origin),
+        ];
+        for (name, field) in fields {
+            let mut invalid = valid.clone();
+            *field(&mut invalid.configuration) = CLASSIC.into();
+            let refused = validate(&invalid, crate::DEVELOPMENT_API).unwrap_err();
+            assert!(refused.contains(name), "{name}: {refused}");
+        }
+        // The selected API origin is checked against the selection first; the classic host can't be
+        // selected at all.
+        assert!(Environment::parse(CLASSIC).is_err());
+    }
+
+    #[test]
     fn absent_known_backend_uses_explicit_compatibility_source_but_invalid_cache_fails_closed() {
         let home = Home::new();
         let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
