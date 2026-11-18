@@ -194,6 +194,12 @@ impl WorkspaceRegistry {
             advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
         }
         tx.commit()?;
+        drop(db);
+        if notification.is_some() {
+            // The notification's effect receipt committed here, on its
+            // request thread, as its commit alone counts it.
+            self.connection.write_path_stats().request_effect_committed();
+        }
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
 }

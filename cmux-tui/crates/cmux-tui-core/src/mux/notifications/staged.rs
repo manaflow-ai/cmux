@@ -242,15 +242,16 @@ impl Mux {
         Ok(staged.numeric_id)
     }
 
-    /// Stage the notification of the agent hook at journal `sequence`. Its
-    /// key is derived from the sequence, so a retry of the hook replays the
-    /// notification and posts nothing.
+    /// Stage the notification of the agent hook at journal `sequence`, if
+    /// the hook has one (`notice`). Its key is derived from the sequence, so
+    /// a retry of the hook replays the notification and posts nothing.
     pub(in crate::mux) fn stage_agent_hook_notification(
         &self,
-        (title, body, level): (String, String, NotificationLevel),
+        notice: Option<(String, String, NotificationLevel)>,
         surface: SurfaceId,
         sequence: u64,
     ) -> anyhow::Result<Option<StagedNotification>> {
+        let Some((title, body, level)) = notice else { return Ok(None) };
         self.stage_durable_notification(
             &Actor::Daemon,
             &format!("agent-hook-notification-{sequence}"),
