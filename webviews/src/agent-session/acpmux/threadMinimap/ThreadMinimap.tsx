@@ -1061,12 +1061,14 @@ export function ThreadMinimap({
     },
     [],
   );
-  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES).
+  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
+  /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
-    const wheeled = () => {
+    const wheeled = (event: WheelEvent) => {
+      if (list.current?.contains(event.target as Node | null)) return;
       wheelAt.current = performance.now();
     };
     node.addEventListener("wheel", wheeled, { capture: true, passive: true });
@@ -1101,6 +1103,8 @@ export function ThreadMinimap({
     // Nothing here writes or reads the list's geometry then (followPointer reads a rect); the band
     // still lights its ticks, and the list catches up once, at rest, where railScrollTop puts it.
     const was = bandMotion.current;
+    // A wheel in the chat shown before is not this chat's fling.
+    if (was && was.sessionId !== sessionId) wheelAt.current = Number.NEGATIVE_INFINITY;
     if (!was || was.sessionId !== sessionId || was.first !== onScreen.first || was.last !== onScreen.last) {
       const now = performance.now();
       const reader = live.current.top;
