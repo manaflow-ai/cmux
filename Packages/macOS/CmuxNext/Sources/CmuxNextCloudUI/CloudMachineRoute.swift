@@ -125,7 +125,7 @@ public struct CloudMachineRoute: Sendable {
     /// What the machine's report says about one agent (`claude` or `codex`), read from the same output Rust judged
     /// (``Verdict`` is the machine's as a whole: one login on it, for any agent, was ``Verdict/holdsCredential``). The
     /// pinned FFI's `cloud_machine_route` answers for the whole machine only, so this reads the report's fields here.
-    public struct Agent: Equatable, Sendable {
+    public nonisolated struct Agent: Equatable, Sendable {
         /// acpmux, which launches the agent, runs.
         public var daemonRunning: Bool
         /// The agent's base URL is the machine's edge with its placeholder key.
@@ -222,7 +222,13 @@ public struct CloudMachineRoute: Sendable {
         guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return (.invalid, nil) }
         let ran = try await exec(command, Self.timeoutMs)
         let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
-        return (verdict, family.flatMap { Agent.read(ran.stdout, family: $0) })
+        return (verdict, await Self.agentReading(ran.stdout, family: family))
+    }
+
+    /// `family`'s ``Agent`` in the machine's output, read off the main actor: the parse splits the whole output and
+    /// decodes each line's JSON.
+    @concurrent nonisolated static func agentReading(_ stdout: String, family: String?) async -> Agent? {
+        family.flatMap { Agent.read(stdout, family: $0) }
     }
 
     /// A start whose machine's software lacks a capability it needs (a chosen model connection's start credentials)
