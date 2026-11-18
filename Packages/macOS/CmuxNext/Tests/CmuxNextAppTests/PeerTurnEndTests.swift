@@ -155,12 +155,12 @@ struct PeerTurnEndTests {
         let keepAwake = KeepAwakeService()
         Self.kept.append(keepAwake) // its power-source monitor has an unretained context: never freed in this process
         keepAwake.start(settings: settings, store: DaemonStore())
-        await LargeSessionObservationTests.drainMain()
+        await LargeSessionFixture.drainMain()
 
         // Thirty machines' agents work; this Mac's are idle (one shares a session id with a peer's row).
         for peer in peers { feed.handle(try Self.peerChange(peer, session: "awake-\(peer)", indicator: "working")) }
         feed.handle(try Self.peerChange("lab", session: "awake-local", indicator: "working"))
-        await LargeSessionObservationTests.drainMain()
+        await LargeSessionFixture.drainMain()
         #expect(!turns.hasWorkingSession, "another machine's working agent read as this Mac's")
         #expect(turns.workingSessions == 0)
         #expect(!keepAwake.policy.agentsWorking, "peer-only work asked to keep this Mac awake")
@@ -170,7 +170,7 @@ struct PeerTurnEndTests {
 
         // This Mac's own agent works: the hold is on (on adapter power, the default `sessions.keepAwake`).
         feed.handle(try Self.localChange("awake-local", indicator: "working"))
-        await LargeSessionObservationTests.until { keepAwake.policy.agentsWorking }
+        await LargeSessionFixture.until { keepAwake.policy.agentsWorking }
         #expect(turns.hasWorkingSession && turns.workingSessions == 1)
         #expect(keepAwake.policy.agentsWorking, "this Mac's working agent did not ask to keep it awake")
         if !keepAwake.policy.onBattery {
@@ -181,7 +181,7 @@ struct PeerTurnEndTests {
 
         // Its turn ends while the peers still work: the hold goes.
         feed.handle(try Self.localChange("awake-local", indicator: "idle"))
-        await LargeSessionObservationTests.until { !keepAwake.policy.agentsWorking }
+        await LargeSessionFixture.until { !keepAwake.policy.agentsWorking }
         #expect(!keepAwake.policy.holds, "the peers' work kept the hold after this Mac's agent stopped")
         let after = try await Self.holdsSleepAssertion()
         #expect(!after, "the hold stayed after this Mac's agent stopped (pmset -g assertions)")
