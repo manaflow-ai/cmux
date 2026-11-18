@@ -228,7 +228,7 @@ struct PeerTurnEndTests {
         let ref = { (session: String) in AgentSessionRef(host: "registry:lab", hostName: "lab", session: session) }
         #expect(!turns.isWorking(ref("w1"), isChatMachine: { $0 == "lab" }), "a peer's chat that finished while asleep still reads as working")
         #expect(turns.isWorking(ref("w2"), isChatMachine: { $0 == "lab" }))
-        #expect(Set(ended) == ["w1", "w3"], "the page's turn ends were not told once each")
+        #expect(ended.sorted() == ["w1", "w3"],"the page's turn ends were not told once each")
         #expect(!turns.hasWorkingSession, "a peer's working row on the page counted as this Mac's")
         #expect(turns.state(for: AgentSessionRef(host: "install:peer-turn-end", session: "w2")) == nil)
     }
