@@ -454,15 +454,21 @@ fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, Stri
 /// one sentence. Without it every session ends with "openh264 is not installed".
 fn openh264_line() -> String {
     #[cfg(feature = "openh264")]
-    return match crate::encoder::ensure_openh264() {
+    return openh264_line_in(cmux_encode::cisco::default_dir());
+    #[cfg(not(feature = "openh264"))]
+    "This build has no OpenH264 download; pass --openh264-lib PATH to run".to_owned()
+}
+
+/// [`openh264_line`] with the installer's directory given.
+#[cfg(feature = "openh264")]
+fn openh264_line_in(dir: Option<std::path::PathBuf>) -> String {
+    match crate::encoder::ensure_openh264_in(dir) {
         Ok(path) => format!("OpenH264 is at {}", path.display()),
         Err(e) => format!(
             "OpenH264 is not installed ({}): run cmux-rd openh264-install before a viewer connects",
             printable(&e.to_string())
         ),
-    };
-    #[cfg(not(feature = "openh264"))]
-    "This build has no OpenH264 download; pass --openh264-lib PATH to run".to_owned()
+    }
 }
 
 /// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
@@ -1357,7 +1363,8 @@ mod tests {
     }
 
     /// `enable` finds the encoder a session needs: an installed copy is used as it is, with no
-    /// download (the only test that reads `XDG_DATA_HOME`).
+    /// download. The directory is passed in, not set as `XDG_DATA_HOME`: `set_var` would race
+    /// the other tests' reads of the environment.
     #[cfg(feature = "openh264")]
     #[test]
     fn enable_finds_an_installed_openh264() {
@@ -1370,8 +1377,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let lib = cmux_encode::cisco::library_path(&dir, platform);
         std::fs::write(&lib, b"stand-in").unwrap();
-        std::env::set_var("XDG_DATA_HOME", &data);
-        assert_eq!(openh264_line(), format!("OpenH264 is at {}", lib.display()));
+        assert_eq!(openh264_line_in(Some(dir)), format!("OpenH264 is at {}", lib.display()));
         std::fs::remove_dir_all(&data).unwrap();
     }
 
