@@ -147,8 +147,7 @@ pub(super) fn replace_stuck(
     let deadline = Deadline::of(&again, began);
     let mut replaced = Vec::new();
     let mut tries = 0;
-    loop {
-        let Outcome::Failed { error, .. } = &outcome else { break };
+    while let Outcome::Failed { error, .. } = &outcome {
         if at(error, "code").as_str() != Some(STUCK_CODE) {
             break;
         }
