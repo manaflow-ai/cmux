@@ -51,7 +51,8 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-daemon-launch-core/include/cmux_daemon_launch.h:CCmuxDaemonLaunchFFI"
             "$crates/cmux-health-core/include/cmux_health.h:CCmuxHealthFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
-            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI")
+            "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI"
+            "$crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h:CCmuxUpdatePrewarmFFI")
 
 # Also available on Linux so the header/export contract needs no macOS build.
 list_exports() {

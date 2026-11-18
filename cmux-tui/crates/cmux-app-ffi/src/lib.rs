@@ -23,6 +23,8 @@
 //! include/cmux_daemon_conn.h).
 //! `daemon_launch` is how the app starts and keeps its cmux-tui daemon
 //! (include/cmux_daemon_launch.h).
+//! `update_prewarm` is the staged-update pre-warm record: the marker line and
+//! what a build's first launch reads from it (include/cmux_update_prewarm.h).
 //! `health` is the app health model: which part is stuck, its repairs and the
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
@@ -50,3 +52,4 @@ pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
+pub use cmux_update_prewarm_core::ffi as update_prewarm;
