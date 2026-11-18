@@ -440098,13 +440098,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "خامل منذ يوم واحد"
+                  "value": "خامل منذ {n} يوم"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "خامل منذ يومين"
+                  "value": "خامل منذ {n} يوم"
                 }
               },
               "few": {
