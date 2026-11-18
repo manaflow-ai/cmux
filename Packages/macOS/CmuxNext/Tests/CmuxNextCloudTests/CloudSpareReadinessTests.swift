@@ -129,7 +129,8 @@ import Testing
         readiness.prime("vm_spare", team: "team_a")
         _ = await world.made.first(where: { _ in true })
         // The claim's session comes first: it takes the serve and connects on it itself.
-        #expect(readiness.link(for: "vm_spare", team: "team_a") != nil)
+        let taken = readiness.link(for: "vm_spare", team: "team_a") != nil
+        #expect(taken)
         open.yield()
         await readiness.settled("vm_spare")
         world.finish()
