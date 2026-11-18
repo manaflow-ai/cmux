@@ -109,7 +109,7 @@ extension SidebarListViewComponents {
 // row cache, O(sessions) per change at 10,789 sessions with the daemon pushing a few changes a second. A batch of adds
 // and closes, a move to another computer's list, and a row whose new content changed its height splice now too.
 extension SidebarListViewComponents {
-    /// The layout with the model's last set's closed rows taken out and its added rows spliced in (`SidebarRowEdits`),
+    /// The layout with the model's last set's closed rows taken out and its added rows spliced in (`SidebarLooseEdits`),
     /// which rows that is, and the options it was laid out with; the list's row caches take the change. Nil (nothing
     /// changed) on the same terms as `spliceInsertion`: any other change, or any doubt, lays out in full.
     func spliceEdits() -> (layout: SidebarLayout, splice: SidebarListSplice, options: SidebarLayoutOptions)? {
@@ -129,7 +129,7 @@ extension SidebarListViewComponents {
             }
             for (k, ws) in zip(edit.removedNodes, edit.removed) {
                 guard k <= drawn.nodes.count else { return nil }
-                drawn.nodes.insert(.workspace(ws), at: k)
+                drawn.nodes.insert(SidebarNode.workspace(ws), at: k)
                 removedIDs.insert(ws.id)
             }
             SidebarPerfCounters.add(.rowsWalked, shown.nodes.count)

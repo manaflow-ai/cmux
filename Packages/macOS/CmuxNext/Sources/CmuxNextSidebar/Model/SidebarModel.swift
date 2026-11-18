@@ -540,7 +540,7 @@ public final class SidebarModel {
         // computer's list): the list takes each out and splices each in the same way (cmuxterm-hq#13493).
         let edits = splicesEdits && filterText.isEmpty && added == nil && removal == nil ? looseEdits(to: next) : nil
         setDisplayedSections(next) // the setter skips an unchanged list
-        rowEdits = edits.map { SidebarRowEdits(from: from, to: sectionsRevision, content: contentRevision, sections: $0) }
+        rowEdits = edits.map { SidebarLooseEdits(from: from, to: sectionsRevision, content: contentRevision, sections: $0) }
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
         rowRemoval = removal.map { removal in
             let insertion = removal.insertion.map {
@@ -600,18 +600,18 @@ public final class SidebarModel {
     @ObservationIgnored var splicesRemovals = true
     /// The last structural set when it only added and closed loose workspace rows, several or across sections
     /// (`setSections`), read as `rowInsertion`.
-    @ObservationIgnored public private(set) var rowEdits: SidebarRowEdits?
+    @ObservationIgnored public private(set) var rowEdits: SidebarLooseEdits?
     /// Off, a batch of adds and closes lays the list out in full as before the batch splice (a bench's before numbers).
     @ObservationIgnored var splicesEdits = true
 
     /// The loose rows `next` takes out of the stored sections and adds, per changed section, when nothing else changed
     /// and each such workspace is listed once: taken out where it was listed, added where it was not, or both for a
     /// move to another section. Nil for any other change. A walk of the changed sections' nodes and the row index.
-    private func looseEdits(to next: [SidebarSection]) -> [SidebarRowEdits.Section]? {
+    private func looseEdits(to next: [SidebarSection]) -> [SidebarLooseEdits.Section]? {
         let old = storedSections
         guard let edits = SidebarSection.looseEdits(from: old, to: next) else { return nil }
         var gone: Set<WorkspaceID> = [], added: Set<WorkspaceID> = []
-        var sections: [SidebarRowEdits.Section] = []
+        var sections: [SidebarLooseEdits.Section] = []
         for edit in edits {
             var removed: [SidebarWorkspace] = []
             for k in edit.removed {
@@ -622,7 +622,7 @@ public final class SidebarModel {
             for k in edit.inserted {
                 guard case let .workspace(ws) = next[edit.section].nodes[k], added.insert(ws.id).inserted else { return nil }
             }
-            sections.append(SidebarRowEdits.Section(section: next[edit.section], removedNodes: edit.removed, removed: removed,
+            sections.append(SidebarLooseEdits.Section(section: next[edit.section], removedNodes: edit.removed, removed: removed,
                                                     insertedNodes: edit.inserted))
         }
         // An added workspace is new to the list, or one this set takes out of its other place (a move).

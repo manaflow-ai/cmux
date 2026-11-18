@@ -101,7 +101,7 @@ nonisolated extension SidebarSection {
 /// daemon's batch of sessions started and ended, a row moved to another computer's list): the list takes each gone row
 /// out of the layout it shows and splices each new one in (`SidebarLayout.removeLoose`, then `insertLoose`), instead of
 /// laying every row out again (cmuxterm-hq#13493: at 10,789 sessions a full layout per change is O(sessions)).
-public nonisolated struct SidebarRowEdits: Sendable {
+public nonisolated struct SidebarLooseEdits: Sendable {
     /// One changed section: the rows it lost and gained.
     struct Section: Sendable {
         /// The section as the set left it.

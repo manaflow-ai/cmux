@@ -15,7 +15,7 @@ nonisolated extension SidebarLayout {
     ///   - insertion: The set that added the row (its section as the set left it, and the row's node index).
     ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with; the layout was made with the same ones.
-    ///   - pending: Later nodes of the section a batch (`SidebarRowEdits`) splices in after this one, in node order: no
+    ///   - pending: Later nodes of the section a batch (`SidebarLooseEdits`) splices in after this one, in node order: no
     ///     row has them yet, so the row goes before the first later node that has one.
     mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions,
                               pending: Set<Int> = []) -> Bool {
