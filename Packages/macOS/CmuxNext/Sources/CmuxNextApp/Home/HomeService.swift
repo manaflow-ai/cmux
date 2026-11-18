@@ -200,6 +200,7 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    @ObservationIgnored weak var launchPage: HomeLaunchComposer?; @ObservationIgnored var launchEarly: HomeLaunchEarly?  // a bare launch's Chief page and stage 0 box: quit's save step keeps their text
     /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)

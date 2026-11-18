@@ -140,8 +140,9 @@ public final class MessagesLabHomeView: NSView {
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
-            // launch (text system, morph blur); here on first layout.
-            ChatController.warmUp()
+            // launch (text system, morph blur); here on the turn after the first
+            // layout, so it never holds a window's first frame (a bare launch's stage 0).
+            RunLoop.main.perform(inModes: [.default]) { ChatController.warmUp() }
         }
     }
 
