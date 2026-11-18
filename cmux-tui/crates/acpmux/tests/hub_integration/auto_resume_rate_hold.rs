@@ -201,7 +201,6 @@ async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
     assert!(row.get("rateLimitParked").is_none(), "{row}");
     assert!(row.get("rateLimitedUntil").is_none(), "{row}");
-    drop(late);
 }
 
 /// A turn that ends well clears the strikes: the next 429 waits the first backoff again.

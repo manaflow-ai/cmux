@@ -1575,6 +1575,12 @@ export type SessionDetail = {
   queuePaused: boolean;
   queued: number;
   /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, so it starts nothing by itself until `acpmux retry` or Stop (`hub/rate_hold.rs`).
+   * Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
    * The account's rate limit holds every turn of this chat until this time (Unix ms): what
    * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
    * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
@@ -1902,6 +1908,12 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, so it starts nothing by itself until `acpmux retry` or Stop (`hub/rate_hold.rs`).
+   * Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
   /**
    * The account's rate limit holds every turn of this chat until this time (Unix ms): what
    * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
