@@ -234,4 +234,57 @@ import Testing
         model.reachedTarget()
         #expect(model.began() == nil)
     }
+
+    /// Steps 23a5dd6f9a59bd5ae686f20a and 29d221e0ad16937d43b3e557 (trail
+    /// `...MFN`, `place=h+4058@1545/4151d`, then `newest=4096-4152/gap4111`):
+    /// a fling held the page at the old window's bottom when the reader's
+    /// rows were found. The controller stopped the fling on them and the
+    /// gesture settled there, as plain reading; the page then waited for
+    /// the rows' frame showing the frame it had (the Mac's screen), and the
+    /// next drag began there. A gesture that settles with nothing moving the
+    /// page since the restore rests on the reader's rows, and a drag that
+    /// begins before the page reached them gets them.
+    @Test func aFlingStoppedOnTheRestoredRowsKeepsThemForTheNextDrag() {
+        var model = TerminalScrollModel()
+        let window = TerminalDocumentLayout(originRow: 0, endRow: 4_151)
+        model.reset()
+        model.began()
+        let reader = TerminalScrollModel.Anchor(row: 1_545, delta: 3)
+        #expect(model.restoreReading(reader) == reader)
+        // The controller put the page on the rows and stopped the fling.
+        model.settled(offsetY: window.contentY(ofRow: 1_545, cellHeight: cell) + 3, bottomOffsetY: bottom(window),
+                      layout: window, rowHeight: cell)
+        #expect(model.state == .reading(reader))
+        #expect(model.awaitsPlacement)
+        // The next drag begins before the page reached the rows' frame.
+        #expect(model.began() == reader)
+    }
+
+    /// The same, with the page off the rows when the gesture settles (moved
+    /// for the frame it waits for): the reader's rows, not the offset's.
+    @Test func aFlingStoppedOnTheRestoredRowsReadsThemWhereverThePageWaits() {
+        var model = TerminalScrollModel()
+        let window = TerminalDocumentLayout(originRow: 0, endRow: 4_151)
+        model.reset()
+        model.began()
+        let reader = TerminalScrollModel.Anchor(row: 1_545, delta: 0)
+        model.restoreReading(reader)
+        model.settled(offsetY: window.contentY(ofRow: 4_096, cellHeight: cell), bottomOffsetY: bottom(window),
+                      layout: window, rowHeight: cell)
+        #expect(model.state == .reading(reader))
+    }
+
+    /// A finger that moves the page after the restore reads where it left it.
+    @Test func aFingerThatMovesAfterTheRestoreReadsWhereItLeftThePage() {
+        var model = TerminalScrollModel()
+        let window = TerminalDocumentLayout(originRow: 0, endRow: 4_151)
+        model.reset()
+        model.began()
+        model.restoreReading(.init(row: 1_545, delta: 0))
+        model.scrolled(offsetY: window.contentY(ofRow: 1_500, cellHeight: cell), bottomOffsetY: bottom(window))
+        model.settled(offsetY: window.contentY(ofRow: 1_500, cellHeight: cell), bottomOffsetY: bottom(window),
+                      layout: window, rowHeight: cell)
+        #expect(model.state == .reading(.init(row: 1_500, delta: 0)))
+        #expect(!model.awaitsPlacement)
+    }
 }
