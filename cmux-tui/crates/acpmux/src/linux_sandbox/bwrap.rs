@@ -482,9 +482,13 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
     {
         return Err(Unavailable::TooOld);
     }
+    // Ubuntu's apparmor_restrict_unprivileged_userns lets bwrap make the namespace but grants no
+    // capability inside it, so the first privileged step, the loopback address, is refused.
     if lower.contains("no permissions to create new namespace")
         || ((lower.contains("setting up uid map") || lower.contains("creating new namespace"))
             && (lower.contains("permission denied") || lower.contains("operation not permitted")))
+        || ((lower.contains("loopback") || lower.contains("rtm_newaddr"))
+            && lower.contains("operation not permitted"))
     {
         return Err(Unavailable::UserNamespacesRestricted);
     }
@@ -1280,6 +1284,7 @@ mod tests {
             "bwrap: setting up uid map: Permission denied",
             "bwrap: No permissions to create new namespace",
             "bwrap: Creating new namespace failed: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::UserNamespacesRestricted));
         }
@@ -1291,9 +1296,12 @@ mod tests {
         ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::TooOld));
         }
-        for stderr in
-            ["bwrap: Unknown option --unrelated", "bwrap: Can't mount /: Permission denied\n"]
-        {
+        for stderr in [
+            "bwrap: Unknown option --unrelated",
+            "bwrap: Can't mount /: Permission denied\n",
+            "bwrap: Operation not permitted",
+            "bwrap: loopback: Failed RTM_NEWADDR: File exists",
+        ] {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::Other(stderr.trim().into())));
         }
         assert!(matches!(classify(Some(1), ""), Err(Unavailable::Other(_))));
