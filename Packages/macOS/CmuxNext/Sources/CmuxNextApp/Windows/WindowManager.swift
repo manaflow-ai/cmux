@@ -100,6 +100,8 @@ final class WindowManager {
     var restoreClosed = RestoreClosedWindows()
     /// True while `restore` runs.
     private(set) var restoring = false
+    /// Saved windows the launch makes after the front one, one per turn (cmux-window-rules `restore`, launch piece 7).
+    let deferredWindows = DeferredWindows(afterFrame: { AfterFrameCommit().run($0) })
     /// The saved window records are not installed (yet, or the launch's read failed: `SavedWindowsRead`):
     /// they may hold windows this launch does not show, so nothing writes them (#26681). True until
     /// the launch's records are installed, so neither a window opened while it waits nor a quit before the
@@ -278,14 +280,11 @@ final class WindowManager {
         guard !Task.isCancelled, !isTerminating else { return }
         restored = true
         let restoredRegistry = WindowRegistry(records: document.windows)
-        if !restoredRegistry.windows.isEmpty {
-            previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
-                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
-        }
+        if let launch = PreviousLaunch.restoredNow(restoredRegistry) { previousLaunch = launch }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
-        if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
+        if closedLaunchWindowID != nil, let front = restoredRegistry.frontOpen(where: hasMirroredWorkspace) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil {
             let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
             state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
@@ -305,7 +304,9 @@ final class WindowManager {
         let opensFresh = restoreClosed.windows.isEmpty && !registry.value.windows.isEmpty && !registry.value.windows.contains(where: \.isOpen)
         if opensFresh, let launch = launchWindowID { if let first = firstWorkspace { claimNew(workspaceID: first, window: launch) } else { Task { _ = await createWorkspace(into: launch, newTabPage: true) } } }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
-        restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
+        restacking = Set(registry.value.openRecency.dropFirst())
+        // Only the front window is made now: the others follow its frame (cmux-window-rules `restore`).
+        deferredWindows.queue(WindowRules().restoredLater(registry.value.recency.map { .init(id: $0, open: registry.value.window($0)?.isOpen == true, made: controller(for: $0) != nil) }, adopted: adopted?.state.id))
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -343,7 +344,12 @@ final class WindowManager {
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()
+        deferredWindows.start(make: { [weak self] id in self.flatMap { manager in manager.registry.value.window(id).flatMap { $0.isOpen && manager.controller(for: id) == nil ? manager.makeController(for: $0) : nil } } != nil },
+                              stopped: { [weak self] in self?.isTerminating ?? true }, done: { [weak self] in DebugTimings.markLaunch("deferred_windows_restored"); self?.active?.reservedContent.fill() })
     }
+
+    /// Window `id`'s controller, made now when it still waits for its turn (a show aimed at it never waits).
+    func liveController(for id: String) -> WindowController? { controller(for: id) ?? (deferredWindows.makeNow(id) ? controller(for: id) : nil) }
 
     /// The saved window records, kept pending through timeouts and reconnects. A cancelled or
     /// permanent failure returns nil, never an empty saved session. Saves stay blocked until
@@ -370,7 +376,7 @@ final class WindowManager {
     /// nothing saved it stays the only window and receives every workspace.
     private func adoptLaunchWindow(_ restored: WindowRegistry, records: [WindowRecord]) -> WindowController? {
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = adoptableFront(restored),
+              let front = restored.frontOpen(where: hasMirroredWorkspace),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
@@ -390,13 +396,6 @@ final class WindowManager {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
         launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
-    }
-
-    /// The frontmost saved window that can show a workspace now; one whose
-    /// workspaces are gone or still connecting would leave the launch
-    /// window on screen with nothing to show.
-    private func adoptableFront(_ restored: WindowRegistry) -> String? {
-        restored.recency.first { id in restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true }
     }
 
     func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
