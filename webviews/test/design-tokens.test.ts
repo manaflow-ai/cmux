@@ -149,11 +149,13 @@ describe("design token ratchet", () => {
       settle: { ms: 200, bezier: [0.1, 0.9, 0.2, 1] },
       send: { ms: 0, ease: [0.1, 0.9, 0.2, 1] },
     });
-    // motion-allow: fixture strings for a moved scale
-    const text =
-      "90ms 0.14s 200 ms 180ms 0ms cubic-bezier(0.2, 0, 0.4, 1) cubic-bezier(0.1,0.9,0.2,1) cubic-bezier(0, 0, 0.58, 1)";
+    const text = [
+      "90ms 0.14s 200 ms",
+      "180ms 0ms", // motion-allow: a retired step, which the moved scale no longer flags
+      "cubic-bezier(0.2, 0, 0.4, 1) cubic-bezier(0.1,0.9,0.2,1)",
+      "cubic-bezier(0, 0, 0.58, 1)", // motion-allow: the retired ease-out, no longer flagged
+    ].join(" ");
     expect([...moved.ms].sort((a, b) => a - b)).toEqual([90, 140, 200]);
-    // motion-allow: expected fixture values
     expect(motionLiteralsInText(text, moved)).toEqual([
       "90ms",
       "0.14s",
