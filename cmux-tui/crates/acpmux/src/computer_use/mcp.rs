@@ -22,6 +22,10 @@ use tokio::sync::mpsc;
 
 use super::client::{Caller, Daemon, SocketDaemon};
 
+/// How long answers already given may take to reach the agent after it
+/// closed its input.
+const FLUSH_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The MCP server name agents see.
 pub const SERVER_NAME: &str = tools::SERVER_NAME;
 /// The acpmux command word (`acpmux computer-use-mcp`).
@@ -186,9 +190,13 @@ where
         };
         let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result})).await;
     }
-    // The agent closed the pipe: answers still on their way reach no one.
-    calls.abort_all();
+    // The agent closed its input: calls still running are ended, and the
+    // answers already given still go out (an agent may close its input
+    // before it reads), bounded so an output nobody reads cannot hold the
+    // session open.
+    calls.shutdown().await;
     drop(tx);
+    let _ = tokio::time::timeout(FLUSH_LIMIT, writer.join_next()).await;
     writer.abort_all();
     let end = caller.clone();
     let _ = tokio::task::spawn_blocking(move || end.end_session()).await;

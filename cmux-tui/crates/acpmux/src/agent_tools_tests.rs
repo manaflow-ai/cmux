@@ -267,6 +267,8 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
     };
     let tools = super::AgentTools {
         servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
+        // The person said yes to cmux's tools (agents.cmuxMcp), so `cmux` stays.
+        cmux_for_agents: true,
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
