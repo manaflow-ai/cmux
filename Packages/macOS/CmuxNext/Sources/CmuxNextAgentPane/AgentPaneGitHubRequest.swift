@@ -131,6 +131,17 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
     /// The words the person reads (the connect failed).
     case failed(String)
 
+    /// The words the person reads for a connect that opened nothing; empty when it opened or was connected already.
+    @MainActor public var message: String {
+        switch self {
+        case .opened, .alreadyConnected: ""
+        case .unavailable(.signedOut): AgentPaneModel.gitHubSignedOutMessage
+        case .unavailable(.notConfigured): AgentPaneModel.gitHubNotConfiguredMessage
+        case .unavailable(.unreachable): AgentPaneModel.gitHubUnavailableMessage
+        case .failed(let message): message.isEmpty ? AgentPaneModel.gitHubUnavailableMessage : message
+        }
+    }
+
     /// The shared Connect GitHub's result (`accounts.githubConnect`, GitHubConnections' `connectResult()`):
     /// `pending` once the installation page opened, `connected` when there was nothing to open, else its detail.
     public init(_ result: Result<[String: ActionResultValue], ActionWorkFailure>) {

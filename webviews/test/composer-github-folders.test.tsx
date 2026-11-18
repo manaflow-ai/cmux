@@ -375,6 +375,31 @@ test("unavailable: a refused connect shows the host's words on the row, and a cl
   }
 });
 
+test("signed out: back before the sign-in ends keeps waiting; signed in, the install card offers Install", async () => {
+  const gh = host({
+    "github.status": { state: "unavailable", repos_scope: null, reason: "signed_out" },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await press(option("Sign in to add GitHub repositories")!);
+    // Back early, still signed out: the row waits, and the next return reads the status again.
+    await gh.back();
+    expect(option("Sign in to add GitHub repositories")?.querySelector(".acpmux-menu-description")?.textContent).toBe(
+      "Waiting for GitHub…",
+    );
+    // Signed in, the App not installed yet: the wait is over, and the card has its button.
+    gh.answers["github.status"] = { state: "not_connected", repos_scope: null };
+    await gh.back();
+    await press(option("Add repositories from GitHub")!);
+    expect(card()?.textContent).not.toContain("Waiting for GitHub…");
+    expect(button("Install on GitHub")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("unavailable while signed out asks to sign in; not set up says so before any click", async () => {
   const gh = host({
     "github.status": { state: "unavailable", repos_scope: null, reason: "signed_out" },

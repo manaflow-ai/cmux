@@ -227,7 +227,8 @@ public struct CloudGitHubPicker {
 
     /// `github.status`: ready, not connected, or unavailable and why.
     public func status() async -> Status {
-        guard auth.isSignedIn else { return .unavailable(.signedOut) }
+        // A saved sign-in still being restored is not signed out: no sign-in to start for it.
+        guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner() else { return .unavailable(.unreachable) }
         let (app, scope) = await owner.client.gitHubAppStatus(team: owner.team)
         return Status(app, reposScope: scope)
@@ -317,7 +318,8 @@ public struct CloudGitHubPicker {
     /// another one): a connected team's installation settings, where the person adds repositories (More repositories);
     /// a team with no connection, the App's installation page from `integration.connect` in that team.
     public func connect() async -> Connect {
-        guard auth.isSignedIn else { return .unavailable(.signedOut) }
+        // A saved sign-in still being restored is not signed out: no sign-in to start for it.
+        guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
               let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }

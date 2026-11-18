@@ -122,6 +122,8 @@ export function matchingRepos(repos: readonly GitHubRepo[], query: string): GitH
   });
 }
 
+const statusKey = (status?: GitHubStatus) => `${status?.state}:${status?.reason ?? ""}`;
+
 const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: false, waiting: false };
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -138,6 +140,8 @@ export function createGitHubPicker(
   let statusTurn = 0;
   let reposTurn = 0;
   let unwatch: (() => void) | undefined;
+  // The status the latest Connect was clicked in: the wait ends when the status moves off it.
+  let waitingFrom: string | undefined;
   const set = (next: Partial<GitHubPickerState>) => {
     state = { ...state, ...next };
     for (const listener of listeners) listener();
@@ -172,8 +176,15 @@ export function createGitHubPicker(
         if (turn !== statusTurn) return;
         const status = githubStatusFromReply(reply);
         const ready = status.state === "ready";
-        if (ready || status.state === "unavailable") stopWaiting();
-        set({ status, ...(ready || status.state === "unavailable" ? { waiting: false } : {}) });
+        // The wait goes on only while the browser's work is not done: still not installed, or still
+        // signed out (back before the sign-in ended). Any other answer, a signed-in person's
+        // not_connected included, ends it: the row and the install card are theirs to click again.
+        const stays =
+          state.waiting &&
+          statusKey(status) === waitingFrom &&
+          (status.state === "not_connected" || status.reason === "signed_out");
+        if (!stays) stopWaiting();
+        set({ status, ...(stays ? {} : { waiting: false }) });
         if (ready && (state.repos === undefined || state.error !== undefined)) listRepos(state.query);
       },
       () => {
@@ -204,6 +215,7 @@ export function createGitHubPicker(
             readStatus();
             return;
           }
+          waitingFrom = statusKey(state.status);
           set({ waiting: true });
           // Back from the browser: the page becomes the key one again, and the status is read.
           unwatch ??= watchKey(() => {
