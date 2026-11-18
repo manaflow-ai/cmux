@@ -132,6 +132,14 @@ class Declared(unittest.TestCase):
         steps = workflow["jobs"]["watch"]["steps"]
         [checkout] = [s for s in steps if s.get("id") == "spill-tooling"]
         self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
+        # 2026-11-18: the pin sat at c736d2e (2026-11-01) for 17 days, so the hosted-first valve (cmux#45861) never
+        # ran: RUNNER_POOLS.hosted_saturated stayed unset while GitHub-hosted held ~2,500 queued runs (median wait
+        # 3 h), and nightly 44243166776's publish-nightly-next-github queued behind them. The pin's comment names the
+        # spill changes it carries; it must carry the valve.
+        self.assertNotEqual(checkout["with"]["ref"], "c736d2e6c1db29305963040992f89f9466630f79")
+        pin_line = next(line for line in (ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text().splitlines()
+                        if checkout["with"]["ref"] in line)
+        self.assertIn("#45861", pin_line, "the spill pin must carry the hosted-first valve")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
                          {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
