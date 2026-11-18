@@ -2937,11 +2937,6 @@ button.review-brief-spot:hover {
   font-size: var(--cmux-diff-ui-font-size);
   line-height: 1.45;
 }
-.plain-english-note {
-  margin: 0 4px 12px;
-  color: var(--cmux-diff-text-muted);
-  font-size: var(--text-detail);
-}
 .plain-english-file {
   margin: 0 0 16px;
   /* A long diff draws only the files near the window. */

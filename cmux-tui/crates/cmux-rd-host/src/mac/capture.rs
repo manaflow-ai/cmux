@@ -305,6 +305,18 @@ fn refresh_rate(display: u32) -> Option<u32> {
     hz_to_fps(hz)
 }
 
+/// ScreenCaptureKit's minimum frame interval for `fps`: 90% of the frame interval, not all of it.
+/// ScreenCaptureKit drops a frame whose display time comes less than the minimum after the last
+/// one it delivered. At exactly 1/fps, a cap that is a whole fraction of the refresh rate (60 fps on
+/// a 120 Hz panel, the fallback when a built-in panel's mode reads 0 Hz) sits on the display's own
+/// cadence (two 8.33 ms refreshes are 16.67 ms), so timestamp rounding drops frames at random and
+/// that frame's change shows one refresh later. ScreenCaptureKit never delivers faster than the
+/// display, and the session's frame gate still holds the cap.
+fn min_frame_interval(fps: u32) -> CMTime {
+    let fps = fps.clamp(1, MAX_REFRESH_FPS);
+    CMTime { value: 9, timescale: (fps * 10) as i32, flags: CM_TIME_VALID, epoch: 0 }
+}
+
 /// A mode's refresh rate as a frame rate: rounded, at most [`MAX_REFRESH_FPS`], None for 0.
 fn hz_to_fps(hz: f64) -> Option<u32> {
     (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
@@ -683,12 +695,10 @@ impl Capture {
             let set_size = msg::<unsafe extern "C" fn(Id, Sel, usize)>();
             set_size(config, sel(c"setWidth:"), size.0 as usize);
             set_size(config, sel(c"setHeight:"), size.1 as usize);
-            let interval =
-                CMTime { value: 1, timescale: fps.max(1) as i32, flags: CM_TIME_VALID, epoch: 0 };
             msg::<unsafe extern "C" fn(Id, Sel, CMTime)>()(
                 config,
                 sel(c"setMinimumFrameInterval:"),
-                interval,
+                min_frame_interval(fps),
             );
             msg::<unsafe extern "C" fn(Id, Sel, u32)>()(
                 config,
@@ -912,6 +922,18 @@ mod tests {
         assert_eq!(hz_to_fps(0.0), None);
         assert_eq!(hz_to_fps(f64::NAN), None);
         assert_eq!(hz_to_fps(500.0), Some(MAX_REFRESH_FPS));
+    }
+
+    #[test]
+    fn the_minimum_frame_interval_stays_clear_of_the_display_cadence() {
+        let seconds = |t: CMTime| t.value as f64 / f64::from(t.timescale);
+        // 60 fps on a 120 Hz panel: below two refreshes (16.67 ms), above one (8.33 ms).
+        let at_60 = seconds(min_frame_interval(60));
+        assert!(at_60 < 2.0 / 120.0 - 0.001 && at_60 > 1.0 / 120.0, "{at_60}");
+        // At the refresh rate itself: below one refresh.
+        assert!(seconds(min_frame_interval(120)) < 1.0 / 120.0 - 0.0005);
+        assert!(seconds(min_frame_interval(0)) > 0.0);
+        assert_eq!(min_frame_interval(1000).timescale, (MAX_REFRESH_FPS * 10) as i32);
     }
 
     #[test]

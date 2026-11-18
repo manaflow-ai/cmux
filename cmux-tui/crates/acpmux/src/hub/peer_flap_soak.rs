@@ -124,14 +124,11 @@ mod tests {
             tokio::time::sleep(return_after).await;
             for (peer_no, (name, generation, _)) in peers.iter().enumerate() {
                 let rows = (0..ROWS_PER_PEER).map(|s| row(peer_no, s)).collect();
-                hub.peer_notices
-                    .send((name.clone(), *generation, PeerNotice::sessions_from_values(rows)))
-                    .await
-                    .unwrap();
-                hub.peer_notices
-                    .send((name.clone(), *generation, PeerNotice::Connected))
-                    .await
-                    .unwrap();
+                // As a link sends them: its list, `Listed`, then `Connected`.
+                let list = PeerNotice::sessions_from_values(rows);
+                for notice in [list, PeerNotice::Listed, PeerNotice::Connected] {
+                    hub.peer_notices.send((name.clone(), *generation, notice)).await.unwrap();
+                }
             }
             for rx in &mut settled {
                 rx.changed().await.unwrap();

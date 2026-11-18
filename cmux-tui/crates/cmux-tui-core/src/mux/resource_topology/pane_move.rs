@@ -131,7 +131,7 @@ fn detach_pane(
             && let Some(next) = close_focus_successor(state, &panes, sibling)
             && let Some(screen) = screen_at(state, location)
         {
-            screen.active_pane = next;
+            screen.set_active_pane(next);
         }
         return Ok(None);
     }
@@ -225,7 +225,7 @@ impl KeptFocus {
                 && let Some(item) = screen_at(state, location)
                 && item.root.contains(*pane)
             {
-                item.active_pane = *pane;
+                item.set_active_pane(*pane);
             }
         }
         restore_focus_identity(state, self.focused);
@@ -240,7 +240,7 @@ fn focus_pane(mux: &Mux, state: &mut State, pane: PaneId) -> anyhow::Result<()> 
     let item = state.workspaces.get_mut(workspace).context("workspace disappeared")?;
     item.active_screen = screen;
     let item = item.screens.get_mut(screen).context("screen disappeared")?;
-    item.active_pane = pane;
+    item.set_active_pane(pane);
     stamp_pane_focus(mux, state, pane);
     Ok(())
 }
@@ -270,20 +270,12 @@ fn move_pane_in_state(
             let public_id = ScreenPublicId::random()?;
             let index = state.workspace_index(workspace).context("workspace disappeared")?;
             let item = state.workspaces.get_mut(index).context("workspace disappeared")?;
-            item.screens.push(Screen {
-                id: mux.next_id(),
-                public_id: public_id.clone(),
+            item.screens.push(Screen::with_one_pane(
+                mux.next_id(),
+                public_id.clone(),
                 name,
-                root: Node::Leaf(source),
-                active_pane: source,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![source]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+                source,
+            ));
             // A workspace whose only screen this is shows it.
             if item.screens.len() == 1 {
                 item.active_screen = 0;

@@ -258,6 +258,25 @@ extension CloudMachineRepoTests {
         #expect(!sent.on && creation.bootstrap == nil)
     }
 
+    @MainActor @Test func aCreateIsAttachedBeforeItsBootstrapWaitsForTheMachine() async {
+        // `cloud new-machine` answers once its creation has a session (settledCreation), within 30 s, and the bootstrap
+        // first waits up to 180 s for the machine to run: run before the attach, it held the answer back and the
+        // caller got `pending` with no machine id (production start matrix 2026-11-16 12:44Z, gitlab-url).
+        var request = CloudMachineRequest(repo: Self.repo)
+        request.script = withRepo
+        let session = CloudLinkEndedHeaderTests.session(status: .running), attached = Flag(), ran = Flag()
+        var flow = CloudCreationFlow(creations: CloudCreations(), create: { _ in session }, open: { _ in "" }, show: { _, _ in })
+        flow.bootstrap = { creation, _ in
+            ran.on = true
+            attached.on = creation.session === session
+            creation.task?.cancel()
+        }
+        let creation = flow.start(in: nil, existing: nil, request: request)
+        await creation.task?.value
+        #expect(ran.on && attached.on, "the creation had its machine before the bootstrap began")
+        creation.tearDown()
+    }
+
     @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
         // The flow was cancelled while `start` was out on the machine; its outcome comes back afterwards.
         let creation = CloudMachineCreation(windowID: nil)

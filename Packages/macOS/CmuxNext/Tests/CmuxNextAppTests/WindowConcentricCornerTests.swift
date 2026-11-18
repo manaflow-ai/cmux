@@ -94,6 +94,21 @@ import Testing
         #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
+    /// The pane's "…" rounds as a tab and the + do (Lucas 2026-11-13: "match the rest like the + for new workspace");
+    /// only an outer radius the person set makes it concentric with the card's top-trailing corner.
+    @Test func theMoreButtonRoundsAsATab() {
+        defer { load() }
+        load()
+        #expect(!Metrics.cornerRadiusIsSet)
+        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.buttonCornerRadius)
+        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
+        toolbar.moreButton.hoverStyle = .plate
+        toolbar.show([], more: true, lit: false)
+        toolbar.layoutSubtreeIfNeeded()
+        toolbar.moreButton.updateLayer()
+        #expect(toolbar.moreButton.layer?.cornerRadius == Metrics.buttonCornerRadius)
+    }
+
     /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and
     /// the controls center on the pills' line there.
     @Test func theCardsTopInsetEqualsItsSideInset() throws {
@@ -118,7 +133,10 @@ import Testing
         let top = WindowTitlebar.cardTopInset(of: root, minimal: true, gutter: gutter)
         #expect(top == side, "the card is \(top) pt below the window's top, \(side) pt from its side")
         let line = try #require(WindowTitlebar.topRowLine(in: window, look: .concentric))
-        #expect(line.centerY == side + TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
-                "the controls center on the pills, which sit in their strip as in every row")
+        // The pills sit midway between the window's top edge and the strip's bottom (Lucas 2026-11-14: equal room above
+        // and below the top row's tabs), and the controls center on them.
+        let row = PaneChromeMetrics.current
+        #expect(line.centerY == row.topRowPillCenter(cardTop: side, scale: window.backingScaleFactor),
+                "the controls center on the pills, evened between the window's top and the strip's bottom")
     }
 }

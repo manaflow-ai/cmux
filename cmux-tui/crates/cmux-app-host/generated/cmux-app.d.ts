@@ -79,6 +79,7 @@ declare namespace Cmux {
   type CloudEnvironmentVariable = unknown
   type CloudGroup = { id: Cmux.GroupId; name: string; created_by: Cmux.UserId; created_at: number; archived: boolean; default_placement: "local" | "mini" | "cloud_vm"; item_count: number; role: "owner" | "edit" | "view" }
   type CloudGroupItem = { workspace: Cmux.GroupWorkspaceId; title?: string; placement: Cmux.GroupPlacement; position: number; added_by: Cmux.UserId; added_at: number }
+  type CloudGroupMember = { user: Cmux.UserId; role: "owner" | "edit" | "view"; display_name: string | null; active: boolean }
   type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null; hourly_rate_usd?: unknown | null; paused_hourly_rate_usd?: unknown | null; running_since?: number | null; desktop?: boolean; evict_at?: number | null; delete_reason?: Cmux.CloudDeleteReason | null; keep?: boolean; notice?: Cmux.CloudRetentionNotice | null; paused_by?: "spend_cap"; spend_cap_pause_at?: number; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
@@ -87,6 +88,13 @@ declare namespace Cmux {
   type CloudRetentionNotice = { kind: "heads_up" | "last_note"; at: number; delete_at: number }
   type CloudRetentionOverrides = { failed_create_hours?: number; never_used_hours?: number; idle_pause_minutes?: number; worked_in_days?: number; heads_up_days?: number; last_note_days?: number; archive_days?: number }
   type CloudRetentionSettings = { tier: string; failed_create_hours: number; never_used_hours: number; idle_pause_minutes: number; worked_in_days: number | null; heads_up_days: number; last_note_days: number; archive_days: number }
+  type CloudSessionActivity = "working" | "needs_attention" | "idle"
+  type CloudSessionId = string
+  type CloudSessionKind = "workspace" | "chat"
+  type CloudSessionMachineState = "running" | "asleep" | "waking" | "unresponsive" | "gone"
+  type CloudSessionScope = "mine" | "team" | "following"
+  type CloudSessionView = { key: string; team: Cmux.TeamId; vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; kind: Cmux.CloudSessionKind; workspace?: Cmux.CloudSessionId; title: string; harness?: string; owner: Cmux.UserId; owner_name: string | null; assignee: Cmux.UserId; assignee_name: string | null; machine_state: Cmux.CloudSessionMachineState; activity: Cmux.CloudSessionActivity; last_activity_at: number; created_at: number; archived: boolean; followers: Array<Cmux.UserId>; follower_count: number; following: boolean; assigned_to_you: boolean; viewers: Array<Cmux.UserId>; can_reassign: boolean; can_archive: boolean; link: string }
+  type CloudSessionVm = string
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; archive_of?: { machine: Cmux.MachineId; name: string | null; until: number } | null; revision: Cmux.Revision }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
@@ -469,6 +477,9 @@ declare namespace Cmux {
   type TabGroupSnapshot = { id: Cmux.StateId; pane_id: string /* pane_… */; name: string; color: Cmux.GroupColor; collapsed: boolean; tab_ids: Array<string /* tab_… */>; saved_tab_group_id: Cmux.StateId | null; icon?: string | null }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
+  type TeamAgentKeyAgent = "claude" | "codex"
+  type TeamAgentKeyKind = "api_key" | "oauth"
+  type TeamAgentKeyState = { agent: Cmux.TeamAgentKeyAgent; set: boolean; kind: Cmux.TeamAgentKeyKind | null; generation: number; updated_at: number | null; updated_by: Cmux.UserId | null; hint: string | null }
   type TeamAiLimitMember = { user: Cmux.UserId; display_name: string; role: string; limit_usd: unknown; source: "personal" | "team" | "default"; spent_usd: unknown }
   type TeamAiUsageLine = { billed: boolean; included_usd: unknown | null; per_seat: boolean; seats: number; spent_usd: unknown; period_start: number | null; period_end: number; stop_applies: boolean; stopped: boolean }
   type TeamAuditEntry = { n: number; op: string; actor: string; at: number; category: "admin" | "billing"; summary: string; detail: string; hash: string }
@@ -477,6 +488,7 @@ declare namespace Cmux {
   type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null; allow_workflows?: boolean }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
   type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
   type TeamMember = { user: Cmux.UserId; role: Cmux.TeamRole; display_name: string }
+  type TeamModelsPolicyState = { team: Cmux.TeamId; can_edit: boolean; own_connections: boolean; choose_runout: boolean; revision: number; updated_at: number | null; updated_by: Cmux.UserId | null }
   type TeamPolicy = { version: number; values: Cmux.TeamPolicyValues; updated_at: number | null; updated_by: string | null }
   type TeamPolicyValues = { "github.repoScope"?: { value: "linking_user_repos" | "installation"; mode: Cmux.PolicyMode }; "github.requireOrgAdmin"?: { value: boolean; mode: Cmux.PolicyMode }; "github.repoAllowList"?: { value: unknown; mode: Cmux.PolicyMode }; "github.allowWorkflows"?: { value: boolean; mode: Cmux.PolicyMode }; "integrations.allowedProviders"?: { value: unknown; mode: Cmux.PolicyMode }; "mcp.server"?: { value: "user_choice" | "disabled"; mode: Cmux.PolicyMode }; "mcp.remoteTransport"?: { value: boolean; mode: Cmux.PolicyMode }; "apps.install"?: { value: "any" | "allow_list" | "disabled"; mode: Cmux.PolicyMode }; "apps.allowedTiers"?: { value: Array<"first-party" | "verified" | "community" | "unverified">; mode: Cmux.PolicyMode }; "apps.allowList"?: { value: Array<string>; mode: Cmux.PolicyMode }; "apps.forcedInstalls"?: { value: Array<string>; mode: Cmux.PolicyMode }; "computerUse.allowed"?: { value: boolean; mode: Cmux.PolicyMode }; "browserAutomation.rawCdp"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.sandboxes"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.connectServices"?: { value: Cmux.CloudConnectServices; mode: Cmux.PolicyMode }; "cloud.idlePause"?: { value: boolean; mode: Cmux.PolicyMode }; "telemetry.level"?: { value: "full" | "crash_only" | "off"; mode: Cmux.PolicyMode }; "updates.channel"?: { value: "stable" | "nightly"; mode: Cmux.PolicyMode }; "updates.minimumVersion"?: { value: string; mode: Cmux.PolicyMode }; "retention.cuaEventsDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.cuaFramesDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.transcriptDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.auditDays"?: { value: number; mode: Cmux.PolicyMode }; "sso.enforce"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.enforceForOwners"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.allowGuests"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.sessionMaxAgeHours"?: { value: number; mode: Cmux.PolicyMode }; "sso.idleTimeoutHours"?: { value: number; mode: Cmux.PolicyMode }; "agents.allowedClasses"?: { value: Array<"mux" | "agent" | "run">; mode: Cmux.PolicyMode }; "device.settings"?: { value: Record<string, never>; mode: Cmux.PolicyMode } }
   type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
@@ -569,6 +581,17 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
+
+/** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
+interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
+/** `page.read`'s answer: the page's address and title, its main text as reader-mode blocks, and its links. */
+interface CmuxPageRead {
+  tab: string; url: string; title: string
+  article: { title: string; byline: string | null; site: string | null; blocks: CmuxPageBlock[] }
+  links: Array<{ text: string; href: string }>
+}
+/** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
+interface CmuxPageHint { label: string; text: string; href: string | null }
 
 interface CmuxGlobal {
   agent: {
@@ -1095,6 +1118,14 @@ interface CmuxGlobal {
     get: CmuxOp<{ group: Cmux.GroupId }, { group: Cmux.CloudGroup; items: Array<Cmux.CloudGroupItem>; link: string; web_link: string }>
     /** `group.list` (read, scope `group:read`): The cloud groups you are a member of, in id order. Archived groups only with include_archived. */
     list: CmuxOp<{ cursor?: string; limit?: number; include_archived?: boolean }, { team: string; groups: Array<Cmux.CloudGroup>; next_cursor: string | null }>
+    members: {
+      /** `group.members.list` (read, scope `group:read`): A cloud group's members and their roles (any member of the group reads it). */
+      list: CmuxOp<{ group: Cmux.GroupId }, { group: Cmux.GroupId; members: Array<Cmux.CloudGroupMember> }>
+      /** `group.members.remove` (mutation, scope `group:write`): Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op. */
+      remove: CmuxOp<{ group: Cmux.GroupId; user: Cmux.UserId; expected_revision?: string }, Cmux.MutationResult<{ group: Cmux.GroupId; members: Array<Cmux.CloudGroupMember> }>>
+      /** `group.members.set` (mutation, scope `group:write`): Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted. */
+      set: CmuxOp<{ group: Cmux.GroupId; user: Cmux.UserId; role: "owner" | "edit" | "view"; expected_revision?: string }, Cmux.MutationResult<{ group: Cmux.GroupId; members: Array<Cmux.CloudGroupMember> }>>
+    }
     /** `group.rename` (mutation, scope `group:write`): Rename a cloud group (its owner only). */
     rename: CmuxOp<{ group: Cmux.GroupId; name: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CloudGroup>>
   }
@@ -1663,6 +1694,26 @@ interface CmuxGlobal {
       /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
       get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; team_usage?: Cmux.TeamAiUsageLine; next_cursor?: string | null }>
     }
+    cloud: {
+      session: {
+        /** `team.cloud.session.archive` (mutation, scope `team:write`): Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived. */
+        archive: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; archived: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CloudSessionView>>
+        /** `team.cloud.session.follow` (mutation, scope `team:write`): Follow (or stop following) a teammate's Cloud workspace or chat: it shows under Following in your sidebar. A session assigned to you cannot be followed. */
+        follow: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; follow: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CloudSessionView>>
+        /** `team.cloud.session.get` (read, scope `team:read`): One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found. */
+        get: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId }, { session: Cmux.CloudSessionView }>
+        /** `team.cloud.session.list` (read, scope `team:read`): The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true. */
+        list: CmuxOp<{ scope?: Cmux.CloudSessionScope; by?: Cmux.UserId; archived?: boolean; cursor?: string; limit?: number }, { team: Cmux.TeamId; sessions: Array<Cmux.CloudSessionView>; next_cursor: string | null }>
+        /** `team.cloud.session.publish` (mutation, scope `team:write`): Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived. */
+        publish: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; kind: Cmux.CloudSessionKind; title: string; workspace?: Cmux.CloudSessionId; harness?: string; machine_state: Cmux.CloudSessionMachineState; activity: Cmux.CloudSessionActivity; last_activity_at: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CloudSessionView>>
+        /** `team.cloud.session.reassign` (mutation, scope `team:write`): Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan. */
+        reassign: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; to: Cmux.UserId; expected_revision?: string }, Cmux.MutationResult<Cmux.CloudSessionView>>
+        /** `team.cloud.session.remove` (mutation, scope `team:write`): Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it. */
+        remove: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; expected_revision?: string }, Cmux.MutationResult<{ removed: boolean }>>
+        /** `team.cloud.session.viewing` (mutation, scope `team:write`): Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows. */
+        viewing: CmuxOp<{ vm: Cmux.CloudSessionVm; session: Cmux.CloudSessionId; viewing: boolean; expected_revision?: string }, Cmux.MutationResult<{ viewing: boolean; viewers: Array<Cmux.UserId> }>>
+      }
+    }
     device: {
       /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
       compliance: CmuxOp<Record<string, never>, { team: Cmux.TeamId; policy_version: number; devices: Array<{ device: Cmux.ManagedDevice; status: Cmux.DeviceStatus | null; compliant: boolean; reasons: Array<string> }>; revision: string }>
@@ -1900,6 +1951,15 @@ interface CmuxGlobal {
   readonly theme: CmuxTheme
   /** A short notice from the app's own toast presenter; one slot per app (a new toast replaces the last). A string is the title. */
   toast(options: { title: string; message?: string; tone?: "success" | "warning" | "danger" } | string): Promise<null>
+  /** A browser tab's page, drawn by the cmux app (WebKit or CEF). `tab` is a `tab_…` id; without it, the focused browser tab of the front window. */
+  page: {
+    /** `page.read` (read, scope `page:read`): the page's main text as reader-mode blocks, and its links. Text is capped (400 blocks, 500 links). */
+    read: CmuxOp<{ tab?: string }, CmuxPageRead>
+    /** `page.hints` (mutation, scope `page:write`, needs a gesture): `show` draws link-hint labels over the clickable elements in view (the built-in `f` labels) and lists them; `clear` removes them. A scroll removes them too. */
+    hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
+    /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
+    follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void

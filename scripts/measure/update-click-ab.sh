@@ -24,7 +24,8 @@ main() {
   local out="$PWD/.build/update-click-ab" tools
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   # The harness and summary as of this commit, whatever the sides' trees hold.
-  tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/"
+  tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" && cp scripts/measure/update-click-ab.py "$tools/" \
+    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py imports it from its parent folder
   local base="" head rounds=3 delay=3 stress=0 arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
@@ -92,7 +93,9 @@ trap stop_stress EXIT
 fetch_checkout() {
   local sha="$1" depth=()
   [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
+  # A fleet step's origin is the fleet mirror, which holds feat-cmux-next only: a PR or lane commit comes from GitHub.
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha" 2>/dev/null \
+    || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" || { echo "UCA cannot fetch $sha" >&2; return 3; }
   git -c advice.detachedHead=false checkout --quiet --detach "$sha"
 }
 

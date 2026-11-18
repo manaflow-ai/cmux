@@ -10,6 +10,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Observation
 import CmuxNextCloudUI
 
@@ -157,13 +158,19 @@ final class WindowManager {
     }
 
     /// The window actions without an explicit target act in: during an input event's dispatch the
-    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the
-    /// last active one.
+    /// window the event came from (`dispatching(eventFrom:_:)`), else the key window's, else the frontmost
+    /// on screen by the registry's recency (every key change and `WindowActivation` order, also one in front
+    /// without the keys, which `lastActive` misses), else the last active one. A CLI run with no key window acts
+    /// in the window in front, never the first opened (Leo 2026-11-16: "idk why you guys opened a new window").
     var active: WindowController? {
         if let origin = eventOriginWindow { return origin }
         if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
-        return lastActive ?? controllers.first
+        let shown = controllers.filter { $0.window.map(isOnScreen) ?? false }.map(\.state.id)
+        return registry.value.mostRecent(of: shown).flatMap(controller(for:)) ?? lastActive ?? controllers.first
     }
+
+    /// Whether a window is on screen for ``active``; a test that never orders its windows in sets its own.
+    var isOnScreen: @MainActor (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized }
 
     /// The controller whose window is `window` or owns it: a sheet, a
     /// Chromium page window, the palette or another panel over it.
@@ -205,6 +212,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+        state.onProfileChange = { [weak self] in self?.registry.spaceEntered(windowID); self?.spaceDidChange() }
         states[windowID] = state
         return state
     }
@@ -241,6 +249,10 @@ final class WindowManager {
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
+        // A launch snapshot the daemon does not know (WindowRules+Launch): the window drops it, as a launch with nothing to restore.
+        if let launch = launchWindowID, let state = controller(for: launch)?.state, WindowRules().launchSnapshotIsStale(snapshot: services.daemon.launchSnapshotRegistryID,
+            live: services.daemon.store.registryID, shown: state.workspaceID, listed: registry.provisional[launch], isLive: { self.services.machines.workspace(id: $0) != nil }) {
+            services.daemon.launchSnapshotWindows = nil; registry.provisional[launch] = nil; state.adopt(WindowRecord(id: launch)) }
         registry.clearProvisional()
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
@@ -274,7 +286,11 @@ final class WindowManager {
         if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { restoreClosed.closed(front) }
-        for record in document.windows where states[record.id] == nil { states[record.id] = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction) }
+        for record in document.windows where states[record.id] == nil {
+            let state = registry.closeSelection.watch(WindowState(record: record, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+            state.onProfileChange = { [weak self, id = record.id] in self?.registry.spaceEntered(id); self?.spaceDidChange() }
+            states[record.id] = state
+        }
         rememberMachines(of: document)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in

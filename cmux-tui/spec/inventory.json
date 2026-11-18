@@ -72,6 +72,8 @@
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
@@ -422,6 +424,7 @@
       "export-layout",
       "feed-local-list",
       "feed-local-read",
+      "float-pane",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -685,7 +688,8 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "device-setup"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -702,6 +706,12 @@
     },
     {
       "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
       "streams": [
         "attach-byte"
       ]
@@ -1135,6 +1145,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "device-setup-step",
       "streams": [
         "control"
       ]
