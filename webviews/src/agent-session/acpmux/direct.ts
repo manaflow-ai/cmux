@@ -243,6 +243,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { AUTO_PLACE_DEADLINE_MS, readAutoVerdict, type AutoVerdict, type PlaceChatParams } from "./autoPlace";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -14061,6 +14062,14 @@ export class AcpmuxDirectClient {
       cwd,
       release: true,
     }).catch(() => undefined);
+  }
+  /// Where a new chat on Auto starts (autoPlace.ts): acpmux's verdict (`_acpmux/place_chat`, acpmux
+  /// chat_place.rs) for `params`. Rejects when acpmux could not be asked or predates the request, and
+  /// when its answer names no place: the caller starts the chat on This Mac and says so.
+  async chatPlace(params: PlaceChatParams): Promise<AutoVerdict> {
+    const verdict = readAutoVerdict(await this.request("_acpmux/place_chat", { ...params }, AUTO_PLACE_DEADLINE_MS));
+    if (!verdict) throw new Error("acpmux named no place for the chat");
+    return verdict;
   }
   /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.

@@ -284,6 +284,47 @@ const capped: Props = {
   onAnswer: () => Promise.resolve("answered" as const),
 };
 
+// Auto chat placement (design/auto-chat-placement.md; Leo, 2026-11-18: "an auto mode as an umbrella
+// over remote/local/cloud itself. so it just goes."): each row says where its chat runs.
+const placed = (
+  id: string,
+  title: string,
+  number: number,
+  fields: Partial<(typeof reviewSessions)[number]>,
+): (typeof reviewSessions)[number] =>
+  session({
+    sessionId: `home-place-${id}`,
+    title,
+    updatedAt: minutesAgo(number - 19060),
+    pullRequest: { number, title, state: "open", reviewReady: true },
+    ...fields,
+  });
+const autoMachine = placed("machine", "Speed up the test shards", 19061, {
+  placement: "auto",
+  peer: "build-box",
+  host: "build-box",
+});
+const autoCloud = placed("cloud", "Rebuild the docs index", 19062, {
+  placement: "auto",
+  peer: "cloud-7f2a",
+  host: "cloud-7f2a",
+  hostKind: "cloud",
+});
+const autoLocal = placed("local", "Tidy the settings page", 19063, { placement: "auto" });
+const pinnedMachine = placed("pinned", "Profile the sync worker", 19064, {
+  placement: "pinned",
+  peer: "studio-mini",
+  host: "studio-mini",
+});
+const pickedMachine = placed("picked", "Port the release script", 19065, { peer: "build-box", host: "build-box" });
+const placement = (sessions: (typeof reviewSessions)[number][]): Props => ({
+  sessions: [...sessions, current],
+  currentId: current.sessionId,
+  onSelect: () => undefined,
+  onAnswer: () => Promise.resolve("answered" as const),
+  onPin: () => undefined,
+});
+
 /// The new chat the lists sit in: no turns yet, in the fixture project's folder.
 const newChat = chat([], { title: "New chat" });
 const NoChips = () => null;
@@ -294,12 +335,14 @@ function withReceipt(Component: typeof HomeLists) {
   return function GalleryHomeLists(props: Props) {
     const [selected, setSelected] = useState<string>();
     const [answered, setAnswered] = useState<string>();
+    const [pinned, setPinned] = useState<string>();
     return (
       <section
         className="acpmux-shell home-lists-gallery"
         aria-label={newChat.summary?.title}
         data-home-selection={selected ?? ""}
         data-home-answer={answered ?? ""}
+        data-home-pin={pinned ?? ""}
       >
         <div className="acpmux-main" data-new-chat="">
           <div className="acpmux-stage">
@@ -313,6 +356,13 @@ function withReceipt(Component: typeof HomeLists) {
                   props.onSelect(sessionId);
                   setSelected(sessionId);
                 }}
+                onPin={
+                  props.onPin &&
+                  ((sessionId) => {
+                    props.onPin?.(sessionId);
+                    setPinned(sessionId);
+                  })
+                }
                 onAnswer={(item, choice) => {
                   setAnswered(`${item.permissionId}:${choice.id}`);
                   return props.onAnswer(item, choice);
@@ -333,6 +383,16 @@ const click: Play = async (ctx) => {
     () =>
       ctx.document.querySelector(".home-lists-gallery")?.getAttribute("data-home-selection") === "home-review-sidebar",
   );
+};
+
+const pin: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Keep on build-box/ });
+  await ctx.waitFor(() => {
+    const shell = ctx.document.querySelector(".home-lists-gallery");
+    return (
+      shell?.getAttribute("data-home-pin") === "home-place-machine" && shell.getAttribute("data-home-selection") === ""
+    );
+  });
 };
 
 const selection = (ctx: Parameters<Play>[0], id: string) =>
@@ -398,6 +458,33 @@ export default componentEntry<Props>({
   },
   load: () => import("./HomeLists").then(({ HomeLists: Component }) => withReceipt(Component)),
   variants: {
+    "placement-auto": {
+      note: "Auto placed each chat: Auto · build-box, Auto · Cloud, Auto · This Mac, each with a pin beside its row that keeps it there.",
+      props: placement([autoMachine, autoCloud, autoLocal]),
+    },
+    "placement-pinned": {
+      note: "A pinned chat shows the pin glyph and its plain place with no pin button; a machine the person picked shows its plain place; a chat on this Mac with no placement shows none.",
+      props: placement([pinnedMachine, pickedMachine, ...reviewSessions.slice(0, 1)]),
+    },
+    "placement-mixed": {
+      note: "Auto, pinned and picked rows together, at a long title, so the place and pin keep their room while the title cuts.",
+      props: placement([
+        {
+          ...autoMachine,
+          pullRequest: {
+            ...autoMachine.pullRequest!,
+            title: "Speed up the test shards by splitting the slowest suites across every joined machine",
+          },
+        },
+        pinnedMachine,
+        autoCloud,
+      ]),
+    },
+    "placement-pin": {
+      note: "The pin button pins that chat (chat.placement pinned) and never opens it.",
+      props: placement([autoMachine, autoCloud]),
+      play: pin,
+    },
     "long-commands": {
       note: "Long commands share a prefix but have different file names; each full command remains inspectable on hover.",
       props: longCommands,

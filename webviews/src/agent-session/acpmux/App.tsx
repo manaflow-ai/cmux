@@ -264,8 +264,10 @@ import {
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
+  useCloudSignedIn,
   type CloudMachine,
 } from "./cloudMachines";
+import { autoPlaced, autoRunMode, placeChatParams, type AutoPlaced, type AutoVerdict } from "./autoPlace";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -3728,7 +3730,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paneMachine =
     snapshot.summary?.peer || (snapshot.summary?.hostKind === "cloud" && snapshot.summary.host) || "local";
   // Only a start here takes them: a Cloud or Sandboxed start carries no extra folders (cmux#34403).
-  const extraFoldersSent = sandbox.mode === "persistent" ? extraFolderDraft : undefined;
+  const extraFoldersSent = sandbox.mode === "persistent" || sandbox.mode === "auto" ? extraFolderDraft : undefined;
   useEffect(() => {
     directClient.current?.setNewChatFolders(ownMachineFolders(extraFoldersSent, paneMachine));
   }, [extraFoldersSent, paneMachine, clientEpoch]);
@@ -4851,6 +4853,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runModePicked = useRef(false);
   /// Cloud is this new chat's mode by default, not by the person's pick: the folder may undo it.
   const cloudByDefault = useRef(false);
+  /// Auto (autoPlace.ts) for this new chat: acpmux's verdict on its first send, or `placing` while
+  /// the request is out. Keyed by the New Tab adoption it was asked in: another new chat is on Auto again.
+  const [autoPlace, setAutoPlace] = useState<{ visit: number; placing?: true; placed?: AutoPlaced }>();
+  const autoPlacedHere = autoPlace?.visit === newTabGeneration ? autoPlace.placed : undefined;
+  const autoPlacing = autoPlace?.visit === newTabGeneration && autoPlace.placing === true;
+  /// Auto is this new chat's mode by default (Start New Chats In), not by the person's pick.
+  const autoByDefault = useRef(false);
+  /// The verdict switched the mode: the held prompt sends once the mode is the verdict's (effect below).
+  const autoSend = useRef<RunMode | undefined>(undefined);
+  /// The chat Auto placed here: once its session shows, it is tagged `placement: auto` (chat.placement).
+  const autoTagPending = useRef(false);
+  const cloudSignedIn = useCloudSignedIn();
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
@@ -4895,6 +4909,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxModeRows = {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
+    ...(autoPlacedHere ? { autoPlaced: autoPlacedHere } : {}),
     onMode: (mode: RunMode) => {
       if (mode === "cloud") cloudHint.used();
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
@@ -4902,6 +4917,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudDraftMachineID.current = null;
       cloudTypingPrewarm.reset();
       runModePicked.current = true;
+      autoByDefault.current = false;
+      // The person's own pick: Auto's last answer no longer names the place.
+      setAutoPlace(undefined);
       sandbox.setMode(mode);
       cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
       if (cloudComposeEligible.current) {
@@ -4941,11 +4959,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({
       mode: sandboxModeRows.mode,
       environment: sandboxModeRows.environment,
+      ...(autoPlacedHere ? { autoPlaced: autoPlacedHere } : {}),
       // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
       ...(sandboxOffered ? {} : { sandbox: false as const }),
       onMode: (mode: RunMode) => composerModePick.current(mode),
     }),
-    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered],
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered, autoPlacedHere],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -7631,10 +7650,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
       // which this folder's history may undo.
       if (sandbox.mode === "cloud") cloudByDefault.current = true;
+      // Auto's place was this chat's: the next one is asked again (and a placed chat that showed its
+      // session no longer offers a place). Not while its request is out.
+      if (!autoPlacing) setAutoPlace(undefined);
     }
     // A chat starting here (its session not shown yet) keeps the mode it starts with.
     if (runModePicked.current || snapshot.sessionId || snapshot.summary?.sessionId || cloudStartPending.current) return;
-    if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
+    // Auto, the default (Start New Chats In): a new chat is on Auto until the person picks, the way a
+    // Cloud default is, and goes back to This Mac when the setting no longer says Auto. A verdict being
+    // carried out (`autoSend`) is never undone here.
+    if (autoSend.current || autoPlacing || autoPlacedHere) return;
+    if (
+      folderRunDefault === "auto" &&
+      (sandbox.mode === "persistent" || (sandbox.mode === "cloud" && cloudByDefault.current))
+    ) {
+      cloudByDefault.current = false;
+      autoByDefault.current = true;
+      sandbox.setMode("auto");
+    } else if (folderRunDefault !== "auto" && sandbox.mode === "auto" && autoByDefault.current) {
+      autoByDefault.current = false;
+      sandbox.setMode(folderRunDefault === "cloud" ? "cloud" : "persistent");
+      if (folderRunDefault === "cloud") cloudByDefault.current = true;
+    } else if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
       cloudByDefault.current = true;
       sandbox.setMode("cloud");
     } else if (folderRunDefault !== "cloud" && sandbox.mode === "cloud" && cloudByDefault.current) {
@@ -7649,7 +7686,96 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandbox,
     sandbox.mode,
     cloudStartsEnded,
+    autoPlacing,
+    autoPlacedHere,
   ]);
+  /// Auto's place for a new chat (autoPlace.ts): acpmux decides, from the chat's folder and whether
+  /// Cloud can take it now (signed in, a plan that lets a send start, Cloud offered here). An acpmux that
+  /// predates the request or fails it gives no verdict: the chat starts on This Mac and the picker says so.
+  const placeAutoChat = async (cwd: string | undefined): Promise<AutoVerdict | undefined> => {
+    const client = directClient.current;
+    if (!client) return undefined;
+    const cloudAvailable = cloudOffered && cloudSignedIn === true && !cloudPlanHoldsSend(currentCloudPlan());
+    try {
+      return await client.chatPlace(placeChatParams(cwd, cloudAvailable));
+    } catch (error) {
+      console.warn("agent pane: Auto could not ask acpmux where the chat starts; This Mac takes it", error);
+      return undefined;
+    }
+  };
+  /// The chat composer's first send on Auto: the composer keeps the prompt while acpmux answers, then the
+  /// mode becomes the verdict's and the prompt goes (the effect below): This Mac as a chat here, Cloud as
+  /// its start, a joined machine as a chat started there with this prompt.
+  const sendOnAuto = (): void => {
+    const visit = newTabGeneration;
+    setAutoPlace({ visit, placing: true });
+    const cwd = projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd;
+    void placeAutoChat(cwd).then((verdict) => {
+      // Another new chat, or the person's own pick meanwhile: this answer starts nothing.
+      if (visit !== newTabGenerationNow.current || sandboxModeNow.current !== "auto") {
+        setAutoPlace((current) => (current?.visit === visit ? undefined : current));
+        return;
+      }
+      const placed = autoPlaced(verdict);
+      setAutoPlace({ visit, placed });
+      if (placed.place === "peer" && placed.peer) {
+        startAutoOnPeer(placed.peer, cwd);
+        return;
+      }
+      autoSend.current = autoRunMode(placed);
+      autoTagPending.current = placed.place === "local";
+      sandbox.setMode(autoSend.current);
+    });
+  };
+  /// A joined machine took the chat: it starts there with the composer's prompt, as a New Tab start on
+  /// that machine does (screenActions onAsk with its `peer`); its folder is the chat's own path there.
+  const startAutoOnPeer = (peer: string, cwd: string | undefined) => {
+    const handle = composerHandle.current;
+    const draft = handle?.draft();
+    if (!handle || !draft) return;
+    const pick = heldPick(composerSnapshot);
+    handle.take();
+    void callNative<string>("chat.new", {
+      ...(pick.harness ? { harness: pick.harness } : {}),
+      ...(pick.model ? { model: pick.model } : {}),
+      ...(cwd ? { cwd } : {}),
+      peer,
+    })
+      .then(async (started) => {
+        if (!started) throw new Error(translate("switch.noSession"));
+        await callNative("chat.send", {
+          text: draft.text,
+          ...(draft.attachments.length ? { attachments: draft.attachments } : {}),
+          expectedSessionId: started,
+        });
+        void callNative("chat.placement", { sessionId: started, placement: "auto" }).catch(() => undefined);
+      })
+      .catch((error: unknown) => {
+        // The machine refused or went away: the prompt comes back, and This Mac is the pick to send it again.
+        console.warn("agent pane: Auto's machine did not start the chat", error);
+        handle.restore(draft.text, draft.attachments);
+        setAutoPlace({ visit: newTabGenerationNow.current, placed: { place: "local", fallback: true } });
+        sandbox.setMode("persistent");
+      });
+  };
+  // What an answer that comes later checks against: the page's new chat and mode now, not at the send.
+  const sandboxModeNow = useRef(sandbox.mode);
+  sandboxModeNow.current = sandbox.mode;
+  const newTabGenerationNow = useRef(newTabGeneration);
+  newTabGenerationNow.current = newTabGeneration;
+  /// The verdict's mode is set: the held prompt goes once, through the send path that mode takes.
+  useEffect(() => {
+    if (autoSend.current === undefined || sandbox.mode !== autoSend.current) return;
+    autoSend.current = undefined;
+    composerHandle.current?.send();
+  }, [sandbox.mode]);
+  /// The chat Auto started here showed its session: acpmux tags it `placement: auto`, which the chat
+  /// rows read ("Auto · This Mac") and which lets Auto move it later (design/auto-chat-placement.md).
+  useEffect(() => {
+    if (!autoTagPending.current || !snapshot.sessionId) return;
+    autoTagPending.current = false;
+    void callNative("chat.placement", { sessionId: snapshot.sessionId, placement: "auto" }).catch(() => undefined);
+  }, [snapshot.sessionId]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {
@@ -12674,6 +12800,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              // Auto (autoPlace.ts): the composer keeps the prompt while acpmux says where the chat
+              // starts; the verdict's mode then sends it (sendOnAuto). Rust decides, never the page.
+              if (sandbox.mode === "auto" && (!snapshot.sessionId || emptyLocalChat) && !onOtherMachine) {
+                if (!autoPlacing) sendOnAuto();
+                return false;
+              }
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
                 // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
@@ -12693,6 +12825,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),
+                    // Auto put it on Cloud: the chat is Auto's, so Auto may bring it back.
+                    ...(autoPlacedHere?.place === "cloud" ? { placement: "auto" as const } : {}),
                   },
                 );
                 if (typeof started === "string") {
@@ -13644,12 +13778,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           : {}),
                         // The page stays locked through a stall: its send would start a chat in this tab.
                         cloudStarting: cloudSendHeld || cloudPageHeld,
+                        // Auto from the page: acpmux's place, shown in the picker as "Auto · <place>";
+                        // a chat started here or on a machine is tagged once its session shows.
+                        onAuto: (cwd: string | undefined) => {
+                          const visit = newTabGeneration;
+                          setAutoPlace({ visit, placing: true });
+                          return placeAutoChat(cwd).then((verdict) => {
+                            const placed = autoPlaced(verdict);
+                            setAutoPlace({ visit, placed });
+                            autoTagPending.current = placed.place !== "cloud";
+                            return placed;
+                          });
+                        },
                         onCloud: (
                           harness: string,
                           text: string,
                           cwd: string | undefined,
                           model: string | undefined,
                           attachments: ComposerAttachment[],
+                          placement?: "auto",
                         ) => {
                           const folder = cloudStartFolder(cwd);
                           // New Tab sends use this callback directly, so record their complete folder too.
@@ -13667,6 +13814,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                 harness,
                                 model,
                               ),
+                              ...(placement ? { placement } : {}),
                             },
                             true,
                           );
@@ -14259,6 +14407,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
                       }
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      // An Auto chat's pin keeps it where it runs: Auto no longer moves it (chat.placement).
+                      onPin={(sessionId) =>
+                        void callNative("chat.placement", { sessionId, placement: "pinned" }).catch(() => undefined)
+                      }
                       shortcuts={!hasBottomAsk}
                     />
                   </div>

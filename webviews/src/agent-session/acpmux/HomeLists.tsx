@@ -5,7 +5,7 @@ import { useT } from "./i18n";
 
 import { type WatchedAsk } from "./needsYou/model";
 import type { AttentionTab } from "./needsYou/attentionTabs";
-import { activityTime, type AcpmuxSessionEntry, projectLabel } from "./sessionList";
+import { activityTime, type AcpmuxSessionEntry, chatPlace, projectLabel } from "./sessionList";
 import { HOME_LABELS, homeLists, age } from "./homeListsModel";
 import { pressToOpen } from "../../ui/pressToOpen";
 /// The lists under a new chat's composer. Each row opens its session. Renders
@@ -18,6 +18,7 @@ export function HomeLists({
   onSelect,
   onOpen,
   onAnswer,
+  onPin,
   look,
   shortcuts = true,
 }: {
@@ -31,6 +32,9 @@ export function HomeLists({
   onOpen?: HomeInboxActions["open"];
   /// Answers another chat's ask in place; rejects when it did not go through.
   onAnswer: HomeInboxActions["answer"];
+  /// Pins an Auto-placed chat where it runs now (the host's `chat.placement {sessionId, placement:
+  /// "pinned"}`): Auto no longer moves it. Without it no row offers the pin.
+  onPin?: (sessionId: string) => void;
   look?: HomeInboxLook;
   /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
   shortcuts?: boolean;
@@ -66,6 +70,7 @@ export function HomeLists({
               title={session.pullRequest!.title}
               detail={`#${session.pullRequest!.number}`}
               onSelect={onSelect}
+              onPin={onPin}
             />
           ))}
         </HomeList>
@@ -89,18 +94,21 @@ function HomeRow({
   title,
   detail,
   onSelect,
+  onPin,
 }: {
   session: AcpmuxSessionEntry;
   mark: React.ReactNode;
   title?: string;
   detail?: string;
   onSelect: (sessionId: string) => void;
+  onPin?: (sessionId: string) => void;
 }) {
   const t = useT();
   const project = session.cwd ? projectLabel(session.cwd) : undefined;
   const when = age(activityTime(session), Date.now(), t);
+  const place = rowPlace(session, t);
   return (
-    <li>
+    <li className="acpmux-home-item">
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
         <span className="acpmux-home-title" title={title ?? session.displayTitle}>
@@ -116,11 +124,48 @@ function HomeRow({
             {project}
           </span>
         )}
+        {place && (
+          <span
+            className="acpmux-home-meta acpmux-home-place"
+            data-placement={session.placement}
+            title={place.title ?? place.label}
+          >
+            {session.placement === "pinned" && <PinIcon />}
+            {place.label}
+          </span>
+        )}
         {when && <span className="acpmux-home-meta">{when}</span>}
         <ChevronIcon />
       </button>
+      {/* Its own button beside the row's: a pin is not an open (design/auto-chat-placement.md, Pinning). */}
+      {onPin && session.placement === "auto" && place && (
+        <button
+          type="button"
+          className="acpmux-home-pin"
+          aria-label={t("home.placementPin", { place: place.name })}
+          title={t("home.placementPin", { place: place.name })}
+          onClick={() => onPin(session.sessionId)}
+        >
+          <PinIcon />
+        </button>
+      )}
     </li>
   );
+}
+
+/// The row's place (design/auto-chat-placement.md, Pinning): "Auto · <machine>", "Auto · Cloud" or
+/// "Auto · This Mac" while Auto placed the chat; the plain place once pinned (a pin glyph beside it)
+/// or picked by the person, which a chat on this Mac with no placement leaves out, as before.
+function rowPlace(
+  session: AcpmuxSessionEntry,
+  t: ReturnType<typeof useT>,
+): { label: string; name: string; title?: string } | undefined {
+  const where = chatPlace(session);
+  const name =
+    where.kind === "peer" ? where.machine : where.kind === "cloud" ? t("composer.cloud") : t("composer.thisMac");
+  if (session.placement === "auto") return { label: t("home.placementAuto", { place: name }), name };
+  if (session.placement === "pinned") return { label: name, name, title: t("home.placementPinned", { place: name }) };
+  return where.kind === "local" ? undefined : { label: name, name };
 }
 
 function Icon({ children }: { children: React.ReactNode }) {
@@ -148,6 +193,11 @@ const PullRequestIcon = () => (
     <circle cx="4.5" cy="12.25" r="1.5" />
     <circle cx="11.5" cy="12.25" r="1.5" />
     <path d="M4.5 5.25v5.5M11.5 10.75V6.25c0-.83-.67-1.5-1.5-1.5H7.75M9.25 3.25l-1.5 1.5 1.5 1.5" />
+  </Icon>
+);
+const PinIcon = () => (
+  <Icon>
+    <path d="M9.75 2.75 13.25 6.25M10.75 3.75 7.5 7 4.75 7.25 8.75 11.25 9 8.5 12.25 5.25M6.75 9.25 3 13" />
   </Icon>
 );
 const ChevronIcon = () => (

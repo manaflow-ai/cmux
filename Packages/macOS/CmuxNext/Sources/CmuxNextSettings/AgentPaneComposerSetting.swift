@@ -36,9 +36,10 @@ import CmuxNextDesign
 /// arrive below it. A reader at the bottom still follows streaming output.
 /// `showMachineLoadWarnings`: the Computer menu adds cached high-load or low-memory details to
 /// remote machine rows. It is on by default and does not start another health poller.
-/// `newChatsIn`: where a new chat runs when the person picks nothing in its composer, `local`
-/// (this Mac, the default) or `cloud` (its first send starts it on the person's own Cloud
-/// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
+/// `newChatsIn`: where a new chat runs when the person picks nothing in its composer, `auto` (the
+/// default: its first send asks acpmux `_acpmux/chat_place` for This Mac, a joined machine or Cloud,
+/// design/auto-chat-placement.md), `local` (this Mac) or `cloud` (its first send starts it on the
+/// person's own Cloud machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
 ///

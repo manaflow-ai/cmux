@@ -8,7 +8,9 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
+import { autoPlaceName } from "./autoPlace";
 import {
+  AutoIcon,
   DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
@@ -594,6 +596,19 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
+  // Auto (autoPlace.ts): the face says Auto, then "Auto · <place>" once acpmux answered the first send,
+  // and This Mac with why when acpmux could not be asked. Its reason is the control's tooltip.
+  const autoPlacedRow = !started && !readOnly ? runMode?.autoPlaced : undefined;
+  const autoName = autoPlacedRow
+    ? autoPlacedRow.fallback
+      ? t("composer.autoFallback")
+      : t("composer.autoPlace", {
+          place: autoPlaceName(autoPlacedRow, { thisMac: t("composer.thisMac"), cloud: t("composer.cloud") }),
+        })
+    : runMode?.mode === "auto" && !started && !readOnly
+      ? t("composer.auto")
+      : undefined;
+  const autoValue = autoName && autoPlacedRow?.why ? `${autoName} · ${autoPlacedRow.why}` : autoName;
   const newChats = started && onNewChat !== undefined;
   // What the folder chip opens (folderlessCloud.ts `folderMenu`): a Cloud chat's never lists this
   // Mac's folders or Add folder… once it runs on its machine, and is a label while its start is out.
@@ -869,27 +884,31 @@ export function ComposerContext({
     folderState === "cloudFresh" && startedCloudFolder === undefined ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Other devices'.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
-  const whereName = sandboxPicked
-    ? t("composer.sandboxed")
-    : cloudSide
-      ? t("composer.cloud")
-      : offMac
-        ? t("composer.otherDevices")
-        : t("composer.thisMac");
+  const whereName = autoName
+    ? autoName
+    : sandboxPicked
+      ? t("composer.sandboxed")
+      : cloudSide
+        ? t("composer.cloud")
+        : offMac
+          ? t("composer.otherDevices")
+          : t("composer.thisMac");
   // The Where control's accessible name and tooltip also name the machine, which a narrow strip shows
   // only as an icon.
-  const wherePlace =
-    (offMac || savedPick !== undefined || (cloudSide && !cloudPicked)) && placeName
+  const wherePlace = autoValue
+    ? autoValue
+    : (offMac || savedPick !== undefined || (cloudSide && !cloudPicked)) && placeName
       ? `${whereName} · ${placeName}`
       : whereName;
-  const whereIcon =
-    sandboxPicked || cloudSide ? (
-      <EnvironmentIcon kind="cloud" />
-    ) : offMac ? (
-      <DevicesIcon />
-    ) : (
-      <EnvironmentIcon kind="local" />
-    );
+  const whereIcon = autoName ? (
+    <AutoIcon />
+  ) : sandboxPicked || cloudSide ? (
+    <EnvironmentIcon kind="cloud" />
+  ) : offMac ? (
+    <DevicesIcon />
+  ) : (
+    <EnvironmentIcon kind="local" />
+  );
   // The third chip: which machine while another machine is the pick; in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
@@ -897,11 +916,13 @@ export function ComposerContext({
   // Cloud machine picked by name (Machines…) gets the machine chip, naming it, with no New machine.
   const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
   const machineShown =
-    layout === "where-machine"
-      ? offMac || savedPick !== undefined || cloudMachinePicked
-      : layout === "where-machine-always"
-        ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
-        : true;
+    autoName !== undefined
+      ? false
+      : layout === "where-machine"
+        ? offMac || savedPick !== undefined || cloudMachinePicked
+        : layout === "where-machine-always"
+          ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
+          : true;
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
@@ -1084,11 +1105,16 @@ export function ComposerContext({
                 label={t(CONTEXT_LABELS.environment)}
                 menu="Computer"
                 value={
-                  sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
+                  autoValue ??
+                  (sandboxPicked || cloudPicked
+                    ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+                    : placeName)
                 }
                 face={
-                  // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
-                  sandboxPicked || cloudPicked ? (
+                  // Auto, Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
+                  autoName ? (
+                    <LocationFace icon={<AutoIcon />} value={autoName} chevron />
+                  ) : sandboxPicked || cloudPicked ? (
                     <LocationFace
                       icon={<EnvironmentIcon kind="cloud" />}
                       value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}

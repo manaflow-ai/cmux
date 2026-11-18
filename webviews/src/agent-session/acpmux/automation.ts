@@ -224,7 +224,7 @@ export async function composeSend(host: AutomationHost, text: string) {
   };
 }
 
-const RUN_MODES: readonly RunMode[] = ["persistent", "sandboxed", "cloud"];
+const RUN_MODES: readonly RunMode[] = ["auto", "persistent", "sandboxed", "cloud"];
 
 /// Reads, or with `mode` picks as the run row's click does, where this new chat runs.
 export function runMode(host: AutomationHost, mode?: string) {

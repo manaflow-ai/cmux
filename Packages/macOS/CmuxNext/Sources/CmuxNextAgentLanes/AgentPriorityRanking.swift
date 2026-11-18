@@ -87,7 +87,8 @@ public nonisolated struct AgentPriorityRanking: Sendable {
             let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: machine(lane),
                                              preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned,
                                              brand: SidebarItemInfo.agentBrand(forHarness: lane.harness),
-                                             agentColor: SidebarItemInfo.stableAgentColor(for: lane.id))
+                                             agentColor: SidebarItemInfo.stableAgentColor(for: lane.id),
+                                             autoPlaced: lane.placement == "auto")
             return (entry, Self.tier(state), lane.since ?? .distantPast)
         }
         var rows = ranked.filter { marks.placed[$0.entry.id] == nil }.sorted { a, b in

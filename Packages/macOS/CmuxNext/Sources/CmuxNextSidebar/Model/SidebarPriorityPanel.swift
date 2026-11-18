@@ -35,6 +35,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var agentColor: GroupColor?
     /// The machine it runs on, nil on this Mac; its tag takes the machine's color.
     public var machine: String?
+    /// Auto picked where the chat runs (its session tag `placement` is `auto`): the row says
+    /// "Auto · <machine>", "Auto · This Mac" (design/auto-chat-placement.md).
+    public var autoPlaced: Bool
     /// The latest line from the chat, up to two lines in the row.
     public var preview: String?
     public var state: State
@@ -51,8 +54,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
 
     public init(id: String, title: String, project: String? = nil, machine: String? = nil, preview: String? = nil,
                 state: State, unread: Bool = false, pinned: Bool = false, brand: String? = nil,
-                agentColor: GroupColor? = nil, answerRequest: String? = nil) {
+                agentColor: GroupColor? = nil, answerRequest: String? = nil, autoPlaced: Bool = false) {
         self.id = id
+        self.autoPlaced = autoPlaced
         self.title = title
         self.project = project
         self.brand = brand

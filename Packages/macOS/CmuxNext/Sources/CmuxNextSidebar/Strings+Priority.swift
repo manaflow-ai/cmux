@@ -40,12 +40,22 @@ extension Strings {
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .module) }
     /// A row's VoiceOver actions: the chat moves one place in the Priority view and keeps it.
     static var priorityMoveEarlier: String { String(localized: "sidebar.priority.moveEarlier", defaultValue: "Move Earlier", bundle: .module) }
+    /// A row's place when Auto chose it (design/auto-chat-placement.md): "Auto · huge-blue".
+    static func priorityAutoPlace(_ machine: String) -> String {
+        String(format: String(localized: "sidebar.priority.autoPlace", defaultValue: "Auto · %@", bundle: .module), machine)
+    }
+    static var priorityThisMac: String { String(localized: "sidebar.priority.thisMac", defaultValue: "This Mac", bundle: .module) }
     static var priorityMoveLater: String { String(localized: "sidebar.priority.moveLater", defaultValue: "Move Later", bundle: .module) }
 }
 
 extension SidebarPriorityEntry {
     /// The pin button's label and the row menu's pin row: what a press does to this chat.
     public var pinTitle: String { pinned ? Strings.priorityUnpin : Strings.priorityPin }
+    /// The row's place: the machine, or with Auto "Auto · <machine>" ("Auto · This Mac" here).
+    var placeText: String? {
+        guard autoPlaced else { return machine }
+        return Strings.priorityAutoPlace(machine ?? Strings.priorityThisMac)
+    }
 }
 
 extension SidebarPriorityPanel {

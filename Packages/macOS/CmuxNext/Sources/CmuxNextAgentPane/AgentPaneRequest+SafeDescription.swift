@@ -90,6 +90,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .gitHub(let request): request.method
         case .cloudEnvironment: "cloudEnvironment"
         case .tryAnotherApproach: "tryAnotherApproach"
+        case .chatPlacement: "chatPlacement"
         case .cloudTurnRewind(let request): request.method
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"

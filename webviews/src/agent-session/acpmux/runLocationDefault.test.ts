@@ -103,4 +103,8 @@ test("Start New Chats In: Cloud makes every new chat Cloud; This Mac leaves the 
   expect(newChatRunLocation("local", undefined)).toBeUndefined();
   expect(newChatRunLocation("local", "cloud")).toBe("cloud");
   expect(newChatRunLocation("local", "local")).toBe("local");
+  // Auto (the default) is acpmux's pick on the first send, whatever the folder's history says.
+  expect(newChatRunLocation("auto", undefined)).toBe("auto");
+  expect(newChatRunLocation("auto", "cloud")).toBe("auto");
+  expect(newChatRunLocation("auto", "local")).toBe("auto");
 });

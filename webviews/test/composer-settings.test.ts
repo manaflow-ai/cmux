@@ -109,10 +109,13 @@ test("a host snapshot wins over a late success from an older send-to-bottom writ
   }
 });
 
-test("new chats start on this Mac by default; Cloud only when the setting says so", () => {
-  expect(DEFAULT_COMPOSER.newChatsIn).toBe("local");
-  expect(readComposerSettings({}).newChatsIn).toBe("local");
+// Leo, 2026-11-18: Auto is the default for new chats, with a setting to turn it off (This Mac or Cloud).
+test("new chats start on Auto by default; This Mac or Cloud only when the setting says so", () => {
+  expect(DEFAULT_COMPOSER.newChatsIn).toBe("auto");
+  expect(readComposerSettings({}).newChatsIn).toBe("auto");
+  expect(readComposerSettings({ newChatsIn: "auto" }).newChatsIn).toBe("auto");
+  expect(readComposerSettings({ newChatsIn: "local" }).newChatsIn).toBe("local");
   expect(readComposerSettings({ newChatsIn: "cloud" }).newChatsIn).toBe("cloud");
-  expect(readComposerSettings({ newChatsIn: "Cloud" }).newChatsIn).toBe("local");
-  expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("local");
+  expect(readComposerSettings({ newChatsIn: "Cloud" }).newChatsIn).toBe("auto");
+  expect(readComposerSettings({ newChatsIn: true }).newChatsIn).toBe("auto");
 });

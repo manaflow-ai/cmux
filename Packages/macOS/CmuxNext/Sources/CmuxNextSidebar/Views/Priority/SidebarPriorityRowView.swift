@@ -102,7 +102,7 @@ final class SidebarPriorityRowView: NSView {
         let brandMark = entry.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: markSize) }
         hasBrandMark = brandMark != nil
         agentIcon.image = brandMark ?? NSImage.icon(symbol: "person.crop.circle", size: markSize)
-        placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
+        placeLabel.stringValue = [entry.project, entry.placeText].compactMap(\.self).joined(separator: " · ")
         preview.stringValue = entry.preview ?? ""
         preview.isHidden = entry.preview == nil
         chip.stringValue = Self.visibleChipText(entry.state, now: Date())

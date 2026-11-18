@@ -45,6 +45,9 @@ export type CloudStart = {
   /** The largest size the account's plan gives; none: the plan the page last read (`cloudMachine.list`), when active.
    *  The host asks it, its disk grown, for a folder past it that the plan's disk holds (AgentPaneCloudStart `planMax`). */
   planMax?: CloudSize;
+  /** Auto put this chat on Cloud (autoPlace.ts): the host tags its session `placement: auto`
+   *  (AgentPaneCloudStart `placement`), so the chat rows say "Auto · Cloud" and Auto may bring it back. */
+  placement?: "auto";
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -297,6 +300,7 @@ export async function startCloudChat(
   if (start.signedIn) params.signedIn = true;
   if (start.team) params.team = start.team;
   if (start.replacesChat) params.replacesChat = start.replacesChat;
+  if (start.placement) params.placement = start.placement;
   const plan = currentCloudPlan();
   const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
   if (planMax) params.planMax = planMax;
