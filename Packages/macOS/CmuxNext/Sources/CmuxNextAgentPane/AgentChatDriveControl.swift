@@ -461,12 +461,13 @@ private struct DriveRun {
                 return true
             }
             guard !release.isDone, ContinuousClock.now < stop else { break }
-            if await input.wheel(at: point, deltaY: Double(wheel.delta)) { sent += 1 }
+            // A tick's waits for WebKit end at `stop` too: on a covered window each would run its whole bound.
+            if await input.wheel(at: point, deltaY: Double(wheel.delta), before: stop) { sent += 1 }
             if tick + 1 < wheel.ticks {
-                // Between two ticks (up to 200 ms apart) the person, the window and the app are watched every
-                // DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
+                // Between two ticks (up to 200 ms apart, never past `stop`) the person, the window and the app
+                // are watched every DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
                 let surroundings = surroundings
-                _ = try await DriveWatch.watch(until: ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), isUsing: {
+                _ = try await DriveWatch.watch(until: min(ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), stop), isUsing: {
                     Self.outside(surroundings, release) != nil || person.isUsing(since: started)
                 })
             }
