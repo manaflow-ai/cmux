@@ -2498,6 +2498,10 @@ mod reader_bound_bench;
 mod reply_size_tests;
 
 #[cfg(test)]
+#[path = "summary_bytes_tests.rs"]
+mod summary_bytes_tests;
+
+#[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
 
