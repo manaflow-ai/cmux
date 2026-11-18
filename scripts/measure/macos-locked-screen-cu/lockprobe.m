@@ -95,8 +95,9 @@ static NSDictionary *pixelStats(CGImageRef img) {
     return @{@"w": @(w), @"h": @(h), @"lit": @(total ? (double)lit / total : 0), @"colors": @(colors.count)};
 }
 
-// A capture counts only when it was written and holds content: a blank or redacted picture (the
-// wallpaper-only or black result of a capture macOS withholds) has almost no lit pixels or colors.
+// A capture counts only when it was written and is not blank: a redacted picture (the
+// black result of a capture macOS withholds) has almost no lit pixels or colors. A lock-screen or
+// wallpaper picture still counts: read the PNG before calling a display capture working.
 static BOOL hasContent(NSDictionary *stats) {
     return [stats[@"lit"] doubleValue] > 0.05 && [stats[@"colors"] intValue] > 2;
 }

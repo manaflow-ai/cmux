@@ -102,7 +102,7 @@ round() {  # PHASE
 
 round A-unlocked
 
-"$P" vdisplay $((LATE + 600)) >"$O/vdisplay.jsonl" 2>"$O/vdisplay.err" &
+"$P" vdisplay $((LATE + 3600)) >"$O/vdisplay.jsonl" 2>"$O/vdisplay.err" &
 VPID=$!
 sleep 4
 VDID=$(head -1 "$O/vdisplay.jsonl" | sed -n 's/.*"display_id":\([0-9]*\).*/\1/p')
