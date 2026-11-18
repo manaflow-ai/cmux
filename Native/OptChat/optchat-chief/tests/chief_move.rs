@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+mod exe;
+
 const BIN: &str = env!("CARGO_BIN_EXE_optchat-chief");
 
 /// The daemon session directory of a Chief root (cmux-tui `ChiefHome::session`
@@ -485,16 +487,13 @@ fn dry_run_checks_the_target_and_changes_nothing() {
 /// `sh -c` in a fake remote home.
 fn fake_ssh(dir: &Path, remote_home: &Path) -> PathBuf {
     let path = dir.join("fake-ssh");
-    std::fs::write(
+    exe::write_executable(
         &path,
-        format!(
+        &format!(
             "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\ncd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
             h = remote_home.display()
         ),
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     path
 }
 
@@ -1067,9 +1066,9 @@ fn a_cloud_model_the_account_may_not_run_stops_the_move_before_any_copy() {
 fn fake_acpmux(dir: &Path) -> (PathBuf, PathBuf) {
     let log = dir.join("acpmux.log");
     let path = dir.join("fake-acpmux");
-    std::fs::write(
+    exe::write_executable(
         &path,
-        format!(
+        &format!(
             r#"#!/bin/sh
 printf '%s|%s\n' "$ACPMUX_HOME" "$*" >> '{log}'
 case "$*" in
@@ -1081,10 +1080,7 @@ esac
 "#,
             log = log.display()
         ),
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     (path, log)
 }
 

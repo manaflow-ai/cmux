@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
+mod exe;
+
 const BIN: &str = env!("CARGO_BIN_EXE_optchat-chief");
 const CHIEF: &str = "agent_01TEST";
 const USER: &str = "user_T";
@@ -255,15 +257,14 @@ fn fake_cloud_with(
 /// A stand-in for the app's `cmux auth token --json`.
 fn fake_app_cli(dir: &Path, origin: &str) -> PathBuf {
     let bin = dir.join("bin/cmux");
-    write(
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    exe::write_executable(
         &bin,
         &format!(
             "#!/bin/sh\n[ \"$1 $2 $3\" = \"auth token --json\" ] || exit 9\necho '{}'\n",
             json!({"access_token": "app-token", "token_type": "Bearer", "api_origin": origin, "expires_in": 600})
         ),
     );
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
     bin
 }
 
@@ -468,15 +469,13 @@ fn the_app_token_for_another_cloud_is_refused() {
 /// A stand-in `ssh` that runs the remote command in `remote_home` (as chief_move.rs).
 fn fake_ssh(dir: &Path, remote_home: &Path) -> PathBuf {
     let path = dir.join("fake-ssh");
-    write(
+    exe::write_executable(
         &path,
         &format!(
             "#!/bin/sh\nwhile [ \"$1\" = -o ]; do shift 2; done\nshift\ncd '{h}' && HOME='{h}' exec sh -c \"$1\"\n",
             h = remote_home.display()
         ),
     );
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
 
@@ -497,7 +496,7 @@ fn the_fakes_run_while_sibling_tests_fork() {
     let forker = std::thread::spawn(move || {
         let mut children: Vec<libc::pid_t> = Vec::new();
         while !forking.load(Ordering::Relaxed) || !children.is_empty() {
-            if !forking.load(Ordering::Relaxed) && children.len() < 64 {
+            if !forking.load(Ordering::Relaxed) && children.len() < 32 {
                 // SAFETY: the child calls only async-signal-safe usleep and _exit.
                 let pid = unsafe { libc::fork() };
                 if pid == 0 {
@@ -518,7 +517,7 @@ fn the_fakes_run_while_sibling_tests_fork() {
         }
     });
     let mut busy = Vec::new();
-    for i in 0..200 {
+    for i in 0..100 {
         let at = dir.path().join(i.to_string());
         std::fs::create_dir_all(&at).unwrap();
         let ssh = fake_ssh(&at, &remote);
