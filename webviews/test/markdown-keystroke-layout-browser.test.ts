@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import type { Browser, Page } from "playwright";
 import { chromium } from "../bench/browsers";
 import { serveBenchPage, type BenchPage } from "../bench/support/benchPage";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () => {
@@ -36,6 +37,8 @@ await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () =
   const BOTTOM = "layout-bottom";
   const NEEDLE = "middle-paragraph";
   const KEYS = 10;
+  /** Painted frames in a row with nothing under the pane changed before the page counts as settled. */
+  const QUIET_FRAMES = 3;
 
   /** About `lines` lines: each part a heading, a paragraph, an ordered list and a table. */
   const fixture = (lines: number) => {
@@ -64,8 +67,36 @@ await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () =
     (window as unknown as { webkit: unknown }).webkit = { messageHandlers: { cmuxPage: { postMessage } } };
   }
 
+  /** Resolves once the fonts are in and the pane has painted QUIET_FRAMES frames in a row with no
+   *  change under it (no slice, decoration, observer write or scroll left to land in the trace). */
+  async function settle(page: Page): Promise<void> {
+    await page.evaluate(
+      (quiet) =>
+        new Promise<void>((resolve) => {
+          const pane = document.querySelector(".md-scroll")!;
+          let changed = false;
+          const observer = new MutationObserver(() => (changed = true));
+          observer.observe(pane, { subtree: true, childList: true, attributes: true, characterData: true });
+          const scrolled = () => (changed = true);
+          pane.addEventListener("scroll", scrolled);
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            still = changed || document.fonts.status !== "loaded" ? 0 : still + 1;
+            changed = false;
+            if (still < quiet) return true;
+            observer.disconnect();
+            pane.removeEventListener("scroll", scrolled);
+            resolve();
+            return false;
+          });
+        }),
+      QUIET_FRAMES,
+    );
+  }
+
   async function open(lines: number): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
+    await installPaintedFrames(page);
     await page.route("**/__fixture", (route) =>
       route.fulfill({ status: 200, contentType: "text/markdown", body: fixture(lines) }),
     );
@@ -76,7 +107,7 @@ await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () =
       BOTTOM,
       { timeout: 180_000, polling: 200 },
     );
-    await page.waitForTimeout(500);
+    await settle(page);
     return page;
   }
 
@@ -84,7 +115,9 @@ await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () =
 
   /** KEYS characters typed after NEEDLE under a trace: per key, restyled elements, layout ms, painted px². */
   async function typeTraced(page: Page): Promise<Work> {
+    // The caret goes after NEEDLE; the editor takes it on the selectionchange that follows.
     await page.evaluate((needle) => {
+      const selected = new Promise((resolve) => document.addEventListener("selectionchange", resolve, { once: true }));
       const prose = document.querySelector<HTMLElement>(".md-prose")!;
       const walker = document.createTreeWalker(prose, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -93,10 +126,11 @@ await requireBrowserLane("markdown-keystroke-layout-browser.test.ts", async () =
         node.parentElement!.scrollIntoView({ block: "center" });
         prose.focus();
         getSelection()!.collapse(node, at + needle.length);
-        return;
+        return selected;
       }
+      throw new Error(`no ${needle} in the document`);
     }, NEEDLE);
-    await page.waitForTimeout(200);
+    await settle(page);
     type Ev = { name: string; ph: string; pid: number; tid: number; dur?: number; args?: Record<string, any> };
     await browser!.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline"] });
     for (let key = 0; key < KEYS; key++) {
