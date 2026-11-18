@@ -23,6 +23,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
+#[cfg(test)]
+#[path = "requests/session_load_newest_tests.rs"]
+mod session_load_newest_tests;
 mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]

@@ -62,6 +62,16 @@ pub struct EventRecord {
     pub host_seq: Option<u64>,
 }
 
+/// Where a read of a log's newest records starts ([`Store::newest_window`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NewestWindow {
+    /// The seq after which the newest records lie: 0 when the log holds no more than asked for,
+    /// else the seq of the newest record left out, so records `1..=after` are the older ones.
+    pub after: u64,
+    /// The newest record's seq (0 for an empty log): the count of records the chat has logged.
+    pub newest: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -1287,6 +1297,13 @@ pub trait Store: Send + Sync {
         })?;
         Ok((count, last))
     }
+    /// Where the newest `n` records before seq `before` start ([`NewestWindow`]): a replay that
+    /// may send only `n` records sends the newest ones (`session/load`), not the oldest. A file
+    /// store reads the lines' seqs back from the end and parses none, so the answer costs `n`
+    /// lines however long the log is.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        newest_window_by_scan(self, id, before, n)
+    }
     /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
     /// parses no other line (the queue restore at daemon start reads its few kinds out of
     /// logs that are mostly agent output).
@@ -1544,6 +1561,27 @@ pub trait Store: Send + Sync {
     fn audit_dir(&self) -> Option<PathBuf> {
         None
     }
+}
+
+/// [`Store::newest_window`] by `scan_back`, for a store with no cheaper read of its seqs.
+pub(crate) fn newest_window_by_scan<S: Store + ?Sized>(
+    store: &S,
+    id: &str,
+    before: u64,
+    n: u64,
+) -> Result<NewestWindow> {
+    let mut window = NewestWindow::default();
+    let mut seen = 0u64;
+    store.scan_back(id, 0, before, &|_, _| false, &mut |rec| {
+        window.newest = window.newest.max(rec.seq);
+        seen += 1;
+        if seen > n {
+            window.after = rec.seq;
+            return false;
+        }
+        true
+    })?;
+    Ok(window)
 }
 
 mod log_line;
@@ -2390,6 +2428,42 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    /// Back from the end of the records before `before`, segment by segment, reading each line's
+    /// seq from its first bytes: no line is parsed but one whose header does not read.
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        let mut window = NewestWindow::default();
+        let mut seen = 0u64;
+        let mut done = false;
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let end = offset_of_seq(&mut file, before)?;
+            for_each_line_rev_from(&mut file, end, &mut |line| {
+                let Some(seq) = record_seq(line).or_else(|| parse_record(line).ok().map(|r| r.seq))
+                else {
+                    return true;
+                };
+                if seq >= before {
+                    return true;
+                }
+                window.newest = window.newest.max(seq);
+                seen += 1;
+                if seen > n {
+                    window.after = seq;
+                    done = true;
+                    return false;
+                }
+                true
+            })?;
+            if done {
+                break;
+            }
+        }
+        Ok(window)
     }
 
     /// Through the copies of the kinds (`store/kind_index.rs`), past `after`: a scan of the log
