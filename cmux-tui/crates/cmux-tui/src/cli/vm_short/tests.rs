@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, parse, resolve, restore_machine,
-    table,
+    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, resolve,
+    restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -272,4 +272,37 @@ fn ls_prints_a_table() {
     // Still loading is not "no VMs".
     let loading = table(&json!({"loaded": false, "machines": []}));
     assert!(loading.contains("not loaded") && !loading.contains("cmux vm new"), "{loading}");
+}
+
+/// `vm rename OLD NEW` renames: the second word is the new name (`--name NEW`), not an unknown
+/// action whose error was only `usage: cmux cloud <action>`. A third word is still refused.
+#[test]
+fn rename_takes_the_new_name_after_the_vm() {
+    let rename = parse(&words(&["vm", "rename", "vm_a1", "api-dev"])).unwrap();
+    assert_eq!((rename.cloud_verb, rename.named.as_deref()), ("rename-machine", Some("vm_a1")));
+    assert_eq!(
+        cloud_words(&rename, Some("vm_a1")),
+        words(&["--target", "machine:vm_a1", "--name", "api-dev"])
+    );
+    let flagged = parse(&words(&["vm", "rename", "dev", "--name", "api"])).unwrap();
+    assert_eq!(flagged.tail, words(&["--name", "api"]));
+    assert_eq!(parse(&words(&["vm", "rename", "dev", "--name", "api", "extra"])), None);
+    assert_eq!(parse(&words(&["vm", "rename", "dev", "a", "b"])), None);
+}
+
+/// `vm status <a deleted vm_… id>` says no VM of yours has that id, with the id as typed (never
+/// a generic usage line, never respelled).
+#[test]
+fn an_unlisted_vm_id_for_an_app_verb_is_named_verbatim() {
+    assert_eq!(resolve(Some("vm_a7b3c9d0"), &listed()), Resolved::VmApi);
+    let error = not_listed("vm_a7b3c9d0");
+    assert_eq!(error["code"], "cloud.unknown_machine");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("vm_a7b3c9d0"), "{message}");
+    assert!(message.contains("cmux vm ls"), "{message}");
+    let respelled = crate::cli::vm_words::respell_value(&error);
+    assert!(
+        respelled["message"].as_str().unwrap_or_default().contains("vm_a7b3c9d0"),
+        "{respelled}"
+    );
 }

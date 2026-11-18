@@ -119,12 +119,9 @@ fn dispatch_command(
         Command::RemoteHostCall { method, params } => {
             remote_host_command::call(mux, client, &method, params)
         }
-        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
-            remote_host_command::config(
-                mux,
-                client,
-                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
-            )
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
+            let update = json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless});
+            remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
@@ -357,21 +354,7 @@ fn dispatch_command(
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
+        Command::NewTab(params) => cmd_tabs::new_tab(mux, client, actor, params),
         Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
         Command::BindConversationTabSession(params) => {
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
@@ -577,6 +560,10 @@ fn dispatch_command(
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
+        Command::FloatPane(params) => floating_panes::float_pane(mux, client, actor, params),
+        Command::QuickTerminal(params) => {
+            floating_panes::quick_terminal(mux, client, actor, params)
+        }
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea";
+pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1750,6 +1750,11 @@ pub const ReattachViewResult = struct {
     state: SizeState,
 };
 
+pub const RemoteHostAppPermissions = struct {
+    accessibility: wire.Field(bool) = .absent,
+    screen_recording: wire.Field(bool) = .absent,
+};
+
 pub const RemoteHostAppResult = struct {
     host_pid: u32,
     secret: []const u8,
@@ -2621,11 +2626,14 @@ pub const SurfaceResult = struct {
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: ?[]const u8 = null,
+    /// The transaction of a new-tab request, when it sent one.
+    transaction: ?[]const u8 = null,
     workspace_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "screen_id",
         "terminal_resource_id",
+        "transaction",
         "workspace_id",
     };
 };
@@ -2762,6 +2770,19 @@ pub const TabGroupRun = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "pane",
     };
+};
+
+pub const TabPlace = struct {
+    /// Right after this tab of pane.
+    after: wire.Field(Id) = .absent,
+    /// Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.
+    after_creation: wire.Field([]const u8) = .absent,
+    /// Right before this tab of pane.
+    before: wire.Field(Id) = .absent,
+    /// true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.
+    joins: wire.Field(bool) = .absent,
+    /// true: the first tab after the pinned tabs.
+    start: wire.Field(bool) = .absent,
 };
 
 /// A tab named by its numeric surface id or its public tab_ id.
@@ -6555,6 +6576,31 @@ pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decod
     );
 }
 
+pub const FloatPaneRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    pane: Id,
+    transaction: wire.Field(u64) = .absent,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const FloatPaneResult = JsonValue;
+
+pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(FloatPaneResult) {
+    return client.callTyped(
+        FloatPaneResult,
+        .{
+            .name = "float-pane",
+            .authority = "control",
+            .since = 12,
+            .capability = "floating-panes-v1",
+        },
+        request,
+    );
+}
+
 pub const FocusDirectionRequest = struct {
     dir: PaneDirection,
     pane: wire.Field(Id) = .absent,
@@ -7787,6 +7833,8 @@ pub const NewConversationTabRequest = struct {
     owner: wire.Field([]const u8) = .absent,
     page: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
+    /// Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.
+    place: wire.Field(TabPlace) = .absent,
     route: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction.
@@ -7821,6 +7869,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
                 .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
+                .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "route", .since = null, .capability = "page-tab-route-v1" },
                 .{ .name = "split", .since = null, .capability = "conversation-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
@@ -7839,11 +7888,15 @@ pub const NewFrontendBrowserTabRequest = struct {
     idempotency_key: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
+    /// Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.
+    place: wire.Field(TabPlace) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
     split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
+    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split.
+    transaction: wire.Field([]const u8) = .absent,
     url: []const u8,
     /// Instead of pane: the tab goes in this workspace's active pane, or is the first tab of an empty workspace (no terminal is made for it to replace). Refused with split.
     workspace: wire.Field(Id) = .absent,
@@ -7864,7 +7917,9 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .since = 12,
             .capability = "frontend-browser-tabs-v1",
             .fields = &.{
+                .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+                .{ .name = "transaction", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "workspace", .since = null, .capability = "frontend-browser-tab-workspace-v1" },
             },
         },
@@ -8064,9 +8119,13 @@ pub const NewTabRequest = struct {
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
+    /// Where the tab goes in the strip of pane. Needs pane.
+    place: wire.Field(TabPlace) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
+    /// Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation.
+    transaction: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "keep",
@@ -8086,8 +8145,10 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "place", .since = 12, .capability = "tab-create-place-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "transaction", .since = 12, .capability = "tab-create-place-v1" },
             },
         },
         request,
@@ -8393,6 +8454,30 @@ pub fn putSession(client: anytype, request: PutSessionRequest) !wire.Decoded(Put
     );
 }
 
+pub const QuickTerminalRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    screen: Id,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const QuickTerminalResult = JsonValue;
+
+pub fn quickTerminal(client: anytype, request: QuickTerminalRequest) !wire.Decoded(QuickTerminalResult) {
+    return client.callTyped(
+        QuickTerminalResult,
+        .{
+            .name = "quick-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "quick-terminal-v1",
+        },
+        request,
+    );
+}
+
 pub const ReadScreenRequest = struct {
     surface: Id,
 };
@@ -8573,6 +8658,7 @@ pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Dec
 }
 
 pub const RemoteHostConfigRequest = struct {
+    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
     computer_use: wire.Field(bool) = .absent,
     headless: wire.Field(bool) = .absent,
     screen_sharing: wire.Field(bool) = .absent,
@@ -11769,6 +11855,8 @@ pub const TabAddedEvent = struct {
     pane: Id,
     screen: Id,
     surface: Id,
+    /// The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1).
+    transaction: wire.Field([]const u8) = .absent,
     workspace: Id,
 };
 
@@ -12613,7 +12701,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 303;
+pub const command_count: usize = 305;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12731,6 +12819,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
@@ -12808,6 +12897,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "quick-terminal", .authority = "control", .since = 12, .capability = "quick-terminal-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },
