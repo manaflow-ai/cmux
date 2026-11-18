@@ -6,6 +6,7 @@ import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -172,6 +173,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
+  /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection
+  /// serves Cloud.
+  connect?: ClaudeConnectRowProps;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so

@@ -367,6 +367,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        services.hoverCards.windowOrderChanged() // this window came front: the card's cached top window may be under it
         reservedContent.fill { [weak self] in self?.services.windows.controllers.map(\.reservedContent) ?? [] } // follows the key main window
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }
@@ -382,6 +383,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // next key window is known on the next main-actor turn.
         Task { @MainActor [weak self] in
             guard let self, let window = self.window else { return }
+            self.services.notifications.focusDidSettle(self.focus.state, in: self) // the new key window may be its page's
             WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
                                               presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
                                               cache: self.services.cache)
