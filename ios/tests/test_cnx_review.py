@@ -184,7 +184,7 @@ class PhoneLaunchTests(unittest.TestCase):
     """phone_launch_and_check: the credentials reach only the signed-in launch, never argv; the
     credential-free relaunch carries none; the receipt of that very launch decides."""
 
-    def launch(self, session, receipt_fields, pair_url=''):
+    def launch(self, session, receipt_fields, pair_url='', backend=''):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'bin').mkdir()
@@ -218,6 +218,8 @@ else:
 set -euo pipefail
 source "{REVIEW}"
 BUNDLE_ID=dev.cmux.mobile.{TAG} MAC_DEVICE_ID=mac-tagged CNX_REVIEW_RECEIPT_TIMEOUT=2 SHA={SHA} SLUG={TAG} STATE="{root}/state"
+BACKEND_URL="{backend}"
+export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND=https://ambient.example
 PERSONAL_EMAIL=me@example.com PERSONAL_PASSWORD=pw-secret PERSONAL_ACCOUNT=me@example.com
 export DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD=ambient-leak
 if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PASS: $PHONE_VERDICT"; else echo "FAIL: $PHONE_REASON"; fi
@@ -254,9 +256,164 @@ if phone_launch_and_check {PHONE} client-1 {session} "{pair_url}"; then echo "PA
         r, _, _ = self.launch('restored', {'paired_macs': [{'id': 'other-mac', 'name': 'x', 'linked': True}]})
         self.assertIn('FAIL: restored launch: not paired with the tagged Mac yet', r.stdout)
 
+    STACK = 'https://cmux-dev-backend-1.tail137216.ts.net:3850'
+
+    def test_the_first_launch_names_the_tags_backend_and_the_relaunch_must_keep_it(self):
+        r, _, env = self.launch('auto_login', {'cloud_backend': self.STACK, **self.linked}, backend=self.STACK)
+        self.assertIn('PASS: signed in (auto_login)', r.stdout, r.stderr)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], self.STACK)
+        r, _, env = self.launch('restored', {'cloud_backend': self.STACK, **self.linked}, backend=self.STACK)
+        self.assertIn('PASS: signed in (restored)', r.stdout, r.stderr)
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND', env, 'the relaunch carries nothing; the app kept it')
+
+    def test_an_app_on_another_backend_fails(self):
+        r, _, _ = self.launch('restored', {'cloud_backend': 'https://cloud-api-staging.cmux.dev', **self.linked},
+                              backend=self.STACK)
+        self.assertIn(f'FAIL: restored launch: the app uses the Cloud backend https://cloud-api-staging.cmux.dev, not {self.STACK}',
+                      r.stdout)
+        r, _, _ = self.launch('restored', self.linked, backend=self.STACK)
+        self.assertIn('FAIL: restored launch: the receipt names no cloud_backend', r.stdout)
+
+    def test_the_default_clears_a_kept_backend_and_checks_nothing(self):
+        r, _, env = self.launch('auto_login', self.linked)
+        self.assertIn('PASS: signed in (auto_login)', r.stdout, r.stderr)
+        self.assertEqual(env['DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND'], '', 'an empty value clears the kept override')
+        _, _, env = self.launch('restored', self.linked)
+        self.assertNotIn('DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND', env, 'no ambient value leaks into a launch')
+
     def test_a_receipt_from_another_launch_never_passes(self):
         r, _, _ = self.launch('restored', {'nonce': 'old', **self.linked})
         self.assertIn('FAIL: restored launch: the receipt is from another launch', r.stdout)
+
+
+def load_review_mac():
+    spec = importlib.util.spec_from_file_location('review_mac', ROOT / 'cmux-next-ios/scripts/review_mac.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class BackendTests(unittest.TestCase):
+    """--backend: the allowlist, the Mac's backend.json, the report and retry, and the Mac's own answer."""
+    STACK = 'https://cmux-dev-backend-1.tail137216.ts.net:3850'
+
+    def test_only_the_shared_dev_deployment_and_tailnet_origins_are_allowed(self):
+        m = load_review_mac()
+        for value, want in [('dev', m.DEVELOPMENT_API), ('development', m.DEVELOPMENT_API),
+                            (m.DEVELOPMENT_API + '/', m.DEVELOPMENT_API),
+                            ('preview-7', 'https://cmux-api-preview-7.debussy.workers.dev'),
+                            (self.STACK + '/', self.STACK),
+                            ('https://cmux-dev-backend-1.tail137216.ts.net', 'https://cmux-dev-backend-1.tail137216.ts.net')]:
+            self.assertEqual(m.backend_origin(value), want, value)
+        for value in ['https://attacker.example', 'https://cloud-api.cmux.dev', 'prod', 'staging',
+                      'http://cmux-dev-backend-1.tail137216.ts.net:3850', 'https://ts.net', 'https://tail137216.ts.net',
+                      'https://cmux-dev-backend-1.tail137216.ts.net.attacker.example', self.STACK + '/v1',
+                      self.STACK + '?x=1', 'https://user@cmux-dev-backend-1.tail137216.ts.net', 'https://a_b.tail.ts.net',
+                      'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '']:
+            with self.assertRaises(ValueError, msg=value):
+                m.backend_origin(value)
+
+    def test_backend_json_is_written_privately_replaced_and_removed(self):
+        m = load_review_mac()
+        with tempfile.TemporaryDirectory() as temp:
+            folder = os.path.join(temp, 'cmux-next', 'com.cmuxterm.app.debug.cnx-test-v1')
+            self.assertEqual(m.write_backend(folder, self.STACK), 'changed')
+            path = os.path.join(folder, 'backend.json')
+            self.assertEqual(json.load(open(path))['backend'], self.STACK)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            self.assertEqual(m.write_backend(folder, self.STACK), 'same')
+            self.assertEqual(m.write_backend(folder, m.DEVELOPMENT_API), 'changed')
+            self.assertEqual(m.write_backend(folder, ''), 'changed')
+            self.assertFalse(os.path.exists(path))
+            self.assertEqual(m.write_backend(folder, ''), 'same')
+            self.assertEqual(sorted(os.listdir(folder)), [], 'no temporary file is left')
+
+    def resolve(self, arg, stack_body=None):
+        with tempfile.TemporaryDirectory() as temp:
+            stack = Path(temp) / 'cloud-dev-stack.sh'
+            stack.write_text(stack_body or '#!/bin/sh\necho "starting"\necho "%s"\n' % self.STACK)
+            stack.chmod(0o755)
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'source "{REVIEW}"',
+                f'SLUG={TAG} BACKEND_ARG="{arg}"',
+                'review_resolve_backend',
+                'echo "URL=$BACKEND_URL"; echo "REPORT=$BACKEND_REPORT"; retry_command',
+            ])
+            return bash(script, {'CNX_CLOUD_DEV_STACK': str(stack)})
+
+    def test_resolve_backend(self):
+        r = self.resolve('')
+        self.assertIn('URL=\n', r.stdout, r.stderr)
+        self.assertIn('REPORT=shared dev Workers (default, no override)', r.stdout)
+        self.assertNotIn('--backend', r.stdout)
+        r = self.resolve(self.STACK + '/')
+        self.assertIn(f'URL={self.STACK}\n', r.stdout, r.stderr)
+        self.assertIn(f'--backend {self.STACK}/', r.stdout)
+        r = self.resolve('tag-stack')
+        self.assertIn(f"REPORT={self.STACK} (this tag's stack)", r.stdout, r.stderr)
+        self.assertIn('--backend tag-stack', r.stdout)
+
+    def test_a_refused_backend_stops_before_any_build(self):
+        r = self.resolve('https://attacker.example')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('--backend refused', r.stderr)
+        r = self.resolve('tag-stack', '#!/bin/sh\necho https://attacker.example\n')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('is not a tailnet origin', r.stderr)
+        r = self.resolve('tag-stack', '#!/bin/sh\necho "no stack for this tag" >&2; exit 3\n')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('no stack for this tag', r.stderr)
+
+    def check_mac(self, backend_url, answer):
+        with tempfile.TemporaryDirectory() as temp:
+            reply = Path(temp) / 'auth-status.json'
+            reply.write_text(json.dumps(answer))
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'source "{REVIEW}"',
+                f'BACKEND_URL="{backend_url}" MAC_SOCKET=/nonexistent',
+                f'mac_py() {{ [ "$1" = backend ] && cat "{reply}"; }}',
+                'if mac_check_backend; then echo "OK: $REPORT_BACKEND_MAC"; else echo "NO: $REPORT_BACKEND_MAC"; fi',
+            ])
+            return bash(script).stdout
+
+    def test_the_mac_app_must_report_the_asked_for_backend(self):
+        label = f"{self.STACK} (this tag's backend.json)"
+        self.assertIn(f'OK: {label}', self.check_mac(self.STACK, {'backend': self.STACK, 'backend_label': label}))
+        self.assertIn(f'NO: BLOCKED: it uses https://cmux-api-development.debussy.workers.dev, not {self.STACK}',
+                      self.check_mac(self.STACK, {'backend': 'https://cmux-api-development.debussy.workers.dev'}))
+        dev = 'https://cmux-api-development.debussy.workers.dev'
+        self.assertIn(f'OK: {dev} (dev)', self.check_mac('', {'backend': dev, 'backend_label': f'{dev} (dev)'}))
+
+    def test_the_mac_gets_backend_json_before_it_starts_and_a_running_app_restarts_on_a_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'source "{REVIEW}"',
+                f'HOME="{root}" BACKEND_URL="{self.STACK}" MAC_APP="{root}/cmux DEV t.app" REPORT_MAC=""',
+                'mac_py() { case "$1" in bundle) echo com.cmuxterm.app.debug.cnx-test-v1 ;;'
+                ' *) /usr/bin/python3 -I "$SCRIPT_DIR/review_mac.py" "$@" ;; esac; }',
+                'pgrep() { return 0; }',
+                'mac_quit_installed() { echo QUIT; }',
+                'mac_apply_backend; mac_apply_backend',
+            ])
+            r = bash(script)
+            self.assertEqual(r.stdout.count('QUIT'), 1, r.stdout + r.stderr)
+            folder = root / 'Library/Application Support/cmux-next/com.cmuxterm.app.debug.cnx-test-v1'
+            self.assertEqual(json.loads((folder / 'backend.json').read_text())['backend'], self.STACK)
+
+    def test_the_report_has_a_backend_line(self):
+        script = '\n'.join([
+            f'source "{REVIEW}"',
+            f'SLUG={TAG} REPORT_MAC=x BACKEND_REPORT="{self.STACK} (this tag\'s stack)"',
+            f'REPORT_BACKEND_MAC="{self.STACK} (this tag\'s backend.json)"',
+            'review_report',
+        ])
+        r = bash(script)
+        self.assertIn(f"Backend:    {self.STACK} (this tag's stack); Mac app: {self.STACK} (this tag's backend.json)",
+                      r.stdout, r.stderr)
 
 
 class ReceiptCheckTests(unittest.TestCase):
