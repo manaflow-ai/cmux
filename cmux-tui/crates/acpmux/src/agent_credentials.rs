@@ -368,6 +368,60 @@ mod tests {
         assert_eq!(argv.last().map(String::as_str), Some("app-server"));
     }
 
+    /// A Codex access token naming `account` (its `https://api.openai.com/auth` claim), unsigned.
+    fn codex_cli_token(account: Option<&str>) -> String {
+        use base64::Engine as _;
+        let b64 = |v: &Value| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
+        };
+        let mut claims = json!({"exp": 4_102_444_800_i64});
+        if let Some(account) = account {
+            claims["https://api.openai.com/auth"] = json!({"chatgpt_account_id": account});
+        }
+        format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims))
+    }
+
+    /// cmux#45774: a Codex CLI ChatGPT login (the Mac's `codex login`) runs on the ChatGPT Codex
+    /// backend with its token and the account the token names, never on the plan route
+    /// (`api.openai.com/v1`), which refuses a Codex CLI token ("Missing scopes: api.responses.write").
+    #[test]
+    fn codex_on_its_cli_login_runs_the_chatgpt_codex_backend_for_the_tokens_account() {
+        const NAME: &str = "CMUX_CODEX_ACCESS_TOKEN";
+        let token = codex_cli_token(Some("acct-1234"));
+        let c = AgentCredential::parse(&json!({"env": {NAME: token}})).unwrap();
+        assert_eq!(c.family(), Family::Codex);
+        let mut argv: Vec<String> =
+            ["codex", "-c", "model_provider=\"cmux\"", "app-server"].map(str::to_owned).into();
+        let mut e = env(&[
+            ("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1"),
+            ("OPENAI_API_KEY", crate::codex_cloud_auth::PLACEHOLDER_KEY),
+        ]);
+        assert!(apply(&c, "codex", &mut argv, &mut e));
+        assert_eq!(e[NAME], token);
+        assert_eq!(e["CMUX_CODEX_ACCOUNT_ID"], "acct-1234");
+        assert!(!e.contains_key("OPENAI_BASE_URL"));
+        assert!(!e.contains_key("OPENAI_API_KEY"));
+        let joined = argv.join(" ");
+        assert!(!joined.contains("model_provider=\"cmux\""), "{joined}");
+        assert!(!joined.contains("api.openai.com"), "{joined}");
+        for want in [
+            "model_provider=\"cmux_codex_login\"",
+            "model_providers.cmux_codex_login.base_url=\"https://chatgpt.com/backend-api/codex\"",
+            "model_providers.cmux_codex_login.env_key=\"CMUX_CODEX_ACCESS_TOKEN\"",
+            "model_providers.cmux_codex_login.env_http_headers.chatgpt-account-id=\"CMUX_CODEX_ACCOUNT_ID\"",
+            "model_providers.cmux_codex_login.wire_api=\"responses\"",
+            "model_providers.cmux_codex_login.requires_openai_auth=false",
+            "model_providers.cmux_codex_login.supports_websockets=false",
+        ] {
+            assert!(argv.iter().any(|a| a == want), "{want} in {joined}");
+        }
+        assert!(!joined.contains(&token), "the token is never on the command line");
+        assert_eq!(argv.last().map(String::as_str), Some("app-server"));
+        // A token that names no account cannot be sent with one: refused, never applied without it.
+        let bare = codex_cli_token(None);
+        assert!(AgentCredential::parse(&json!({"env": {NAME: bare}})).is_err());
+    }
+
     #[test]
     fn codex_on_an_openai_key_reads_that_key() {
         let c = AgentCredential::parse(&json!({"env": {OPENAI_KEY: "sk-proj-abc"}})).unwrap();

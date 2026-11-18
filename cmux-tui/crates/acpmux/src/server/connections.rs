@@ -952,6 +952,57 @@ mod tests {
         assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
     }
 
+    /// A Codex CLI `auth.json` signed in with ChatGPT (0600, as Codex writes it), in a new folder
+    /// under `d`: an unsigned access token for account `acct-1234` that ends `left` seconds from now.
+    fn codex_login_folder(d: &Dirs, name: &str, left: i64) -> (PathBuf, String) {
+        use base64::Engine as _;
+        let b64 = |v: &Value| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let claims = json!({"exp": now + left,
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-1234"}});
+        let access = format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims));
+        let folder = d._root.path().join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        let auth = json!({"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {
+            "access_token": access, "account_id": "acct-1234",
+            "id_token": "the-id-token", "refresh_token": "the-refresh-token"}});
+        let path = folder.join("auth.json");
+        std::fs::write(&path, auth.to_string()).unwrap();
+        crate::router_socket::owner_only(&path);
+        (folder, access)
+    }
+
+    fn codex_login_route(d: &Dirs, folder: &Path) {
+        let mut file = routes::find(None, routes::CODEX_LOGIN_ROUTE_ID).unwrap().file;
+        file.account_home = Some(folder.display().to_string());
+        routes::add(Some(&d.routes), routes::CODEX_LOGIN_ROUTE_ID, &file, true).unwrap();
+    }
+
+    /// cmux#45774: the Mac's Codex CLI signed in with ChatGPT serves a Cloud chat. Cloud
+    /// multiplayer (#40159) listed it as This Mac only, so a person signed in to Codex with ChatGPT
+    /// got no Codex on a Cloud machine. Its credential is the access token alone: never the
+    /// refresh token, the ID token or `auth.json`.
+    #[test]
+    fn a_codex_cli_chatgpt_login_serves_cloud_with_its_access_token_only() {
+        let d = dirs();
+        let (folder, _access) = codex_login_folder(&d, "codex-home", 3600);
+        codex_login_route(&d, &folder);
+        let s = state(Some(&d.routes), &d.home);
+        let c = find(&s, "codex-login");
+        assert_eq!(c["kind"], "codex-login");
+        assert_eq!(c["signed_in"], true);
+        assert_eq!(c["serves_cloud"], true, "{c}");
+        let (family, kind, var, secret) =
+            credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap();
+        assert_eq!((family.as_str(), kind, var), ("codex", "codex-login", "CMUX_CODEX_ACCESS_TOKEN"));
+        assert!(secret.is_none(), "the login's own token, not a reference");
+    }
+
     #[test]
     fn a_claude_token_is_added_as_a_reference_and_delivered_as_the_oauth_token() {
         let d = dirs();
