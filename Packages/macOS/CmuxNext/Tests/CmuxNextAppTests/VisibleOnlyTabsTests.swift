@@ -47,6 +47,23 @@ struct VisibleOnlyTabsTests {
         #expect(elements.first?.accessibilityIdentifier() == "cmux.tabs.tab.t0")
     }
 
+    /// A wheel step of one row draws the row it brings in, not every row in view, and lays nothing out.
+    @Test(arguments: [100, 10_000])
+    func aListScrollDrawsOnlyTheRowItReveals(_ count: Int) async throws {
+        let f = try await VerticalTabRows(rows: count)
+        defer { f.close() }
+        let list = f.list
+        let pitch = list.metrics.rowHeight + list.metrics.rowSpacing
+        f.scroll(by: min(list.maxScrollOffset / 2, 2_000))
+        let before = list.scrollOffset
+        _ = list.listWork.take()
+        f.scroll(by: pitch)
+        let work = list.listWork.take()
+        #expect(abs(list.scrollOffset - before - pitch) <= 1, "the wheel step scrolled \(list.scrollOffset - before), a row is \(pitch)")
+        #expect(work.rowsConfigured <= 2 && work.rowsLaidOut == 0,
+                "one row of scroll at n=\(count): \(work), \(f.viewportRows) rows in view")
+    }
+
     @Test(arguments: [100, 10_000])
     func aListChangeRedrawsItsRowAlone(_ count: Int) async throws {
         let f = try await VerticalTabRows(rows: count)
@@ -175,7 +192,7 @@ struct VisibleOnlyTabsTests {
         try? await Task.sleep(for: .milliseconds(100))
     }
 
-    var viewportRows: Int { list.rowViewsAlive }
+    var viewportRows: Int { list.listLayout.rowRange(minY: list.scrollOffset, maxY: list.scrollOffset + list.bounds.height).count }
 
     /// A shown tab's title changes, as the App hands the model its tabs.
     func changeOneItem() async throws {
@@ -194,11 +211,20 @@ struct VisibleOnlyTabsTests {
         return true
     }
 
-    private func scroll(by delta: CGFloat) {
-        list.scrollOffset += delta
-        list.clampScroll()
-        list.invalidateAll()
+    /// A precise wheel step of `delta` points down, through the list's own wheel handling, then a display frame.
+    func scroll(by delta: CGFloat) {
+        list.scrollWheel(with: Self.wheel(by: delta))
         Self.drawFrame(window)
+    }
+
+    /// A trackpad-style wheel event scrolling `delta` points down, the pointer away from the list (no hover).
+    static func wheel(by delta: CGFloat) -> NSEvent {
+        let points = Int32(-delta.rounded())
+        let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: points, wheel2: 0, wheel3: 0)!
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(points))
+        event.location = CGPoint(x: -10_000, y: -10_000)
+        return NSEvent(cgEvent: event)!
     }
 
     /// The list's widths are fixed (expanded, collapsed).

@@ -51,8 +51,14 @@ public final class VerticalTabListView: NSView {
     /// The rows as last laid out, in content coordinates.
     var listLayout: VerticalTabListLayout
     var metrics = VerticalTabListMetrics.current
-    /// Rows above the visible top, 0...maxScrollOffset.
-    var scrollOffset: CGFloat = 0
+    /// Rows above the visible top, 0...maxScrollOffset. A change moves the bands and draws only the ones it reveals.
+    var scrollOffset: CGFloat = 0 {
+        didSet { if scrollOffset != oldValue { updateBands() } }
+    }
+    /// The rows on scrolling layers (`VerticalTabListView+Bands`).
+    let bands = VerticalTabBands()
+    /// Set while a band draws: `viewRect` gives content coordinates, the band's own.
+    var drawsContent = false
     var hovered: VerticalTabListLayout.RowKind?
     var hoveredClose: TabID?
     var hoveredAudio: TabID?
@@ -81,12 +87,14 @@ public final class VerticalTabListView: NSView {
         listLayout = VerticalTabListLayout(tabs: [], groups: [], showsNewTab: false, iconsOnly: false, width: 0, metrics: .current)
         super.init(frame: NSRect(x: 0, y: 0, width: Self.expandedWidth, height: 300))
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.masksToBounds = false
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
-        // Group headers draw their glass opaque under Reduce Transparency, a notification rather than an observed setting.
-        ReduceTransparency.shared.register(repainting: self)
+        // Group headers draw their glass opaque under Reduce Transparency, a notification rather than an observed
+        // setting: every band draws again (`reduceTransparencyChanged`).
+        ReduceTransparency.shared.register(following: self)
         relayout()
     }
 
@@ -134,7 +142,7 @@ public final class VerticalTabListView: NSView {
                     (VerticalTabListMetrics.current, Typography.body.pointSize, GroupChipGlass.current, VerticalNoColorGroupLook.tunable.value)
                 }) {
                     guard let self else { return }
-                    if snapshot.0 != self.metrics { self.relayout() } else { self.needsDisplay = true }
+                    if snapshot.0 != self.metrics { self.relayout() } else { self.invalidateAll() }
                 }
             }
         }
@@ -158,25 +166,30 @@ public final class VerticalTabListView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        invalidateAll()
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        needsDisplay = true
+        invalidateAll()
     }
 
     // MARK: Layout
 
     public override func layout() {
         super.layout()
-        if listLayout.width != bounds.width || listLayout.iconsOnly == showsTitles { relayout() }
+        if listLayout.width != bounds.width || listLayout.iconsOnly == showsTitles { relayout() } else { updateBands() }
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize.width != frame.width
         super.setFrameSize(newSize)
-        if changed { relayout() } else { clampScroll() }
+        if changed {
+            relayout()
+        } else {
+            clampScroll()
+            updateBands()
+        }
     }
 
     /// Builds the rows for the current model, width and collapse state, then redraws.
@@ -191,6 +204,7 @@ public final class VerticalTabListView: NSView {
         listWork.laidOut(listLayout.rows.count)
         listWork.walked(tabs.count)
         clampScroll()
+        layOutBands()
         // Made again when an accessibility client next asks (`accessibilityChildren`), not for every row now.
         accessibilityRowsAreStale = true
         invalidateAll()
@@ -226,17 +240,16 @@ public final class VerticalTabListView: NSView {
         }
     }
 
-    /// Redraws the whole view (a layout, a scroll, a theme).
+    /// Redraws every band shown (a layout, a theme, a scale). A scroll draws only the bands it reveals (`updateBands`).
     func invalidateAll() {
+        bands.markAllDirty()
         needsDisplay = true
     }
 
-    /// Redraws `row` alone, where it shows; nothing when it is out of view.
+    /// Redraws the bands of `row` alone, where they show; nothing when it is out of view.
     func invalidate(_ row: VerticalTabListLayout.Row?) {
-        guard let row else { return }
-        let rect = viewRect(row.frame).insetBy(dx: -1, dy: 0)
-        guard rect.intersects(bounds) else { return }
-        setNeedsDisplay(rect)
+        guard let row, bands.markDirty(minY: row.frame.minY, maxY: row.frame.maxY) else { return }
+        needsDisplay = true
     }
 
     /// Redraws the row of `kind`.
@@ -248,32 +261,27 @@ public final class VerticalTabListView: NSView {
 
     func clampScroll() {
         let clamped = min(max(0, scrollOffset), maxScrollOffset)
-        if clamped != scrollOffset {
-            scrollOffset = clamped
-            invalidateAll()
-        }
+        if clamped != scrollOffset { scrollOffset = clamped }
     }
 
     /// Scrolls the least that shows tab `id`'s row whole.
     func reveal(_ id: TabID) {
         guard let frame = listLayout.frame(of: id) else { return }
-        let before = scrollOffset
         if frame.minY < scrollOffset {
             scrollOffset = max(0, frame.minY - metrics.verticalPadding)
         } else if frame.maxY > scrollOffset + bounds.height {
             scrollOffset = frame.maxY + metrics.verticalPadding - bounds.height
         }
         clampScroll()
-        // Already in view: the rows whose selection changed redraw alone (`redrawChangedRows`). The row elements read
-        // their frames when asked (`TabAccessibilityElement.frameInParent`).
-        if scrollOffset != before { invalidateAll() }
+        // The scroll draws only the bands it reveals; the rows whose selection changed redraw alone
+        // (`redrawChangedRows`). The row elements read their frames when asked (`TabAccessibilityElement.frameInParent`).
     }
 
     /// `point` in view coordinates, in content coordinates (before scrolling).
     func contentPoint(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: point.y + scrollOffset) }
 
-    /// A content rect in view coordinates.
-    func viewRect(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: 0, dy: -scrollOffset) }
+    /// A content rect in view coordinates (as it is while a band draws, `drawsContent`).
+    func viewRect(_ rect: CGRect) -> CGRect { drawsContent ? rect : rect.offsetBy(dx: 0, dy: -scrollOffset) }
 
     // MARK: Hover expansion
 
@@ -340,10 +348,10 @@ public final class VerticalTabListView: NSView {
     }
 }
 
-/// The list under the visible-rows contract: it has no row views (one view draws the rows), so its rows alive are the
-/// rows it draws, the ones in view. A row drawn counts as configured, a row placed as laid out.
+/// The list under the visible-rows contract: its row views are the bands (a row's pitch each), shown and parked. A row
+/// drawn into a band counts as configured, a row placed as laid out.
 extension VerticalTabListView: VisibleRowsList {
-    public var rowViewsAlive: Int { listLayout.rowRange(minY: scrollOffset, maxY: scrollOffset + bounds.height).count }
+    public var rowViewsAlive: Int { bands.alive }
 }
 
 /// What the list draws from the model; a change of any of it is diffed (`modelChanged`).
