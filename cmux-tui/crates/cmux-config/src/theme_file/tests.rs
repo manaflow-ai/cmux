@@ -446,3 +446,22 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `appearance.cornerFlush` (Leo, 2026-11-18: the gooey look "we have as a
+/// toggle maybe"): a theme file picks the corner treatment and keeps it; a
+/// value that is no corner is refused with the choices.
+#[test]
+fn a_theme_file_keeps_the_corner_treatment() {
+    let row = Schema::embedded().row("appearance.cornerFlush").expect("the cornerFlush row");
+    assert!(is_look(row), "appearance.cornerFlush is a look setting");
+    assert_eq!(row.default, Some(json!("flush")), "no goo by default");
+    let file = overlay(r#"{ "appearance": { "cornerFlush": "flush-goo" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(file.keys(), vec!["appearance.cornerFlush"]);
+    let root = file.applied(&json!({"appearance": {"cornerFlush": "off"}}), &none());
+    assert_eq!(at(&root, "appearance.cornerFlush"), Some(&json!("flush-goo")));
+    let bad = overlay(r#"{ "appearance.cornerFlush": "goo" }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "appearance.cornerFlush"
+        && d.message.starts_with("expected one of")));
+}
