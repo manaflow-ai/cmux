@@ -440,6 +440,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         pageRequests.services?.remoteLocalhost.adoptPage(page, key: key)  // a chat's sign-in page (ChatMachineSignInTab)
+        pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)

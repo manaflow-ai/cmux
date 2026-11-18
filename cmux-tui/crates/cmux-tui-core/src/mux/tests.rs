@@ -42,8 +42,10 @@ mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
-mod floating_panes;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
+#[cfg(unix)]
+mod history_agent_save_stride;
 #[cfg(unix)]
 mod holder_late_start;
 mod input_queue_backstop;
@@ -75,6 +77,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
 mod session_lists;
 mod signaled_mutex;
 mod single_reads;
@@ -100,6 +103,8 @@ mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 
