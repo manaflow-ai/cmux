@@ -187,6 +187,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
 | `floating-pane-look.sh` | Pictures of a floating pane with the Debug Settings knob `Background opacity` at 1 and below 1: a terminal pane and a page pane, with a background picture and without (a look for a person; judges nothing). | - | 2026-11-18 | active |
+| `floating-pane-look-daemon.sh` | The daemon calls of floating-pane-look.sh against a `cmux-tui` daemon alone, with no app and no display (a check of the look's driver before its display step). | - | 2026-11-18 | active |
 
 ## Build and dev loop
 
