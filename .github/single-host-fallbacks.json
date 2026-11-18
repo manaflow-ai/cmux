@@ -210,6 +210,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CMUX_TUI_GATE_RUNNER": {
+      "fallback": "unset or empty, the job's own Blacksmith size from RUNNER_POOLS (its failover while the overflow switch has failed over)",
+      "after_minutes": 5
+    },
     "MACOS_RUNNER_15": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

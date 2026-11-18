@@ -60,7 +60,7 @@ def pool_for_label(label: str) -> str:
 
 
 def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted: str,
-             darwin_cross: str = "") -> set[str]:
+             darwin_cross: str = "", gate: str = "") -> set[str]:
     """Resolve the route through RUNNER_POOLS, keeping picker contexts silent."""
     return resolve_labels(
         runs_on,
@@ -70,6 +70,7 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
+            "CMUX_TUI_GATE_RUNNER": [gate],
         },
         silent=("needs",),
     )
@@ -80,6 +81,11 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
+# The pool CMUX_TUI_GATE_RUNNER may name for this workflow's nightly-gating Linux jobs.
+GATE = "gate-pool"
+# Jobs CMUX_TUI_GATE_RUNNER leaves alone: the Darwin cross shadow keeps LINUX_RUNNER_DARWIN_CROSS, and the
+# daemon tests keep their fleet placement (tests/test_runs_on_labels.py checks that route's every label).
+UNGATED_JOBS = (DARWIN_CROSS_JOB, "cmux-next-daemon-tests")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -177,6 +183,29 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                         self.assertIn(DARWIN_CROSS, labels)
                     else:
                         self.assertNotIn(DARWIN_CROSS, labels)
+
+    def test_the_gate_runner_moves_every_linux_job_and_nothing_else(self) -> None:
+        # 2026-11-18: the tree preflight sat queued 35+ min on Blacksmith 8 vCPU, so no tree
+        # published and every NEXT nightly failed. CMUX_TUI_GATE_RUNNER moves only this
+        # workflow's Linux jobs; it wins over LINUX_RUNNER (whose failover moves all of CI), and a fork ignores it.
+        # The Darwin cross-compile shadow (compare only) keeps its own LINUX_RUNNER_DARWIN_CROSS knob.
+        # The resolver also models the variable unset, so the job's own Blacksmith set stays allowed.
+        for name, runs_on in linux_routes():
+            for linux_runner, overflow in itertools.product(
+                ("", "blacksmith-4vcpu-ubuntu-2404", SMALL), ("", OVERFLOW_RECORD)
+            ):
+                with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow)):
+                    labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, "", gate=GATE)
+                    self.assertTrue(labels <= {GATE} | blacksmith_set(name), labels)
+                    if name in UNGATED_JOBS:
+                        self.assertNotIn(GATE, labels)
+                    else:
+                        self.assertIn(GATE, labels)
+            with self.subTest(job=name, linux_runner=POOL):
+                if name not in UNGATED_JOBS:
+                    self.assertIn(GATE, resolved(runs_on, "manaflow-ai", POOL, "", "", gate=GATE))
+            with self.subTest(job=name, fork=True):
+                self.assertEqual(resolved(runs_on, "someone-else", "", "", "", gate=GATE), {"ubuntu-24.04"})
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():

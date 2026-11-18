@@ -1426,6 +1426,20 @@ PYTHON
     fi
     printf '%s\n' "$text" | sed -E "s/$owned_prefix_check//g; s/$owned_pool//g"
   }
+  # Context references inside a `${{ }}` expression (vars.CMUX_TUI_GATE_RUNNER, needs.pick.outputs.runner,
+  # fromJSON(vars.RUNNER_POOLS).linux_8, inputs.runner, ...) are names, not runner labels: what they
+  # resolve to is a repository variable or a picker output, which runner_label_policy.py judges. Drop
+  # them before matching so a name containing a fleet word (CMUX_*) is not read as the `cmux` label;
+  # quoted literals stay and are still judged. Applied after the owned-pool and fork-branch strips,
+  # which read vars.* themselves.
+  local context_ref="(^|[^A-Za-z0-9_'.-])(github|env|vars|job|jobs|steps|runner|secrets|strategy|matrix|needs|inputs)([.][A-Za-z0-9_-]+)+"
+  strip_expression_names() {
+    if [[ "$1" == *'${{'* ]]; then
+      printf '%s\n' "$1" | sed -E "s/$context_ref/\\1/g"
+    else
+      printf '%s\n' "$1"
+    fi
+  }
   local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
@@ -1547,6 +1561,29 @@ PYTHON
     exit 1
   fi
 
+  # Names inside an expression are not labels: a variable or picker output whose name holds a fleet
+  # word passes, while a quoted or bare forbidden label is still refused.
+  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CMUX_TUI_GATE_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}" \
+               "runs-on: \${{ vars.CMUX_TUI_GATE_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ needs.cmux-pick.outputs.cmux_runner || inputs.cmux || matrix.cmux }}"; do
+    content_without_allowed="$(strip_expression_names "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")")"
+    if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" || printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; then
+      echo "FAIL: fleet-runner guard self-test read a name inside an expression as a fleet label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: \${{ vars.CMUX_TUI_GATE_RUNNER || 'cmux' }}" \
+               "runs-on: \${{ vars.CMUX_TUI_GATE_RUNNER || 'cmux-macos-26' }}" \
+               "runs-on: \${{ vars.CMUX_TUI_GATE_RUNNER || 'mac-mini' }}" \
+               "runs-on: \${{ vars.X == '1' && 'self-hosted' || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               'runs-on: cmux' '- cmux'; do
+    content_without_allowed="$(strip_expression_names "$(strip_owned_pool_selection "$probe" 1 | sed -E "s/$fork_branch//g; s/($allowed)//g")")"
+    if ! printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" && ! printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; then
+      echo "FAIL: fleet-runner guard self-test let a fleet label through beside an expression name: $probe"
+      exit 1
+    fi
+  done
+
   # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so the owned nightly-only pool is a nightly job's
   # last fallback: nightly.yml may end a runner value on exactly this tail (the builder tail
   # `vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}` ends
@@ -1621,7 +1658,7 @@ PYTHON
     pr_trigger=0
     if printf '%s\n' "$pr_workflows" | grep -Fxq -- "${line%%:*}"; then pr_trigger=1; fi
     content="$(strip_owned_pool_selection "$content" "$pr_trigger")"
-    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    content_without_allowed="$(strip_expression_names "$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
     # (see selfhosted above).
