@@ -324,45 +324,48 @@ fn sign_out(dir: &Path, previous: &Previous) -> bool {
             }
         },
     };
-    match hub.and_then(|hub| hub_sign_out(&hub)) {
-        Ok(()) => true,
-        Err(e) => match e.downcast_ref::<HubError>() {
-            Some(refused) if matches!(refused.status, 401 | 403 | 404) => {
-                eprintln!(
-                    "cmux-rd linux-host: the hub does not take the earlier device ({}) any more ({e})",
-                    device.id
-                );
-                true
+    let answered = hub.and_then(|hub| hub_sign_out(&hub));
+    if signed_out(&answered) {
+        if let Err(e) = answered {
+            eprintln!(
+                "cmux-rd linux-host: the hub does not take the earlier device ({}) any more ({e})",
+                device.id
+            );
+        }
+        return true;
+    }
+    let Err(e) = answered else { return true };
+    match e.downcast_ref::<HubError>() {
+        // A person's device signs out with its own key, kept until the hub confirms it.
+        _ if previous.joined.is_none() => {
+            eprintln!(
+                "cmux-rd linux-host: the hub did not sign the earlier device ({}) out ({e}); asked again later",
+                device.id
+            );
+            let pending = Pending {
+                hub: account.hub.clone(),
+                user_id: account.user_id.clone(),
+                device: device.clone(),
+                since_ms: cmux_hub_host::hub::now_ms(),
+            };
+            if let Err(e) = add_pending(dir, pending) {
+                eprintln!("cmux-rd linux-host: {}: {e}", dir.join(PENDING_FILE).display());
             }
-            Some(_) => {
-                eprintln!(
-                    "cmux-rd linux-host: the hub refused to sign the earlier device ({}) out ({e})",
-                    device.id
-                );
-                false
-            }
-            None if previous.joined.is_none() => {
-                eprintln!(
-                    "cmux-rd linux-host: the hub did not answer the earlier device's sign-out ({e}); asked again later"
-                );
-                let pending = Pending {
-                    hub: account.hub.clone(),
-                    user_id: account.user_id.clone(),
-                    device: device.clone(),
-                    since_ms: cmux_hub_host::hub::now_ms(),
-                };
-                if let Err(e) = add_pending(dir, pending) {
-                    eprintln!("cmux-rd linux-host: {}: {e}", dir.join(PENDING_FILE).display());
-                }
-                false
-            }
-            None => {
-                eprintln!(
-                    "cmux-rd linux-host: the hub did not answer the earlier join's sign-out ({e})"
-                );
-                false
-            }
-        },
+            false
+        }
+        Some(_) => {
+            eprintln!(
+                "cmux-rd linux-host: the hub refused to sign the earlier join's device ({}) out ({e})",
+                device.id
+            );
+            false
+        }
+        None => {
+            eprintln!(
+                "cmux-rd linux-host: the hub did not answer the earlier join's sign-out ({e})"
+            );
+            false
+        }
     }
 }
 
@@ -472,6 +475,16 @@ fn joining_home(dir: &Path) -> Res<Option<PathBuf>> {
     Ok(Some(serde_json::from_slice::<machine::Joined>(&bytes)?.acpmux_home))
 }
 
+/// Whether the hub confirmed a sign-out: it signed the device out, or answered that it does not
+/// know the device or does not let it in (401, 403, 404), so it is gone there. Anything else
+/// (no answer, a 5xx, a 429, another refusal) has not signed it out.
+fn signed_out(answered: &Res<()>) -> bool {
+    match answered {
+        Ok(()) => true,
+        Err(e) => e.downcast_ref::<HubError>().is_some_and(|h| matches!(h.status, 401 | 403 | 404)),
+    }
+}
+
 fn hub_sign_out(hub: &Hub) -> Res<()> {
     hub.call("POST", &format!("/v1/devices/{}/sign-out", hub.device.id), None).map(|_| ())
 }
@@ -503,8 +516,8 @@ fn add_pending(dir: &Path, entry: Pending) -> Res<()> {
     save_pending(dir, &pending)
 }
 
-/// Asks the hub again for each pending sign-out; one it answers (done or refused) is dropped,
-/// and one past [`PENDING_MAX_AGE_MS`] is dropped unasked.
+/// Asks the hub again for each pending sign-out; one it confirms ([`signed_out`]) is dropped,
+/// any other kept, and one past [`PENDING_MAX_AGE_MS`] is dropped unasked.
 fn retry_pending(dir: &Path) {
     retry_pending_at(dir, cmux_hub_host::hub::now_ms());
 }
@@ -520,7 +533,7 @@ fn retry_pending_at(dir: &Path, now_ms: u64) {
         .filter(|p| {
             let answered = Hub::new(&p.hub, p.device.clone(), Some(p.user_id.clone()))
                 .and_then(|hub| hub_sign_out(&hub));
-            matches!(answered, Err(e) if !e.is::<HubError>())
+            !signed_out(&answered)
         })
         .collect();
     if let Err(e) = save_pending(dir, &left) {
