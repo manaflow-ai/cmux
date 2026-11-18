@@ -828,11 +828,13 @@ struct SessionScrollbackCheckpointPersisterTests {
         }
         let finishedWithoutBlocking = returned.wait(timeout: .now() + 5) == .success
         gate.signal()
-        // A caller that timed out may still be finishing on the queue; let it
-        // land before the fixture teardown rather than race it.
-        _ = returned.wait(timeout: .now() + 5)
+        // A caller that timed out may still be finishing on the queue; join it
+        // before the fixture teardown rather than race it, and fail loudly if
+        // even the open gate couldn't flush it out.
+        let callerJoined = returned.wait(timeout: .now() + 5) == .success
         queue.sync {}
         #expect(finishedWithoutBlocking)
+        #expect(callerJoined)
         #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path))
         #expect(try asideNames(store, panelId: removed).isEmpty)
     }
@@ -860,10 +862,11 @@ struct SessionScrollbackCheckpointPersisterTests {
             atPath: store.fileURL(panelId: removed).path
         ) && !asideNames(store, panelId: removed).isEmpty
         gate.signal()
-        _ = persistReturned.wait(timeout: .now() + 5)
+        let callerJoined = persistReturned.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
         #expect(returnedWhileQueued)
+        #expect(callerJoined)
         #expect(invalidatedBeforeDrain)
         #expect(store.loadRecords(panelIds: [removed]).isEmpty)
         #expect(try asideNames(store, panelId: removed).isEmpty)
@@ -933,10 +936,11 @@ struct SessionScrollbackCheckpointPersisterTests {
         }
         let removalReturnedWhileQueued = removalReturned.wait(timeout: .now() + 5) == .success
         gate.signal()
-        _ = removalReturned.wait(timeout: .now() + 5)
+        let removalCallerJoined = removalReturned.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
         #expect(removalReturnedWhileQueued)
+        #expect(removalCallerJoined)
         #expect(store.loadRecords(panelIds: [panel]).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
     }

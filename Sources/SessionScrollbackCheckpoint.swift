@@ -300,13 +300,18 @@ struct SessionScrollbackCheckpointStore: Sendable {
         // `prune` sweeps every invalidated aside when live panel ids are
         // present, so removals only need the canonical unlink then; without
         // them one listing covers the whole loop instead of one per removal.
-        let asideNames = batch.livePanelIds == nil && !removals.isEmpty
-            ? (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? []
-            : []
+        // Bucket that listing once by panel prefix so a batch of R removals
+        // against N names costs R lookups, not R x N prefix scans.
+        var asidesByPanel: [String: [String]] = [:]
+        if batch.livePanelIds == nil && !removals.isEmpty {
+            for name in (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? [] {
+                asidesByPanel[String(name.prefix(36)), default: []].append(name)
+            }
+        }
         for panelId in removals {
             try? fileManager.removeItem(at: fileURL(panelId: panelId))
             let asidePrefix = "\(panelId.uuidString).json.invalidated-"
-            for name in asideNames where name.hasPrefix(asidePrefix) {
+            for name in asidesByPanel[panelId.uuidString] ?? [] where name.hasPrefix(asidePrefix) {
                 try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
             }
         }
