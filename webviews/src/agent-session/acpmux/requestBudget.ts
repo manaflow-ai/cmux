@@ -51,6 +51,7 @@ const READS = new Set([
   "_acpmux/attachment",
   "_acpmux/session_files",
   "_acpmux/native_history",
+  "_acpmux/transcript_search",
   "_acpmux/subagent_transcript",
   "_acpmux/subsession/get",
   "_acpmux/subsession/list",

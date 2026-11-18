@@ -134,6 +134,10 @@ nonisolated enum AcpmuxPaneMethods {
         // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
         // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
         "_acpmux/native_history",
+        // Find in Chat over the pane's own chat's whole transcript (chatFind.ts, findIndex.ts;
+        // acpmux transcript_search.rs): the daemon's index, not only the rows loaded. Read only,
+        // scoped to the pane's session; no `host` or `harnessSessionId`, so it never reads past it.
+        "_acpmux/transcript_search",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
@@ -327,7 +331,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-        "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/transcript_search",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
