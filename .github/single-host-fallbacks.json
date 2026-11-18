@@ -210,10 +210,6 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
-    "LINUX_BUILD_RUNNER": {
-      "fallback": "a Blacksmith pool label, not a host; unset, each cmux-tui Linux job takes its own route again: a non-Blacksmith LINUX_RUNNER, then its Blacksmith size and failover",
-      "after_minutes": 5
-    },
     "MACOS_RUNNER_15": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

@@ -70,8 +70,6 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
-            # Unset here: test_the_build_runner_pin_comes_before_linux_runner checks a set one wins.
-            "LINUX_BUILD_RUNNER": [""],
         },
         silent=("needs",),
     )
@@ -82,6 +80,10 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
+# The owned GCP pool the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
+OWNED = "cmux-fleet-linux-x64"
+# Jobs with a placement or override of their own: the daemon tests (linux-placement) and the shadow.
+OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -150,8 +152,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         ):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
-            # tests) stays on Blacksmith.
-            allowed = blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+            # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
+            allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
+                       | ({OWNED} if name not in OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -180,24 +183,45 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     else:
                         self.assertNotIn(DARWIN_CROSS, labels)
 
-    def test_the_build_runner_pin_comes_before_linux_runner(self) -> None:
-        # 2026-11-18: the overflow switch had written GitHub-hosted ubuntu-24.04 into LINUX_RUNNER, the org-wide hosted
-        # queue held every short job of run 44205925797 for hours, and the NEXT nightly (44224028014) gave up waiting
-        # for its tree after 45 min, while the build legs ran on the Blacksmith pool vars.LINUX_BUILD_RUNNER names. A
-        # set LINUX_BUILD_RUNNER is the first alternative after the fork check, so it wins over LINUX_RUNNER on every
-        # Linux job of the tree publish: this workflow's, the build package's own Linux jobs and the tree request's.
-        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes()
-                  if name != DARWIN_CROSS_JOB and "vars.LINUX_RUNNER" in runs_on]
+    def test_the_nightly_path_takes_the_owned_pool_first(self) -> None:
+        # 2026-11-18: tree preflights waited 11-56+ min on blacksmith-2vcpu and -4vcpu behind PR CI under the
+        # Blacksmith vCPU cap, and tree request run 44375949434 for the nightly-next head sat queued at its first job.
+        # Coordinator: "nightly-gating jobs must not wait behind PR CI on capped Blacksmith. Route every job the
+        # nightly path needs (tree request/preflight/publish, nightly.yml legs) to owned fleet runners first, with
+        # Blacksmith only as overflow." Every Linux job of the tree path (this workflow's, the build package's
+        # select/package jobs when this workflow calls it, the tree request) resolves to the owned pool alone on
+        # attempt 1 of a nightly-path run, whatever LINUX_RUNNER holds; a re-run, and a lane push, keep Blacksmith.
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name not in OWN_ROUTE_JOBS]
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
                           if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
-        self.assertGreater(len(routes), len(SHORT_JOBS))
+        self.assertGreater(len(routes), len(SHORT_JOBS) + 2)
+        nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
+        cases = (
+            ("feat-cmux-next push", nightly, True),
+            ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, True),
+            ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, True),
+            ("re-run", {**nightly, "attempt": "2"}, False),
+            ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, False),
+        )
         for workflow, name, runs_on in routes:
-            with self.subTest(workflow=workflow, job=name):
-                self.assertRegex(runs_on, r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && 'ubuntu-24\.04' \|\| "
-                                          r"(inputs\.linux_runner != '' && !startsWith\(inputs\.linux_runner, "
-                                          r"'blacksmith-'\) && inputs\.linux_runner \|\| )?vars\.LINUX_BUILD_RUNNER \|\| ")
+            for case, values, owned in cases:
+                if workflow == "cmux-tui-tree-request.yml" and case == "lane push":
+                    continue  # it runs only as a feat-cmux-next dispatch
+                text = runs_on.replace("github.run_attempt", values["attempt"])
+                text = text.replace("github.event_name", values["event"])
+                text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
+                text = text.replace("github.workflow_ref",
+                                    "'manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/x'")
+                for linux_runner in LINUX_RUNNER_VALUES:
+                    labels = resolve_labels(text, owner="manaflow-ai", silent=("needs", "inputs"), variables={
+                        "LINUX_RUNNER": [linux_runner], "CI_CLOUD_OVERFLOW_SAVED": [""]})
+                    with self.subTest(workflow=workflow, job=name, case=case, linux_runner=linux_runner):
+                        if owned:
+                            self.assertEqual(labels, {OWNED})
+                        else:
+                            self.assertNotIn(OWNED, labels)
 
     def test_a_fork_keeps_github_hosted_ubuntu(self) -> None:
         for name, runs_on in linux_routes():
