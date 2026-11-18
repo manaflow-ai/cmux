@@ -665,7 +665,6 @@ final class AppServices {
         cache.cef.fileInput = openPanel
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self else { return false }
-            // A private tab is incognito in any window (Leo, 2026-11-18); every other tab by its workspace.
             if let tab = cache.tabModel(key), cache.browserTabs.isPrivate(tab) { return true }
             guard let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)

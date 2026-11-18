@@ -387,9 +387,8 @@ enum TabMoves {
         completion(false)
     }
 
-    /// True (and refused with a message) when `tab` is not private and would
-    /// move into an incognito window (`AppServices.crossesIncognito`): a
-    /// private tab may sit in any window (Leo, 2026-11-18).
+    /// True (and refused with a message) when `tab` may not move into `pane`
+    /// (`AppServices.crossesIncognito`).
     static func refusesIncognitoCrossing(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
         guard services.crossesIncognito(tab, to: pane) else { return false }
         services.registry.refuse(RefusalStrings.incognitoMismatch)

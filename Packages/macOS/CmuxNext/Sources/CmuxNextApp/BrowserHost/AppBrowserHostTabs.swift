@@ -53,7 +53,6 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
     /// The listed tabs with their workspace ids, one turn behind the store: the host's view (`providerTabs`, the waits).
     private var localBrowserTabs: [(model: TabModel, workspace: String)] {
-        // A private tab in a normal window is as hidden as an incognito window's (Leo, 2026-11-18).
         let browserTabs = services?.cache.browserTabs
         return (listed?.observedItems ?? []).flatMap { entry in
             entry.tabs.filter { browserTabs?.isPrivate($0) != true }.map { (model: $0, workspace: entry.workspace) }

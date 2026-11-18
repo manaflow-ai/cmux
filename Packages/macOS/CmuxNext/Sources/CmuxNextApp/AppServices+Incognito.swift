@@ -31,15 +31,11 @@ extension AppServices {
         daemon(for: pane).store.workspace(containing: pane.handle)?.id
     }
 
-    /// True when moving `tab` into `pane` is refused across incognito and normal windows. Private tabs may sit
-    /// in any window (Leo, 2026-11-18, dropping the 2026-09-30 rule for tabs): any tab may leave an incognito window
-    /// (the daemon marks it private, so it stays private) and a private tab may go into one. A tab that is not
-    /// private never goes into an incognito window: its page keeps its normal store, and the window's close would end it.
+    /// True when `tab` is not private and would go into an incognito window (its page keeps its store); any tab may
+    /// leave one, staying private (Leo, 2026-11-18: private tabs anywhere, dropping the 2026-09-30 rule for tabs).
     func crossesIncognito(_ tab: TabModel, to pane: PaneModel) -> Bool {
         refusesIncognitoEntry(tab, toWorkspace: workspaceID(of: pane))
     }
-
-    /// `crossesIncognito(_:to:)` for workspace `target`.
     func refusesIncognitoEntry(_ tab: TabModel, toWorkspace target: String?) -> Bool {
         guard let target, windows.isIncognito(workspace: target) else { return false }
         return !cache.browserTabs.isIncognitoTab(tab.id)

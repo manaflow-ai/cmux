@@ -117,9 +117,8 @@ final class BrowserProfileService {
 
     // MARK: Engine stores
 
-    /// The engine store of a tab: the incognito session's for a private tab
-    /// (in any window) or a tab of an incognito window, else the profile its
-    /// record names (fixed at creation), else the default one.
+    /// The engine store of a tab: the incognito session's for a private tab or an incognito window's, else the
+    /// profile its record names (fixed at creation), else the default one.
     func engineProfile(forTab key: String) -> BrowserProfileID {
         let tab = services.cache.tabModel(key)
         if let tab, services.cache.browserTabs.isPrivate(tab) { return services.windows.incognitoProfile() }
@@ -129,8 +128,7 @@ final class BrowserProfileService {
         return book.engineProfile(for: tab?.browserProfileID)
     }
 
-    /// `engineProfile(forTab:)` when the caller knows whether `tab`'s workspace is incognito (no lookup of it); a private tab
-    /// takes the incognito session's in any workspace.
+    /// `engineProfile(forTab:)` when the caller knows whether `tab`'s workspace is incognito (no lookup of it).
     func engineProfile(for tab: TabModel, incognito: Bool) -> BrowserProfileID {
         incognito || services.cache.browserTabs.isPrivate(tab) ? services.windows.incognitoProfile() : book.engineProfile(for: tab.browserProfileID)
     }

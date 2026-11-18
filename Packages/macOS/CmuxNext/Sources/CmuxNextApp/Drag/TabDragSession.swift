@@ -214,8 +214,7 @@ final class TabDragSession: NSObject {
         var winner: Winner?
     }
 
-    /// Whether `item`, dragged from a window of the other kind, may drop in `target`: a single tab leaving an
-    /// incognito window, or a private tab going into one.
+    /// Whether `item` from a window of the other kind may drop in `target`: a tab leaving an incognito window, or a private tab.
     private func crossesKinds(_ item: Item, into target: WindowController) -> Bool {
         guard case .tab(let id) = item else { return false }
         return !services.windows.isIncognito(window: target.state.id) || services.cache.browserTabs.isIncognitoTab(id)
@@ -228,9 +227,8 @@ final class TabDragSession: NSObject {
         drag.noTargetReason = nil
         guard let controller = window(at: point) else { return Hit() }
         guard let payload = drag.source.payload else { return Hit(window: controller) }
-        // Across incognito and normal windows only a single tab moves (Leo, 2026-11-18: private tabs anywhere): out
-        // of an incognito window (it stays private), or a private tab into one. A normal tab or a tab group never
-        // goes into an incognito window, and a group never leaves one: that window offers no drop target.
+        // Across incognito and normal windows only a single tab moves (Leo, 2026-11-18: private tabs anywhere);
+        // else that window offers no drop target.
         if let source = drag.source.window?.state.id, services.windows.isIncognito(window: source)
             != services.windows.isIncognito(window: controller.state.id), !crossesKinds(drag.source.item, into: controller) {
             drag.noTargetReason = RefusalStrings.incognitoMismatch

@@ -14,7 +14,6 @@ struct WorkspaceAutoNameWiring {
     /// The front-tab reader over this app's setting, pages and terminals.
     var reader: WorkspaceAutoNameReader {
         let known: @MainActor (AppServices) -> Bool? = { [workspace] s in workspace.map { s.windows.isIncognito(workspace: $0) } }
-        // The workspace's answer, or a private tab's in any window (Leo, 2026-11-18); with no workspace, the tab's lookup.
         let offTheRecord: @MainActor (AppServices, TabModel) -> Bool = { s, tab in
             known(s).map { $0 || s.cache.browserTabs.isPrivate(tab) } ?? s.cache.browserTabs.isIncognitoTab(tab.id)
         }
