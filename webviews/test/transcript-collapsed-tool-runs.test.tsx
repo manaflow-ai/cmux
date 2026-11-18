@@ -10,13 +10,17 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { layoutConversation } from "../src/agent-session/acpmux/model";
-import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { mainToolRunCategory } from "../src/agent-session/acpmux/conversation/toolRunSummary";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { configureToolRunLook } from "../src/agent-session/acpmux/toolRunLook";
-import { isEditRow } from "../src/agent-session/acpmux/turnChanges/sessionRows";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { layoutConversation } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
+const { ToolRows } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/TurnRows"));
+const { mainToolRunCategory } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/toolRunSummary"),
+);
+const { turnView } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
+const { configureToolRunLook } = await importWithDom(() => import("../src/agent-session/acpmux/toolRunLook"));
+const { isEditRow } = await importWithDom(() => import("../src/agent-session/acpmux/turnChanges/sessionRows"));
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
 // runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
