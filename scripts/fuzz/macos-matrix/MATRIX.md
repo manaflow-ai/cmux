@@ -86,6 +86,46 @@ Use the way a person does, over VNC only, then a scripted agent clicks, types an
 See [onboarding/README.md](onboarding/README.md) for the steps, the reference flow it is measured against
 (Claude Desktop, Codex) and the findings.
 
+### Rollback drill suite
+
+`vm.sh --suite rollback-drill nightly` (or `nightly:N`) is the Mac half of the weekly release rollback drill
+(cmuxterm-hq goal `release-rollback-drilled`; Leo, 2026-11-08: "btw all this "we're just doing one way" stuff how
+good/reliable are our designs? what can be improved"). The app's update and rollback relaunch it through
+LaunchServices with no environment, so it has to run in the account's real home. A Tart guest is thrown away
+whole, so the drill runs there and not in an owned Mac's account.
+
+Nothing is downloaded on the host, and `nightly:N` only pins N, the drill's bad build. `rollback/drill.py` runs
+on the Tart host (python3, stdlib only) and drives the guest over SSH with `/bin/sh`, `curl`, `hdiutil`, `ditto`,
+`codesign` and `/usr/bin/perl`. The guest has no python3. The steps match cmuxterm-hq's
+`release_rollback_drill.py` (`{flow, step, outcome ok|fail|skip, ms, note}`). A step after a failed one is a
+`skip` that names the step it needed.
+
+- `feed/pick`: reads `https://files-next.cmux.com/nightly-next/drill/appcast-arm64.xml` and the `receipt.json`
+  beside it (User-Agent `cmux-release-rollback-drill/1`; the CDN answers Python's default with 403). It accepts
+  only this week's publish: schema `cmux.rollback-drill.receipt.v1`, outcome published, not pulled, published at
+  most 1 h before, the run the appcast names, and the appcast's N and K. Otherwise `failure` says why (for
+  example "already pulled") and the run stops. There is no replay.
+- `app/install-kept`: downloads K's DMG in the guest, verifies its signature (`codesign --verify --deep --strict`,
+  team 7WLXT3NR37) and copies it into `/Applications`. It opens K with `open` and waits until
+  `cmux app identify --json` answers with build K.
+- `drill/serve`: sends `updates.test_feed {url}` to point the app at the drill feed. This is one JSON-RPC line
+  written to the control socket by a perl one-liner, because the release CLI refuses `app call`.
+- `app/sees-bad`: runs `settings check-for-updates` and waits until `updates.status` reaches `update_available`.
+  `seen_at` is the host's UTC time of that answer.
+- `app/install-bad`: runs `settings install-available-update` and waits until identify answers N. `kept_copy`
+  records whether K is kept in `~/Library/Application Support/cmux-next/<bundle id>/versions/<K>`.
+- `app/restore`: restores K. If the app is already back on K (`restored_by` `pulled-build-watch`), nothing more
+  is run. Otherwise it runs `settings rollback-update --confirm` (`restored_by` `settings rollback-update`) and
+  waits until identify answers K. `restore_s` runs from that command until K answers.
+
+Each step has its own limit, 1420 s in all, and every limit is cut to a budget of 1380 s less the boot. Together
+with the stop and delete, a major fits the worker's 25 min bound (the limits are listed in vm.sh and
+`rollback/drill.py`). `result.json` holds `ok`, `os`, `bad_build`, `kept_build`, `receipt_run`, `published_at`,
+`mac_feed` (`live`), `seen_at`, `seen_s`, `restore_s`, `restored_by`, `kept_copy`, `failed_steps`, `failure` and
+`steps`. A major PASSes when `ok` is true and vm.sh wrote no failure file. HQ judges the feed half
+(`feed/rollback`) and joins it with this file. Unit test: `python3 tests/test_nightly_next_rollback_drill_vm.py`
+(no network, no VM).
+
 ### Exec suite (OS probes)
 
 `os-matrix.sh --build JOB --os 14,15,26 --suite exec:NAME` runs one OS probe, `probes/NAME.swift`, in each guest.
