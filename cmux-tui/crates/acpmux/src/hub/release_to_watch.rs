@@ -91,7 +91,7 @@ impl Hub {
             .with_data(json!({"reason": PENDING})));
         }
         let _releasing = Releasing(session);
-        let mut closed = session.closed.subscribe();
+        let mut closed = session.closed_watch();
         loop {
             // Subscribed before the look, so a record that comes between them still wakes it.
             let mut events = self.subscribe();
