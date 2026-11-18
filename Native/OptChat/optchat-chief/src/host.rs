@@ -1518,6 +1518,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Redescribe(notes) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Redescribe { notes, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
@@ -1724,6 +1733,9 @@ fn start(
     // and a subscribed event reach the brain as a note, as a peer Chief's do.
     let mcp_hub = crate::mcp_hub::McpHub::new(
         paths.root.join("mcp"),
+        // One store of connections for the machine: every Chief home and
+        // acpmux's connect card (mcp_hub::store).
+        crate::mcp_hub::store::shared_dir(),
         Some(crate::skills::chief_dir(home)),
         {
             let tx = Mutex::new(tx.clone());
