@@ -79,7 +79,8 @@ struct CloudChatsScreen: View {
                 }
             }
             .navigationDestination(item: $selectedLocation) { location in
-                CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
+                CloudMachineChatsScreen(connect: shell.live.map { live in { try await live.cloudChats(on: location.macID, machine: location.machine) } },
+                                        macID: location.macID, machine: location.machine,
                                         macName: macName(location.macID), preferredSession: attention?.sessionID)
             }
             .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
@@ -205,8 +206,10 @@ struct CloudChatsConnectFailed: View {
     }
 }
 
-private struct CloudMachineChatsScreen: View {
-    let live: LiveCoordinator?
+/// A Cloud machine's chats. `connect` opens its chat channel through the Mac (nil: no Mac to
+/// reach it through); the recovery gallery passes one that never answers (`cloudkept`).
+struct CloudMachineChatsScreen: View {
+    let connect: (@MainActor () async throws -> CloudChatRelay)?
     let macID: String
     let machine: CloudChatMachine
     let macName: String
@@ -301,8 +304,8 @@ private struct CloudMachineChatsScreen: View {
         .task(id: refresh) {
             error = nil
             do {
-                guard let live else { error = "Connect your Mac."; return }
-                relay = try await live.cloudChats(on: macID, machine: machine)
+                guard let connect else { error = "Connect your Mac."; return }
+                relay = try await connect()
             } catch {
                 guard !Task.isCancelled else { return }
                 self.error = "Couldn't connect. Try again."

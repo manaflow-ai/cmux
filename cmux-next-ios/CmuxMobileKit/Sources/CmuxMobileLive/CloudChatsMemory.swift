@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileAgentChat
 import Foundation
 
 /// The Cloud chats screens as this run last read them: each Mac's Cloud machines and each Cloud
@@ -58,4 +59,26 @@ public final class CloudChatsMemory {
         order.append(key)
     }
 }
+
+#if DEBUG
+extension CloudChatsMemory {
+    /// Fixed chats kept for `location`, newest first, as a machine's list once read: the gallery's
+    /// read-back of a machine opened again (`-cmux-mobile-recovery-gallery cloudkept`).
+    public func keepGalleryChats(at location: CloudChatLocation) {
+        let now = Date.now.timeIntervalSince1970 * 1000
+        let chats: [(name: String, harness: String, prompt: String)] = [
+            ("Fix the flaky login test", "claude", "The retry still races the token refresh"),
+            ("Release notes for 1.4", "codex", "Draft the changelog from the merged PRs"),
+            ("Profile the cold start", "claude", "Where do the first 800 ms go?"),
+        ]
+        let sessions = chats.enumerated().compactMap { index, chat in
+            AcpmuxSession(.object([
+                "sessionId": .string("gallery-\(index)"), "name": .string(chat.name), "harness": .string(chat.harness),
+                "lastPrompt": .string(chat.prompt), "updatedAt": .number(now - Double(index) * 60_000),
+            ]))
+        }
+        keep(chats: sessions, at: location)
+    }
+}
+#endif
 #endif

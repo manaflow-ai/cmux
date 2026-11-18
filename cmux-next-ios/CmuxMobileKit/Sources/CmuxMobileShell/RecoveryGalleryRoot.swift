@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileLive
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import CmuxSpinner
@@ -23,6 +24,7 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
+/// - `cloudkept`: a Cloud machine opened again, drawing the chats this run last listed while its channel opens;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 /// - `terminalchat`: Toggle Terminal and Chat's Chat | Terminal control (`TerminalChatToggleGallery`): A, the one
@@ -53,6 +55,8 @@ public struct RecoveryGalleryRoot: View {
                 cards
             case "cloud":
                 cloud
+            case "cloudkept":
+                cloudKept
             case "home":
                 home
             case "chiefoff":
@@ -143,6 +147,20 @@ public struct RecoveryGalleryRoot: View {
             .padding(.vertical, 60)
         }
         .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    /// A Cloud machine opened again (the production ``CloudMachineChatsScreen``): its chats as this
+    /// run last listed them (``CloudChatsMemory``), drawn while its channel opens, here one that
+    /// never answers. Before, the screen read "Connecting to atlas-dev through Aziz's Mac Studio…".
+    private var cloudKept: some View {
+        let machine = CloudChatMachine(machineID: "gallery-vm", teamID: "gallery-team", name: "atlas-dev")
+        CloudChatsMemory.shared.keepGalleryChats(at: CloudChatLocation(macID: "gallery-mac", machine: machine))
+        return NavigationStack {
+            CloudMachineChatsScreen(connect: {
+                try await Task.sleep(for: .seconds(3600))
+                throw CancellationError()
+            }, macID: "gallery-mac", machine: machine, macName: "Aziz's Mac Studio", preferredSession: nil)
+        }
     }
 
     /// A (picked): SPEC 7.3's inline failure card, the shape every failure card in the

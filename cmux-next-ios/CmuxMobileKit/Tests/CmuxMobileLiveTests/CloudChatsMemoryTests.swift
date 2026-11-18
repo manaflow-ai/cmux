@@ -39,5 +39,27 @@ import Testing
         memory.removeAll()
         #expect(memory.machines(on: "c") == nil)
     }
+
+    /// A machine deleted on the Mac: the Mac's next answer replaces the kept list, so the machine
+    /// is gone from the next open too.
+    @Test func theMacsAnswerReplacesAKeptMachineItNoLongerLists() {
+        let memory = CloudChatsMemory()
+        let gone = CloudChatMachine(machineID: "vm2", teamID: "t1", name: "Deleted")
+        memory.keep(machines: [Self.machine, gone], on: "mac1")
+        memory.keep(machines: [Self.machine], on: "mac1")
+        #expect(memory.machines(on: "mac1") == [Self.machine])
+    }
+
+    /// Privacy: the account's sign-out forgets every kept Cloud machine and chat, so another
+    /// account signing in never sees them. This runs the real default `discardKeptChats` of
+    /// ``AccountSignOut`` (what RootView's `AccountSignOut().signedOut` runs last), not an injected one.
+    @Test func signOutForgetsTheKeptCloudMachinesAndChats() {
+        let location = CloudChatLocation(macID: "mac1", machine: Self.machine)
+        CloudChatsMemory.shared.keep(machines: [Self.machine], on: "mac1")
+        CloudChatsMemory.shared.keep(chats: [CloudChatListTests.session(1)], at: location)
+        AccountSignOut().discardKeptChats()
+        #expect(CloudChatsMemory.shared.machines(on: "mac1") == nil)
+        #expect(CloudChatsMemory.shared.chats(at: location) == nil)
+    }
 }
 #endif
