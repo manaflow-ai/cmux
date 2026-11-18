@@ -29,6 +29,12 @@ hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
+# The iPhone connection host (`cmux-mobile-host`, run by argv[0]) in a build for
+# a unix other than macOS: measurement only (scripts/measure/fold-hosts.sh builds
+# the Linux binary with it to stand in for the Mac's). The macOS build always
+# carries it (below); no shipped build enables this, so the Linux binary a
+# remote host fetches over ssh does not grow.
+fold-mobile-host = ["dep:cmux-mobile-host"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -116,6 +122,8 @@ crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 dhat = { version = "0.3", optional = true }
+# `fold-mobile-host` (measurement on Linux); the macOS table below always takes it.
+cmux-mobile-host = { path = "../../../cmux-next-ios/rust/crates/cmux-mobile-host", optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -172,6 +180,12 @@ cmux-browser-host = { path = "../cmux-browser-host" }
 # hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
 acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
 cmux-app-host = { workspace = true, features = ["engine"] }
+# The agent screen-detection plugin and the Cloud app server run from it by
+# argv[0] too (`cmux-agent-screen-detection`, `cmux-cloud`; CMUX-570). Each
+# stays its own Cargo workspace with its own binary (npm packages, the Linux
+# tree, their own tests); only the cmux-next bundle links them.
+cmux-agent-screen-detection = { path = "../../bindings/examples/rust-agent-screen-detection" }
+cmux-cloud = { path = "../../../first-party-apps/cloud/server" }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
@@ -250,6 +264,11 @@ cmux-layout-reducer.workspace = true
 cmux-action-catalog.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The cmux-next app's iPhone connection host runs from this binary by argv[0]
+# (`cmux-mobile-host`, a link beside bin/cmux; CMUX-570). It stays its own
+# Cargo workspace (cmux-next-ios/rust) with its own binary for its tests, the
+# Linux tree and a bundle whose cmux does not carry it.
+cmux-mobile-host = { path = "../../../cmux-next-ios/rust/crates/cmux-mobile-host" }
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
 # All three are already in the graph through rustls-native-certs.
 core-foundation = "0.10"

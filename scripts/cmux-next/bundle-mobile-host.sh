@@ -8,7 +8,8 @@
 # CMUX_NEXT_MOBILE_HOST_BIN names it (reload.sh sets it on fleet and CI builds,
 # universal for Release; the release signing step signs every Mach-O in
 # Resources/bin). CMUX_NEXT_REQUIRE_MOBILE_HOST=1 turns a missing
-# binary into an error.
+# binary into an error. When bin/cmux runs the same host by argv[0], the copy
+# becomes a link to it (link-mobile-host.sh).
 set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -55,3 +56,8 @@ cp "$src" "$dest"
 chmod 755 "$dest"
 cp -f "$src.ref" "$dest.version" 2>/dev/null || true
 echo "bundled cmux-mobile-host from $src"
+# A bin/cmux already here (the Xcode "Bundle cmux-tui" phase runs first) that
+# runs this same host by argv[0] takes its place as a link (CMUX-570). Nightly
+# and release bundle this before installing bin/cmux; install-cmux-tui-client.sh
+# links it then.
+"$repo_root/scripts/cmux-next/link-mobile-host.sh" "$dest_dir"

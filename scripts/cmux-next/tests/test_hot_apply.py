@@ -442,6 +442,22 @@ class HotApplyRust(unittest.TestCase):
         self.assertFalse((self.app / "Contents/Resources/bin/cmux-cloud").exists())
         self.assertEqual(self.sha(), self.old)
 
+    def test_the_app_s_iphone_host_link_keeps_the_app_s_build(self):
+        # bin/cmux-mobile-host as a link to cmux (link-mobile-host.sh, CMUX-570) is the app's helper:
+        # the hot apply leaves it on the app's bin/cmux, as a copy, while bin/cmux becomes SHA's.
+        host = self.app / "Contents/Resources/bin/cmux-mobile-host"
+        os.symlink("cmux", host)
+        before = (self.app / "Contents/Resources/bin/cmux").read_bytes()
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+        self.assertFalse(host.is_symlink())
+        self.assertEqual(host.read_bytes(), before)
+        self.assertEqual(receipt["steps"]["app_helpers_kept"], ["cmux-mobile-host"])
+        code, _, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(host.read_bytes(), before, "the copy is the bin/cmux the rollback restores")
+
     def test_a_binary_brings_the_companions_beside_it(self):
         built = self.tmp / "dev/bin"
         built.mkdir(parents=True)
