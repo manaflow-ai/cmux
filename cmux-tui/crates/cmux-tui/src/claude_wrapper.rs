@@ -797,8 +797,9 @@ mod tests {
     }
 
     /// A wrapped launch accepts messages from the person's other sessions when nothing chose
-    /// otherwise or the choice was `hold`; a `refuse` from the launch or the person stays, and
-    /// the person's `settings.json` is read, never written.
+    /// otherwise or the choice was `hold`; a `refuse` from the launch or the person stays, the
+    /// person's `refuse` beats whatever the launch passed, and the person's `settings.json` is
+    /// read, never written.
     #[test]
     fn claude_wrapper_accepts_other_sessions_unless_refused() {
         let root = tempfile::tempdir().unwrap();
@@ -818,10 +819,15 @@ mod tests {
         );
         assert_eq!(
             launch(&[], Some(Value::from("refuse"))),
-            Value::Null,
+            "refuse",
             "the person's refuse applies"
         );
         assert_eq!(launch(&[r#"--settings={"crossSessionInbound":"refuse"}"#], None), "refuse");
+        // The person's refuse wins over a launch's hold or accept (flag settings outrank theirs).
+        for chosen in ["hold", "accept"] {
+            let arg = format!(r#"--settings={{"crossSessionInbound":"{chosen}"}}"#);
+            assert_eq!(launch(&[&arg], Some(Value::from("refuse"))), "refuse", "launch {chosen}");
+        }
 
         let config = root.path().join("config");
         fs::create_dir_all(&config).unwrap();

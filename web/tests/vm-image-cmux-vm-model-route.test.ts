@@ -151,18 +151,16 @@ describe("cmux VM image model route", () => {
 
   // Leo, 2026-11-18, on a Claude Code holding another session's message: "can you make this accept", "they
   // shouldnt hold em". Every Cloud machine, whatever its model route, takes messages from the person's other
-  // sessions: a managed drop-in the route pass never touches, carrying only that key.
-  test("every machine's Claude Code accepts messages from the person's other sessions", () => {
-    const dropIn = bake.claudeManagedDropIn();
-    expect(dropIn.path.startsWith("/etc/claude-code/managed-settings.d/")).toBe(true);
-    expect(dropIn.path.endsWith(".json")).toBe(true);
-    expect(dropIn.mode).toBe(0o644);
-    expect(JSON.parse(dropIn.text)).toEqual({ crossSessionInbound: "accept" });
-    // Not a route file: the pass that removes the route on staging and production never sees it.
-    expect(bake.agentModelRouteFiles().map((f) => f.target)).not.toContain(dropIn.path);
-    expect(bake.agentModelRouteSyncScript()).not.toContain(dropIn.path);
-    // The bake writes it.
+  // sessions by default, from the person's user settings: a managed setting would outrank the person's own
+  // "refuse", which must win.
+  test("every machine's Claude Code accepts messages from the person's other sessions unless they refuse", () => {
+    for (const file of bake.agentModelRouteFiles()) expect(file.text).not.toContain("crossSessionInbound");
     const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
-    expect(source).toMatch(/writeGuestFile\(vm, claudeDropIn\.path, claudeDropIn\.text, claudeDropIn\.mode\)/);
+    expect(source).not.toContain("managed-settings.d");
+    // After the sign-in files (claude-onboarding.py) are on the machine.
+    const signIn = source.indexOf('L.step(vm, "agent-sign-in"');
+    const defaults = source.indexOf('L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
+    expect(signIn).toBeGreaterThan(0);
+    expect(defaults).toBeGreaterThan(signIn);
   });
 });
