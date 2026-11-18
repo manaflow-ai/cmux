@@ -588,8 +588,8 @@ impl Mux {
             )?,
             _ => anyhow::bail!("unsupported topology operation {}", operation_name(operation)),
         };
-        if let Some(at) = agent_layout {
-            self.narrow_agent_layout_marks(at, &commit.result);
+        if let Some(marks) = &agent_layout {
+            self.narrow_agent_layout_marks(marks, &commit.result);
         }
         Ok(commit)
     }
