@@ -60,4 +60,16 @@ fn a_bad_or_doubled_path_is_refused() {
     assert!(Manifest::build(1, vec![file("a", 1), file("a", 1)]).is_err());
     assert!(Manifest::build(1, vec![file("a", 1), file("a/b", 1)]).is_err());
     assert!(Manifest::build(1, vec![file("a/b", 1), file("a", 1)]).is_err());
+    assert!(Manifest::build(1, vec![file("Foo", 1), file("foo", 1)]).is_err());
+    assert!(Manifest::build(1, vec![file("Dir/Foo", 1), file("dir/foo", 1)]).is_err());
+}
+
+#[test]
+#[ignore = "large acceptance fixture; run on the Linux fleet"]
+fn a_manifest_accepts_one_point_five_million_files() {
+    let items = (0..1_500_000).map(|index| file(&format!("files/{index:07}.dat"), 1)).collect();
+    let manifest = Manifest::build(1, items).unwrap();
+    assert_eq!(manifest.totals(), (1_500_000, 1_500_000));
+    let encoded = manifest.encode().unwrap();
+    assert_eq!(Manifest::decode(&encoded).unwrap().len(), 1_500_001);
 }

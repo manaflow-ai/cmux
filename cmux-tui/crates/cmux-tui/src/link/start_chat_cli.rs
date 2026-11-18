@@ -47,8 +47,8 @@
 //!   chosen cloud environment (`cloud.startChat`'s `environment`; absent: the
 //!   personal Default).
 //! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
-//!   absolute folder goes on, whatever its size; one past the copy's limits goes as a first pass
-//!   ([`preflight`], `sync_cli::size_cap`).
+//!   absolute folder goes on, whatever its size; attached local folders project first and fall
+//!   back to the existing seed/copy path ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -1203,11 +1203,11 @@ fn push(
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
-/// A folder past the copy's limits is projected when that is on (sync_cli/project.rs): the chat
-/// opens on all of it at once, its files read from this Mac on first use. None for anything
-/// else, and for any failure to project, so the caller seeds or copies as before. Both pushes
-/// try it first: the App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's
-/// disk cannot hold would end there, refused, before a projection that needs no room was tried.
+/// An attached local folder is projected when that is on (sync_cli/project.rs): the chat opens on
+/// all of it at once, its files read from this Mac on first use. None for anything else, and for
+/// any failure to project, so the caller seeds or copies as before. Both pushes try it first: the
+/// App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold
+/// would end there, refused, before a projection that needs no room was tried.
 fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
         Ok(Ok(answer)) => {
