@@ -331,7 +331,9 @@ public final class MockTerminalSession: TerminalSession {
             // for timing a drag while output streams (termqa G-04).
             let count = parts.count > 1 ? Int(parts[1]) ?? 3000 : 3000
             let delay = parts.count > 2 ? Int(parts[2]) ?? 20 : 20
-            let lines = (1...max(1, count)).map { String(format: "#%07d \u{1B}[3%dmstreamed row\u{1B}[0m %@", $0, 1 + $0 % 6, String(repeating: "x", count: $0 % 30)) }
+            // Each row is made as it is written: `stream 1000000 20` held a
+            // million rows (about 90 MB) in memory for as long as it ran.
+            let lines = (1...max(1, count)).lazy.map { String(format: "#%07d \u{1B}[3%dmstreamed row\u{1B}[0m %@", $0, 1 + $0 % 6, String(repeating: "x", count: $0 % 30)) }
             try await stream(lines, lineDelay: delay)
         case "codex":
             // An inline TUI like Codex CLI's fresh session (termqa D1): a short
@@ -370,14 +372,20 @@ public final class MockTerminalSession: TerminalSession {
         prompt()
     }
 
-    private func stream(_ lines: [String], lineDelay: Int = 12, batch: Int = 1) async throws {
-        var index = 0
-        while index < lines.count {
-            let chunk = lines[index..<min(index + batch, lines.count)]
+    /// Writes `lines` `batch` at a time, `lineDelay` ms apart. Takes them as
+    /// they come, so a long lazy stream is never held whole.
+    private func stream<Lines: Sequence<String>>(_ lines: Lines, lineDelay: Int = 12, batch: Int = 1) async throws {
+        var chunk: [String] = []
+        for line in lines {
+            chunk.append(line)
+            guard chunk.count >= batch else { continue }
             write(chunk.map { $0 + "\r\n" }.joined())
-            index += batch
+            chunk.removeAll(keepingCapacity: true)
             try await pause(lineDelay)
         }
+        guard !chunk.isEmpty else { return }
+        write(chunk.map { $0 + "\r\n" }.joined())
+        try await pause(lineDelay)
     }
 
     // MARK: htop
