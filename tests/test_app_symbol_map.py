@@ -133,6 +133,34 @@ class AppSymbolMapTest(unittest.TestCase):
             self.strip(app)
             self.assertEqual((app / "Contents/Resources/cmux-symbols.bin").read_bytes(), before)
 
+    def test_release_strip_writes_the_rust_binary_symbol_map(self):
+        # bin/cmux (cmux-tui) is stripped fully too: its global Rust names go to
+        # Resources/cmux-tui-symbols.bin first, which cmux-panic-log reads.
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            (app / "Contents/Resources/bin").mkdir(parents=True)
+            exe = app / "Contents/Resources/bin/cmux"
+            exe.write_bytes(macho([
+                ("__ZN4tokio7runtime4park17h0123456789abcdefE", 0x0F, 1, TEXT_VMADDR + 0x1000),  # global, kept by -S -x before
+                ("__ZN8cmux_tui4main17hfedcba9876543210E", 0x0F, 1, TEXT_VMADDR + 0x1200),
+            ]))
+            exe.chmod(0o755)
+            (app / "Contents/Resources/bin/acpmux").symlink_to("cmux")
+            self.strip(app)
+            symbols = read_map(app / "Contents/Resources/cmux-tui-symbols.bin")
+            self.assertEqual(symbols, {SLICE_UUID: [
+                (0x1000, "_ZN4tokio7runtime4park17h0123456789abcdefE"),
+                (0x1200, "_ZN8cmux_tui4main17hfedcba9876543210E"),
+                (0x2000, ""),
+            ]})
+            self.assertFalse((app / "Contents/Resources/cmux-symbols.bin").exists())
+
+            # The second pass (after the client is bundled) keeps the map of the stripped binary.
+            before = (app / "Contents/Resources/cmux-tui-symbols.bin").read_bytes()
+            exe.write_bytes(macho([("__mh_execute_header", 0x0F, 1, TEXT_VMADDR)]))
+            self.strip(app)
+            self.assertEqual((app / "Contents/Resources/cmux-tui-symbols.bin").read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

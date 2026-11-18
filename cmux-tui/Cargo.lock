@@ -1886,7 +1886,9 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "libc",
+ "rustc-demangle",
  "serde_json",
 ]
 
@@ -2451,6 +2453,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-local-url",
  "cmux-palette-ranker",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
