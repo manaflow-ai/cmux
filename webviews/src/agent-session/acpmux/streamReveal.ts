@@ -30,6 +30,7 @@ export class StreamReveal {
   static readonly minCharsPerSecond = 40;
   static readonly maxBacklogMs = 900;
   static readonly catchUpMs = 250;
+  // motion-allow: the text reveal's finish pace, not a motion step
   static readonly finishMs = 180;
   static readonly stallMs = 600;
   /// A longer gap between frames (a hidden pane, a long task) counts as this long.

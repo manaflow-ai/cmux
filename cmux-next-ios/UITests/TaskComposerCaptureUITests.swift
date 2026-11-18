@@ -158,7 +158,12 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
                          { Self.check(!C.any(app, "workspaces.newTask").exists, "New Task is offered") }])
             },
-            Scene(group: g, id: "plain-tap-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+            // A plain tap opens an agent chat in the latest project folder (2026-11-17); with no
+            // agents on the Mac it is still a terminal.
+            Scene(group: g, id: "plain-tap-agent-chat", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+                C.tap(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            Scene(group: g, id: "plain-tap-terminal-no-agents", args: Self.list + ["-cmux-mobile-no-agents", "-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.tap(C.any(app, "workspaces.new"), "New Workspace button")
             },
             // The canvas and the row above the keyboard (A2).
