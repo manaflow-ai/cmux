@@ -58,6 +58,23 @@ extension PaneCommitMotion {
         (layer.sublayers ?? []).filter { $0.name == groundName }
     }
 
+    /// The panes that a close took out stay where they show, with no move, under every other view of their screen:
+    /// the panes that take their room grow over them. Their rings hide now. ``finish()`` gives each layer its
+    /// `zPosition` back, and hides the panes. A pane that a later change took back into the layout gets it back here.
+    func keepUnder(_ hosts: [PaneHostView]) {
+        under.removeAll { entry in
+            guard !entry.host.isLeaving else { return false }
+            entry.host.layer?.zPosition = entry.z
+            return true
+        }
+        for host in hosts {
+            host.chrome.isHidden = true
+            guard let layer = host.layer, !under.contains(where: { $0.host === host }) else { continue }
+            under.append((host: host, z: layer.zPosition))
+            layer.zPosition = -1
+        }
+    }
+
     /// A pane's ring (its border, focus ring and dim, in the layout's overlay plane) gets the pane's move, and each
     /// of its layers the change of size.
     func moveRing(of change: Change, _ token: MotionSpring) {

@@ -17,8 +17,8 @@ public enum PaneCommitMotionHoldKind: Sendable {
 /// shows the change places the panes and gives them their sizes:
 ///
 /// - ``PaneCommitMotionHoldKind/ownPicture``: it calls ``beginPaneCommitMotionHold()`` then, and
-///   ``endPaneCommitMotionHold()`` in the frame that ends the motion. A second act while the panes move ends each hold
-///   in the frame that shows that act, and begins none: the content takes its newest size there, one time.
+///   ``endPaneCommitMotionHold()`` in the frame that ends the motion. A second act while the panes move ends no hold:
+///   each hold goes on to the end of the last motion, and the content takes its newest size there, one time.
 /// - ``PaneCommitMotionHoldKind/lastFrame``: it calls neither at a split or a close.
 ///
 /// Each `begin` gets one `end`, also when the change then shows in one frame.

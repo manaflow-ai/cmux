@@ -9,7 +9,7 @@ import Testing
 extension PaneLayoutCommitTests.Content: PaneCommitMotionRiding {}
 
 /// `PaneCommitMotionTests`, who moves: the product's default, a fixture that pins the motion, which pane content
-/// rides, and a content that keeps its own old picture.
+/// rides, an act with a pane that does not ride, and a content that keeps its own old picture.
 extension PaneCommitMotionTests {
     /// A pane content as the app builds it: a container with one content area that fills it.
     static func content() -> (view: NSView, area: PaneContentAreaView) {
@@ -83,8 +83,35 @@ extension PaneCommitMotionTests {
         #expect(!NSView(frame: view.frame).paneRidesCommitMotion, "a view of no known kind rides")
     }
 
-    /// A content that keeps its own old picture, in a content area of the double's view.
-    final class Holder: NSView, PaneCommitMotionHolding {
+    /// An act whose panes do not all ride shows in one frame. The pane whose rect changes has a content area with a
+    /// view of another kind on top (a page's stand-in): it is the pane that gives its room at a split, and the pane
+    /// that takes the room at a close. No pane moves, the frame that shows the act has its layout alone (the closed
+    /// pane is hidden in it), and no frame runs on.
+    @Test(arguments: [PaneCommitMotionTests.split, PaneCommitMotionTests.close])
+    func anActWithAPaneThatDoesNotRideShowsInOneFrame(_ act: Act) throws {
+        var placed = false
+        let begun = try Self.begin(act) { harness in
+            guard let content = harness.provider.contents[Commit.left] else { return }
+            let area = PaneContentAreaView(frame: content.bounds)
+            area.autoresizingMask = [.width, .height]
+            let page = NSView(frame: area.bounds)
+            page.autoresizingMask = [.width, .height]
+            area.addSubview(page)
+            content.addSubview(area)
+            placed = true
+        }
+        defer { begun.harness.window.closeAfterTest() }
+        try #require(placed, "SETUP: the pane has no content")
+        let rides = begun.harness.provider.contents[Commit.left]?.paneRidesCommitMotion
+        try #require(rides == false, "SETUP: a pane whose area shows a view of another kind rides: \(String(describing: rides))")
+        #expect(begun.harness.root.context.movesPanesAtCommit, "SETUP: the motion is off")
+        #expect(begun.new.isShown(by: Commit.shown(begun.screen)), "the first frame after the act does not show its layout alone: \(Commit.shown(begun.screen).panes)")
+        #expect(!Self.inFlight(begun.screen), "a pane has a move on its layer in an act with a pane that does not ride")
+        #expect(!begun.harness.root.advanceFrame(Self.dt) || !begun.harness.root.advanceFrame(Self.dt), "frames run on after an act that shows in one frame")
+    }
+
+    /// A content that keeps its own old picture and rides, in a content area of the double's view.
+    final class Holder: NSView, PaneCommitMotionHolding, PaneCommitMotionRiding {
         weak var content: PaneLayoutCommitTests.Content?
         var log: [String] = []
         var paneCommitMotionHoldKind: PaneCommitMotionHoldKind { .ownPicture }

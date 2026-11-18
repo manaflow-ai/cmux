@@ -10,17 +10,18 @@ public import AppKit
 public protocol PaneCommitMotionRiding: NSView {}
 
 public extension NSView {
-    /// Whether this pane content rides its pane's move now: it is a ``PaneCommitMotionRiding`` view itself, or the top
-    /// view that shows in its content area and fills it is one. Views under that one are covered, and a hidden view (a
-    /// parked tab) shows nothing. An area with another kind on top does not ride.
+    /// Whether this pane content rides its pane's move now: the top view that shows in its content area and fills it
+    /// is a ``PaneCommitMotionRiding`` view, or the content has no area and is one itself. Views under the top one
+    /// are covered, and a hidden view (a parked tab) shows nothing. An area with another kind on top does not ride,
+    /// whatever its container is: what the area shows is what the moving clip would cut.
     ///
     /// An area that shows no view yet and has the ground of a terminal that comes next
     /// (``PaneContentAreaView/waitingGround``: a split's new pane in its key's frame) rides: a flat ground has
     /// nothing to cut, and the terminal's host comes into it at its final size.
     /// O(the area's views), no layout.
     var paneRidesCommitMotion: Bool {
-        if self is any PaneCommitMotionRiding { return true }
-        guard let area = paneCommitMotionArea, area.bounds.width >= 1, area.bounds.height >= 1 else { return false }
+        guard let area = paneCommitMotionArea else { return self is any PaneCommitMotionRiding }
+        guard area.bounds.width >= 1, area.bounds.height >= 1 else { return false }
         guard let top = paneCommitMotionTop else { return area.waitingGround != nil }
         return top is any PaneCommitMotionRiding
     }
