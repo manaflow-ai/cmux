@@ -265,36 +265,46 @@ async fn read_pr(url: &str) -> Option<PrState> {
     parse_state(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// What the last reads said, by URL: the state and when it was read (Unix ms).
-static PR_STATES: LazyLock<StdMutex<HashMap<String, (PrState, u64)>>> =
-    LazyLock::new(Default::default);
-/// Ends the timer's sleep: a pull request a session merged or closed.
-static WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
+/// What the last reads said, by URL: the state and when it was read (Unix ms). The loop owns it;
+/// each pass keeps only the pull requests of chats still in the rule.
+#[derive(Default)]
+pub(crate) struct PrStates(HashMap<String, (PrState, u64)>);
 
-fn known(url: &str) -> Option<PrState> {
-    PR_STATES.lock().unwrap_or_else(|e| e.into_inner()).get(url).map(|(s, _)| *s)
-}
+impl PrStates {
+    fn known(&self, url: &str) -> Option<PrState> {
+        self.0.get(url).map(|(s, _)| *s)
+    }
 
-/// Whether `url` is due a read at `now`: never read, or open and read [`PR_RECHECK_MS`] ago.
-fn read_due(url: &str, now: u64) -> bool {
-    match PR_STATES.lock().unwrap_or_else(|e| e.into_inner()).get(url) {
-        None => true,
-        Some((PrState::Merged, _)) => false,
-        Some((_, at)) => now >= at.saturating_add(PR_RECHECK_MS),
+    /// Whether `url` is due a read at `now`: never read, or open and read [`PR_RECHECK_MS`] ago.
+    fn read_due(&self, url: &str, now: u64) -> bool {
+        match self.0.get(url) {
+            None => true,
+            Some((PrState::Merged, _)) => false,
+            Some((_, at)) => now >= at.saturating_add(PR_RECHECK_MS),
+        }
+    }
+
+    /// Tests: what GitHub says of `url`.
+    #[cfg(test)]
+    pub(crate) fn set(&mut self, url: &str, state: PrState) {
+        self.0.insert(url.to_owned(), (state, now_ms()));
     }
 }
+
+/// The pull requests sessions merged or closed since the last pass: read again at the next one.
+static CHANGED: LazyLock<StdMutex<Vec<String>>> = LazyLock::new(Default::default);
+/// Ends the timer's sleep when one is.
+static WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
 
 /// A session's `gh pr merge` or `gh pr close` named `url`: it is read again at the next pass,
 /// which starts now.
 pub(crate) fn pr_changed(url: &str) {
-    PR_STATES.lock().unwrap_or_else(|e| e.into_inner()).remove(url);
+    let mut changed = CHANGED.lock().unwrap_or_else(|e| e.into_inner());
+    if changed.len() < PR_READS_PER_PASS * 10 && !changed.iter().any(|u| u == url) {
+        changed.push(url.to_owned());
+    }
+    drop(changed);
     WAKE.notify_one();
-}
-
-/// Tests: what GitHub says of `url`.
-#[cfg(test)]
-pub(crate) fn set_known(url: &str, state: PrState) {
-    PR_STATES.lock().unwrap_or_else(|e| e.into_inner()).insert(url.to_owned(), (state, now_ms()));
 }
 
 impl Hub {
@@ -304,6 +314,7 @@ impl Hub {
             return;
         };
         let mut was = Rules::default();
+        let mut states = PrStates::default();
         loop {
             let Some(h) = hub.upgrade() else { return };
             if h.shutting_down() {
@@ -316,6 +327,7 @@ impl Hub {
                 tracing::info!(?rules, "auto-settle");
             }
             if !rules.any() {
+                states = PrStates::default();
                 drop(h);
                 // No timer while off: the next settings change, or the hub's end.
                 if settings.changed().await.is_err() {
@@ -324,7 +336,7 @@ impl Hub {
                 continue;
             }
             let wait = if h.startup_settled() {
-                h.auto_settle_pass(&rules).await
+                h.auto_settle_pass(&rules, &mut states).await
             } else {
                 std::time::Duration::from_secs(30)
             };
@@ -338,18 +350,28 @@ impl Hub {
     }
 
     /// One pass: settles each live chat that is due and not busy, reads the pull requests the
-    /// rule still needs, and answers how long until the next pass.
-    pub(crate) async fn auto_settle_pass(&self, rules: &Rules) -> std::time::Duration {
+    /// rule still needs into `states`, and answers how long until the next pass.
+    pub(crate) async fn auto_settle_pass(
+        &self,
+        rules: &Rules,
+        states: &mut PrStates,
+    ) -> std::time::Duration {
+        for url in std::mem::take(&mut *CHANGED.lock().unwrap_or_else(|e| e.into_inner())) {
+            states.0.remove(&url);
+        }
         let now = now_ms();
         let mut next: Option<u64> = None;
         let mut soon = |at: u64| next = Some(next.map_or(at, |n| n.min(at)));
         let mut reads: Vec<String> = vec![];
+        // The pull requests of the chats still in the rule: what `states` keeps.
+        let mut wanted: std::collections::HashSet<String> = Default::default();
         for session in self.live_session_handles() {
             let facts = session.read_meta(Facts::of);
             if !facts.eligible(rules) {
                 continue;
             }
-            if let Some(reason) = decide(rules, &facts, known, now) {
+            wanted.extend(facts.pull_requests.iter().cloned());
+            if let Some(reason) = decide(rules, &facts, |u| states.known(u), now) {
                 if self.settle_blocked(&session) {
                     soon(now + BLOCKED_RECHECK_MS);
                 } else if let Err(e) = self.settle(&session, reason) {
@@ -360,26 +382,21 @@ impl Hub {
             if let Some(at) = idle_due_at(rules, &facts) {
                 soon(at);
             }
-            for url in to_read(rules, &facts, known) {
+            for url in to_read(rules, &facts, |u| states.known(u)) {
                 soon(now + PR_RECHECK_MS);
-                if read_due(url, now) && !reads.iter().any(|r| r == url) {
+                if states.read_due(url, now) && !reads.iter().any(|r| r == url) {
                     reads.push(url.to_owned());
                 }
             }
         }
+        // Bounded by the live chats' pull requests: a settled or closed chat's go.
+        states.0.retain(|url, _| wanted.contains(url));
         let mut settled_some = false;
         for url in reads.into_iter().take(PR_READS_PER_PASS) {
-            let Some(state) = read_pr(&url).await else {
-                // Unreadable: kept as unknown, read again after the recheck.
-                PR_STATES
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .entry(url)
-                    .or_insert((PrState::Open, now));
-                continue;
-            };
+            // Unreadable (no gh, refused, slow): counted as open, read again after the recheck.
+            let state = read_pr(&url).await.unwrap_or(PrState::Open);
             settled_some |= state != PrState::Open;
-            PR_STATES.lock().unwrap_or_else(|e| e.into_inner()).insert(url, (state, now_ms()));
+            states.0.insert(url, (state, now_ms()));
         }
         if settled_some {
             soon(now + AFTER_READ_MS);

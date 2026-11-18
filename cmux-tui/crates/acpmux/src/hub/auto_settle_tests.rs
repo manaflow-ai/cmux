@@ -155,15 +155,16 @@ async fn a_pass_settles_holds_and_unsettles() {
     let (hub, session) = chat().await;
     let pr = format!("https://github.com/o/settle-pass-{}/pull/1", session.id);
     session.meta.lock().unwrap().pull_requests.push(pr.clone());
-    set_known(&pr, PrState::Merged);
+    let mut states = PrStates::default();
+    states.set(&pr, PrState::Merged);
     let rules = Rules { on_merge: true, ..Rules::default() };
 
     session.queued.fetch_add(1, Ordering::SeqCst);
-    hub.auto_settle_pass(&rules).await;
+    hub.auto_settle_pass(&rules, &mut states).await;
     assert_eq!(tag(&session, SETTLED_TAG), None, "a queued prompt holds it");
     session.queued.fetch_sub(1, Ordering::SeqCst);
 
-    hub.auto_settle_pass(&rules).await;
+    hub.auto_settle_pass(&rules, &mut states).await;
     assert_eq!(tag(&session, SETTLED_TAG).as_deref(), Some("merged"));
     assert!(tag(&session, ARCHIVED_TAG).is_some(), "settled is archived");
 
@@ -171,7 +172,7 @@ async fn a_pass_settles_holds_and_unsettles() {
     assert_eq!(tag(&session, SETTLED_TAG), None);
     assert_eq!(tag(&session, ARCHIVED_TAG), None);
     assert_eq!(tag(&session, UNSETTLED_TAG).as_deref(), Some("1"));
-    hub.auto_settle_pass(&rules).await;
+    hub.auto_settle_pass(&rules, &mut states).await;
     assert_eq!(tag(&session, SETTLED_TAG), None, "the same pull request does not settle it again");
     hub.shutdown_all().await;
 }
@@ -181,6 +182,7 @@ async fn a_pass_settles_holds_and_unsettles() {
 async fn never_keeps_it_and_the_persons_prompt_brings_it_back() {
     let (hub, session) = chat().await;
     let rules = Rules { idle_ms: Some(DAY_MS), ..Rules::default() };
+    let mut states = PrStates::default();
     {
         let mut m = session.meta.lock().unwrap();
         m.updated_at = 1;
@@ -189,12 +191,12 @@ async fn never_keeps_it_and_the_persons_prompt_brings_it_back() {
             crate::store::Tag { value: NEVER.into(), expires_at: None },
         );
     }
-    hub.auto_settle_pass(&rules).await;
+    hub.auto_settle_pass(&rules, &mut states).await;
     assert_eq!(tag(&session, SETTLED_TAG), None, "autoSettle=never");
 
     session.meta.lock().unwrap().tags.remove(OVERRIDE_TAG);
     session.meta.lock().unwrap().updated_at = 1;
-    hub.auto_settle_pass(&rules).await;
+    hub.auto_settle_pass(&rules, &mut states).await;
     assert_eq!(tag(&session, SETTLED_TAG).as_deref(), Some("idle"));
 
     hub.unsettle_on_person_prompt(&session);
