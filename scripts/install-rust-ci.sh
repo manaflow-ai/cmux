@@ -6,6 +6,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
   # To a file first: a retried transfer never pipes a partial installer into sh.
   rustup_init="$(mktemp "${TMPDIR:-/tmp}/rustup-init.XXXXXX")"
+  trap 'rm -f "$rustup_init"' EXIT
   curl --proto '=https' --tlsv1.2 -sSf --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 \
     -o "$rustup_init" https://sh.rustup.rs
   sh "$rustup_init" -y --profile minimal --default-toolchain stable

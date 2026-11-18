@@ -52,8 +52,13 @@ COMMAND_START = re.compile(r"(?:^|\$\(|`|[|;&({!]|\bif|\bthen|\bdo|\belse|\bexec
 CURL = re.compile(r"(?<![\w./-])curl(?=\s+[-\"'$])")
 GIT_NET = re.compile(r"(?<![\w./-])git(?:\s+(?:-c\s+\S+|-C\s+\S+|--git-dir[= ]\S+|--work-tree[= ]\S+))*\s+"
                      r"(fetch|clone|ls-remote|pull|submodule\s+update)\b")
-LOW_SPEED = re.compile(r"http\.lowSpeedLimit|GIT_HTTP_LOW_SPEED_LIMIT|git_fetch_retry|\bnet_retry\b|\btimeout(?:\.sh)?\s+\S+\s")
-FILE_LOW_SPEED = re.compile(r"^export GIT_HTTP_LOW_SPEED_LIMIT=", re.MULTILINE)
+# git applies a low-speed abort only when both the limit and the time are set.
+LOW_SPEED = re.compile(r"http\.lowSpeedLimit=\S+.*http\.lowSpeedTime=|GIT_HTTP_LOW_SPEED_LIMIT=\S+.*GIT_HTTP_LOW_SPEED_TIME="
+                       r"|git_fetch_retry|\bnet_retry\b|\btimeout(?:\.sh)?\s+\S+\s")
+FILE_LOW_SPEED = re.compile(r"^export GIT_HTTP_LOW_SPEED_LIMIT=\S+ GIT_HTTP_LOW_SPEED_TIME=", re.MULTILINE)
+GH_DOWNLOAD = re.compile(r"(?<![\w./-])gh\s+release\s+download\b")
+# The end of one command on a logical line: a pipe, a list operator or a semicolon.
+COMMAND_END = re.compile(r"\s(?:\|\|?|&&|;)\s")
 
 
 def job_steps() -> list[dict]:
@@ -121,8 +126,14 @@ def unbounded(name: str, text: str) -> list[str]:
         for match in CURL.finditer(line):
             if (name, "curl") in EXEMPT:
                 continue
-            if in_command_position(line, match.start()) and not re.search(r"--max-time\b|\s-m\s", line):
+            # The bound must be on this curl, not on another command of the same line.
+            end = COMMAND_END.search(line, match.end())
+            command = line[match.start():end.start() if end else len(line)]
+            if in_command_position(line, match.start()) and not re.search(r"--max-time\b|\s-m\s", command):
                 problems.append(f"curl without --max-time ({where})")
+        for match in GH_DOWNLOAD.finditer(line):
+            if in_command_position(line, match.start()) and not LOW_SPEED.search(line[:match.start()]):
+                problems.append(f"gh release download without a time limit ({where})")
         for match in GIT_NET.finditer(line):
             if (name, match.group(1)) in EXEMPT or not in_command_position(line, match.start()):
                 continue
@@ -173,6 +184,11 @@ class NightlyNextNetworkBoundsTest(unittest.TestCase):
     def test_the_scan_flags_an_unbounded_clone_and_download(self):
         bad = 'git clone https://github.com/manaflow-ai/cmux-cua.git "$dir"\nbody="$(curl -fsSL "$url")"\n'
         self.assertEqual(len(unbounded("x.sh", bad)), 2)
+        # A bound on a neighbour, half a low-speed pair, or a gh download with no limit is no bound.
+        also_bad = ('curl -fsSL "$a" -o a && curl -fsSL --max-time 9 "$b"\n'
+                    'git -c http.lowSpeedLimit=1000 fetch origin "$sha"\n'
+                    'gh release download "$tag" --repo "$repo" --dir "$tmp"\n')
+        self.assertEqual(len(unbounded("x.sh", also_bad)), 3, unbounded("x.sh", also_bad))
         good = ('GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 git clone "$u" "$d"\n'
                 'curl -fsSL --max-time 60 \\\n  "$url"\necho "install it: curl -fsSL https://x | sh"\n')
         self.assertEqual(unbounded("x.sh", good), [])
