@@ -106,10 +106,24 @@ def fresh_session(tag, app=None):
     a tag's earlier state moves aside). The mode's session of many workspaces is under the entry's one fixed tag, and
     bench_launch.py says that a launch restores its tag's saved session. The state moves only while no process of
     the tag runs: with `app` (its bundle), the tag's daemons that an earlier run left end first (tag_teardown.py),
-    because such a daemon keeps its session."""
+    because such a daemon keeps its session.
+
+    The teardown ends each process that runs from below the path `app`, and their direct children (the shells of the
+    tag's terminals). So this refuses, and ends nothing, when the path is not a `cmux DEV <tag>.app` bundle
+    (bench_launch.tag_of: a shipped bundle, a folder that is no bundle), when the bundle's tag is not `tag`, and
+    when an app of the bundle runs now (`tag-in-use`, as a BenchApp launch refuses): that app is a person's, or
+    another run's, and not this run's to end."""
     import bench_launch  # only this mode's launch and the entry's cleanup need it
     if app:
         from tag_teardown import TagTeardown
+        app = os.path.realpath(app).rstrip("/")
+        of_bundle = bench_launch.tag_of(app)  # stops here when the path is not a tagged DEV bundle
+        if of_bundle != re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-"):
+            sys.exit(f"{MARK}: --tag {tag} is not the tag of {os.path.basename(app)} ({of_bundle}): nothing ended, no session moved")
+        running = bench_launch.bundle_pids(app, "Contents/MacOS/")
+        if running:
+            sys.exit(f"{MARK}: tag-in-use: an app of {app} runs now (pid {', '.join(map(str, running))}): it is not this "
+                     "run's to end. Quit it, then run again. Nothing ended, no session moved")
         TagTeardown(app).end()
     bench_launch.start_fresh_state(tag)
 

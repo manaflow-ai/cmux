@@ -15,6 +15,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.dont_write_bytecode = True  # the imports leave no cache folder in the checkout
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -73,6 +74,22 @@ class OneKeyTests(unittest.TestCase):
                                                  "state": {"content": "final", "outside": "before"}}])
         self.assertEqual(got["regions"]["content"]["between_frames"], 1)
         self.assertEqual(got["pictures"]["changed_0"], "frame-006.png")
+
+    def test_a_content_first_frame_that_is_not_the_last_picture_is_not_final(self):
+        # No LATER frame is off the last picture in these two, so `changes_after_content` is 0 in both. The
+        # content_first frame itself is off it: the page half drawn in it, or the sidebar still old in it.
+        half_drawn = [(OLD, ROW_OLD)] * 2 + [((0.3, 0.05), ROW_NEW)] + [(NEW, ROW_NEW)] * 237
+        sidebar_late = [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_OLD)] + [(NEW, ROW_NEW)] * 237
+        for name, pictures in (("half drawn", half_drawn), ("sidebar late", sidebar_late)):
+            with self.subTest(name):
+                got = nsf.one_key(take(pictures), "n", asked_hz=120)
+                self.assertEqual(got["invalid"], [])
+                self.assertEqual([got[at]["frame"] for at in ("content_first", "final")], [3, 4])
+                self.assertEqual((got["changes_after_content"], got["first_is_final"]), (0, False))
+                self.assertIs(got["content_first_is_last_picture"], False)
+        whole = nsf.one_key(take([(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        self.assertEqual((whole["content_first"]["frame"], whole["content_first_is_last_picture"], whole["first_is_final"]),
+                         (3, True, True))
 
     def test_a_blank_frame_is_not_the_first_content(self):
         pictures = [dict(content=(0.9, 0.9), outside=ROW_NEW, blank=True)] + [(NEW, ROW_NEW)] * 239
@@ -388,6 +405,53 @@ class ScreenTests(unittest.TestCase):
         self.addCleanup(os.environ.pop, "BENCH_LAUNCH_STATE_BASE", None)
         new_surface_screen.fresh_session("screen-test-tag")
         self.assertEqual((os.path.exists(root), os.path.isdir(os.path.join(root + ".bench-prev", "tui"))), (False, True))
+
+    def fresh_session_of(self, bundle, running):
+        """fresh_session with the bundle `bundle` in this test's folder, while the PIDs `running` run from it (a fake
+        of the process read). Gives (the refusal's text or None, the teardowns that ran, the saved session moved)."""
+        import bench_launch
+        import tag_teardown
+        root, app, ended = os.path.join(self.folder, "tags", "screen-test-tag"), os.path.join(self.folder, bundle), []
+        os.makedirs(os.path.join(root, "tui"))
+        os.makedirs(os.path.join(app, "Contents", "MacOS"))
+        os.environ["BENCH_LAUNCH_STATE_BASE"] = self.folder
+        self.addCleanup(os.environ.pop, "BENCH_LAUNCH_STATE_BASE", None)
+
+        class Teardown:
+            def __init__(self, path):
+                self.path = path
+
+            def end(self):
+                ended.append(self.path)
+
+        refusal = None
+        with mock.patch.object(bench_launch, "bundle_pids", lambda path, inside: running), \
+                mock.patch.object(tag_teardown, "TagTeardown", Teardown):
+            try:
+                new_surface_screen.fresh_session("screen-test-tag", app)
+            except SystemExit as stop:
+                refusal = str(stop.code)
+        return refusal, ended, not os.path.exists(root)
+
+    def test_a_fresh_session_ends_nothing_for_a_path_that_is_no_tagged_bundle(self):
+        refusal, ended, moved = self.fresh_session_of("some-folder", [])
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("expected a `cmux DEV <tag>.app` bundle", refusal)
+
+    def test_a_fresh_session_ends_nothing_while_an_app_of_the_bundle_runs(self):
+        refusal, ended, moved = self.fresh_session_of("cmux DEV screen-test-tag.app", [4242])
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("tag-in-use", refusal)
+        self.assertIn("pid 4242", refusal)
+
+    def test_a_fresh_session_ends_nothing_for_a_bundle_of_another_tag(self):
+        refusal, ended, moved = self.fresh_session_of("cmux DEV other.app", [])
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("is not the tag of cmux DEV other.app (other)", refusal)
+
+    def test_a_fresh_session_ends_the_bundles_left_processes_when_no_app_of_it_runs(self):
+        refusal, ended, moved = self.fresh_session_of("cmux DEV screen-test-tag.app", [])
+        self.assertEqual((refusal, ended, moved), (None, [os.path.realpath(os.path.join(self.folder, "cmux DEV screen-test-tag.app"))], True))
 
 
 if __name__ == "__main__":

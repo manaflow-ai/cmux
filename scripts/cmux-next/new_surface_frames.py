@@ -27,8 +27,9 @@ after it) and in ms:
   changes_after_content  the frames after `content_first` in which a region is not at the last picture, and
                  `after_content`: those frames as runs, each with the state of each region (`before`, `between`: equal
                  to neither picture, `final`)
-  first_is_final True: no row after `content_first` has a region off the last picture. False: one has. None (not
-                 known): none has, but a frame of the display from the one before `content_first` on has no row
+  first_is_final True: each region is at the last picture IN the `content_first` frame
+                 (`content_first_is_last_picture`) and in each row after it. False: one is not. None (not known):
+                 each is, but a frame of the display from the one before `content_first` on has no row
                  (`frames_not_seen_from_content`), so a change can be in it.
 
 The frame number of a row is its time over the display's frame time, counted up for the first row and by the rows'
@@ -286,8 +287,12 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out["after_content"] = runs
     out["changes_after_content"] = sum(run["count"] for run in runs) if first is not None else None
     out["frames_not_seen_from_content"] = unseen
+    # The content_first frame itself: each region that the rows carry is at its last picture in it. A page that is
+    # half drawn in that frame, or a sidebar row that comes one frame later, is a change after the first content.
+    at_first = first is not None and all(region["states"][first] == "final" for region in known.values())
+    out["content_first_is_last_picture"] = at_first if first is not None else None
     # None: not known. No row shows a change, but a frame with no row can hold one.
-    out["first_is_final"] = False if first is None or runs else (None if unseen else True)
+    out["first_is_final"] = False if first is None or runs or not at_first else (None if unseen else True)
     out["regions"] = {name: ({k: v for k, v in region.items() if k != "states"} if region else None) for name, region in regions.items()}
     out["blinks"] = [region["blink"] for region in known.values() if region["blink"]]
     # The pictures that say what each number means: the picture that the app compares with (its last frame before the
