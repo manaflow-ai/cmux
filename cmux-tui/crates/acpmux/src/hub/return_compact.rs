@@ -2,8 +2,8 @@
 //! prompt cache has lapsed, then send the prompt (Leo, 2026-11-18: "a sort of opt-in maybe
 //! feature for auto compaction when your Claude Code cache is busted or whatever").
 //!
-//! After the cache lapses the next turn reads the whole context uncached. With Settings > General
-//! > Prompt Cache's mode "When You Return" (`agents.cacheCompact.mode` = `onReturn`, off by
+//! After the cache lapses the next turn reads the whole context uncached. With Settings, General,
+//! Prompt Cache: mode "When You Return" (`agents.cacheCompact.mode` = `onReturn`, off by
 //! default: a compaction is a model call that counts toward usage), a person's prompt to an idle
 //! chat whose last usage named an expired cache (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`) and at least `agents.cacheCompact.returnMinTokens` of context
