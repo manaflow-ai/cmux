@@ -158,7 +158,7 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// Let-go content lays out its whole subtree now (a terminal measures from its host: D1), at a real size in a window.
-    private func layOutLetGoContent() {
+    func layOutLetGoContent() {
         layoutClip()
         if window != nil, bounds.width >= 1, bounds.height >= 1 { layoutSubtreeIfNeeded() }
     }
@@ -342,7 +342,7 @@ final class PaneHostView: NSView, RestingPlacement {
         // launch frame. AppKit does not reliably run the child's autoresizing
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
-        let content = contentFrame(in: clipView.bounds)
+        let content = moveContentFrame ?? contentFrame(in: clipView.bounds)
         if self.content.frame != content { self.content.frame = content }
         syncHeldArea()
         applyChromeShape()
