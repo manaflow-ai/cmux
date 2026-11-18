@@ -812,30 +812,57 @@ class LinuxOrphanTests(unittest.TestCase):
         plan = orphan_plan(find(runs + [served], jobs), max_cancels=3)
         self.assertEqual([d.action for d in plan], ["cancel", "cancel", "cancel", "skip"])
 
-    def test_the_old_queued_listing_reads_the_oldest_pages(self):
+    def test_the_old_listings_read_the_oldest_pages_of_queued_and_in_progress_runs(self):
         """Review of 87691bf0 (F1): the list is newest first and `created=<T` only cuts its top, so the first pages of
-        500 old queued runs are the youngest of them; the oldest is on the last page."""
+        500 old runs are the youngest of them; the oldest is on the last page. Dry run 44279689050: a run whose other
+        jobs finished is in_progress while its lost job waits, so in_progress gets the same listing."""
         asked = []
-        old = [make_run(status="queued", age=130 + n) for n in range(500)]  # newest first, as GitHub lists them
+        old = {status: [make_run(status=status, age=130 + n) for n in range(500)]  # newest first, as GitHub lists them
+               for status in ("queued", "in_progress")}
 
         class Fake(janitor.GitHub):
             def __init__(self):
                 self.repo = "manaflow-ai/cmux"
+                self.old_run_totals = {}
 
             def request(self, method, path, body=None):
                 asked.append(path)
                 if "created=" not in path:
                     return {"workflow_runs": []}
+                status = re.search(r"[?&]status=(\w+)", path).group(1)
                 page = int(re.search(r"[?&]page=(\d+)", path).group(1))
-                return {"total_count": len(old), "workflow_runs": old[(page - 1) * 100: page * 100]}
+                return {"total_count": 500, "workflow_runs": old[status][(page - 1) * 100: page * 100]}
 
-        found = Fake().in_flight_runs(created_before=NOW - dt.timedelta(minutes=120))
-        self.assertIn(old[-1]["id"], {run["id"] for run in found})
-        self.assertTrue(all("status=queued" in path for path in asked if "created=%3C2026-09-22T15%3A00%3A00Z" in path))
-        self.assertEqual(sorted(int(re.search(r"[?&]page=(\d+)", p).group(1)) for p in asked if "created=" in p), [1, 3, 4, 5])
+        fake = Fake()
+        found = {run["id"] for run in fake.old_runs(NOW - dt.timedelta(minutes=120))}
+        self.assertIn(old["queued"][-1]["id"], found)
+        self.assertIn(old["in_progress"][-1]["id"], found)
+        self.assertEqual(fake.old_run_totals, {"queued": 500, "in_progress": 500})
+        for status in ("queued", "in_progress"):
+            self.assertEqual(sorted(int(re.search(r"[?&]page=(\d+)", p).group(1)) for p in asked
+                                    if f"status={status}" in p), [1, 3, 4, 5])
         asked.clear()
         Fake().in_flight_runs()
         self.assertFalse(any("created=" in path for path in asked))
+
+    def test_an_old_only_run_of_any_workflow_is_read_and_a_listed_one_is_not(self):
+        """An old in_progress CI run past the newest pages holds a lost Linux job no other pass reads."""
+        old_ci = make_run(status="in_progress", age=1300)
+        listed_ci = make_run(status="in_progress", age=1200)
+        picked = janitor.linux_orphan_reads([old_ci, listed_ci], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=10, now=NOW, also={old_ci["id"]})
+        self.assertEqual([run["id"] for run in picked], [old_ci["id"]])
+
+    def test_stuck_jobs_are_counted_per_label_with_their_evidence(self):
+        stuck = make_run(status="in_progress", age=1300)
+        served = make_run(status="in_progress", age=20)
+        read = {stuck["id"]: [orphan_job(age=1290, label="ubuntu-24.04"),
+                              orphan_job(age=1290, label="blacksmith-4vcpu-ubuntu-2404"), served_job(age=1295)]}
+        everything = {**read, served["id"]: [served_job(age=15, label="blacksmith-4vcpu-ubuntu-2404")]}
+        found = janitor.stuck_by_pool(read, everything, min_age=dt.timedelta(minutes=120), now=NOW)
+        self.assertEqual({pool: values[:2] for pool, values in found.items()},
+                         {"ubuntu-24.04": (1, 0), "blacksmith-4vcpu-ubuntu-2404": (1, 1)})
+        self.assertEqual(found["ubuntu-24.04"][2], dt.timedelta(minutes=1290))
 
     def test_protected_linux_runs_are_counted_not_read(self):
         """Review of 87691bf0 (F2): a dry run shows the protected Linux runs, though their jobs are never read."""
