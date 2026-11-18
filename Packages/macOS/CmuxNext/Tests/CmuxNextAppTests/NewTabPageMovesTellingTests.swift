@@ -153,7 +153,7 @@ import Testing
 
     private func lost(_ key: String) {
         let view = had[key] ?? had[services.agentTabs.resolve(key)]
-        let drawn = wiredPanes.draws(key)
+        let drawn = services.cache.isRendering(key)
         let index = lines.count
         lines.append("\(stamp): \(label(key)) LOST its page view (the surface ledger says that a pane draws the tab: \(drawn)), asked by \(Self.asker())")
         Task { @MainActor [weak self] in
