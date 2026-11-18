@@ -56,7 +56,10 @@ public struct AccountSignOut {
                     MacHomeFeed.shared.discardForSignOut()
                     AgentChatsMemory.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
+                    #if os(iOS)
+                    // Cloud chats are iOS-only (`CloudChatsMemory` is declared under `os(iOS)`).
                     CloudChatsMemory.shared.removeAll()
+                    #endif
                 }) {
         self.snapshots = snapshots
         self.feedStore = feedStore
