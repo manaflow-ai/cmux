@@ -106,15 +106,27 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
 
         var steps: [Step]
 
+        /// `writes` on `machine` at once; the first failure fails them all.
+        static func write(_ writes: [(path: String, data: Data, mode: Int)], on machine: Machine) async throws {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for write in writes { group.addTask { try await machine.write(write.path, write.data, write.mode) } }
+                try await group.waitForAll()
+            }
+        }
+
         /// Makes each step; after each exec Rust says go on or the outcome (`cloud_machine_step_outcome`).
         func run(on machine: Machine, script: Data?, config: Data?) async -> Outcome {
             do {
+                // Writes between two execs name different files and nothing reads them before the next exec, so they
+                // go at once: one round trip's wait for the run of them, not one each (a repository's start writes five).
+                var writes: [(path: String, data: Data, mode: Int)] = []
                 for step in steps {
                     switch step {
                     case let .write(path, mode, text, payload):
-                        let data = text.map { Data($0.utf8) } ?? (payload == "config" ? config : script) ?? Data()
-                        try await machine.write(path, data, mode)
+                        writes.append((path, text.map { Data($0.utf8) } ?? (payload == "config" ? config : script) ?? Data(), mode))
                     case let .exec(command, said):
+                        try await Self.write(writes, on: machine)
+                        writes.removeAll()
                         let ran = try await machine.exec(command)
                         struct Request: Encodable { var answer: ExecAnswer, said: [String] }
                         struct Reply: Decodable { var outcome: Outcome? }
@@ -123,6 +135,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
                         if let outcome = reply.outcome { return outcome }
                     }
                 }
+                try await Self.write(writes, on: machine)
                 return .unanswered
             } catch {
                 return Outcome(status: "failed", reason: String(describing: error))
