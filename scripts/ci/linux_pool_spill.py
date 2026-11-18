@@ -17,6 +17,14 @@ Each pass it
   SAMPLE_WINDOW ago, listed in age slices and spread evenly over each (at most MAX_RUNS), their jobs read with
   the job's own GITHUB_TOKEN (actions: read), counted per Blacksmith Linux label as queued, running and `waited`
   (queued WAITED_MINUTES or more, the stall-aware failover's bound). The counts are a lower bound;
+- clears main's dead mark on any Linux label the sample shows running a job (served_marks()), and lets main's
+  reconcile() re-pick every pool, by main's own rule that a label running a job is busy, not dead
+  (runner_pools.started_nothing_while_queued()). main reads that from the janitor's snapshot, but the janitor runs
+  on the same saturated Blacksmith sizes: on 2026-11-17 its snapshots landed at 20:57Z and 21:59Z, so the passes at
+  21:48Z and 21:54Z had none (over pr_runner_pool.MAX_SNAPSHOT_MINUTES old) and judged on the 5-minute probe alone.
+  The probe read a deep queue as "Blacksmith is not serving", marked 4 and 16 vCPU dead while this pass's own
+  sample counted 20 and 7 jobs running there, and moved linux_16 to 32 vCPU, the size with the deepest queue
+  (940 queued, 4 running);
 - applies spill_choice() to the linux pool: when SPILL_WAITED or more sampled jobs on the pool's live member have
   waited and a later live member has at most SPILL_ROOM_WAITED, the pool moves there, recorded in RUNNER_POOLS'
   `_spill`. It comes back once the member it left shows a drain on a complete sample (nothing waited, at most
@@ -235,6 +243,24 @@ class Recorder:
         self.writes[name] = value
 
 
+def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
+    """The dead-marked Blacksmith Linux labels the sample shows running at least one job. A running job is a
+    start, complete sample or not (the counts are a lower bound), so a cut sample still clears a mark."""
+    if not isinstance(dead, Mapping) or not isinstance(load, Mapping):
+        return set()
+    served = set()
+    for label in dead:
+        counts = load.get(label)
+        if not (isinstance(label, str) and LINUX_LABEL.match(label) and isinstance(counts, Mapping)):
+            continue
+        try:
+            if int(counts.get("running") or 0) > 0:
+                served.add(label)
+        except (TypeError, ValueError):
+            continue
+    return served
+
+
 def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping[str, Any],
           load: Mapping[str, Any] | None, *, now: dt.datetime) -> tuple[dict[str, Any], list[str]]:
     """The RUNNER_POOLS value after the spill step: main's next value (`policy_value`, else the current one) with the
@@ -246,9 +272,15 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         previous = {}
     spills = previous.get(SPILL_KEY) if isinstance(previous, Mapping) else None
     spills = spills if isinstance(spills, Mapping) else {}
+    lines: list[str] = []
+    served = served_marks(chosen.get(policy.DEAD_KEY), load)
+    if served:
+        # Nothing new is marked and no mark expires here (covered=()): only the served marks clear.
+        chosen, said = policy.reconcile(chosen, pools, dead_now=(), served_now=served, now=now, covered=())
+        lines += [f"{line} (this pass's sample counts a job running there)" if "started a job" in line else line
+                  for line in said]
     value = dict(chosen)
     dead = value.get(policy.DEAD_KEY) or {}
-    lines: list[str] = []
     kept: dict[str, Any] = {}
     for name in QUEUE_AWARE_POOLS:
         if name not in pools or name not in value:

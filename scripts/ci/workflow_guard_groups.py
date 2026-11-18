@@ -97,6 +97,7 @@ PATH_OWNERS = {
     # test_ios_app_review_gate.py loads the gate by path and reads the history.
     "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
     "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/known-blockers.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
@@ -188,6 +189,8 @@ PATH_OWNERS = {
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it before the build.
+    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),

@@ -56,6 +56,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// the focused object of the first kind; a right-click or `--target`
     /// passes one explicitly.
     public var targets: [ActionTargetKind]
+    /// Rust catalog policy: collect this subject when none was captured.
+    /// Nil preserves commands whose absent target means creation.
+    public var paletteTarget: ActionTargetKind?
+    /// An inventory narrower than the target kind (Cloud, SSH, or remote machines).
+    public var paletteTargetSource: String?
     /// Friendly CLI verb, `noun verb` (`tab-group create`). Unique.
     public var cliName: String
     /// Main menu the action appears in, if any.
@@ -189,4 +194,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         }
         return "action " + result
     }
+}
+
+extension ActionDescriptor {
+    /// The daemon request the catalog row names (`ActionCatalog.requests`), which the App sends
+    /// with no handler of its own; nil for an action a handler runs. Not a stored field: the
+    /// catalog dump compares the stored ones with the Swift catalog's.
+    public var catalogRequest: ActionCatalogRequest? { ActionCatalog.requests[id] }
 }

@@ -420,3 +420,200 @@ fn inode(path: &Path) -> u64 {
 fn inode(_: &Path) -> u64 {
     0
 }
+
+/// The checked copy is rebuildable. Its atomic replacement needs no durability work.
+#[test]
+fn a_kind_index_write_does_not_sync() {
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), 64 * 1024).unwrap();
+    std::fs::create_dir(store.dir("c")).unwrap();
+    let copy = store.kind_index_path("c", 1);
+    let syncs = crate::config::startup_seams::Count::syncs(home.path());
+    // An explicit stamp makes this independent of filesystem birth-time support.
+    let stamp = Stamp { id: (1, 2, 3), len: 0 };
+    store.write_kind_index("c", 1, &stamp, 0, true, b"").unwrap();
+    let first = std::fs::read(&copy).unwrap();
+    assert_eq!(first.len(), HEADER_WIDTH);
+    store.write_kind_index("c", 1, &stamp, 0, false, b"").unwrap();
+    assert_ne!(std::fs::read(&copy).unwrap(), first, "the copy was replaced");
+    assert_eq!(syncs.get(), 0, "a derived kind index performed durability work");
+}
+
+/// The kinds a resend's prompt state reads (`hub/prompt_ledger.rs` `PROMPT_STATE_KINDS`).
+const PROMPT_KINDS: &[&str] = &[
+    "turn_stop_requested",
+    "queued",
+    "user_message",
+    "turn_started",
+    "turn_result",
+    "prompt_refused",
+    "queue_declined",
+    "queue_removed",
+    "dequeued",
+];
+
+/// `scan_kinds_keyed` of chat "c" for the records naming `prompt`.
+fn keyed(store: &LocalStore, prompt: &str) -> Vec<EventRecord> {
+    let mut out = Vec::new();
+    store
+        .scan_kinds_keyed("c", PROMPT_KINDS, &mut |h| h.prompt_id == Some(prompt), &mut |r| {
+            out.push(r);
+            true
+        })
+        .unwrap();
+    out
+}
+
+/// The records of `log` a resend's prompt state reads for `prompt`.
+fn naming(log: &[EventRecord], prompt: &str) -> Vec<EventRecord> {
+    log.iter()
+        .filter(|r| PROMPT_KINDS.contains(&r.kind.as_str()) && r.msg["promptId"] == prompt)
+        .cloned()
+        .collect()
+}
+
+/// A restart's resume pass asks each chat's prompt state per retry and per queued prompt, and
+/// each ask scanned its indexed kinds whole (NIGHTLY sample 2026-11-15: 2947 of 4269 samples
+/// under `scan_kinds`, each call reading, hashing and parsing the chat's whole copy again). A
+/// keyed scan of a log a scan already read parses only the records whose head it keeps, however
+/// many times it is asked; a record appended after is seen.
+#[test]
+fn a_keyed_scan_parses_only_the_records_it_keeps_and_sees_what_was_appended() {
+    let root = root();
+    let (store, mut log) = store_with_log(&root, 12);
+    let prompts = ["p2", "p25", "p288"];
+    for prompt in prompts {
+        assert_eq!(keyed(&store, prompt), naming(&log, prompt));
+    }
+    PARSED_LINES.with(|n| n.set(0));
+    for _ in 0..20 {
+        for prompt in prompts {
+            assert_eq!(keyed(&store, prompt), naming(&log, prompt));
+        }
+    }
+    let parsed = PARSED_LINES.with(|n| n.get());
+    assert!(
+        parsed <= 60,
+        "60 keyed scans of an unchanged log, one record each, parsed {parsed} lines"
+    );
+    let mut seq = log.last().unwrap().seq;
+    for kind in ["queued", "tool_call_update", "user_message", "turn_result"] {
+        seq += 1;
+        let r = rec(seq, kind);
+        store.append("c", &r).unwrap();
+        log.push(r);
+    }
+    store.flush().unwrap();
+    for prompt in ["p2", "p289", "p291", "p292"] {
+        assert_eq!(keyed(&store, prompt), naming(&log, prompt), "{prompt} after the appends");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A segment replaced by a rename (a retention rewrite) after a keyed scan read it is read again:
+/// the scan returns the new file's records, not the old file's heads.
+#[test]
+fn a_segment_replaced_after_a_keyed_scan_is_read_again() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 4);
+    let queued: Vec<String> = log
+        .iter()
+        .filter(|r| r.kind == "queued")
+        .map(|r| r.msg["promptId"].as_str().unwrap().to_owned())
+        .collect();
+    for prompt in &queued {
+        assert_eq!(keyed(&store, prompt), naming(&log, prompt));
+    }
+    for (_, path) in store.segments("c").unwrap() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let kept: String = text
+            .lines()
+            .filter(|l| !l.contains("\"kind\":\"queued\""))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        let tmp = path.with_extension("rewrite");
+        std::fs::write(&tmp, kept).unwrap();
+        std::fs::rename(&tmp, &path).unwrap();
+    }
+    for prompt in &queued {
+        assert_eq!(keyed(&store, prompt), Vec::new(), "{prompt}'s queued record is gone");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The resume pass's cost, timed: `ACPMUX_LEDGER_BENCH=1 ACPMUX_LEDGER_BENCH_CHATS=64 cargo test
+/// --release -p acpmux --lib ledger_scan_resume_pass_bench -- --ignored --nocapture`. Chats of
+/// 300 turns each (a 4 KiB prompt and 20 agent updates a turn), each asked the state of 4 of its
+/// prompts a pass, as `logged_prompt_state` asks it (a keyed scan of its kinds).
+#[test]
+#[ignore = "a timing harness, run by hand"]
+fn ledger_scan_resume_pass_bench() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
+    let chats: u64 =
+        std::env::var("ACPMUX_LEDGER_BENCH_CHATS").ok().and_then(|v| v.parse().ok()).unwrap_or(64);
+    let turns = 300u64;
+    let per_turn = 24u64;
+    for chat in 0..chats {
+        let id = format!("c{chat}");
+        let mut seq = 0;
+        for turn in 0..turns {
+            for kind in ["queued", "user_message", "turn_started"]
+                .into_iter()
+                .chain(std::iter::repeat_n("tool_call_update", 20))
+                .chain(["turn_result"])
+            {
+                seq += 1;
+                let pad = if kind == "user_message" { 4096 } else { 512 };
+                let msg = json!({"promptId": format!("p{turn}"), "turnId": format!("t{turn}"), "text": "x".repeat(pad)});
+                let dir = if kind == "tool_call_update" { "in" } else { "mux" };
+                let r = EventRecord {
+                    seq,
+                    at: seq,
+                    dir: dir.into(),
+                    kind: kind.into(),
+                    msg,
+                    host_seq: None,
+                };
+                store.append(&id, &r).unwrap();
+            }
+        }
+        assert_eq!(seq, turns * per_turn);
+    }
+    store.flush().unwrap();
+    let pass = |store: &LocalStore| {
+        let started = std::time::Instant::now();
+        let mut seen = 0u64;
+        for chat in 0..chats {
+            for ask in 0..4u64 {
+                let prompt = format!("p{}", (chat * 7 + ask * 71) % turns);
+                let turn = format!("t{}", (chat * 7 + ask * 71) % turns);
+                store
+                    .scan_kinds_keyed(
+                        &format!("c{chat}"),
+                        PROMPT_KINDS,
+                        &mut |h| h.prompt_id == Some(&prompt) || h.turn_id == Some(&turn),
+                        &mut |_| {
+                            seen += 1;
+                            true
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        (started.elapsed(), seen)
+    };
+    let (first, seen) = pass(&store);
+    let mut later = Vec::new();
+    for _ in 0..5 {
+        later.push(pass(&store).0);
+    }
+    later.sort();
+    println!(
+        "LEDGER_BENCH chats={chats} turns={turns} scans_per_pass={} records_per_pass={seen} first_pass_ms={:.1} median_later_pass_ms={:.1}",
+        chats * 4,
+        first.as_secs_f64() * 1e3,
+        later[later.len() / 2].as_secs_f64() * 1e3,
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

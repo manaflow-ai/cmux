@@ -116,7 +116,8 @@ fn tools() -> Value {
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
-                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."}
+                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."},
+                    "idempotency_key": crate::idempotency::schema()
                 },
                 "required": ["sessionId", "text"]
             }
@@ -135,7 +136,7 @@ fn tools() -> Value {
         },
         {
             "name": "retry_session",
-            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. A sub-session whose last turn was stopped is resumed: it gets one new turn, in the same session, telling it to continue from where it stopped. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or was stopped, or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -190,7 +191,7 @@ pub(crate) fn served(
         tools(),
         Some(instructions()),
         daemon,
-        |daemon, _session, params| async move { call(&daemon, &params).await },
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
 }
 
@@ -306,7 +307,12 @@ fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
 }
 
-async fn call(daemon: &Client, params: &Value) -> Value {
+/// `send_message`'s remembered `idempotency_key`s, for every session this process serves.
+static SEND_KEYS: std::sync::LazyLock<crate::idempotency::Cache> = std::sync::LazyLock::new(|| {
+    crate::idempotency::Cache::new(crate::idempotency::TTL, crate::idempotency::MAX_ENTRIES)
+});
+
+async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !args.is_object() {
         return error_result("arguments must be an object".to_owned());
@@ -325,13 +331,18 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match with_attachments(daemon, args).await {
-            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
-                Ok(r) => ok(sent_text(&r), r),
-                Err(e) => refusal(e),
-            },
-            Err(e) => refusal(e),
-        },
+        "send_message" => {
+            crate::idempotency::once(&SEND_KEYS, session, args, |args| async move {
+                match with_attachments(daemon, args).await {
+                    Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                        Ok(r) => ok(sent_text(&r), r),
+                        Err(e) => refusal(e),
+                    },
+                    Err(e) => refusal(e),
+                }
+            })
+            .await
+        }
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),

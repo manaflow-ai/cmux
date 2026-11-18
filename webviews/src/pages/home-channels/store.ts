@@ -4,6 +4,7 @@
 // conversation, pages of PAGE older ones on demand) and refetches on a gap. Writes go to the host
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
@@ -129,7 +130,8 @@ export interface HomeSnapshot {
   error?: string;
 }
 
-const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
+/** The plain sentence of a failure; the owner's own text stays in the error. */
+const describe = (error: unknown) => userMessage(error);
 
 export class HomeChannelsStore {
   private snapshot: HomeSnapshot;

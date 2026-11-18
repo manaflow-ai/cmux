@@ -12,9 +12,11 @@ import {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP,
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
 import { pinLiveTurnRuns } from "../support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "../support/pinArms";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -52,6 +54,9 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await pinLiveTurnRuns(page);
+        // The live line under the run, as the gaps below measure it; the clock over the work
+        // (liveTurnClock.experiment.ts `top`) is transcript-live-turn-clock.test.ts's.
+        await pinArms(page, CLOCK_ON_LINE);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
             variant: "grid-rhythm",
@@ -158,9 +163,11 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
           for (const gap of state.gaps)
             expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
-            0.5,
-          );
+          // The live line under a run: the gap over it is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_GAP.
+          expect(
+            Math.abs(state.liveUnderRun - TRANSCRIPT_LIVE_STEP_GAP * scale),
+            "live line gap under a run",
+          ).toBeLessThanOrEqual(0.5);
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the

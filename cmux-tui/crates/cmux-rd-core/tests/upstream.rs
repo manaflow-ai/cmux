@@ -167,7 +167,9 @@ fn a_growing_queue_lowers_the_target_and_a_flat_path_raises_it() {
     let start = 8_000_000;
     let flat = run(0);
     let queued = run(5_000);
-    assert!(flat > start, "flat delay grows the target: {flat}");
+    // 200 B every 20 ms is far under the target: the target holds (it grows only while the
+    // stream uses a good share of it) and never falls on a flat path.
+    assert!(flat >= start, "flat delay keeps the target: {flat}");
     assert!(queued < start, "a building queue lowers the target: {queued}");
 }
 
@@ -234,4 +236,94 @@ fn audio_packets_are_independent_and_never_wait_for_a_keyframe() {
         assert_eq!(sent[0].len(), HEADER_LEN + FRAME_PREFIX_LEN + 120);
     }
     assert_eq!(mic.stats().frames_dropped, 0);
+}
+
+#[test]
+fn repaired_shard_delay_does_not_collapse_the_upstream_bitrate() {
+    let mut s = camera();
+    let sent = s.send_frame(&[7u8; 3_000], 0, true, 0).expect("packetize").expect("sent");
+    let last = sent.len() - 1;
+    let arrivals = seqs(&sent[..last])
+        .into_iter()
+        .map(|transport_seq| Arrival { transport_seq, arrival_us: 25_000 })
+        .collect();
+    let resent = s
+        .on_datagram(
+            &feedback(
+                CAM,
+                &Feedback {
+                    arrivals,
+                    nacks: vec![Nack { frame: 1, indexes: vec![last as u16] }],
+                    ..Feedback::default()
+                },
+            ),
+            50_000,
+        )
+        .expect("NACK feedback");
+    assert_eq!(resent, vec![sent[last].clone()]);
+    let before = s.target_bps(50_000);
+    s.on_datagram(
+        &feedback(
+            CAM,
+            &Feedback {
+                acked_frame: 1,
+                arrivals: vec![Arrival { transport_seq: seqs(&sent)[last], arrival_us: 75_000 }],
+                ..Feedback::default()
+            },
+        ),
+        100_000,
+    )
+    .expect("repair receipt");
+    assert_eq!(s.target_bps(100_000), before, "a repair still crossed a 25 ms path");
+}
+
+#[test]
+fn a_small_feedback_batch_does_not_collapse_upstream_capacity() {
+    let mut s = camera();
+    let sent = s.send_frame(&[7u8; 100_000], 0, true, 0).expect("packetize").expect("sent");
+    let start = s.target_bps(0);
+    let arrivals: Vec<_> = seqs(&sent)
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 2 && *i != 50)
+        .map(|(_, transport_seq)| Arrival { transport_seq, arrival_us: 25_000 })
+        .collect();
+    s.on_datagram(
+        &feedback(CAM, &Feedback { arrivals: arrivals[..3].to_vec(), ..Feedback::default() }),
+        50_000,
+    )
+    .expect("feedback");
+    assert_eq!(s.target_bps(50_000), start, "a tiny receipt is not sustained heavy loss");
+    s.on_datagram(
+        &feedback(CAM, &Feedback { arrivals: arrivals[3..].to_vec(), ..Feedback::default() }),
+        60_000,
+    )
+    .expect("feedback");
+    // Settle both receipt batches, then consume a complete congestion window.
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 160_000).expect("settlement");
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 660_000).expect("sample");
+    assert!(s.target_bps(660_000) >= start);
+}
+
+#[test]
+fn reordered_feedback_preserves_upstream_loss_and_bitrate() {
+    let mut s = camera();
+    let sent = s.send_frame(&[7u8; 100_000], 0, true, 0).expect("packetize").expect("sent");
+    let start = s.target_bps(0);
+    let arrivals: Vec<_> = seqs(&sent)
+        .into_iter()
+        .map(|transport_seq| Arrival { transport_seq, arrival_us: 25_000 })
+        .collect();
+    let middle = arrivals.len() / 2;
+    for (chunk, now) in [(&arrivals[middle..], 50_000), (&arrivals[..middle], 130_000)] {
+        s.on_datagram(
+            &feedback(CAM, &Feedback { arrivals: chunk.to_vec(), ..Feedback::default() }),
+            now,
+        )
+        .expect("feedback");
+    }
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 150_000).expect("settlement");
+    s.on_datagram(&feedback(CAM, &Feedback::default()), 750_000).expect("sample");
+    assert_eq!(s.stats().loss, 0.0, "reordering is not packet loss");
+    assert!(s.target_bps(750_000) >= start);
 }

@@ -108,6 +108,18 @@ def should_comment(numbers: list[int]) -> bool:
     return 0 < len(numbers) <= MAX_COMMENTED_PRS
 
 
+def gh_failure(path: str, error: subprocess.CalledProcessError) -> str:
+    """One line naming a failed read: gh's message (it carries the HTTP status) and the response body.
+
+    gh prints the body to stdout and its message to stderr; both were captured, so without this a
+    refused read (a spent hourly budget, a missing permission) shows only "exit status 1".
+    """
+    message = " ".join(str(error.stderr or "").split())
+    body = " ".join(str(error.stdout or "").split())[:1000]
+    return (f"gh api {path} failed (exit {error.returncode}): {message or 'no message'}"
+            + (f"; body: {body}" if body else ""))
+
+
 def gh_api(path: str) -> object:
     read = os.environ.get("GH_READ_TOKEN", "")
     if read:
@@ -115,9 +127,14 @@ def gh_api(path: str) -> object:
             output = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True,
                                     env={**os.environ, "GH_TOKEN": read}).stdout
             return json.loads(output)
-        except subprocess.CalledProcessError:
-            pass  # the read token may lack a permission: the workflow token answers
-    output = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
+        except subprocess.CalledProcessError as error:
+            # The read token may lack a permission: the workflow token answers.
+            print(f"{gh_failure(path, error)} (read token; retrying on the workflow token)", file=sys.stderr)
+    try:
+        output = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as error:
+        print(gh_failure(path, error), file=sys.stderr)
+        raise
     return json.loads(output)
 
 

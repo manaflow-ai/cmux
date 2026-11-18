@@ -68,10 +68,18 @@ extension Metrics {
     /// or outlined): that radius less ``tabStripCardInset`` (``ConcentricCorners``). At most half the
     /// tab's height. The sidebar's workspace rows and the omnibar read this radius too, so a row and
     /// the bar are as round as a tab.
+    /// The browser's tab corner on a tab ``tabHeight`` tall: the density's `tabCornerRadius` (Helium's 8 at Default,
+    /// Chrome's 10 at Comfortable), else Chrome's ratio (``chromeRowCornerRadius(height:)``). The card a pill strip
+    /// nests in rounds from it (``chromeRowConcentricCardRadius(windowCornerRadius:)``).
+    public static var chromeTabCornerRadius: CGFloat { densityToken("tabCornerRadius") ?? chromeRowCornerRadius(height: tabHeight) }
+
     public static var tabCornerRadius: CGFloat {
         let corners = Metrics.corners
-        if usesChromeRowCorner, tabStripCardRadius == nil || mainPaneRoundsFromTabs || CornerFlush.current.isOn {
-            return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeRowCornerRadius(height: tabHeight))
+        // Chrome's ratio at every density, whether or not the card rounds from the tabs (Lucas 2026-11-13: the same
+        // roundness, in proportion, at every density; a large density's card capped at the window's radius made the
+        // tabs and rows fall back to the card's nested corner, flatter than the ratio).
+        if usesChromeRowCorner {
+            return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeTabCornerRadius)
         }
         let outer = tabStripCardRadius ?? corners.outer
         return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),

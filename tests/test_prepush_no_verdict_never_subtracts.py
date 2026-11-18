@@ -92,6 +92,11 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         self.assertTrue(found, f"{what}: a check that crashed alike on both sides passed the push")
         self.assertTrue(any(isinstance(f, self.gate.NoVerdict) for f in found), found)
 
+    def assertToolIntegerNoVerdict(self, call, what: str) -> None:
+        with self.assertRaises(self.gate.ToolOutputNoVerdict) as raised:
+            call()
+        self.assertIn("5000 digits", str(raised.exception), what)
+
     def reserved_repo(self) -> tuple[str, str]:
         self.install(self.gate.RESERVED_SCRIPT, CRASH)
         self.write(self.gate.RESERVED_LIST, "[]\n")
@@ -427,6 +432,120 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         # is none; that is "no rustfmt here", which warns, not a launch failure.
         self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
+    def test_rustfmt_launch_paths_are_absolute_with_a_relative_repo(self) -> None:
+        """dep-fleet-6 F1: --repo . must not make a PATH binary or rustfmt config relative to cmux-tui/."""
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source_path = tree / "cmux-tui/crates/x/src/lib.rs"
+        source_path.parent.mkdir(parents=True)
+        source = b"fn a() {}\n"
+        source_path.write_bytes(source)
+        (self.repo / "cmux-tui/crates/x").mkdir(parents=True)
+        config = self.repo / "cmux-tui/rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        fake = self.repo / "cmux-tui/rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        fake.chmod(0o644)
+        caller = Path(self.tmp.name) / "caller"
+        caller.mkdir()
+        saved = Path.cwd()
+        try:
+            os.chdir(caller)
+            relative_repo = Path(os.path.relpath(self.repo, caller))
+            relative_config = Path(os.path.relpath(config, caller))
+            done = subprocess.CompletedProcess([], 0, stdout=source, stderr=b"")
+            with mock.patch.dict(os.environ, {"PATH": "."}), mock.patch.object(
+                    self.gate.subprocess, "run", return_value=done) as launched:
+                out = self.quiet(self.gate.rustfmt, relative_repo, relative_config, tree,
+                                 ["cmux-tui/crates/x/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+        self.assertEqual(out, "")
+        call_args, kwargs = launched.call_args
+        command = call_args[0]
+        self.assertTrue(Path(command[0]).is_absolute(), command)
+        self.assertTrue(Path(command[command.index("--config-path") + 1]).is_absolute(), command)
+        self.assertTrue(Path(kwargs["cwd"]).is_absolute(), kwargs)
+
+    def test_relative_repo_runs_the_rustfmt_proxy_with_its_config(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source = tree / "cmux-tui/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("fn a() {}\n")
+        scope = self.repo / "cmux-tui"
+        scope.mkdir()
+        (scope / "rustfmt.toml").write_text("expected config\n")
+        proxy = scope / "rustup"
+        proxy.write_text(f"#!{sys.executable}\nimport pathlib, sys\n"
+                         "assert pathlib.Path(sys.argv[0]).name == 'rustfmt', sys.argv\n"
+                         "config = pathlib.Path(sys.argv[sys.argv.index('--config-path') + 1])\n"
+                         "assert config.read_text() == 'expected config\\n'\n"
+                         "sys.stdout.write(sys.stdin.read())\n")
+        proxy.chmod(0o755)
+        (scope / "rustfmt").symlink_to("rustup")
+        saved = Path.cwd()
+        try:
+            os.chdir(self.repo)
+            for path in (".", "", "./", ":/nonexistent"):
+                with self.subTest(path=path), mock.patch.dict(os.environ, {"PATH": path}):
+                    result = self.gate.rustfmt(Path("."), Path("cmux-tui/rustfmt.toml"), tree,
+                                               ["cmux-tui/src/lib.rs"])
+                    self.assertEqual(result, "")
+        finally:
+            os.chdir(saved)
+
+    def test_formatters_run_relative_tools_and_configs_from_another_cwd(self) -> None:
+        tree = self.swift_tree()
+        saved = Path.cwd()
+        try:
+            os.chdir(self.tmp.name)
+            for layer, flag, output in (("ast_grep", "-c", "[]"), ("swiftformat", "--config", ""),
+                                        ("swiftlint", "--config", "")):
+                with self.subTest(layer=layer):
+                    config = tree / (layer + ".conf")
+                    config.write_text("expected config\n")
+                    tool = self.fake_tool(layer, "from pathlib import Path\n"
+                                          f"assert Path(sys.argv[sys.argv.index({flag!r}) + 1]).read_text() == "
+                                          "'expected config\\n'\n" + f"print({output!r})\n")
+                    result = getattr(self.gate, layer)(tool.relative_to(self.tmp.name),
+                                                       config.relative_to(self.tmp.name),
+                                                       tree.relative_to(self.tmp.name), ["Sources/A.swift"])
+                    self.assertEqual(result, "")
+        finally:
+            os.chdir(saved)
+
+    def test_relative_repo_makes_rustfmt_launch_paths_absolute(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source = tree / "cmux-tui/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("fn a() {}\n", encoding="utf-8")
+        (self.repo / "cmux-tui").mkdir()
+        config = self.repo / "cmux-tui/rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        fake = self.repo / "cmux-tui/rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        caller = Path(self.tmp.name) / "caller"
+        caller.mkdir()
+        saved = Path.cwd()
+        try:
+            os.chdir(caller)
+            relative_repo = Path(os.path.relpath(self.repo, caller))
+            relative_config = Path(os.path.relpath(config, caller))
+            done = subprocess.CompletedProcess([], 0, stdout=b"fn a() {}\n", stderr=b"")
+            with mock.patch.dict(os.environ, {"PATH": "."}), mock.patch.object(
+                    self.gate.subprocess, "run", return_value=done) as launched:
+                result = self.quiet(self.gate.rustfmt, relative_repo, relative_config, tree,
+                                    ["cmux-tui/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+        self.assertEqual(result, "")
+        command = launched.call_args.args[0]
+        self.assertTrue(Path(command[0]).is_absolute(), command)
+        self.assertTrue(Path(command[command.index("--config-path") + 1]).is_absolute(), command)
+        self.assertTrue(Path(launched.call_args.kwargs["cwd"]).is_absolute(), launched.call_args)
+
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
         self.install(self.gate.CARGO_LOCKS_SCRIPT, "print('checking 30 workspaces')\nraise SystemExit(1)\n")
@@ -458,6 +577,81 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         head = self.commit("head")
         found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "ui font exit 1, only its summary")
+
+    def test_a_ui_font_exit_0_with_a_nonzero_summary_refuses(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: 1 finding(s).')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "ui font exit 0 with a nonzero summary")
+
+    def test_a_ui_font_5000_digit_summary_count_is_no_verdict(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: " + "9" * 5000 + " finding(s).')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        with self.assertRaises(self.gate.ToolOutputNoVerdict) as raised:
+            self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertIn("5000 digits", str(raised.exception))
+
+    def test_tool_output_location_line_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate.normalize(f"Sources/A.swift:{huge}: finding", self.repo), "location line")
+
+    def test_tool_output_ratchet_count_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate._ratchet_rows(f"A.swift\t{huge}\n", (0,), 1), "ratchet count")
+
+    def test_tool_output_diff_hunk_line_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        with mock.patch.object(self.gate, "git", return_value=f"+++ b/A.swift\n@@ -1 +{huge} @@\n".encode()):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.conflict_markers(self.repo, "base", "head"), "diff hunk line")
+
+    def test_tool_output_cat_file_size_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        scripts = self.tmp.name + "/trusted"
+        Path(scripts).mkdir()
+        for name in self.gate.TRUSTED_COPIES:
+            (Path(scripts) / name).write_bytes(b"")
+        with mock.patch.object(self.gate, "DEFAULT_BASE_REFS", ("ref",)), \
+                mock.patch.object(self.gate, "rev_ok", return_value=True), \
+                mock.patch.object(self.gate.git_batch, "run", return_value=type("Result", (), {
+                    "stdout": f"oid blob {huge}\n".encode()
+                })()):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.stale_hook_warning(self.repo, Path(scripts)), "cat-file size")
+
+    def test_tool_output_arch_line_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        module = type("Arch", (), {"push_refusals": lambda *_: (
+            [("row", f"arch-ratchet: bad\n  A.swift:{huge}: text")], [])})()
+        with mock.patch.object(self.gate, "_load_script", return_value=module):
+            self.assertToolIntegerNoVerdict(
+                lambda: self.gate.advisory_arch(self.repo, []), "arch line")
+
+    def test_tool_output_advisory_line_is_bounded(self) -> None:
+        huge = "9" * 5000
+        self.assertToolIntegerNoVerdict(
+            lambda: self.gate._record_findings("layer", self.repo, [("name", [f"A.swift:{huge}: text"])])
+            , "advisory line")
+
+    def test_tool_output_process_pid_is_bounded(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        huge = "9" * 5000
+        process = type("Result", (), {"stdout": f"{huge} 1\n"})()
+        with mock.patch.object(self.gate.subprocess, "run", return_value=process):
+            self.assertToolIntegerNoVerdict(lambda: self.gate._descendants(1), "process PID")
 
     # #41888 review (F2): the reserved-key and UI-font layers took any nonempty output as findings, so a checker that
     # printed "could not read checker input" on both revisions subtracted to [] and the push passed.

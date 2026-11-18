@@ -8,6 +8,7 @@ import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
+import { knownRefusalText } from "./transportErrors";
 import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
@@ -26,6 +27,7 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { focusRoute } from "../../ui/focusRoute";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -358,7 +360,7 @@ export function PermissionCard({
   shown.current = permission.permissionId;
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
-  /// Why acpmux refused a plan build (its error's message), shown with the refusal.
+  /// A refused plan build's line, in plain words, shown in place of the answer's refusal.
   const [refusedWhy, setRefusedWhy] = useState<string>();
   type Sent = { permissionId: string; attempt: number };
   /// Starts one answer for the ask shown now; undefined while one is out or taken for it.
@@ -432,8 +434,12 @@ export function PermissionCard({
     // says why: no build card exists to say it.
     Promise.resolve(reply).then(
       () => taken(sent),
-      (failure: unknown) =>
-        refuse(sent, failure instanceof Error ? failure.message : typeof failure === "string" ? failure : undefined),
+      (failure: unknown) => {
+        // In plain words, with the pane's reason when it words one; acpmux's text goes to the log.
+        const known = knownRefusalText(failure);
+        if (!known) console.warn("agent pane: the plan was not built", failure);
+        refuse(sent, known ? t("permission.plan.buildRefused", { error: known }) : t("permission.plan.buildFailed"));
+      },
     );
   };
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
@@ -489,10 +495,10 @@ export function PermissionCard({
     if (!active) return;
     const focus = () => {
       takePermissionFocus();
-      group.current?.focus();
+      focusRoute(group.current, "system", "a permission request");
     };
     // Asked just before this card mounted: the chat opened first.
-    if (takePermissionFocus()) group.current?.focus();
+    if (takePermissionFocus()) focusRoute(group.current, "system", "a permission request");
     window.addEventListener("cmux-acpmux-permissionFocus", focus);
     return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
   }, [active]);
@@ -608,7 +614,7 @@ export function PermissionCard({
       <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && refused === permission.permissionId && (
         <p className="acpmux-permission-refused" role="alert">
-          {refusedWhy ? t("permission.plan.buildRefused", { error: refusedWhy }) : t("permission.error.refused")}
+          {refusedWhy ?? t("permission.error.refused")}
         </p>
       )}
       {!writing && (
@@ -655,15 +661,12 @@ export function PermissionCard({
                 const id = permission.permissionId;
                 setSettingsError(undefined);
                 void postNative("externalAccess.openSettings", { kind: external.kind }).catch((error: unknown) => {
+                  const remote = error instanceof NativeError && error.code === "remote.unsupported";
+                  if (!remote) console.warn("agent pane: Open Settings failed", error);
                   if (shown.current === id)
                     setSettingsError({
                       id,
-                      message:
-                        error instanceof NativeError && error.code === "remote.unsupported"
-                          ? t("permission.external.remote")
-                          : error instanceof Error
-                            ? error.message
-                            : t("error.nativeUnavailable"),
+                      message: remote ? t("permission.external.remote") : t("permission.external.settingsFailed"),
                     });
                 });
               }}

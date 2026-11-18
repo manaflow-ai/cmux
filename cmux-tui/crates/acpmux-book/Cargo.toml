@@ -7,11 +7,20 @@ license.workspace = true
 publish.workspace = true
 description = "A chat as a book: rendered rows, encoded once, in an append-only segment log with a row index and a checkpoint (agent service v2)"
 
+[features]
+# The best-of-rounds gate helper (`gate_rounds`), for other crates' release gates.
+gate-rounds = []
+
 [lints]
 workspace = true
 
 [dependencies]
+acpmux-list-types = { path = "../acpmux-list-types" }
 crc32fast = "1.5"
+bincode = "1.3"
+imbl.workspace = true
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true, features = ["raw_value"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

@@ -55,10 +55,10 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
-        /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
-        var listHeading: Bool
         /// What a pinned row with its own icon leads with (`sidebar.pinnedRowLeading`): every row lays out again.
         var pinnedRowLeading: SidebarPinnedRowLeading
+        /// The Sidebar Row Tuner's overrides (`SidebarRowTuning`): a change lays every row out again, live.
+        var rowTuning: [String]
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -104,8 +104,8 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
-            listHeading = SidebarTunables.listHeading.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
+            rowTuning = SidebarRowTuning.signature
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -124,6 +124,18 @@ extension SidebarViewComponents {
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
+
+    /// The first run of a new window's rows pass is part of the window's making: its rows show in that turn, in one
+    /// step with no motion, also while the pointer is over the rows. Before a window's
+    /// seed wrote its space, that run was the window's space change, which reloads the list with no condition. The
+    /// window's passes call this after that run, one time for a window (`SidebarSameTurn.observe`); each later change
+    /// that nobody in this window asked for waits while the pointer is over the rows (`SidebarListView.showModelChange`).
+    func showRowsOfTheMaking() {
+        renderNow()
+        guard list.holdsModelChange else { return }
+        list.releaseHeldModelChange()
+        if !list.holdsModelChange { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+    }
 
     /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
     /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
@@ -149,6 +161,7 @@ extension SidebarViewComponents {
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
+            || lastState?.rowTuning != state.rowTuning
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true
@@ -177,9 +190,10 @@ extension SidebarViewComponents {
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
-        // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
+        // Minimal Mode or controls on hover too (``SidebarSectionsPreferences/hidesControlsUntilHover``): its
+        // controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
-            || lastState?.preferences.controlsOnHover != state.preferences.controlsOnHover {
+            || lastState?.preferences.hidesControlsUntilHover != state.preferences.hidesControlsUntilHover {
             setChromeRevealed(isChromeRevealed)
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
@@ -196,6 +210,8 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 showSpace(leaving: lastState?.activeProfile, entering: state.activeProfile)
+                // A window's first draw (its seed wrote its space) lists a create's row as the reload below does: the row's measure ends here.
+                if lastState == nil { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
                       list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it

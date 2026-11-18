@@ -1,7 +1,7 @@
 import CmuxNextSettings
 
 extension NewWorkspaceDefaultSlot {
-    /// The setting puts a new workspace after the current row (`workspaces.newPlacement` `afterCurrent`, the default).
+    /// The setting puts a new workspace after the current row (`workspaces.newPlacement` `afterCurrent`).
     nonisolated public var placesAfterCurrent: Bool { placement == .afterCurrent }
 
     /// This rule for a create that places itself from the window's current workspace (`fromCurrent`) or not: one that

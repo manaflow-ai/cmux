@@ -128,7 +128,7 @@
   pointer-events: none;
 }
 .onb-capsule.ui-btn {
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
 }
 .onb-slot-spinner {
   display: inline-flex;

@@ -56,7 +56,7 @@ fn a_page_hang_round_trips_through_the_c_abi() {
         m.call("tick", json!({"nowMs": 10000})),
         json!({
             "actions": [{"id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1}],
-            "nextTickMs": 12000
+            "nextTickMs": 40000
         })
     );
     let snap = m.call("snapshot", json!({}));
@@ -67,7 +67,7 @@ fn a_page_hang_round_trips_through_the_c_abi() {
             "id": id, "kind": "page", "label": "Agent chat",
             "state": "repairing", "sinceMs": 10000,
             "detail": "Not answering for 10 s. Reloading it (attempt 1 of 3); your draft is kept.",
-            "action": "reloadPage", "attempt": 1, "maxAttempts": 3, "nextAtMs": 12000,
+            "action": "reloadPage", "attempt": 1, "maxAttempts": 3, "nextAtMs": 40000,
             "canRepair": true
         })
     );
@@ -133,4 +133,23 @@ fn bad_calls_get_their_codes() {
     assert_eq!(code, CMUX_HEALTH_ERR_NULL);
     // SAFETY: null is ignored.
     unsafe { cmux_health_free(std::ptr::null_mut()) };
+}
+
+#[test]
+fn a_rest_beat_turns_the_page_timer_off_through_the_c_abi() {
+    let m = Model::new();
+    let id = "page:7";
+    m.call("register", json!({"id": id, "kind": "page", "label": "Sidebar", "nowMs": 0}));
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 0})), json!({"nextTickMs": 5000}));
+    // `rest: true`: the page beats no more until something happens in it, so nothing is timed.
+    assert_eq!(
+        m.call("beat", json!({"id": id, "rest": true, "nowMs": 10000})),
+        json!({"nextTickMs": null})
+    );
+    assert_eq!(
+        m.call("tick", json!({"nowMs": 600000})),
+        json!({"actions": [], "nextTickMs": null})
+    );
+    // A plain beat times it again.
+    assert_eq!(m.call("beat", json!({"id": id, "nowMs": 600000})), json!({"nextTickMs": 605000}));
 }

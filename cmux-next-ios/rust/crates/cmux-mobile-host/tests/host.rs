@@ -462,6 +462,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "cloud-directory-v1",
             "cloud-acpmux-v1",
             "needs-you-v1",
+            "appearance-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -1713,4 +1714,111 @@ async fn a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks() {
             cmux_mobile_link::link::DATA_CHUNK
         );
     }
+}
+
+/// One `{"op":"traffic"}` request on the link socket and its answer line.
+async fn traffic_over(path: &std::path::Path) -> serde_json::Value {
+    let stream = tokio::net::UnixStream::connect(path).await.expect("link socket");
+    let (read, mut write) = stream.into_split();
+    write.write_all(b"{\"op\":\"traffic\"}\n").await.unwrap();
+    let mut line = String::new();
+    BufReader::new(read).read_line(&mut line).await.unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+/// `(in_bytes, out_bytes)` of one service row of a traffic answer.
+fn traffic_row(answer: &serde_json::Value, service: &str) -> (u64, u64) {
+    let row = answer["services"].as_array().unwrap().iter().find(|row| row["service"] == service).unwrap();
+    (row["in_bytes"].as_u64().unwrap(), row["out_bytes"].as_u64().unwrap())
+}
+
+/// `cmux device traffic` end to end: a phone dials this host over WireGuard
+/// through the fake signaling server and moves known bytes through `echo`;
+/// the host's real link socket (`<session>.link.sock`, link_socket.rs) then
+/// answers `{"op":"traffic"}` with them under `control`, both ways. With
+/// CMUX_TRAFFIC_CLI naming a cmux-tui binary, the CLI's own
+/// `device traffic --json` and table read the same socket. Other tests of
+/// this binary share the process's counters, so the checks are lower bounds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
+    use cmux_mobile_host::auth::{TokenSource, Tokens};
+    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
+    let fixture = fixture(FakeOptions::default()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let daemon_socket = dir.path().join("traffic.sock");
+    let path = socket_path(&daemon_socket);
+    let dialer = Arc::new(Dialer {
+        device_id: "this-mac".into(),
+        device_name: "This Mac".into(),
+        base_url: "http://127.0.0.1:9".into(),
+        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
+        ice: IceSource::Fixed(Vec::new()),
+        signaling: tokio::sync::watch::channel(None).1,
+        identity: tokio::sync::watch::channel(None).1,
+        activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
+        links: Default::default(),
+    });
+    let server = tokio::spawn(serve(path.clone(), dialer));
+    for _ in 0..200 {
+        if path.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let before = traffic_over(&path).await;
+    assert_eq!(before["ok"], true, "{before}");
+    assert_eq!(before["pid"], std::process::id(), "{before}");
+
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut echo = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    const BYTES: usize = 300_000;
+    echo.send(Bytes::from(vec![7u8; BYTES])).await.unwrap();
+    let mut got = 0;
+    while got < BYTES {
+        match echo.recv().await {
+            Some(ChannelEvent::Data(data)) => got += data.len(),
+            other => panic!("echo ended early: {other:?}"),
+        }
+    }
+
+    let after = traffic_over(&path).await;
+    eprintln!("link socket {{\"op\":\"traffic\"}}: {after}");
+    let (in_before, out_before) = traffic_row(&before, "control");
+    let (in_after, out_after) = traffic_row(&after, "control");
+    assert!(in_after - in_before >= BYTES as u64, "control IN grew {} < {BYTES}", in_after - in_before);
+    assert!(out_after - out_before >= BYTES as u64, "control OUT grew {} < {BYTES}", out_after - out_before);
+    let total_in = |a: &serde_json::Value| a["total"]["in_bytes"].as_u64().unwrap();
+    assert!(total_in(&after) - total_in(&before) >= BYTES as u64, "{after}");
+
+    if let Some(cli) = std::env::var_os("CMUX_TRAFFIC_CLI") {
+        // As typed in a cmux terminal (the session socket from the environment),
+        // and with --socket for the table.
+        let json = tokio::process::Command::new(&cli)
+            .args(["device", "traffic", "--json"])
+            .env("CMUX_TUI_SOCKET", &daemon_socket)
+            .output()
+            .await
+            .expect("cmux device traffic --json");
+        let stdout = String::from_utf8_lossy(&json.stdout);
+        eprintln!("cmux device traffic --json (rc {:?}): {stdout}", json.status.code());
+        eprintln!("stderr: {}", String::from_utf8_lossy(&json.stderr));
+        assert!(json.status.success());
+        let answer: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(answer["pid"], std::process::id());
+        let (cli_in, cli_out) = traffic_row(&answer, "control");
+        assert!(cli_in >= in_after && cli_out >= out_after, "{answer}");
+        let table = tokio::process::Command::new(&cli)
+            .arg("--socket")
+            .arg(&daemon_socket)
+            .args(["device", "traffic"])
+            .output()
+            .await
+            .expect("cmux device traffic");
+        let text = String::from_utf8_lossy(&table.stdout);
+        eprintln!("cmux device traffic (rc {:?}):\n{text}", table.status.code());
+        assert!(table.status.success());
+        assert!(text.lines().any(|line| line.starts_with("control")), "{text}");
+        assert!(text.lines().any(|line| line.starts_with("total")), "{text}");
+    }
+    server.abort();
 }

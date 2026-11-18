@@ -166,7 +166,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -182,12 +182,13 @@ check_release_build_runner_disk_capacity() {
 check_ios_runner_routing() {
   # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
-  # every macOS job reads its answer, and a re-run attempt its retry answer.
+  # every macOS job reads its answer, and a re-run attempt its retry answer
+  # (a bot's re-run the picker's own Blacksmith retry, bot_retry_runs_on).
   # mobile-core-package needs no simulator, so it reads package_runs_on. The
   # dispatch input comes first; the cmux-next lane then asks for owned
   # (tests/test_ci_pr_runner_pool.py pins the whole expression).
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
-     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
@@ -228,7 +229,7 @@ check_release_build_disk_cleanup() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
     in_job && /- name: Reclaim release runner disk/ { in_step=1; saw_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
     in_step && /df -h \// { saw_df=1 }
     in_step && /rm -rf build-universal \.spm-cache/ { saw_workspace=1 }
     in_step && /Library\/Developer\/Xcode\/DerivedData/ { saw_direct_derived_data=1 }
@@ -356,8 +357,8 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert$/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Import signing cert$/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
       END { exit !saw_create }
     ' "$file"; then
@@ -537,8 +538,8 @@ check_sentry_cli_install_portability() {
     # keep nightly.yml under its size budget); the step script is read too.
     local step_text
     step_text="$(awk '
-      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step { print }
     ' "$file")"
     local step_script
@@ -556,8 +557,8 @@ check_sentry_cli_install_portability() {
       continue
     fi
     if ! awk '
-      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /SENTRY_CLI="\$\(\.\/scripts\/ensure-sentry-cli\.sh\)"/ { saw_helper=1 }
       in_step && /"\$SENTRY_CLI" debug-files upload --include-sources/ { saw_upload=1 }
       END { exit !(saw_helper && saw_upload) }
@@ -703,8 +704,8 @@ check_dmg_signing_uses_build_keychain() {
 check_create_dmg_uses_run_local_npm_prefix() {
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Install build deps/ { in_step=1; next }
-      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
+      in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
       in_step && /CMUX_NODE_BIN="\$\(command -v node\)"/ { saw_node=1 }
       in_step && /export npm_config_prefix="\$RUNNER_TEMP\/npm-global"/ { saw_prefix=1 }
       in_step && /mkdir -p "\$npm_config_prefix"/ { saw_mkdir=1 }
@@ -791,8 +792,8 @@ check_web_db_behavior_tests() {
   fi
 
   if ! awk '
-    /- name: Database behavior tests/ { in_step=1; next }
-    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    /^[[:space:]]*(- )?name: Database behavior tests/ { in_step=1; next }
+    in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
     in_step && /CMUX_DB_TEST:[[:space:]]*"1"/ { saw_env=1 }
     in_step && /bun run test:db:behavior/ { saw_runner=1 }
     END { exit !(saw_env && saw_runner) }
@@ -1380,7 +1381,7 @@ check_no_self_hosted_fleet_runners() {
   local owned='glaeda-(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
   # glaeda-trusted-next-signing: the signer's label (glaeda runner.trustedNextSigning, a trusted-only mini whose hook
   # admits no pull request job), the one route nightly.yml's signing jobs fall back to after their picker.
-  local owned_pool="'(glaeda-((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*|glaeda-trusted-next-signing)'"
+  local owned_pool="'(glaeda-((root|side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*|glaeda-trusted-next-signing)'"
   # startsWith(vars.X, 'glaeda-side-') checks a variable's shape; it names no runner.
   local owned_prefix_check="startsWith\\((vars|needs)\\.[A-Za-z0-9_.-]+, 'glaeda-[a-z-]+-'\\)"
   local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && '(blacksmith-(6|12)vcpu-macos-(15|26|latest))'"

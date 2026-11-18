@@ -59,6 +59,50 @@ impl Hub {
             && peer.rows_ready.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Peer `peer`'s link listed its whole list, applied just before (`PeerNotice::Listed`): a
+    /// name it lacks is no session there.
+    pub(super) fn peer_listed(&self, peer: &str, generation: u64) {
+        if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
+            p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+            p.note_rows_applied();
+        }
+        // Messages waiting for a name this list has go now, not after the rest of their retry
+        // delay (`server/outbox.rs` `deliver`).
+        self.outbox.peer_ready.notify_waiters();
+    }
+
+    /// Peer `peer`'s link is ready (`PeerNotice::Connected`). Most links' list came before it;
+    /// one after a far restart or a path switch reads its list after (`Peer::lists_after_ready`),
+    /// and until that list is applied a name missing from the rows (the last link's) is not
+    /// final, though the restart left the rows ready (`peer_unlisted_for`).
+    pub(super) fn peer_ready_rows(&self, peer: &str, generation: u64) {
+        if let Some(p) = self.peer(peer).filter(|p| p.generation == generation) {
+            p.rows_ready.store(p.rows_listed(), std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// `peer`'s whole list `rows` and its link ready, applied as a first link sends them: the
+    /// list, `Listed`, then `Connected`.
+    #[cfg(test)]
+    pub(crate) fn seed_peer_listed(&self, peer: &crate::peer::Peer, rows: Vec<Value>) {
+        use crate::peer::PeerNotice::{self, Connected, Listed};
+        for notice in [PeerNotice::sessions_from_values(rows), Listed, Connected] {
+            self.apply_peer_notice(&peer.name, peer.generation, notice);
+        }
+    }
+
+    /// The refusal for `PEER/name` when PEER's link is ready but this link's list is not in yet
+    /// (one read after ready, `Peer::lists_after_ready`) and its rows lack the name: the
+    /// session may be in the list still coming, so the answer is the retryable one a peer that
+    /// is down gives (`peer_down_for`), not that the session does not exist.
+    pub fn peer_unlisted_for(&self, key: &str) -> Option<RpcError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (name, rest) = key.split_once('/')?;
+        let peer = self.peer(name).filter(|_| !rest.is_empty())?;
+        (peer.connected.load(SeqCst) && !peer.rows_ready.load(SeqCst))
+            .then(|| peer.unreachable_error())
+    }
+
     /// Whether a send to `key` goes to a peer whose link is down now: queued, and the answer
     /// says `hostUnreachable`. A row cached from before the peer went down does not make it
     /// reachable; a session here never counts.
@@ -77,7 +121,7 @@ impl Hub {
             let names = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
-                .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
+                .filter_map(|r| r.summary.name())
                 .map(|n| {
                     n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
                 })
@@ -188,8 +232,13 @@ mod tests {
         assert!(!hub.no_session_is_final("b/x"));
         peer.connected.store(true, SeqCst);
         assert!(!hub.no_session_is_final("b/x"), "connected, list not applied yet");
+        // A request for it gets the retryable answer a peer that is down gives, not no session.
+        let unlisted = hub.peer_unlisted_for("b/x").expect("its list is not in yet");
+        assert_eq!(unlisted.data.as_ref().unwrap()["retryable"], true, "{unlisted:?}");
+        assert!(hub.peer_down_for("b/x").is_none(), "the link is up");
         peer.rows_ready.store(true, SeqCst);
         assert!(hub.no_session_is_final("b/x"));
+        assert!(hub.peer_unlisted_for("b/x").is_none(), "listed: no session is the answer");
         // A name on this machine is always final.
         assert!(hub.no_session_is_final("nobody"));
         // Its link drops with the rows still cached: a send there is to a machine that is down.

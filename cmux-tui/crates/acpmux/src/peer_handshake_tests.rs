@@ -536,6 +536,9 @@ fn paced_old_peer(
     })
 }
 
+/// How long a paced link may go without a notice (on the paused clock) before its test fails.
+const LINK_WAIT: Duration = Duration::from_secs(3600);
+
 /// Builds c230bb58a's list guard runs back to back (`BURST`) before its pace holds.
 const OLD_BURST: u32 = 4;
 
@@ -567,12 +570,21 @@ async fn link_to_paced_old_peer(
         let end = link.serve(client, &mut out_rx).await;
         (end, out_rx)
     });
-    let mut listed = None;
+    // Ready, and listed: a link after a far restart reads its list after it is ready.
+    let (mut listed, mut connected) = (None, false);
     let outcome = loop {
+        if connected && listed.is_some() {
+            break Ok((started.elapsed(), listed.take().unwrap_or_default()));
+        }
         tokio::select! {
-            notice = notices.recv() => match notice.expect("the link stays open").2 {
+            // Bounded: the clock is paused, so a link that stops sending fails here at once.
+            notice = tokio::time::timeout(LINK_WAIT, notices.recv()) => match notice
+                .expect("a notice from the paced link within LINK_WAIT")
+                .expect("the link stays open")
+                .2
+            {
                 PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
-                PeerNotice::Connected => break Ok((started.elapsed(), listed.take().unwrap_or_default())),
+                PeerNotice::Connected => connected = true,
                 _ => {}
             },
             ended = &mut serving => {

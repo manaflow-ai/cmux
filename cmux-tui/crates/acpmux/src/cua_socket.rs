@@ -81,6 +81,25 @@ pub fn select(app_socket: Option<String>, app_token: Option<String>) -> Option<S
     Some(Socket { path: PathBuf::from(path), token: app_token.unwrap_or_default() })
 }
 
+/// The endpoint a new local session would get now, asked of the running daemon as the
+/// session this process runs in (`_acpmux/computer_use_endpoint`). `Ok(None)`: no endpoint
+/// is published (Computer Use runs the helper v2, or is off by policy).
+pub async fn current() -> anyhow::Result<Option<Socket>> {
+    let client = crate::daemon::connect(false).await?;
+    let answer = client
+        .request(crate::rpc::method::MUX_COMPUTER_USE_ENDPOINT, serde_json::json!({}))
+        .await?;
+    Ok(parse_endpoint(&answer))
+}
+
+/// The endpoint in a `_acpmux/computer_use_endpoint` answer.
+pub fn parse_endpoint(answer: &serde_json::Value) -> Option<Socket> {
+    select(
+        answer.get("socket").and_then(serde_json::Value::as_str).map(str::to_owned),
+        answer.get("agentToken").and_then(serde_json::Value::as_str).map(str::to_owned),
+    )
+}
+
 /// Remove the helper tokens from a spawned agent's inherited env.
 pub fn scrub_agent_env(cmd: &mut tokio::process::Command) {
     for key in AGENT_SCRUBBED_ENV {
@@ -91,6 +110,14 @@ pub fn scrub_agent_env(cmd: &mut tokio::process::Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_endpoint_answer_parses_and_a_null_socket_is_none() {
+        let answer = serde_json::json!({"socket": "/now.sock", "agentToken": "now"});
+        let socket = parse_endpoint(&answer).unwrap();
+        assert_eq!((socket.path, socket.token), (PathBuf::from("/now.sock"), "now".to_owned()));
+        assert!(parse_endpoint(&serde_json::json!({"socket": null})).is_none());
+    }
 
     #[test]
     fn post_launch_enrollment_replaces_and_clears_the_spawn_fallback() {

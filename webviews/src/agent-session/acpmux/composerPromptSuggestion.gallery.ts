@@ -11,6 +11,7 @@ import type { PlayContext } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { PROMPT_SUGGESTIONS_OPTION } from "./mockFixture";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { COMPOSER_EDITOR } from "./composerSelectors";
 
 const SUGGESTION = "Add a test for the retry backoff";
 
@@ -33,7 +34,7 @@ const withSuggestion = (text: string | undefined, fields: Partial<AcpmuxSnapshot
   };
 };
 
-const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
+const PROMPT = COMPOSER_EDITOR;
 
 /** Focuses the empty prompt and presses `key`, then waits for the suggestion to be written. */
 async function take(ctx: PlayContext, key: string) {

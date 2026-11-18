@@ -218,6 +218,12 @@ pub struct Action {
     pub requires: &'static [&'static str],
     pub arguments: &'static [Argument],
     pub targets: &'static [&'static str],
+    /// Target kind the palette may ask the person to choose when no focused target exists.
+    /// `None` preserves the action's focused/creation semantics.
+    pub palette_target: Option<&'static str>,
+    /// Optional inventory used to collect the target (for example `cloud` or `ssh`).
+    /// `None` means the shared machine inventory handles the action.
+    pub palette_target_source: Option<&'static str>,
     pub cli_name: &'static str,
     pub main_menu: Option<&'static str>,
     pub is_debug_only: bool,
@@ -230,6 +236,85 @@ pub struct Action {
     pub waits_for_person: bool,
     pub waits_for_keyed_create: bool,
     pub opens_workspace_content: bool,
+    /// The one daemon request the app sends to run the action, with no Swift handler of its
+    /// own (`CatalogRequestHandlers`); `None`: a handler bound by id runs it.
+    pub request: Option<Request>,
+}
+
+/// Where a catalog [`Request`] goes. There is no CLI lane: the app never runs the `cmux` CLI
+/// or another child process to do a product task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestLane {
+    /// A `cmux.protocol/2` resource operation on the session host's control socket.
+    Session,
+    /// A method of the app's own control router (`ControlRouter.method(named:)`).
+    App,
+    /// A method of the acpmux daemon.
+    Acpmux,
+}
+
+impl RequestLane {
+    /// The export's wire form.
+    pub const fn wire(self) -> &'static str {
+        match self {
+            RequestLane::Session => "session",
+            RequestLane::App => "app",
+            RequestLane::Acpmux => "acpmux",
+        }
+    }
+}
+
+/// Where one param of a [`Request`] takes its value from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParamSource {
+    /// The action's argument of this name, as the palette or caller gave it; left out when
+    /// the argument is omitted.
+    Argument(&'static str),
+    /// The daemon id of the invocation's target of this kind (`workspace`, `pane`,
+    /// `terminal`), else the focused one of that kind.
+    Target(&'static str),
+    /// A fixed value.
+    Constant(BindingValue),
+}
+
+/// One param of a [`Request`]: its wire name and its value's source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RequestParam {
+    pub name: &'static str,
+    pub source: ParamSource,
+}
+
+/// The daemon request an action sends: its lane, the operation or method name and its params.
+/// The operation name is catalog data, never user config. The cmux-tui test
+/// `catalog_request_matches_cli` checks that it is what the action's `cli_name` verb sends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub lane: RequestLane,
+    pub operation: &'static str,
+    pub params: &'static [RequestParam],
+}
+
+/// The prefix of a [`Suggestions::source`] the app answers from a list request in
+/// [`crate::request::LIST_SOURCES`] (`op:closed.list`), with no Swift source of its own.
+pub const LIST_SOURCE_PREFIX: &str = "op:";
+
+/// A suggestion source answered by one list request: `items` names the result's member that
+/// holds the rows (`None`: the result is the array), `value` and `title` the row fields a
+/// suggestion takes its value and title from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListSource {
+    pub lane: RequestLane,
+    pub operation: &'static str,
+    pub items: Option<&'static str>,
+    pub value: &'static str,
+    pub title: &'static str,
+}
+
+impl ListSource {
+    /// The suggestion source name that names this list (`op:<operation>`).
+    pub fn source(&self) -> String {
+        format!("{LIST_SOURCE_PREFIX}{}", self.operation)
+    }
 }
 
 impl Action {
@@ -252,6 +337,8 @@ impl Action {
         requires: &[],
         arguments: &[],
         targets: &[],
+        palette_target: None,
+        palette_target_source: None,
         cli_name: "",
         main_menu: None,
         is_debug_only: false,
@@ -264,6 +351,7 @@ impl Action {
         waits_for_person: false,
         waits_for_keyed_create: false,
         opens_workspace_content: false,
+        request: None,
     };
 
     /// Whether the `cmux` CLI offers the action by its `cli_name`.

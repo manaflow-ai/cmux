@@ -171,6 +171,18 @@ fn timing_ratio_an_unreadable_nextest_config_fails_naming_it() {
     assert_fails_naming(&[Path::new("timing-ratio"), &co.root], ".config/nextest.toml");
 }
 
+/// #41567 review F2: a file that does not parse is judged no further, so it fails the scan
+/// naming it, as an unreadable one does. Needs no permission taken, so root runs it too.
+#[test]
+fn timing_ratio_a_file_that_does_not_parse_fails_naming_it() {
+    let co = checkout("tr-unparsed");
+    co.write(
+        "cmux-tui/crates/demo/tests/broken.rs",
+        "use std::time::Instant;\n\n#[test]\nfn t() {\n    let started = Instant::now(;\n}\n",
+    );
+    assert_fails_naming(&[Path::new("timing-ratio"), &co.root], "demo/tests/broken.rs");
+}
+
 #[test]
 fn test_hooks_an_unreadable_dir_fails_naming_it() {
     let mut krate = crate_dir("th-dir");

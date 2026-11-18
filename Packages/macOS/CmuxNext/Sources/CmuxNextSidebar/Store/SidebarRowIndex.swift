@@ -116,10 +116,6 @@ extension SidebarListView {
     /// unread total) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
-        // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
-        if holdsRowPatches { return holdRowPatches(patched) }
-        // Rows still held after the hold ended (its card went without a landing): they apply with these.
-        if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
@@ -218,7 +214,9 @@ nonisolated extension SidebarLayout {
     /// all this weird stuff at the bottom of the sidebar"). A remote group that draws as one sidebar
     /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        (section.isHostGroup || section.machine?.kind == .cloud) && !section.drawsAsGroup
+        // A Cloud machine has no header of its own (2026-11-10: a Cloud chat's workspace is an ordinary row
+        // with a cloud mark by its name; the machine's name is never shown): only a remote group a person made.
+        section.isHostGroup && !section.drawsAsGroup
     }
 
     /// The computer a workspace row of `section` names in the one-list sidebar
@@ -228,6 +226,8 @@ nonisolated extension SidebarLayout {
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
         guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
+        // A Cloud row never names its machine: its cloud mark says where it runs, and only a status the person must act on is said.
+        if machine.kind == .cloud { return o.machineStatusLabels[machine.id] }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }
 }

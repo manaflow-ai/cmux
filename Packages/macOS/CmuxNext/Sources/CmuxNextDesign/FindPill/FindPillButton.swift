@@ -20,7 +20,8 @@ final class FindPillButton: ClickableButton {
         if toggle { setButtonType(.pushOnPushOff) }
         isBordered = false
         wantsLayer = true
-        layer?.cornerRadius = FindPillMetrics.buttonSize / 2
+        // radius-allow: concentric with the capsule find pill (pill radius less the inset is half the button)
+        layer?.cornerRadius = FindPillMetrics.buttonSize / 2 // radius-allow: concentric in the capsule pill
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

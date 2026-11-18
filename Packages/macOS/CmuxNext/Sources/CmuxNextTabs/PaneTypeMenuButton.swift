@@ -90,18 +90,18 @@ final class PaneTypeMenuButton: NSView {
         let side = min(bounds.width, bounds.height)
         if style == .split {
             fillLayer.frame = bounds
-            fillLayer.cornerRadius = NewTabButtonView.splitCornerRadius
+            fillLayer.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: side)
             fillLayer.cornerCurve = Metrics.tabCornerCurve
             fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         } else {
             fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-            fillLayer.cornerRadius = side / 2
-            fillLayer.maskedCorners = NewTabButtonView.allCorners
+            fillLayer.cornerRadius = side / 2 // radius-allow: the opt-in circle hover look (ChromeHoverStyle.circle)
+            fillLayer.maskedCorners = PlusButtonLook.allCorners
         }
         // The split look's ⌄ leans half a step toward its + (NewTabButtonView leans the + back).
         let lean = style == .split ? Metrics.space1 / 2 : 0
         let center = CGPoint(x: ((bounds.midX - lean) * scale).rounded() / scale, y: (bounds.midY * scale).rounded() / scale)
-        let half = NewTabButtonView.chevronHalfWidth, rise = NewTabButtonView.chevronRise
+        let half = PlusButtonLook.chevronHalfWidth, rise = PlusButtonLook.chevronRise
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - half, y: center.y - rise / 2))
         path.addLine(to: CGPoint(x: center.x, y: center.y + rise / 2))
@@ -126,12 +126,13 @@ final class PaneTypeMenuButton: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            chevronLayer.strokeColor = NewTabButtonView.glyphInk(hovering: hovering, pressed: pressed).cgColor
-            chevronLayer.lineWidth = NewTabButtonView.glyphLineWidth(pressed: pressed)
+            chevronLayer.strokeColor = PlusButtonLook.glyphInk(hovering: hovering, pressed: pressed).cgColor
+            chevronLayer.lineWidth = Metrics.addGlyphLineWidth
             switch style {
             case .circles: fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
             case .split:
-                fillLayer.backgroundColor = NewTabButtonView.splitFill(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered)?.cgColor
+                fillLayer.backgroundColor = PlusButtonLook.fill(.init(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered),
+                                                                hoverStyle: .plate, segment: .leading)?.cgColor
             case .plates, .glyphs, .merged: fillLayer.backgroundColor = nil
             }
         }

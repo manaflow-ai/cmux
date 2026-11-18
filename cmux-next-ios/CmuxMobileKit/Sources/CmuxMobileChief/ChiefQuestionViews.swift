@@ -7,7 +7,7 @@ import SwiftUI
 import UIKit
 
 /// Under the chat header: Try Again for a failed turn, why Chief is
-/// unavailable, or the Mac away, and the messages waiting to send.
+/// unavailable, or the Mac away.
 struct ChiefQuestionBar: View {
     let session: ChiefSession
     /// The bar grew, shrank or went away: its UIKit host lays it out again.
@@ -32,14 +32,13 @@ struct ChiefQuestionBar: View {
     var body: some View {
         VStack(spacing: 0) {
             content
-            ChiefOutboxView(session: session, resized: resized)
         }
             .onAppear {
-                shown = session.barItem
+                shown = Self.displayed(session.barItem)
                 visible = shown != nil
                 if visible { fading(false, 0) }
             }
-            .onChange(of: session.barItem) { _, item in
+            .onChange(of: Self.displayed(session.barItem)) { _, item in
                 if let item {
                     let appearing = shown == nil
                     shown = item
@@ -62,21 +61,26 @@ struct ChiefQuestionBar: View {
             .onChange(of: layoutKey) { resized() }
     }
 
+    /// What the bar draws for a state. Chief's connection state never gets a bar (Aziz
+    /// 2026-11-12: "get rid of this banner in chief, dont use this UX element whatsoever"):
+    /// a kept or stale conversation stays on screen as it is, and Send says "Not sent" when it can't.
+    static func displayed(_ item: ChiefBarItem?) -> ChiefBarItem? {
+        if case .unavailable? = item { return nil }
+        return item
+    }
+
     /// What changes the bar's height: what it shows.
     private var layoutKey: String {
         switch shown {
         case .failure(let id, _)?: id
-        case .unavailable(let reason, let retrying)?: reason + (retrying ? "\u{0}" : "")
         case .macAway(let reason)?: "away\u{0}" + reason
-        case nil: ""
+        case .unavailable?, nil: ""
         }
     }
 
     @ViewBuilder private var content: some View {
         if case .failure(_, let failure)? = shown {
             failureBar(failure)
-        } else if case .unavailable(let reason, let retrying)? = shown {
-            unavailableBar(reason: reason, retrying: retrying)
         } else if case .macAway(let reason)? = shown {
             macAwayBar(reason: reason)
         }
@@ -103,47 +107,10 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.failure.bar")
         .accessibilityHint("Sends your last message to Chief again")
-        .opacity(visible ? 1 : 0)
-        .allowsHitTesting(visible)
-    }
-
-    /// The Mac's Chief can't be reached (refused, not running, no Mac): why,
-    /// in its own words, and Try Again when the link can try. Replaces the
-    /// conversation's first-load spinner, which never ends without Chief.
-    private func unavailableBar(reason: String, retrying: Bool) -> some View {
-        Button { session.retryConnecting() } label: {
-            HStack(spacing: 10) {
-                if retrying {
-                    CmuxSpinner().controlSize(.small)
-                } else {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.body).foregroundStyle(.orange)
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(session.unavailableTitle ?? String(localized: "Chief isn't available")).font(.footnote.weight(.semibold))
-                    Text(reason).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
-                }
-                Spacer(minLength: 4)
-                if session.canRetryConnecting {
-                    Text(retrying ? "Trying…" : "Try Again").font(.footnote.weight(.semibold))
-                }
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(.rect)
-            .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
-        }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
-        .disabled(retrying || !session.canRetryConnecting)
-        .padding(.horizontal, 16)
-        .accessibilityIdentifier("chief.unavailable.bar")
-        .accessibilityHint(session.canRetryConnecting ? "Tries to reach Chief on your Mac again" : "")
         .opacity(visible ? 1 : 0)
         .allowsHitTesting(visible)
     }
@@ -171,7 +138,7 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.askCloudChief")
         .accessibilityHint("Sends your message to Cloud Chief with this chat's recent messages")

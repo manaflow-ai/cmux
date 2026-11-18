@@ -312,6 +312,35 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
     }
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain in ENV's fresh home, as a real install has.
+
+    Without one, a Release or nightly bundle's Chromium creates "cmux Safe Storage" through a Keychain dialog
+    nobody answers: "Keychain Not Found" over the window (runs 41419773317, 41582798853), and every quit of
+    post-update-hitches.py held in CefShutdown behind a worker in SecItemAdd -> AuthorizationCopyRights (12 of
+    12 hang files, cmuxterm-hq#11994). CMUX_MOCK_KEYCHAIN=1 is no way out here: the app drops an inherited
+    CMUX_MOCK_KEYCHAIN at launch (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable but the
+    CMUX_NEXT_* knobs), so only a copy's own LSEnvironment can set it. Every `security` call runs with the
+    home's own HOME and CFFIXED_USER_HOME, so the keychain, its search list and the default are the fresh
+    home's: the runner account's own keychain settings are untouched (checked on cmux11s: default and search
+    list unchanged). A home that already has the keychain keeps it."""
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    steps = [] if keychain.exists() else [["create-keychain", "-p", "", str(keychain)]]
+    steps += [["list-keychains", "-d", "user", "-s", str(keychain)],
+              ["default-keychain", "-d", "user", "-s", str(keychain)],
+              ["set-keychain-settings", str(keychain)]]
+    for args in steps:
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30,
+                              start_new_session=True)
+        if done.returncode != 0:
+            raise CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    log(f"fresh home login keychain: {keychain}")
+
+
 class DefaultsAside:
     """The bundle's defaults domain, set aside for the run under a per-bundle lock and put back after it.
 
@@ -532,6 +561,14 @@ def home_rendered(snap: dict | None, marks: dict[str, float]) -> bool:
     if RENDER_MARK not in marks:
         return False
     return bool(home_tab(snap)) or (FIRST_RUN_MARK in marks and bool(first_run_home_tab(snap)))
+
+
+def host_load() -> float | None:
+    """The host's 1-minute load average now (the first number of `uptime`); None where it cannot be read."""
+    try:
+        return round(os.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        return None
 
 
 def read_marks(path: Path) -> dict[str, float]:
@@ -845,9 +882,13 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
     the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch.
 
-    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home."""
+    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home.
+
+    `host` in what it returns: the count of CPUs and the host's load at the launch and when Home rendered, so that
+    a reader can tell a slow launch on a loaded host from a slow app. It changes no verdict."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
+    host = {"cpus": os.cpu_count(), "load_at_launch": host_load(), "load_at_home": None}
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
     ready = READY if seed is None else None
     with open(marks_path, "ab") as marks:
@@ -869,6 +910,7 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 shown = ready(snap) and RENDER_MARK in seen if ready is not None else home_rendered(snap, seen)
                 if shown:
                     rendered_at = elapsed
+                    host["load_at_home"] = host_load()
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if seed is not None and scan is None:
                 scan = cookie_sync_scanned(seed)
@@ -885,7 +927,7 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
         reads = daemon_at_end(socket_path, app)
         status = process.poll()
     seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
-            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1)}
+            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1), "host": host}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -1068,7 +1110,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     if seen["daemon_down"]:
         failures.append(seen["daemon_down"])
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync", "daemon", "daemon_down")})
+                                           "cookie_sync", "daemon", "daemon_down", "host", "marks")})
     arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
@@ -1109,7 +1151,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     exited or never rendered Home from the seeded home (the report then describes that launch, `arm` says so, and
     the first arm's stays in `arms`); otherwise STATUS, whatever this arm could or could not do."""
     arm: dict = {"verdict": NOT_RUN}
-    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures") if key in report}
+    first = {key: report[key] for key in ("verdict", "exit", "seconds_up", "rendered_at", "failures", "host")
+             if key in report}
     report["arm"], report["arms"] = EMPTY, {EMPTY: first, SEEDED: arm}
     if status != PASS:
         arm["reason"] = "the first arm did not pass"
@@ -1124,7 +1167,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
                     "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
-                    "daemon", "daemon_down"):
+                    "daemon", "daemon_down", "host"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
@@ -1147,6 +1190,58 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
         return status
     failed()  # again: with what the evidence added
     return FAIL
+
+
+def warm_launches(args: argparse.Namespace, root: Path, app: Path, executable: str) -> list[dict]:
+    """--warm N: once the first launch filled the home (and stopped), launches the same app copy N times more from
+    that same HOME and TMPDIR, inside the same set-aside defaults: the next launches of a person's app, whose
+    caches (Home's among them) are there from the first frame. Each runs WARM-SECONDS and is stopped as the first
+    was; its marks, its time to Home and its exit go in report.json's `warm`. A warm launch that exits or never
+    renders Home ends the series (and fails the run)."""
+    runs: list[dict] = []
+    for i in range(1, args.warm + 1):
+        socket_path, marks_path = root / f"w{i}.sock", root / f"marks-warm{i}"
+        marks_read, marks_write = os.pipe()
+        try:
+            try:
+                env = fresh_env(root, socket_path, marks_write)
+                log(f"==> warm launch {i} of {args.warm}: the same HOME={env['HOME']}, {args.warm_seconds:.0f}s")
+                with open(root / f"app-warm{i}.log", "wb") as app_log:
+                    process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
+                                                "-ApplePersistenceIgnoreState", "YES"],
+                                               env=env, cwd=env["HOME"], stdin=subprocess.DEVNULL, stdout=app_log,
+                                               stderr=subprocess.STDOUT, pass_fds=(marks_write,),
+                                               start_new_session=True)
+            finally:
+                os.close(marks_write)
+            try:
+                seen = watch(process, marks_read, marks_path, socket_path, args.warm_seconds,
+                             max(args.warm_seconds, args.startup_timeout))
+            finally:
+                stop_child(process)
+                stop(own_pids(root))
+        finally:
+            os.close(marks_read)
+        runs.append({"pid": process.pid, "exit": seen["exit"], "seconds_up": seen["seconds_up"],
+                     "rendered_at": seen["rendered_at"], "host": seen["host"], "marks": read_marks(marks_path),
+                     "home_tab": home_tab(seen["snapshot"])})
+        if seen["exit"] is not None or seen["rendered_at"] is None:
+            break
+        log(f"ok: warm launch {i}: Home at {seen['rendered_at']:.1f}s")
+    return runs
+
+
+def tmpdir_left(root: Path) -> list[str]:
+    """What the app's own TMPDIR (ROOT/t) holds once every launch of the run has stopped: files the app made there
+    and did not remove, which a person's per-user TMPDIR keeps. Logged and kept in report.json's `tmpdir_left`
+    (the first 50 names); the run's root, and so this folder, is removed afterwards either way."""
+    try:
+        names = sorted(path.name for path in (root / "t").iterdir())
+    except OSError:
+        return []
+    if names:
+        log(f"FRESH-HOME app-tmp: the app left {len(names)} entries in its TMPDIR: {' '.join(names[:50])}")
+    return names[:50]
 
 
 def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None = None) -> int:
@@ -1199,6 +1294,9 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(own_pids(root))
+        if args.warm and seen["exit"] is None and seen["rendered_at"] is not None and not journey_failures:
+            report["warm"] = warm_launches(args, root, app, executable)
+        report["tmpdir_left"] = tmpdir_left(root)
     # Only this launch's crash reports count. The name and the file's time also match a crash of ANOTHER launch
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
@@ -1235,6 +1333,11 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                         f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
     if seen["daemon_down"]:
         failures.append(seen["daemon_down"])
+    for i, warm in enumerate(report.get("warm") or [], 1):
+        if warm["exit"] is not None:
+            failures.append(f"warm launch {i}: the app exited (status {warm['exit']}) {warm['seconds_up']:.1f}s after launch")
+        elif warm["rendered_at"] is None:
+            failures.append(f"warm launch {i}: Home did not render within {warm['seconds_up']:.0f}s")
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
@@ -1275,6 +1378,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="how long the app must stay up in the seeded arm")
     parser.add_argument("--daemon", action="store_true",
                         help="also fail a launch whose daemon is not connected when the watch ends")
+    parser.add_argument("--warm", type=int, default=0, choices=range(0, 11), metavar="N",
+                        help="after the first launch, launch the app N more times from the same HOME (warm launches)")
+    parser.add_argument("--warm-seconds", type=float, default=15.0, help="how long each warm launch stays up")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)

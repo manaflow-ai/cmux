@@ -420,7 +420,10 @@
     "signupPendingBody": "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
     "genericTitle": "Sign-in could not be completed",
     "genericBody": "Please try again. If the problem continues, contact support.",
-    "backToSignIn": "Back to sign in"
+    "backToSignIn": "Back to sign in",
+    "chatgptLinkTitle": "Sign in once to connect ChatGPT",
+    "chatgptLinkBody": "This email already has a cmux account. Sign in with the method you used before, and ChatGPT will be connected to that account.",
+    "chatgptEmailUnverifiedBody": "The email on your ChatGPT account is not verified. Verify it with OpenAI, or sign in another way."
   },
   "cloudPublicationAccess": {
     "title": "You don't have access",
@@ -3795,7 +3798,7 @@
       "socketModeDesc": "Override access mode (cmuxOnly, allowAll, off). Also accepts cmux-only/cmux_only and allow-all/allow_all",
       "workspaceIdDesc": "Auto-set: current workspace ID",
       "surfaceIdDesc": "Auto-set: current surface ID",
-      "termProgramDesc": "Set to ghostty",
+      "termProgramDesc": "Set to cmux",
       "termDesc": "Set to xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE values full and notifications are still accepted for compatibility.",
       "detectingCmux": "Detecting cmux",

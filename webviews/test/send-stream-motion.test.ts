@@ -123,16 +123,22 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
   const SCENARIOS: Scenario[] = ["send", "tools", "steer"];
 
   test.each(SCENARIOS)(
-    "%s: the default follow motion moves each frame a fraction of a line and rests pinned",
+    "%s: the spring chase (blocks arm) moves each frame a fraction of a line and rests pinned",
     async (scenario) => {
-      const report = await measure("", scenario);
+      const report = await measure("arm=blocks", scenario);
       console.log(`send-stream-motion default ${scenario}: ${JSON.stringify(report, null, 2)}`);
       // Nothing jumps: no frame of the turn moves the rows more than a line (a 120 Hz slot), and
       // most frames of the stream within the trail bound under 0.85 of a line. At the turn's end the
       // move is where the rows in view paint (sendStreamMotionReport `paintedMove`): the fold slides
       // each row from where it was drawn, so the thread's own box can shift while nothing on screen
       // does (the tools turn: the thread 48.57 px in one frame, every row in view under 0.5 px).
-      expect(report.jumpPx.max).toBeLessThanOrEqual(MAX_FRAME_PX);
+      // The reader's own prompt landing (the `send` step, and a steer's `steer` step) is the one move
+      // that lands at once (Leo, 2026-11-11: "that slow settle animation is just so bad. Like, just
+      // do it."): the motion scale's send step is 0. Every other step keeps the bound.
+      const sendSteps = new Set(["send", "steer"]);
+      const steps = Object.entries(report.byPhase).filter(([phase]) => !sendSteps.has(phase));
+      expect(steps.length).toBeGreaterThan(0);
+      expect(Object.fromEntries(steps.filter(([, step]) => step.maxPx > MAX_FRAME_PX))).toEqual({});
       // And at the turn's end, row by row, the thread's shift plus the row's own layout move plus the
       // fold's offset on it nets within a line: the fold's offsets cover the shift, and a fold that
       // stopped covering it moves every row by the whole shift (turn-end-net-move.test.ts).
@@ -153,6 +159,19 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
       expect(report.tailAtEnd).toBeLessThanOrEqual(REST_TAIL_PX);
     },
   );
+
+  // The product's `send` arm (Leo, 2026-11-09: "we need to slim down"): only the send's rise moves on
+  // a curve; the reply's growth lands in the frame it comes, so the view rests pinned the frame the
+  // stream stops and the turn's end moves nothing.
+  test.each(SCENARIOS)("%s: the send arm pins the stream at once and rests when it stops", async (scenario) => {
+    const report = await measure("", scenario);
+    console.log(`send-stream-motion send arm ${scenario}: ${JSON.stringify(report, null, 2)}`);
+    expect(report.jumpPx.after).toBeLessThanOrEqual(1);
+    expect(report.restsAtEnd).toBe(true);
+    expect(report.restFramesAfterStream).toBeLessThanOrEqual(2);
+    expect(report.tailAtEnd).toBeGreaterThanOrEqual(-LINE_PX / 2);
+    expect(report.tailAtEnd).toBeLessThanOrEqual(REST_TAIL_PX);
+  });
 
   test("with motion off the view takes each step at once and never trails its layout", async () => {
     const report = await measure("motion=off");

@@ -18,10 +18,12 @@ struct HomeChannelsCloudEntryTests {
         }
     }
 
-    @Test func theChannelsPageRunsOnlyNewCloudMachine() {
+    /// New Cloud Machine, and Restart cmux-tui… (the daemon gate's fix for a refused page listener,
+    /// which asks the person first); only New Cloud Machine runs as the person's own click.
+    @Test func theChannelsPageRunsOnlyNewCloudMachineAndRestart() {
         let page = PageDescriptor.homeChannels
         #expect(page.admits(PageNativeOp.actionRun))
-        #expect(page.actions == ["newCloudMachine"])
+        #expect(page.actions == ["newCloudMachine", "palette.restartServer"])
         #expect(page.gestureActions == ["newCloudMachine"])
         #expect(page.confirmedOps.isEmpty)
     }

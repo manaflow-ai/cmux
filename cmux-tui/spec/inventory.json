@@ -34,6 +34,10 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "browser_import.read",
+    "chat.list",
+    "chat.mark_read",
+    "chat.pin",
     "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
@@ -68,6 +72,8 @@
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
@@ -117,6 +123,7 @@
     "diff.comments.delete",
     "diff.comments.list",
     "diff.comments.save",
+    "diff.comments.send",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",
@@ -130,6 +137,7 @@
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.fingerprint",
     "git.push",
     "git.status",
     "git.worktree.apply",
@@ -245,6 +253,7 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.edit",
     "settings.get",
     "settings.list",
     "settings.reset",
@@ -327,6 +336,9 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "theme.scheme.convert",
+    "theme.scheme.export",
+    "theme.scheme.from_image",
     "window_record.delete",
     "window_record.list",
     "window_record.put",
@@ -412,6 +424,7 @@
       "export-layout",
       "feed-local-list",
       "feed-local-read",
+      "float-pane",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -538,6 +551,7 @@
       "shell-stop",
       "split",
       "swap-pane",
+      "terminal-command-context",
       "terminal-events",
       "terminal-history",
       "terminal-last-command",
@@ -674,7 +688,8 @@
       "remote-host-status",
       "remote-host-call",
       "remote-host-config",
-      "remote-host-app"
+      "remote-host-app",
+      "device-setup"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -687,6 +702,18 @@
       "name": "agent-changed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-cli-frame",
+      "streams": [
+        "attach-byte"
+      ]
+    },
+    {
+      "name": "agent-cli-lean",
+      "streams": [
+        "attach-byte"
       ]
     },
     {
@@ -992,6 +1019,12 @@
       ]
     },
     {
+      "name": "screen-device-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "selection-changed",
       "streams": [
         "subscribe-deltas"
@@ -1112,6 +1145,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "device-setup-step",
       "streams": [
         "control"
       ]

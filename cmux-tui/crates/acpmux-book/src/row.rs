@@ -49,11 +49,14 @@ pub enum RowKind {
     Image,
     /// A subagent; it names a child book.
     Sub,
+    /// A card: state a person can act on, patched by later records. Its `card` field names the
+    /// view's row kind; a client keeps and does not draw a card whose name it does not know.
+    Card,
 }
 
 impl RowKind {
     /// Every kind, in the order of the design's list.
-    pub const ALL: [RowKind; 10] = [
+    pub const ALL: [RowKind; 11] = [
         RowKind::User,
         RowKind::Text,
         RowKind::Thinking,
@@ -64,6 +67,7 @@ impl RowKind {
         RowKind::Plan,
         RowKind::Image,
         RowKind::Sub,
+        RowKind::Card,
     ];
 
     /// The kind's name on the wire.
@@ -79,6 +83,7 @@ impl RowKind {
             RowKind::Plan => "plan",
             RowKind::Image => "image",
             RowKind::Sub => "sub",
+            RowKind::Card => "card",
         }
     }
 
@@ -190,6 +195,33 @@ impl Row<'_> {
             return Err(RowError::Head);
         }
         let bytes = self.body.len() as u64;
+        out.clear();
+        self.write(out, outline.head, Some((bytes, outline.preview)));
+        if out.len() > MAX_ROW_TEXT {
+            return Err(RowError::TooLarge { bytes: out.len() });
+        }
+        Ok(Placement::Blob { bytes })
+    }
+
+    /// Encodes a body already stored in `blobs/<rowId>` using only its byte length and
+    /// outline. The actor validates the body while writing it; this method never reads
+    /// `self.body`, loads the blob, or constructs the full-body row as an intermediate.
+    /// The caller chooses inline or blob from the final size, regardless of earlier spills.
+    pub fn encode_blob(
+        &self,
+        bytes: u64,
+        outline: Outline<'_>,
+        out: &mut Vec<u8>,
+    ) -> Result<Placement, RowError> {
+        if self.id == 0 {
+            return Err(RowError::ZeroId);
+        }
+        if !json::is_compact_value(outline.head) {
+            return Err(RowError::Head);
+        }
+        if outline.head.len() > MAX_ROW_TEXT {
+            return Err(RowError::TooLarge { bytes: outline.head.len() });
+        }
         out.clear();
         self.write(out, outline.head, Some((bytes, outline.preview)));
         if out.len() > MAX_ROW_TEXT {

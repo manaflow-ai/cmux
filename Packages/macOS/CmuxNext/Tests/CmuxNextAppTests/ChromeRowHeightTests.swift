@@ -13,12 +13,9 @@ import Testing
 /// first tab. also the sizes of the icons/omnibar etc should match the tabbar tab height, which
 /// should match the workspace row height, at all density levels").
 ///
-/// At every density preset and every `sidebar.density`, a real tab strip and a real browser chrome
-/// are laid out in a window: the tab pill, the back button and the omnibar are each as tall as a
-/// one-line sidebar workspace row (``SidebarRowTokens``), the back arrow's ink is the tab icon's
-/// side, and its leftmost ink sits on the first tab icon's box (the box every tab icon shares). Base drew a 24 pt tab beside a 28 pt
-/// omnibar and back button at Compact (30 / 34 / 32 at Comfortable), and the arrow's 12 pt ink
-/// beside the tab's 14 pt icon.
+/// Real tab strips and browser chrome keep that alignment at every preset and `sidebar.density`.
+/// Tabs follow the visible workspace row; the omnibar and its buttons scale Default's 29 pt reference,
+/// and the toolbar glyphs scale the Compact Helium calibration independently of the row-height exceptions.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ChromeRowHeightTests {
     private func load(_ preset: DensityPreset, _ sidebar: SidebarDensity) {
         DesignSettings.shared.densityTokens = preset.tokens
@@ -32,7 +29,8 @@ import Testing
     private func strip() -> (NSWindow, TabStripView) {
         _ = NSApplication.shared
         let items = (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "lawrence@cmux \($0)", icon: .icon(.tabTerminal)) }
-        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab0")))
+        // The second tab is selected: a selected tab runs down into the page card, so the first is a plain pill.
+        let strip = TabStripView(model: TabStripModel(tabs: items, selectedID: TabID("tab1")))
         strip.dragsWindowFromEmptySpace = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -98,11 +96,12 @@ import Testing
         return inkSpan(rep, pointWidth: size.width)
     }
 
+    /// Tabs follow the visible sidebar row, including sidebar settings. The omnibar and its buttons scale
+    /// Default's separate 29 pt location bar, independent of the specified row-height exceptions.
     @Test(arguments: DensityPreset.allCases, SidebarDensity.allCases)
-    func tabNavigationAndOmnibarAreOneSidebarRowTall(preset: DensityPreset, sidebar: SidebarDensity) throws {
+    func tabNavigationAndOmnibarTakeTheDensitysHeights(preset: DensityPreset, sidebar: SidebarDensity) throws {
         defer { reset() }
         load(preset, sidebar)
-        // The row as the sidebar draws it: at Default its fill takes the gap under it (30, not 28).
         let row = SidebarRowTokens.current.listRowHeight
         let (stripWindow, strip) = strip()
         defer { stripWindow.close() }
@@ -111,11 +110,15 @@ import Testing
         defer { window.close() }
         let back = chrome.backButton.convert(chrome.backButton.bounds, to: nil)
         let bar = chrome.addressBar.convert(chrome.addressBar.bounds, to: nil)
-        let label = "\(preset) / sidebar \(sidebar): row \(row)"
-        #expect(abs(pill.height - row) <= 0.5, "\(label), tab \(pill.height)")
-        #expect(abs(back.height - row) <= 0.5, "\(label), back button \(back.height)")
-        #expect(abs(back.width - row) <= 0.5, "\(label), back button is square: \(back.width)")
-        #expect(abs(bar.height - row) <= 0.5, "\(label), omnibar \(bar.height)")
+        let omnibar = OmnibarMetrics.current.barHeight
+        let label = "\(preset) / sidebar \(sidebar): row \(row), tab \(Metrics.tabHeight), omnibar \(omnibar)"
+        #expect(abs(pill.height - Metrics.tabHeight) <= 0.5, "\(label), pill \(pill.height)")
+        #expect(abs(back.height - omnibar) <= 0.5, "\(label), back button \(back.height)")
+        #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
+        #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
+        #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
+        let expectedBar = (29 * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+        #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar scales Default's 29 pt reference")
     }
 
     @Test(arguments: DensityPreset.allCases)
@@ -143,9 +146,16 @@ import Testing
         // terminal starts its chevron 2 pt in. The arrow's ink starts on the box every tab icon shares.
         let iconLeft = iconFrame.minX
         #expect(iconInk.lowerBound >= -0.01, "\(preset): the tab icon draws inside its box")
-        #expect(abs(arrowLeft - iconLeft) <= 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        // The arrow reads at the tab icon's size: its ink is the icon box's side.
+        // The arrow's ink starts on the icon box, or as near as the toolbar's leading edge lets it: a large density's
+        // button is wider than its 13 pt ink, and the button stays inside the toolbar (OmnibarStyle.toolbarInset).
+        #expect(arrowLeft >= iconLeft - 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        #expect(arrowLeft <= iconLeft + 0.75 || OmnibarStyle.toolbarInset == 0,
+                "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        // Compact's 14 pt reload ink calibrates the shared toolbar box (0.617 of its side); the back arrow's
+        // keyline fills 0.6 of that box. Both scale from Default, independently of the small-icon fallback.
         let arrowWidth = arrowInk.upperBound - arrowInk.lowerBound
-        #expect(abs(arrowWidth - iconFrame.width) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, tab icon box \(iconFrame.width)")
+        let box = ((14 / 0.9 / 0.617) * CGFloat(preset.scaleFactor) * 2).rounded() / 2
+        let ink = box * DensityTokens.toolbarGlyphInkRatio
+        #expect(abs(arrowWidth - ink) <= 1, "\(preset): back arrow ink \(arrowWidth) wide, want \(ink)")
     }
 }

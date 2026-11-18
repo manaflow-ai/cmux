@@ -35,15 +35,19 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
 
 // Leo, 2026-11-11: "The point is, the styles mix and they don't look good. So they need to look good."
 // Every floating popup and card (menus, popovers, pickers, hover cards, the context card) is one
-// material: the menu level, and one veil on the App's glass. No surface keeps a tint of its own.
-test("every popup and hover card is one material: the menu level and one veil on the App's glass", () => {
+// material: the shared transient token, and one veil on the App's glass. No surface keeps a tint of its own.
+test("every popup and hover card uses the transient material and one veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
   const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
   expect(at).toBeGreaterThanOrEqual(0);
   const rule = glass.slice(at, glass.indexOf("}", at));
-  expect(rule).toContain("var(--ds-glass-menu-tint)");
-  expect(rule).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
-  expect(rule).toContain("--host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent)");
+  expect(rule).toContain("var(--ds-transient-web-tint)");
+  expect(rule).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
+  expect(rule).toContain(
+    "--host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent)",
+  );
   // No popup names the popover level, and no menu a second rule of its own.
   expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);
   // The surfaces that kept a tint of their own (the model menu's 92%, the + menu's and New Tab
@@ -116,15 +120,14 @@ test("every overlay role's veil and rim is the design scale's glass material", (
 });
 
 test("Session Info, the composer and the running tray share the popover level", () => {
-  for (const file of [
-    "agent-session/acpmux/session-info/sessionInfo.css",
-    "agent-session/acpmux/composerStates.css",
-    "agent-session/acpmux/subagents/subagents.css",
-  ]) {
+  for (const file of ["agent-session/acpmux/session-info/sessionInfo.css", "agent-session/acpmux/composerStates.css"]) {
     const css = source(file);
     expect(css, file).toContain("var(--ds-glass-popover-blur)");
     expect(css, file).toContain("var(--ds-glass-popover-art-tint)");
   }
+  const tray = source("agent-session/acpmux/subagents/subagents.css");
+  expect(tray).toContain("background: var(--acpmux-stack-tint)");
+  expect(tray).toContain("--acpmux-tray-frost: var(--acpmux-stack-backdrop)");
 });
 
 test("the check fails a raw blur and passes a level, an element filter and a stated exception", () => {
@@ -161,7 +164,7 @@ test("the native GlassLevel names the design scale's levels, and the roles map o
   const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
   expect(cases).toEqual(levels);
   // The overlay tint tunable defaults to the popover level's strength.
-  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const popover = designScale.transientMaterial.nativeTintStrength;
   const tunables = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
     "utf8",

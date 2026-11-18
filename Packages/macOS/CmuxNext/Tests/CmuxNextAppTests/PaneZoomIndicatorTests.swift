@@ -65,7 +65,7 @@ import Testing
     @Test func theIndicatorSitsLeftOfThePanesMoreButton() throws {
         let harness = Harness()
         defer { harness.closeWindow() }
-        let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { nil })
         harness.pane.toolbar = toolbar
         toolbar.update(target: "tab0", kind: .terminal, zoomed: false, paneKinds: [.terminal])
         harness.settle()

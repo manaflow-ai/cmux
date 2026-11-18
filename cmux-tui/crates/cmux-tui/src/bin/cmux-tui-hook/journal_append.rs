@@ -556,11 +556,12 @@ pub(super) fn write_before(
     }
 }
 
+/// Reads one response line from `reader`, which keeps what follows the line
+/// for the next read on the same connection.
 pub(super) fn read_before(
-    stream: Box<dyn transport::Stream>,
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
     deadline: Instant,
 ) -> Result<Vec<u8>, AppendAttemptError> {
-    let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
         // Shrink the bound toward the deadline. A refusal means the server

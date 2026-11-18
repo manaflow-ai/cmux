@@ -33,6 +33,11 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
+    /// The card top is fading out after the card closed.
+    private var backdropClosing = false
+    /// The card top's reach above the bar (`OmnibarStyle.cardTopOutset(bar:)`), measured at each layout from where the
+    /// bar sits in its window.
+    private lazy var backdropTop = backdrop.topAnchor.constraint(equalTo: topAnchor)
     let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
@@ -44,7 +49,7 @@ public final class AddressBarView: NSView {
     private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
+    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.fieldTrailingGap)
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
@@ -198,6 +203,7 @@ public final class AddressBarView: NSView {
         badges.spacing = 4
         badges.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badges)
+        let fieldCenter = field.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -205,20 +211,22 @@ public final class AddressBarView: NSView {
             pill.topAnchor.constraint(equalTo: topAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -OmnibarStyle.cardSideOutset),
-            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: OmnibarStyle.cardSideOutset),
-            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
+            density.bind(backdrop.leadingAnchor.constraint(equalTo: leadingAnchor)) { -OmnibarStyle.cardSideOutset },
+            density.bind(backdrop.trailingAnchor.constraint(equalTo: trailingAnchor)) { OmnibarStyle.cardSideOutset },
+            backdropTop,
             backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
+            density.bind(chip.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.chipLeading },
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
             density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
-            field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
+            density.bind(field.leadingAnchor.constraint(equalTo: chip.trailingAnchor)) {
+                OmnibarStyle.textLeading
+            },
             fieldToEdge,
-            field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
+            fieldCenter,
+            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.edgeInset - 2),
             badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
@@ -231,6 +239,9 @@ public final class AddressBarView: NSView {
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            // Measured after the font above: the field's own binding runs in its own loop, so a shift bound
+            // beside the other constraints could read the font the density just replaced.
+            fieldCenter.constant = OmnibarStyle.fieldBaselineShift(field: field)
             updateChrome()
         }
         density.start()
@@ -573,8 +584,16 @@ public final class AddressBarView: NSView {
     }
 
     public override func layout() {
+        // Before the pass, so the card top's frame takes this reach in the same pass, not the next one.
+        updateBackdropReach()
         super.layout()
         if textArea != cursorTextArea, !isServedByPanePointerArea { window?.invalidateCursorRects(for: self) }
+    }
+
+    /// Keeps the card top's reach on the tab pills above the bar as the bar moves (a resize, a split, a density).
+    private func updateBackdropReach() {
+        let reach = -OmnibarStyle.cardTopOutset(bar: self)
+        if backdropTop.constant != reach { backdropTop.constant = reach }
     }
 
     // MARK: Appearance
@@ -588,8 +607,24 @@ public final class AddressBarView: NSView {
             if !isServedByPanePointerArea { window?.invalidateCursorRects(for: field) }
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
-        backdrop.isHidden = !state.isPopupOpen
-        if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
+        // The bar's card top fades with the card (`MotionFade.omniboxPopup`).
+        if state.isPopupOpen, backdrop.isHidden || backdropClosing {
+            backdropClosing = false
+            if backdrop.isHidden { backdrop.alphaValue = 0 }
+            backdrop.isHidden = false
+            Motion.overlays.animate(.omniboxPopup, in: backdrop) { backdrop.animator().alphaValue = 1 }
+        } else if !state.isPopupOpen, !backdrop.isHidden, !backdropClosing {
+            backdropClosing = true
+            Motion.overlays.animate(.omniboxPopup, in: backdrop, { backdrop.animator().alphaValue = 0 }, completion: { [weak self] in
+                guard let self, self.backdropClosing else { return }
+                self.backdropClosing = false
+                self.backdrop.isHidden = true
+            })
+        }
+        if state.isPopupOpen {
+            backdrop.opensUpward = toolbarOpensUpward
+            updateBackdropReach()
+        }
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()

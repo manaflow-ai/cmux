@@ -269,7 +269,7 @@ fn a_held_host_is_never_a_placement_candidate() {
     reg["machines"]["big"]["hold"] = json!({"until": "2026-10-30T20:50:00Z"});
     let hosts = lane_hosts_at(Some(&reg), 0).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap()[HELD].is_string());
-    let after = crate::server::machine_health::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
+    let after = crate::clock_text::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
     let hosts = lane_hosts_at(Some(&reg), after).unwrap();
     assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
 }
@@ -346,7 +346,7 @@ fn a_retired_host_is_never_a_placement_candidate() {
 fn a_reserved_host_is_never_a_placement_candidate() {
     let both =
         [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
-    let at = |t: &str| crate::server::machine_health::rfc3339_ms(t).unwrap();
+    let at = |t: &str| crate::clock_text::rfc3339_ms(t).unwrap();
     let mut reg = registry();
     reg["reservations"] = json!([{"id": "lawrence-2026-10-29", "owner": "lawrencecchen",
         "hosts": ["big-box"], "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z"}]);
@@ -548,4 +548,26 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
     assert_eq!(v["pick"], "small", "{v:#}");
     assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
     assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
+
+#[test]
+fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
+    // This machine is over its budget; a peer has room. The reply says both, so the composer can
+    // say "This Mac is busy · Run on far" and "room for N" without reading the hosts list.
+    let mut busy = health(20.0, 16, 29.8, 200.0, 2);
+    busy["pressure"] = json!({"ok": false, "over": ["load1 29.8 >= 15"], "cores": 16});
+    let mut here = c("mac", busy);
+    here.local = true;
+    let v = place(&[here, c("far", health(16.0, 8, 0.5, 200.0, 0))], None, Work::Agent);
+    assert_eq!(v["pick"], "far", "{v:#}");
+    assert_eq!(v["local"], false, "{v:#}");
+    assert_eq!(v["localOver"], "over its budget (load1 29.8 >= 15)", "{v:#}");
+    // far: RAM (16 - 4) / 2 = 6, CPU 7.5 → 6.
+    assert_eq!(v["room"], 6.0, "{v:#}");
+    // A quiet local machine has no verdict to show.
+    let mut here = c("mac", health(20.0, 16, 1.0, 200.0, 0));
+    here.local = true;
+    let v = place(&[here], None, Work::Agent);
+    assert!(v["localOver"].is_null(), "{v:#}");
+    assert_eq!(v["local"], true, "{v:#}");
 }

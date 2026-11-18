@@ -1,10 +1,12 @@
 import { type SessionAuth } from "./sessionAuth";
+import type { HarnessUpdates } from "./harnessUpdateList";
 import { useEffect, useRef, useState } from "react";
 import { agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -62,6 +64,9 @@ export type QuickMenu = {
   /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
   /// from the model choices and their held height.
   update?: { text: string; run(): void };
+  /// Every agent CLI on this Mac with an update, the chat's own first (harnessUpdateList.ts): drawn
+  /// in `update`'s place as Harness updates available.
+  updates?: HarnessUpdates;
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
   /// the effort and fast mode the query named. Without it typing opens the full picker.
@@ -168,6 +173,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
+  /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection
+  /// serves Cloud.
+  connect?: ClaudeConnectRowProps;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so

@@ -316,6 +316,7 @@ public final class TerminalSurfaceView: NSView {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
             // report (held while it was not shown) would be a size no frame rests at.
+            if pendingForcedReport, isInPaneMotion { geometry.forceNextReport() } // a join's final grid carries it
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined, justShown: true)
             pendingForcedReport = false
@@ -401,7 +402,6 @@ public final class TerminalSurfaceView: NSView {
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
         if !frameOwnership.landing { copyMode.syncCursor() }
-        if resized { selectionHint.resized() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

@@ -90,3 +90,11 @@ test("ordinary hover reveals are not treated as popup controls", () => {
     ),
   ).toEqual([]);
 });
+
+test("the edited-files aggregate label is a bounded direct-navigation exception", () => {
+  const css = ".acpmux-edited-summary:hover .acpmux-edited-summary-link { opacity: 1; }";
+  const file = "agent-session/acpmux/conversation/EditedFilesCard.css";
+  expect(findHoverRevealViolations(css, file)).toEqual([]);
+  expect(findHoverRevealViolations(css.replace("summary-link", "menu-trigger"), file)).toHaveLength(1);
+  expect(findHoverRevealViolations(css, "another-card.css")).toHaveLength(1);
+});

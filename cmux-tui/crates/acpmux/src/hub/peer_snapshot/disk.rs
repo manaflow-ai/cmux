@@ -19,11 +19,11 @@ pub(super) type Key = (String, String);
 pub(super) type Writer = fn(&Path, &[u8]) -> Result<()>;
 
 /// An id longer than this is not kept: its hex name must fit a file name (255 bytes) with the
-/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>-<u64 counter>` (36 bytes).
+/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>` (15 bytes).
 const ID_BYTES: usize = 100;
 /// The longest temporary suffix `config::write_atomic` puts in place of `.json`.
 #[cfg(test)]
-const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10 + "-".len() + 20;
+const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10;
 const EXT: &str = "json";
 
 #[derive(Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
@@ -38,9 +38,17 @@ pub(super) struct Head {
     pub last_seq: u64,
     /// The highest seq the peer was seen at for this copy (its pages' `lastSeq`, its records).
     pub host_last_seq: u64,
+    /// The seq from which the copy saw every record: a copy started past a gap starts it
+    /// again; a bound that cuts the oldest records does not (`open_delivery.rs` `whole`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub since: u64,
     pub captured_at: u64,
     pub from_start: bool,
     pub summary: Value,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 pub(super) fn record_bytes(v: &Value) -> u64 {
