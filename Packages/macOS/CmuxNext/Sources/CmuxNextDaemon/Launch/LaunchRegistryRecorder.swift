@@ -29,8 +29,13 @@ public final class LaunchRegistryRecorder: Sendable {
 
     /// Records `id` for `session` in `location`'s folder after any write already running.
     public func record(_ id: String, session: String, location: LaunchSnapshotLocation) {
-        // OLD BEHAVIOR (test-only commit, reverted next): one write per id, nothing orders them.
-        start { location.recordRegistry(id, session: session) }
+        let starts = state.withLock { state in
+            state.pending = Pending(id: id, session: session, location: location)
+            guard !state.writing else { return false }
+            state.writing = true
+            return true
+        }
+        if starts { start { [self] in drain() } }
     }
 
     /// Writes the waiting id until none waits.
