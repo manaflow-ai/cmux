@@ -162,7 +162,12 @@ impl Core {
                 }
             };
             return match outcome {
-                Outcome::Bytes(b) => Ok(b[range.start as usize..range.end as usize].to_vec()),
+                Outcome::Bytes(b) => usize::try_from(range.start)
+                    .ok()
+                    .zip(usize::try_from(range.end).ok())
+                    .and_then(|(lo, hi)| b.get(lo..hi))
+                    .map(<[u8]>::to_vec)
+                    .ok_or_else(|| Miss::Failed("the range is outside the fetched chunk".into())),
                 other => Err(other.into()),
             };
         }

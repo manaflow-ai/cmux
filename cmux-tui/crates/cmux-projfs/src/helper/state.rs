@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{Failure, Opts};
 use crate::core::Stats;
@@ -164,7 +164,8 @@ pub(super) fn upper(paths: &Paths) -> Result<Value, Failure> {
     let changes: Vec<Value> = changes
         .into_iter()
         .map(|c| {
-            let mut v = json!({ "path": c.path });
+            let mut v = Map::new();
+            v.insert("path".into(), json!(c.path));
             let (kind, extra) = match c.kind {
                 ChangeKind::File => ("file", None),
                 ChangeKind::MetadataOnly => ("metadata", None),
@@ -175,11 +176,11 @@ pub(super) fn upper(paths: &Paths) -> Result<Value, Failure> {
                 ChangeKind::Delete => ("delete", None),
                 ChangeKind::Unsupported(why) => ("unsupported", Some(("reason", why))),
             };
-            v["kind"] = json!(kind);
+            v.insert("kind".into(), json!(kind));
             if let Some((k, text)) = extra {
-                v[k] = json!(text);
+                v.insert(k.into(), json!(text));
             }
-            v
+            Value::Object(v)
         })
         .collect();
     Ok(json!({ "ok": true, "changes": changes }))
@@ -190,11 +191,16 @@ pub(super) fn status(paths: &Paths) -> Result<Value, Failure> {
     let text = std::fs::read_to_string(paths.stats_file()).map_err(|_| {
         Failure::new("no_stats", format!("no helper has served {}", paths.state.display()))
     })?;
-    let mut stats: Value = serde_json::from_str(&text)
+    let stats: Value = serde_json::from_str(&text)
         .map_err(|e| Failure::new("io", format!("stats.json is not JSON: {e}")))?;
-    stats["ok"] = json!(true);
-    stats["running"] = json!(running_helper(paths).is_some());
-    Ok(stats)
+    let mut stats = match stats {
+        Value::Object(m) => m,
+        Value::Null => Map::new(),
+        _ => return Err(Failure::new("io", "stats.json is not a JSON object")),
+    };
+    stats.insert("ok".into(), json!(true));
+    stats.insert("running".into(), json!(running_helper(paths).is_some()));
+    Ok(Value::Object(stats))
 }
 
 /// The counters as the helper writes them to `stats.json`.

@@ -41,7 +41,7 @@ impl Manifest {
         for e in &self.entries {
             put_entry(&mut body, e);
         }
-        let packed = zstd::stream::encode_all(&body[..], ZSTD_LEVEL)
+        let packed = zstd::stream::encode_all(body.as_slice(), ZSTD_LEVEL)
             .map_err(|e| ManifestError::Corrupt(format!("compression failed: {e}")))?;
         let mut out = Vec::with_capacity(HEADER + packed.len());
         out.extend_from_slice(&MAGIC);
@@ -52,17 +52,23 @@ impl Manifest {
 
     /// Decodes and validates an encoded manifest.
     pub fn decode(bytes: &[u8]) -> Result<Manifest, ManifestError> {
-        if bytes.len() < HEADER || bytes[..MAGIC.len()] != MAGIC {
+        let Some((magic, rest)) = bytes.split_first_chunk::<4>() else {
+            return Err(ManifestError::NotAManifest);
+        };
+        let Some((version, packed)) = rest.split_first_chunk::<2>() else {
+            return Err(ManifestError::NotAManifest);
+        };
+        if *magic != MAGIC {
             return Err(ManifestError::NotAManifest);
         }
-        let found = u16::from_le_bytes([bytes[4], bytes[5]]);
+        let found = u16::from_le_bytes(*version);
         if found > FORMAT_VERSION {
             return Err(ManifestError::NewerVersion { found, supported: FORMAT_VERSION });
         }
         if found == 0 {
             return Err(corrupt("format version 0"));
         }
-        let body = decompress(&bytes[HEADER..])?;
+        let body = decompress(packed)?;
         parse_body(&body)
     }
 }
@@ -133,26 +139,22 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn remaining(&self) -> usize {
-        self.buf.len() - self.pos
+        self.buf.len().saturating_sub(self.pos)
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8], ManifestError> {
-        if n > self.remaining() {
-            return Err(corrupt("truncated body"));
-        }
-        let out = &self.buf[self.pos..self.pos + n];
-        self.pos += n;
+        let end = self.pos.checked_add(n).ok_or_else(|| corrupt("truncated body"))?;
+        let out = self.buf.get(self.pos..end).ok_or_else(|| corrupt("truncated body"))?;
+        self.pos = end;
         Ok(out)
     }
 
     fn array<const N: usize>(&mut self) -> Result<[u8; N], ManifestError> {
-        let mut out = [0u8; N];
-        out.copy_from_slice(self.take(N)?);
-        Ok(out)
+        <[u8; N]>::try_from(self.take(N)?).map_err(|_| corrupt("truncated body"))
     }
 
     fn u8(&mut self) -> Result<u8, ManifestError> {
-        Ok(self.array::<1>()?[0])
+        self.array().map(u8::from_le_bytes)
     }
 
     fn u32(&mut self) -> Result<u32, ManifestError> {
@@ -249,17 +251,23 @@ fn link_entry(entries: &mut [Entry], i: usize, e: &Entry) -> Result<(), Manifest
     if p >= i {
         return Err(corrupt("an entry comes before its parent"));
     }
-    if entries[p].stat.kind != Kind::Dir {
+    // `entries` holds exactly the `i` entries before this one, so `i - 1` and `p` are in it.
+    let Some((prev_at, prev)) = i.checked_sub(1).and_then(|at| Some((at, entries.get(at)?))) else {
+        return Err(corrupt("an entry comes before its parent"));
+    };
+    let contiguous = prev_at != 0 && prev.parent == e.parent;
+    let sorted = prev.name.as_str() < e.name.as_str();
+    let parent = entries.get_mut(p).ok_or_else(|| corrupt("an entry comes before its parent"))?;
+    if parent.stat.kind != Kind::Dir {
         return Err(corrupt("an entry's parent is not a directory"));
     }
-    let prev = &entries[i - 1];
-    if entries[p].n_children == 0 {
-        entries[p].first_child = i as u32;
-    } else if i - 1 == 0 || prev.parent != e.parent {
+    if parent.n_children == 0 {
+        parent.first_child = i as u32;
+    } else if !contiguous {
         return Err(corrupt("a directory's children are not contiguous"));
-    } else if prev.name.as_str() >= e.name.as_str() {
+    } else if !sorted {
         return Err(corrupt("a directory's children are not sorted and unique"));
     }
-    entries[p].n_children += 1;
+    parent.n_children += 1;
     Ok(())
 }

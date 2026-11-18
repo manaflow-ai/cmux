@@ -246,7 +246,7 @@ impl Manifest {
 
     /// The child of `parent` called `name`, unless it is gone.
     pub fn lookup(&self, parent: Index, name: &str) -> Option<Index> {
-        self.find_child(parent, name).filter(|&i| !self.entries[i as usize].gone)
+        self.find_child(parent, name).filter(|&i| self.entry(i).is_some_and(|e| !e.gone))
     }
 
     fn find_child(&self, parent: Index, name: &str) -> Option<Index> {
@@ -314,7 +314,8 @@ impl Manifest {
                         reason: "the root cannot be gone",
                     });
                 }
-                if self.entries[idx as usize].gone {
+                let not_in = || ManifestError::NotInManifest(path.to_owned());
+                if self.entry(idx).ok_or_else(not_in)?.gone {
                     return Ok(None);
                 }
                 self.mark_gone(idx);
@@ -332,11 +333,12 @@ impl Manifest {
     ) -> Result<Option<Index>, ManifestError> {
         let bad = |reason: String| ManifestError::BadStat { path: path.to_owned(), reason };
         stat.check().map_err(bad)?;
-        let parent = self.entries[idx as usize].parent;
-        if idx != ROOT && self.entries[parent as usize].gone {
+        let not_in = || ManifestError::NotInManifest(path.to_owned());
+        let parent = self.entry(idx).ok_or_else(not_in)?.parent;
+        if idx != ROOT && self.entry(parent).is_none_or(|p| p.gone) {
             return Err(ManifestError::MissingParent(path.to_owned()));
         }
-        let e = &mut self.entries[idx as usize];
+        let e = self.entries.get_mut(idx as usize).ok_or_else(not_in)?;
         if (e.stat.kind == Kind::Dir) != (stat.kind == Kind::Dir) {
             return Err(
                 bad("a directory and a non-directory swap only with a new manifest".into()),
@@ -353,9 +355,10 @@ impl Manifest {
     fn mark_gone(&mut self, idx: Index) {
         let mut stack = vec![idx];
         while let Some(i) = stack.pop() {
-            let e = &mut self.entries[i as usize];
-            e.gone = true;
-            stack.extend(e.children());
+            if let Some(e) = self.entries.get_mut(i as usize) {
+                e.gone = true;
+                stack.extend(e.children());
+            }
         }
     }
 }

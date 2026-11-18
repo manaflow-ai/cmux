@@ -87,11 +87,20 @@ impl Builder {
                 continue;
             };
             kids.sort_unstable_by(|a, b| a.0.cmp(b.0));
-            entries[idx as usize].first_child = entries.len() as Index;
-            entries[idx as usize].n_children = kids.len() as u32;
+            let first_child = entries.len() as Index;
+            // `idx` was pushed before it was queued.
+            if let Some(dir) = entries.get_mut(idx as usize) {
+                dir.first_child = first_child;
+                dir.n_children = kids.len() as u32;
+            }
             for (name, path) in kids {
                 let child = entries.len() as Index;
-                let stat = self.items[path].clone();
+                // Every `path` in `by_parent` is a key of `items`.
+                let stat = self
+                    .items
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| ManifestError::NotInManifest(path.to_owned()))?;
                 if stat.kind == Kind::Dir {
                     queue.push_back((child, path));
                 }

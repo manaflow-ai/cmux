@@ -80,11 +80,12 @@ impl ChunkKey {
 }
 
 fn to_hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        s.push(DIGITS[usize::from(b >> 4)] as char);
-        s.push(DIGITS[usize::from(b & 15)] as char);
+        for nibble in [b >> 4, b & 15] {
+            // A nibble is always below 16, so this is always a digit.
+            s.extend(char::from_digit(u32::from(nibble), 16));
+        }
     }
     s
 }
@@ -206,7 +207,8 @@ impl ChunkCache {
 
     fn path(&self, key: &ChunkKey) -> PathBuf {
         let hex = key.hex();
-        self.dir.join(&hex[..2]).join(hex)
+        let sub: String = hex.chars().take(2).collect();
+        self.dir.join(sub).join(hex)
     }
 
     /// Reads `len` bytes at `offset` of a chunk whose full length must be `chunk_len`.
@@ -253,19 +255,26 @@ impl ChunkCache {
         end: u64,
     ) -> Option<Vec<u8>> {
         let raw = fs::read(self.path(key)).ok()?;
-        if raw.len() as u64 != HEADER + chunk_len || raw[..4] != MAGIC {
+        if raw.len() as u64 != HEADER + chunk_len {
             return None;
         }
-        let format = u32::from_le_bytes(raw[4..8].try_into().ok()?);
-        let len = u64::from_le_bytes(raw[8..16].try_into().ok()?);
-        let data = &raw[HEADER as usize..];
-        if format != FORMAT || len != chunk_len || raw[16..48] != Sha256::digest(data)[..] {
+        let (magic, rest) = raw.split_first_chunk::<4>()?;
+        let (format, rest) = rest.split_first_chunk::<4>()?;
+        let (len, rest) = rest.split_first_chunk::<8>()?;
+        let (sum, data) = rest.split_first_chunk::<32>()?;
+        let (format, len) = (u32::from_le_bytes(*format), u64::from_le_bytes(*len));
+        if *magic != MAGIC || format != FORMAT || len != chunk_len {
+            return None;
+        }
+        let digest: [u8; 32] = Sha256::digest(data).into();
+        if *sum != digest {
             return None;
         }
         if let Some(meta) = lock(&self.state).map.get_mut(key) {
             meta.verified = true;
         }
-        Some(data[start as usize..end as usize].to_vec())
+        let range = usize::try_from(start).ok()?..usize::try_from(end).ok()?;
+        data.get(range).map(<[u8]>::to_vec)
     }
 
     /// Stores a chunk. Returns `false` (and stores nothing) when one chunk is larger than the
