@@ -30,6 +30,7 @@ final class ExtensionActionToolbar {
         let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
+        button.iconSide = { OmnibarStyle.extensionsIconSize }
         // Chrome opens the Extensions menu on the press, not the release; its bubble is made when the pointer first comes.
         button.sendAction(on: [.leftMouseDown])
         button.onPointerEnter = { [weak self] in if self?.menuControllerIfMade == nil { self?.schedulePrepare() } }

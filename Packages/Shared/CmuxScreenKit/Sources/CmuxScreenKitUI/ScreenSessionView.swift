@@ -586,6 +586,10 @@ public struct ScreenSessionView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("screen.sourceNotice")
+                    // Centred on the picture, not the whole view: the trackpad
+                    // drawer would otherwise cover its lower half.
+                    .padding(.top, chromeVisible ? chromeHeight : 0)
+                    .padding(.bottom, trackpadReserved)
                     .transition(.asymmetric(insertion: .opacity, removal: .identity))
                 case .toolbar:
                     EmptyView() // in the top bar (`topBar`)
