@@ -576,6 +576,46 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
+    def test_a_refused_snapshot_keeps_the_last_pools_and_marks_nothing_dead(self) -> None:
+        # 2026-11-18: the cmux-bot installation ran dry by mid-hour, the janitor snapshot read was refused (its
+        # `label_started` is what says a cap-bound size is still serving), the pass judged on the probe alone, and
+        # every large Linux size the probe waited out under the vCPU cap was marked dead: the pools fell to 2 vCPU.
+        # A refusal is no evidence: the pass keeps the last RUNNER_POOLS and writes nothing.
+        import urllib.error
+        live = json.dumps({"_dead": {}, "_updated": "2026-11-18T01:00:00Z",
+                           "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+                           "linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux_8": "blacksmith-8vcpu-ubuntu-2404"})
+        now = dt.datetime(2026, 11, 18, 1, 28, 46, tzinfo=dt.timezone.utc)
+        stalled = health({"blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
+                          "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "stalled",
+                          "blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=now)
+
+        class Refused:
+            def __init__(self, error):
+                self.error = error
+
+            def snapshot(self, *, now):
+                raise self.error
+
+        refusals = [
+            urllib.error.HTTPError("https://api.github.com/x", 403, "API rate limit exceeded for installation",
+                                   {}, None),  # type: ignore[arg-type]
+            urllib.error.HTTPError("https://api.github.com/x", 429, "Too Many Requests", {}, None),  # type: ignore[arg-type]
+            RuntimeError("GET artifacts failed (403)"),
+        ]
+        for error in refusals:
+            with self.subTest(error=str(error)):
+                switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(stalled)})
+                self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=Refused(error), switch=switch,
+                                                   now=now), 0)
+                self.assertEqual(switch.writes, [])
+        # The same probe pass with no snapshot and no refusal still marks the stalled sizes: the rule is about
+        # refusals, not about the probe.
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(stalled)})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(None), switch=switch, now=now), 0)
+        self.assertIn("blacksmith-16vcpu-ubuntu-2404", json.loads(switch.writes[0][1])["_dead"])
+
     def test_a_stalled_size_flips_linux_once(self) -> None:
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"})),
