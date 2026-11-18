@@ -710,6 +710,26 @@ export function aptDownloadBatches(
   return batches;
 }
 
+/** Runs of one download batch before the bake fails. */
+export const APT_FETCH_ATTEMPTS = 3;
+
+/**
+ * One download batch, run again when it fails: a slow mirror can push a batch past the guest's 5-minute exec cap
+ * (image roll 44263286356, status 124), and aptDebFetchCommand keeps every .deb it verified, so each run only fetches
+ * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
+ */
+export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+    }
+  }
+}
+
 /**
  * Fetch and install a locked Ubuntu closure by content (aptDebFetchCommand, aptLocalInstallCommand): no apt index is
  * read, so a pin the public archive has superseded comes from the dated snapshot instead of failing the bake (run
@@ -723,7 +743,7 @@ async function installUbuntuDebs(ctx: Ctx, prefix: string, packages: Readonly<Re
   const batches = aptDownloadBatches(packages, ubuntu.debs);
   L.log(`${prefix} fetch: ${Object.keys(packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
   for (const [i, batch] of batches.entries()) {
-    await L.step(vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
+    await fetchAptBatch(L, vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
   }
   await L.step(vm, `${prefix}-install`, `${aptLocalInstallCommand(ubuntu.debs, aptPins(packages), APT_DEB_DIR, log)}; grep -c '^Setting up' ${log}`);
 }
