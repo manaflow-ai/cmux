@@ -867,6 +867,9 @@ def main():
     for path in (args.acpmux, args.tui):
         if not os.access(path, os.X_OK):
             raise SystemExit(f"infinite-items: not executable: {path}")
+    # FAKE_AGENT is found from this file's own path: a copy run from elsewhere would make no chats and still report.
+    if not os.path.isfile(FAKE_AGENT):
+        raise SystemExit(f"infinite-items: no stand-in agent at {FAKE_AGENT}; run this script from its checkout")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
           f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)}", flush=True)
