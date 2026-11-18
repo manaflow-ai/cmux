@@ -7,6 +7,10 @@
 // neighbours and the first and last rows stay mounted, so the browser's own Tab and Shift-Tab go on
 // in list order and enter the list at its first or last row (no key handler); a row the card says to
 // keep (a Revoke asking first) stays mounted, so its state survives a scroll.
+// The window starts once the list has found its scroller, at the scroller's own offset: the page's
+// scroller is shared by every card, so taking it over must not move it. A card's reveal waits for
+// `ready` (the scroller found and the rows near it drawn), so it scrolls the page once, to the card
+// as it settles.
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import {
   createElement,
@@ -41,6 +45,9 @@ export type CardWindowItem = { index: number; key: string; gap: number };
 export interface CardWindow {
   /** The `.rows` element's ref. */
   list: (node: HTMLElement | null) => void;
+  /** The list has found its scroller (or that none scrolls) and its rows are drawn: a card's reveal
+   * scrolls to it from here on, never before. */
+  ready: boolean;
   /** The `.rows` element's bottom padding: the rows after the last one mounted (none while the
    * last row is kept mounted; kept for a list with no rows). */
   padBottom: number;
@@ -111,6 +118,11 @@ export function useCardWindow(
   );
   const virtualizer = useVirtualizer({
     count: keys.length,
+    // Off until the list's scroller is known: TanStack reads its offset once and, when it takes the
+    // scroller over, writes that offset back, so an offset read before (0) scrolled the whole page to
+    // its top, undoing a deep link's reveal of the card. Read when it takes over, it moves nothing.
+    enabled: scroller !== undefined,
+    initialOffset: () => scroller?.scrollTop ?? 0,
     getScrollElement: () => scroller ?? null,
     estimateSize,
     getItemKey,
@@ -144,12 +156,19 @@ export function useCardWindow(
   if (scroller === null) {
     return {
       list,
+      ready: true,
       padBottom: 0,
       items: keys.map((key, index) => ({ index, key, gap: 0 })),
       measure,
       onFocus,
       onBlur,
     };
+  }
+  // Not started (the list's first commit): no row yet, and the rows' room at the estimate, as the
+  // window's first pass draws it, so the page has its height when the reveal and the page's tail room
+  // (useCurrentCard) read it.
+  if (scroller === undefined) {
+    return { list, ready: false, padBottom: keys.length * estimate, items: [], measure, onFocus, onBlur };
   }
   const virtual = virtualizer.getVirtualItems();
   const last = virtual.at(-1);
@@ -162,6 +181,9 @@ export function useCardWindow(
   });
   return {
     list,
+    // TanStack reads the scroller's size when it takes it over, so the commit that finds the
+    // scroller has no row yet; the next one draws them.
+    ready: keys.length === 0 || items.length > 0,
     padBottom: last ? Math.max(0, total - (last.end - scrollMargin)) : total,
     items,
     measure,
