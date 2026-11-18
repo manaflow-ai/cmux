@@ -4869,8 +4869,10 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    # 40, plus the PR autofix pack step's 10.
-    timeout-minutes: 50
+    # Runs from runner pickup, so it also counts the runner hook's wait for capacity units. Finished runs took 20-39 min
+    # (2026-11-17, 12 h), and a units wait of 19 min cancelled cmux#44505's mid-compile at 40. 60, plus the PR
+    # autofix pack step's 10.
+    timeout-minutes: 70
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
