@@ -598,14 +598,17 @@ export class SessionsBy {
 }
 
 /// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
-/// folder, where it runs, whether it is listed, and when it was last active.
+/// folder, where it runs, whether it is listed, and when it was last active. The time only of a chat
+/// on this Mac: no folder list orders another machine's chats by it, and at Leo's scale those were
+/// most of the changes (another machine's lanes working), each building every page's project list
+/// again from 10K chats (bench/session-scale-typing.bench.ts).
 export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
   session.cwd,
   session.host,
   session.hostKind,
   session.peer,
   listed(session),
-  activityTime(session),
+  !session.peer && (!session.hostKind || session.hostKind === "local") ? activityTime(session) : undefined,
 ];
 
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a

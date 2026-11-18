@@ -2258,7 +2258,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [rowsForEdits, editFamily],
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
-  const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
+  // Read when the rows change, never on a render of anything else: another chat's change renders the
+  // pane, and a walk of every row and a string of every prompt then cost O(transcript) per change of any
+  // chat in the list (bench/session-scale-typing.bench.ts).
+  const promptSeqsRows = forkable ? snapshot.rows : NO_ROWS;
+  const promptSeqsKey = useMemo(() => editableKey(promptTurns(promptSeqsRows)), [promptSeqsRows]);
   const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
