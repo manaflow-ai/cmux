@@ -481,7 +481,12 @@ fn host_policy_a_person_split_shrinks_the_mac_pane_at_once() {
 /// A second column right of the rig's pane, made by the daemon (not an
 /// agent): the panes of the two columns.
 fn two_columns(rig: &Rig) -> (crate::PaneId, crate::PaneId) {
-    let first = rig.mux.with_state(|state| state.pane_of(rig.surface.id).unwrap());
+    two_columns_of(rig, &rig.surface)
+}
+
+/// As [`two_columns`], in the workspace of `surface`.
+fn two_columns_of(rig: &Rig, surface: &crate::Surface) -> (crate::PaneId, crate::PaneId) {
+    let first = rig.mux.with_state(|state| state.pane_of(surface.id).unwrap());
     let right = rig.mux.new_pane_right(first, 0.5, Some((38, 22))).unwrap();
     let right = rig.mux.with_state(|state| state.pane_of(right.id).unwrap());
     (first, right)
@@ -603,4 +608,50 @@ fn host_policy_an_agent_unchanged_batch_keeps_the_hold_of_its_earlier_change() {
     batch(&rig, &agent(), columns, (now[0], now[1])).unwrap();
     rig.claim(&mac, (39, 26));
     assert_eq!(rig.grid(), (54, 40), "an unchanged batch ended the hold of the earlier change");
+}
+
+/// The rig with a second workspace, this Mac's view of the first one and a
+/// phone that sets the grid.
+fn two_workspace_rig(name: &str) -> (Rig, Arc<crate::Surface>, View, View) {
+    let rig = rig(name);
+    let other = rig.mux.new_workspace(None, Some((100, 30))).unwrap();
+    let mac = rig.mac((120, 40));
+    let phone = rig.phone("p1", (54, 40));
+    assert_eq!(rig.grid(), (54, 40), "the start: the phone sets the grid");
+    (rig, other, mac, phone)
+}
+
+/// An agent changes this workspace's layout, then another workspace's,
+/// before the app's report of the first change arrives: that report is still
+/// the agent's and does not count.
+#[test]
+fn host_policy_an_agent_change_in_another_workspace_keeps_the_hold_of_this_one() {
+    let (rig, other, mac, _phone) = two_workspace_rig("agent-elsewhere");
+    split_beside(&rig, &agent());
+    let pane = rig.mux.with_state(|state| state.pane_of(other.id).unwrap());
+    rig.mux.split_as(&agent(), pane, SplitDir::Right, None).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "a change in another workspace ended this one's hold");
+}
+
+/// As above, with a batch in the other workspace as the later change.
+#[test]
+fn host_policy_an_agent_batch_in_another_workspace_keeps_the_hold_of_this_one() {
+    let (rig, other, mac, _phone) = two_workspace_rig("batch-elsewhere");
+    let columns = two_columns_of(&rig, &other);
+    split_beside(&rig, &agent());
+    batch(&rig, &agent(), columns, (0.4, 0.6)).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 40), "a batch in another workspace ended this one's hold");
+}
+
+/// An agent's change in another workspace alone holds nothing here: a
+/// smaller report of this workspace's view is the person's own.
+#[test]
+fn host_policy_an_agent_change_in_another_workspace_holds_nothing_here() {
+    let (rig, other, mac, _phone) = two_workspace_rig("agent-elsewhere-only");
+    let pane = rig.mux.with_state(|state| state.pane_of(other.id).unwrap());
+    rig.mux.split_as(&agent(), pane, SplitDir::Right, None).unwrap();
+    rig.claim(&mac, (39, 26));
+    assert_eq!(rig.grid(), (54, 26), "a change in another workspace held this one's view");
 }
