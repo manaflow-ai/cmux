@@ -37,6 +37,8 @@
 import { watchFirstLoad } from "./firstLoadWatch";
 import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
+import { acpmuxPerf } from "./perf";
+import { perfReporter } from "./perfReporter";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
 /// Hands one batch to the app; it may return the host's (ignored) answer.
@@ -241,11 +243,14 @@ let log: FlickerLog | undefined;
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+  // The perf watch's page-load span (perfReporter.ts): the first mount, once per page.
+  acpmuxPerf.markLaunch("transcriptMount");
 }
 
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+  perfReporter.transcriptReplaced();
 }
 
 /// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
@@ -349,7 +354,10 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
   watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
 
-  const longFrame = (ms: number) => flicker.record("long-frame", { ms });
+  const longFrame = (ms: number) => {
+    flicker.record("long-frame", { ms });
+    perfReporter.longFrame(ms);
+  };
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
   // With the engine's long frames, the watch's own would be the same frames twice.
@@ -370,6 +378,8 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
 
   doc.addEventListener("visibilitychange", () => {
     flicker.record("visibility", { state: doc.visibilityState });
+    // The perf watch times a switch back to this page to its settled transcript (perfReporter.ts).
+    perfReporter.visibilityChanged(doc.visibilityState === "visible");
     watch.reset();
     if (doc.visibilityState === "visible") watch.arm();
   });

@@ -105,6 +105,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
