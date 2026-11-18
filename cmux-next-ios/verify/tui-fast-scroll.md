@@ -4,7 +4,7 @@ Branch `feat-cmux-next-ios-tui-fast-scroll`, 2026-10-23. The user asked: "find a
 
 ## Rig
 
-- Phone: the Demo build in the headless simulator `cmux-tuifast` on the laptop. The base build is `49acdd1d589d`; the fix build is `6fe88e038981`. No TapKit was used.
+- Phone: the Demo build in the headless simulator `cmux-tuifast` on the laptop. The base build is `49acdd1d589d`; the fix build is `6fe88e038981`.
 - Mac: the hidden tagged cmux-next app `tuifast-mac` (fleet job `7e251c3d63bff287ece50361`, `3ca85ee3b2aa`) on mini-cmux11s. The path was the real link, WireGuard over TURN, with a link RTT of 13 to 15 ms.
 - App: real Claude Code 2.1.309 with `CLAUDE_CODE_NO_FLICKER=1` (the fullscreen alt-screen renderer), resuming a real 400-line session (`L001 row` … `L400 row`).
 - Logging: a PTY proxy between the daemon and Claude Code (`ptylog.py`) logged every byte Claude Code read, with the mini's clock (offset 8.8 ms).

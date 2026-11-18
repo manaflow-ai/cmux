@@ -9,10 +9,12 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | | TypeScript (`typescript/`, package `cmux-extension-sdk`) | Rust (this crate, `cmux-extension-sdk`) |
 | --- | --- | --- |
 | For | the extension's own code, which cmux runs in its sandbox | tools, tests and servers around an extension |
-| Gives | places (`section`, `pane`, `newTab`, `chatWidget`, `command`), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
+| Gives | places (`section`, `pane`, `newTab`, `widget`, `chatWidget`, `command`), widget layout helpers (`WidgetFrame`, `BigNumber`, `RowList`, ...), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
-a sidebar section and a pane, built only against this SDK.
+a sidebar section and a pane, built only against this SDK. A pane can also be your own HTML
+page (`render: web`): [`examples/extensions/web-pane`](../../../examples/extensions/web-pane)
+calls cmux through `cmux-extension-sdk/web`, with the same scopes as a script.
 
 ## Make one
 
@@ -70,6 +72,8 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | --- | --- |
 | `section(render)`, `pane(render)` | A sidebar section (`cmux.section/1`) and a pane (`cmux.pane/1`). Export the result under the manifest's `export` name. |
 | `newTab(render)` | A whole New Tab page (`cmux.newtab/1`): the scene is the page body. It shows only once the person runs `cmux settings set tabs.newTabApp <your id>`; unset, or when the extension is hidden, disabled or fails, cmux draws its own page. Render gets `{ surface: "newTab", cwd? }`. Draws on the web New Tab page, not the native one (`tabs.nativeNewTabPage`). |
+| `widget(render)` | A widget (`cmux.widget/1`): a glanceable tile the person places on the New Tab page or in the sidebar from Edit Widgets > Add Widget, as many copies as they like. The manifest's `options` name `sizes` (`small` 1x1, `medium` 2x1, `large` 2x2 tiles; the sidebar takes small and medium), `defaultSize`, `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both). Render gets `{ surface: "widget", place, size, instance, settings, refresh, now(), preview? }`; a view that reads `ctx.now()` redraws on each host tick, which comes on the wall-clock boundary and only while the tile is shown. A resize remounts at the new size. cmux ships no widgets of its own. |
+| `WidgetFrame`, `WidgetTitle`, `BigNumber`, `Headline`, `Caption`, `Footnote`, `WidgetSymbol`, `Gauge`, `RowList`, `WidgetEmpty`, `bySize`, `WIDGET_TYPE`, `WIDGET_INSET`, `WIDGET_TILES` | Layout for widgets on Apple's widget type scale and 16 pt inset (12 in the sidebar): a frame, a tinted header, the big glanceable value, secondary lines, a gauge, a compact list with tinted bars, an empty state, and a pick by size. `cmux ext new NAME --kind widget` starts from them. |
 | `chatWidget(render)` | A chat widget (`cmux.chat.widget/1`): a card under each agent tool call whose name matches the manifest's `options.tools` (`*` matches any run of characters), and for widget parts an agent sends naming the extension. Render gets `{ surface: "chatWidget", widget: { key }, tool?: { name, title?, status?, input?, output? }, props? }`. cmux ships no widgets of its own; a missing, hidden or failing extension leaves the call as it was. Export the same render with `section(...)` to show it in the sidebar too. |
 | `command(run)` | A command an extension declares in `catalog.json`; runs from the palette, the CLI or another extension. |
 | `workspaces()`, `agents()`, `chats()` | Live lists: call one for the latest value; `.loading()`, `.error()`, `.refresh()`. One read however many views use it; re-read on the matching event. |
@@ -94,6 +98,7 @@ Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with
 | `chat.changed` | `chat:read` | a listed field of a chat changes (`chat.list`; not `updated_ms` alone) |
 | `settings.changed` | `settings:read` | a cmux setting changes (the file, a managed layer, Settings, the CLI); names no keys, carries no values |
 | `theme.changed` | `settings:read` | the theme, app theme, theme file or edits, accent, hue, saturation or highlight color changes |
+| `github.changed` | `integration:github:read` | a pull request, review, check run or suite, or commit status changes on a repository a GitHub connection covers (the Cloud's GitHub App webhooks, within seconds); its body is `{"live": bool}` when the push channel goes up or down, and a new subscriber hears that first. `cmux.watch("github.pulls")` already re-reads on it |
 
 ## Test it
 
@@ -146,6 +151,7 @@ use cmux_extension_sdk::{Manifest, Region, check_package, is_valid};
 let manifest = Manifest::new("local/my-ext", "My extension", "0.1.0", "My workspaces, live.")
     .section("renderSection", "Mine", "sparkles", Region::Top)
     .new_tab("renderNewTab", "Mine", "house")   // a whole New Tab page, once picked
+    .widget("renderClock", "Clock", "clock", &["small", "medium"], Some(60), &[]) // a tile on New Tab and in the sidebar
     .chat_widget("renderCard", "PR", "arrow.triangle.pull", &["mcp__github__*pull_request*"]) // a card under matching tool calls
     .listen("workspace.changed")?          // asks for workspace:read
     .listen("agent_chat.changed")?;        // asks for agent_chat:read
@@ -156,6 +162,35 @@ assert!(check_package(std::path::Path::new(".")).is_valid());
 
 `EVENTS`, `SIGNALS`, `event(name)` and `signal(name)` are the same tables the TypeScript package
 reads, as constants.
+
+## What you can customize, typed
+
+`cmux customize schema` (MCP: `customize_schema`) lists every setting key with its type, choices,
+range and default, what a theme file holds and the theme tokens, the view slots and where each
+goes, and every extension point with its options. Both SDKs carry the same list as types, written
+from that one source (`cmux_customize::schema`), so a key that does not exist is an error, not a
+guess:
+
+```ts
+import type { CmuxSettings, SettingKey, ViewSlot, CmuxViewSlots } from "cmux-extension-sdk/customize"
+
+const key: SettingKey = "appearance.themeFile"           // a misspelled key does not type-check
+const accent: CmuxSettings["appearance.accent"] = "blue"  // the value's own type
+const place: CmuxViewSlots["cmux.section/1"] = "top"      // "top" | "middle" | "bottom"
+```
+
+```rust
+use cmux_extension_sdk::customize::{self, keys};
+
+let row = customize::setting(keys::APPEARANCE_THEME_FILE).unwrap(); // one constant per key
+println!("{} is a {}, default {:?}", row.key, row.kind, row.default);
+```
+
+The TypeScript file (`typescript/src/generated/customize.ts`) is types only, so an `import type`
+adds nothing to a bundle. It is not committed: every build of this crate writes it (`build.rs`),
+`cmux ext dev` writes it beside the SDK it builds with, and `cmux customize schema --typescript`
+prints it. The crate's test `the_typescript_types_in_the_checkout_are_current` fails when a
+checkout's copy is stale.
 
 ## Versions
 

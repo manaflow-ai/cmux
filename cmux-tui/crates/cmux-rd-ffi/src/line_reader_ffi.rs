@@ -169,11 +169,16 @@ pub unsafe extern "C" fn cmux_rd_line_reader_free(reader: *mut CmuxRdLineReader)
 }
 
 /// Runs `f` on a live reader; maps NULL, a poisoned reader and panics to codes.
-pub(crate) fn with_reader(
+///
+/// # Safety
+/// `ptr` is NULL or came from [`cmux_rd_line_reader_new`] and has not been freed, so a
+/// non-NULL `ptr` is aligned and points to a live reader. Nothing else reads or
+/// writes that reader until this returns: `f` gets it as `&mut`.
+pub(crate) unsafe fn with_reader(
     ptr: *mut CmuxRdLineReader,
     f: impl FnOnce(&mut CmuxRdLineReader) -> i32,
 ) -> i32 {
-    // SAFETY: the caller passes NULL or a live reader and does not call into it concurrently.
+    // SAFETY: NULL or live, aligned and unaliased, by this function's contract.
     let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
     if handle.poisoned {
         return CMUX_RD_ERR_PANIC;
@@ -204,14 +209,16 @@ pub unsafe extern "C" fn cmux_rd_line_reader_push(
 ) -> i32 {
     // SAFETY: readable for `len` bytes by contract.
     let Some(bytes) = (unsafe { bytes_in(bytes, len) }) else { return CMUX_RD_ERR_NULL };
-    with_reader(reader, |handle| {
+    let run = |handle: &mut CmuxRdLineReader| {
         for line in handle.splitter.push(bytes) {
             if let Some(line) = AppLine::decode(&line) {
                 handle.ready.push_back(line);
             }
         }
         i32::try_from(handle.ready.len()).unwrap_or(i32::MAX)
-    })
+    };
+    // SAFETY: `reader` is NULL or live and not used concurrently, by this function's contract.
+    unsafe { with_reader(reader, run) }
 }
 
 /// Takes the next ready line into `*out`: 1 when it wrote one, `CMUX_RD_OK`
@@ -228,7 +235,7 @@ pub unsafe extern "C" fn cmux_rd_line_reader_next(
     if out.is_null() {
         return CMUX_RD_ERR_NULL;
     }
-    with_reader(reader, |handle| {
+    let run = |handle: &mut CmuxRdLineReader| {
         let Some(line) = handle.ready.pop_front() else {
             handle.current = None;
             return CMUX_RD_OK;
@@ -240,5 +247,7 @@ pub unsafe extern "C" fn cmux_rd_line_reader_next(
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { *out = typed };
         1
-    })
+    };
+    // SAFETY: `reader` is NULL or live and not used concurrently, by this function's contract.
+    unsafe { with_reader(reader, run) }
 }

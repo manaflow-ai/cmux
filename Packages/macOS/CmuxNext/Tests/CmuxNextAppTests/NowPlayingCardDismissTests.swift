@@ -94,7 +94,7 @@ import Testing
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         let design = DesignSettings()
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: design, fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: design, fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()

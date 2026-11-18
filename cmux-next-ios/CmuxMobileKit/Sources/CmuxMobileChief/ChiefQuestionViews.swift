@@ -7,7 +7,7 @@ import SwiftUI
 import UIKit
 
 /// Under the chat header: Try Again for a failed turn, why Chief is
-/// unavailable, or the Mac away, and the messages waiting to send.
+/// unavailable, or the Mac away.
 struct ChiefQuestionBar: View {
     let session: ChiefSession
     /// The bar grew, shrank or went away: its UIKit host lays it out again.
@@ -32,7 +32,6 @@ struct ChiefQuestionBar: View {
     var body: some View {
         VStack(spacing: 0) {
             content
-            ChiefOutboxView(session: session, resized: resized)
         }
             .onAppear {
                 shown = Self.displayed(session.barItem)
@@ -64,8 +63,7 @@ struct ChiefQuestionBar: View {
 
     /// What the bar draws for a state. Chief's connection state never gets a bar (Aziz
     /// 2026-11-12: "get rid of this banner in chief, dont use this UX element whatsoever"):
-    /// a kept or stale conversation stays on screen as it is, the outbox says what waits
-    /// ("Sends when connected") with its own Retry, and Send says "Not sent" when it can't.
+    /// a kept or stale conversation stays on screen as it is, and Send says "Not sent" when it can't.
     static func displayed(_ item: ChiefBarItem?) -> ChiefBarItem? {
         if case .unavailable? = item { return nil }
         return item
@@ -109,7 +107,7 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.failure.bar")
         .accessibilityHint("Sends your last message to Chief again")
@@ -140,7 +138,7 @@ struct ChiefQuestionBar: View {
             .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.askCloudChief")
         .accessibilityHint("Sends your message to Cloud Chief with this chat's recent messages")

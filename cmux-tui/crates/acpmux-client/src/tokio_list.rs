@@ -22,7 +22,7 @@ use crate::wire::{
     Position, Sub,
 };
 use crate::{Change, Client};
-use acpmux_list_types::Summary;
+use acpmux_list_types::{RowKey, Summary};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -57,6 +57,11 @@ pub enum Read {
     /// Rows by key, [`KEYS_PER_PAGE`] a request, in any view. A key's activity time is not part
     /// of its identity: `0` reads the row whatever its time.
     Keys(Vec<ListKey>),
+    /// `root`'s family by `page` with `family` (a table filter, page-only, on `all`): its hot
+    /// part depth first, page by page, or with `cold` the snapshot's part. A page says
+    /// [`Rows::cold_unread`] and [`Rows::deeper`]; the caller asks again for what it wants of
+    /// those: this read is one filter, never a walk of the kin.
+    Family { root: RowKey, cold: bool },
 }
 
 /// One page of a read.
@@ -67,6 +72,10 @@ pub struct Rows {
     pub missing: Vec<ListKey>,
     /// Keys of another origin's chats that nothing here holds: not a deletion.
     pub unknown: Vec<ListKey>,
+    /// A family read's hot part has kin in the snapshot's part (said on its last page).
+    pub cold_unread: bool,
+    /// A family read's rows at the depth bound (64) that have hot children of their own.
+    pub deeper: Vec<ListKey>,
 }
 
 /// A connection upgraded to the list surface.
@@ -257,17 +266,30 @@ where
             Read::Walk { view, filter } => (*view, filter.clone(), WALK_WINDOW_ROWS),
             // The window of a read by key carries the origins; its one row is not given.
             Read::Keys(_) => (ListView::Live, None, 1),
+            // A table filter is page-only and on `all`: the sub names none, its one row is
+            // not given, and each page carries the filter.
+            Read::Family { root, cold } => (
+                ListView::All,
+                Some(ListFilter {
+                    family: Some(root.clone()),
+                    cold: *cold,
+                    ..ListFilter::default()
+                }),
+                1,
+            ),
         };
         let sid = self.sid("read");
         let mut sub = Sub::new(sid.clone(), "list").around(Anchor::End, rows);
         sub.view = Some(view);
-        sub.filter = filter.clone();
+        // A table filter goes on each page, never on the sub (the hub refuses it there).
+        sub.filter = if matches!(read, Read::Family { .. }) { None } else { filter.clone() };
         self.client.subscribe(sub).map_err(|error| protocol(error.to_string()))?;
         self.pages_asked = self.pages_asked.saturating_add(1);
         let state = match read {
             Read::Window { .. } => ReadState::Window,
             Read::Walk { .. } => ReadState::Walk { after: None },
             Read::Keys(keys) => ReadState::Keys { keys: keys.into() },
+            Read::Family { .. } => ReadState::Family { after: None },
         };
         Ok(Reading { connection: self, sid, view, filter, state, window_taken: false })
     }
@@ -307,7 +329,7 @@ where
             .filter_map(|row| row.parent.as_ref())
             .map(|parent| row_identity(&parent.origin, &parent.chat_id))
             .filter(|id| !given.contains_key(id) && asked.insert(id.clone()))
-            .map(|(origin, chat_id)| ListKey { last_activity: 0, chat_id, origin })
+            .map(|(origin, chat_id)| ListKey { last_activity: 0, chat_id, origin, past: false })
             .collect();
         let mut parents = HashMap::new();
         if !wanted.is_empty() {
@@ -344,6 +366,10 @@ enum ReadState {
     },
     Keys {
         keys: VecDeque<ListKey>,
+    },
+    /// The key the next family page starts after; `None` for its first page.
+    Family {
+        after: Option<ListKey>,
     },
     Done,
 }
@@ -394,8 +420,8 @@ where
                 ReadState::Window | ReadState::Walk { .. } | ReadState::Done => {
                     Some(ReadState::Done)
                 }
-                // The window of a read by key only carried the origins.
-                ReadState::Keys { .. } => None,
+                // The window of a read by key or of a family only carried the origins.
+                ReadState::Keys { .. } | ReadState::Family { .. } => None,
             };
             if let Some(next) = next {
                 self.state = next;
@@ -441,7 +467,33 @@ where
                     keys.push_front(key);
                 }
                 self.state = ReadState::Keys { keys };
-                Ok(Some(Rows { rows: reply.rows, missing: reply.missing, unknown: reply.unknown }))
+                Ok(Some(Rows {
+                    rows: reply.rows,
+                    missing: reply.missing,
+                    unknown: reply.unknown,
+                    ..Rows::default()
+                }))
+            }
+            ReadState::Family { after } => {
+                let mut page = self.page(self.filter.clone());
+                page.after = after.map(Position::List);
+                self.ask(page)?;
+                let Reply::Page(reply) = self.reply().await? else {
+                    return Err(protocol("a second window for one read"));
+                };
+                self.hand();
+                if reply.has_after {
+                    let key = reply
+                        .after_key
+                        .ok_or_else(|| protocol("a page with hasAfter and no afterKey"))?;
+                    self.state = ReadState::Family { after: Some(key) };
+                }
+                Ok(Some(Rows {
+                    rows: reply.rows,
+                    cold_unread: reply.cold_unread,
+                    deeper: reply.deeper,
+                    ..Rows::default()
+                }))
             }
         }
     }

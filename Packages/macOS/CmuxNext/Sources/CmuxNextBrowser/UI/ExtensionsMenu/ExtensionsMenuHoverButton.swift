@@ -181,7 +181,7 @@ final class ExtensionsMenuHoverButton: NSView {
         isHovering = true
         guard isEnabled else { return }
         // Chrome: a hovered row button takes the focus, so the keyboard continues from it.
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        if window?.firstResponder !== self { FocusRoute(.system, "extensions menu hover").moveKeyboard(in: window, to: self) }
         onHover?()
     }
 
@@ -192,14 +192,14 @@ final class ExtensionsMenuHoverButton: NSView {
         let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
         isPressed = false
         isHovering = inside
-        if !inside, window.firstResponder === self { window.makeFirstResponder(nil) }
+        if !inside, window.firstResponder === self { FocusRoute(.system, "extensions menu hover ended").moveKeyboard(in: window, to: nil) }
     }
 
     override func mouseExited(with event: NSEvent) {
         isHovering = false
         isPressed = false
         // Chrome: leaving a hovered button clears the focus it took.
-        if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+        if window?.firstResponder === self { FocusRoute(.system, "extensions menu hover ended").moveKeyboard(in: window, to: nil) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

@@ -11,17 +11,37 @@ use super::*;
 use acpmux_client::chat::{ChatChange, ChatPageRequest, ChatSubRequest};
 use acpmux_client::{Change, Client as Core};
 
-const CORPUS: [(&str, &str); 4] = [
-    ("seed-turn", include_str!("../../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson")),
+/// Each log, and the change strings blessed for it (read with `include_str!`, so a changed file
+/// rebuilds this test and the spec workflow's path list names it).
+const CORPUS: [(&str, &str, &str); 4] = [
+    (
+        "seed-turn",
+        include_str!("../../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson"),
+        include_str!(
+            "../../../../../../webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+        ),
+    ),
     (
         "r1-reply-1",
         include_str!("../../../../acpmux-book/src/translate/fixtures/r1-reply-1.ndjson"),
+        include_str!(
+            "../../../../../../webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
+        ),
     ),
     (
         "r1-reply-2",
         include_str!("../../../../acpmux-book/src/translate/fixtures/r1-reply-2.ndjson"),
+        include_str!(
+            "../../../../../../webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
+        ),
     ),
-    ("parity", include_str!("../../../../acpmux-book/src/translate/fixtures/parity.ndjson")),
+    (
+        "parity",
+        include_str!("../../../../acpmux-book/src/translate/fixtures/parity.ndjson"),
+        include_str!(
+            "../../../../../../webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
+        ),
+    ),
 ];
 const SID: &str = "rows.1";
 const BLESS: &str = "ACPMUX_PARITY_BLESS";
@@ -138,7 +158,7 @@ async fn changes_of(log: &str) -> Vec<String> {
 fn each_corpus_log_gives_the_changes_a_page_gets() {
     let bless = std::env::var_os(BLESS).is_some();
     let mut stale = Vec::new();
-    for (name, log) in CORPUS {
+    for (name, log, blessed) in CORPUS {
         let out = runtime().block_on(changes_of(log));
         let text = out.iter().map(|line| format!("{line}\n")).collect::<String>();
         let path = changes_path(name);
@@ -147,7 +167,7 @@ fn each_corpus_log_gives_the_changes_a_page_gets() {
             fs::write(&path, &text).unwrap();
             continue;
         }
-        if fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+        if blessed != text {
             stale.push(name);
         }
     }

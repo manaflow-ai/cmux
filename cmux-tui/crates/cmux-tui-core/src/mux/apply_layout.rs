@@ -106,6 +106,7 @@ impl Mux {
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
                 layout_revision: 0,
+                floating: Vec::new(),
                 layout_undo: Default::default(),
             };
             let ws = &mut state.workspaces[workspace_index];

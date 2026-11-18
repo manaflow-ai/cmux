@@ -153,7 +153,7 @@ struct ChiefLiveStatusLine: View {
             .padding(.leading, 4)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!canExpand)
         .accessibilityLabel(Text(ChiefLiveBubble.statusText(live)))
         .accessibilityHint(canExpand ? Text(expanded ? "Hides the details" : "Shows the details") : Text(""))

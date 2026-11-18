@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # What an agent on another machine feels through cmux Remote, against one enrolled daemon:
 #   scripts/measure/remote-agent-path.sh BIN ROUTE STATE_DIR [n=20] [mib=64]
+# REMOTE_ROUTE_FLAGS adds route options to every call, split on spaces, e.g.
+#   REMOTE_ROUTE_FLAGS="--via-machine FLEET_HOST" for a loopback route on another machine through
+#   your own carrier (no inbound port), or "--wireguard-config wg.conf".
 # BIN is a cmux with `remote exec` and `remote cp`; ROUTE the daemon's route (ws://HOST:PORT/); STATE_DIR
 # the client state of a device the daemon already enrolled. Prints REMOTE-AGENT-PATH lines:
 #   exec_cold_ms   p50/p95 of n `remote exec -- true` (a new link each: connect, Noise, open, spawn, exit)
@@ -10,7 +13,8 @@
 # Leaves nothing on the remote but its own temp files, which it removes.
 set -euo pipefail
 bin="$1" route="$2" state="$3" n="${4:-20}" mib="${5:-64}"
-run() { "$bin" remote exec "$route" --state-dir "$state" "$@"; }
+read -r -a route_flags <<< "${REMOTE_ROUTE_FLAGS:-}"
+run() { "$bin" remote exec "$route" --state-dir "$state" "${route_flags[@]}" "$@"; }
 now_ms() { date +%s%3N; }
 pct() { sort -n | awk -v p="$1" '{a[NR]=$1} END {i=int((NR-1)*p+0.5)+1; print a[i]}'; }
 # A private directory for every local scratch file, and the remote temp file once mktemp made it:
@@ -48,8 +52,8 @@ local_file="$work/up.bin"; back="$work/back.bin"
 # The remote's own mktemp names the remote file, so no guessable shared name.
 remote=$(run -- mktemp)
 head -c $((mib * 1048576)) /dev/urandom > "$local_file"
-up=$("$bin" remote cp "$route" --state-dir "$state" --json "$local_file" "remote:$remote")
-down=$("$bin" remote cp "$route" --state-dir "$state" --json "remote:$remote" "$back")
+up=$("$bin" remote cp "$route" --state-dir "$state" "${route_flags[@]}" --json "$local_file" "remote:$remote")
+down=$("$bin" remote cp "$route" --state-dir "$state" "${route_flags[@]}" --json "remote:$remote" "$back")
 run -- rm -f "$remote"; remote=""
 [ "$(sha256sum < "$local_file")" = "$(sha256sum < "$back")" ] || { echo "REMOTE-AGENT-PATH cp sha256 mismatch"; exit 1; }
 rm -f "$local_file" "$back"

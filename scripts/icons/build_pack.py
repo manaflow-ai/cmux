@@ -46,6 +46,7 @@ OUTPUTS = {
     "names_swift": NATIVE / "IconName+Members.swift",
     "catalog_swift": NATIVE / "IconName+Catalog.swift",
     "pack_web": WEB / "cmuxIcons.json",
+    "catalog_web": WEB / "iconCatalog.json",
     "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
     "pack_custom_web": WEB / "cmuxIconsCustom.json",
     "pack_neko_web": WEB / "nekoCandidate.json",
@@ -559,6 +560,7 @@ def build():
         "pack_neko_web": neko_text,
         "pack_neko_rounds_web": rounds_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
+        "catalog_web": json.dumps({"icons": catalog}, separators=(",", ":"), ensure_ascii=False) + "\n",
         "names_swift": swift,
         "catalog_swift": catalog_swift,
     }

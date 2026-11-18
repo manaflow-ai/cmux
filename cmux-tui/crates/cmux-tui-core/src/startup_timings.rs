@@ -13,7 +13,9 @@
 //!
 //! Laps never overlap and are recorded in order, so their sum is at most the
 //! total. Time a nested phase's own steps did not cover is named
-//! `<phase>.other`.
+//! `<phase>.other`. A step that names its parts keeps its own name for that
+//! time: `mux.build` and `registry.migrations.rehome` are the rest of their
+//! step, written after the entries that have the name as a prefix.
 //!
 //! The clock starts at the process's first statement, not at the owner's
 //! first step: the process marks its own steps before it knows it is an
@@ -55,7 +57,12 @@ pub struct StartupTimings {
 }
 
 /// One lap: its name, how long it took and, for a lap over table rows, how
-/// many rows it changed.
+/// many rows it changed. 2 laps of the output store have no table: the count
+/// of its scan (`mux.build.output_store.snapshot_scan`) is the snapshot
+/// headers that it read, and the count of its parked trim
+/// (`mux.build.output_store.parked_trim`) is the rewrites of a snapshot file
+/// that the pass ran. An entry of [`StartupTimings::record_count`] is a count
+/// with no lap: its time is 0.
 #[derive(Debug, Clone)]
 struct Step {
     name: Cow<'static, str>,
@@ -108,6 +115,24 @@ impl StartupTimings {
     /// [`absorb`](Self::absorb)s it, which names the rest of the phase.
     pub fn record_rows(&mut self, step: String, took: Duration, rows: u64) {
         self.steps.push(Step { name: Cow::Owned(step), took, rows: Some(rows) });
+    }
+
+    /// Records a step timed by its caller, with no count. As
+    /// [`record_rows`](Self::record_rows), it does not move the lap mark.
+    pub fn record(&mut self, step: &'static str, took: Duration) {
+        self.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
+    }
+
+    /// Records a count with no time of its own, before the lap that grows
+    /// with it (the entries of a directory that a scan lists, the terminals
+    /// that a pass goes over). Its entry has 0 ms and the count as `rows`; it
+    /// does not move the lap mark.
+    pub fn record_count(&mut self, step: &'static str, count: u64) {
+        self.steps.push(Step {
+            name: Cow::Borrowed(step),
+            took: Duration::ZERO,
+            rows: Some(count),
+        });
     }
 
     /// Takes `inner`'s laps, which ran since this clock's previous lap, and
@@ -288,6 +313,26 @@ mod tests {
         assert_eq!(lines[1]["after_ready"], laps);
         assert_eq!(lines[1]["total_ms"], mine["total_ms"]);
         assert_eq!(lines[1]["steps"], mine["steps"]);
+    }
+
+    /// A count is an entry in its place between the laps, with its number and no time.
+    #[test]
+    fn a_count_of_parked_terminals_is_an_entry_with_its_number_and_no_time() {
+        let mut timings = StartupTimings::start();
+        timings.lap("socket.bind");
+        timings.record_count("mux.build.output_store.parked_terminals", 9);
+        timings.lap("server.attach");
+        let names: Vec<_> = timings.steps().into_iter().map(|(step, _)| step).collect();
+        assert_eq!(
+            names,
+            ["socket.bind", "mux.build.output_store.parked_terminals", "server.attach"]
+        );
+        assert_eq!(
+            timings.to_line(7, 100)["steps"][1],
+            serde_json::json!({
+                "step": "mux.build.output_store.parked_terminals", "ms": 0.0, "rows": 9
+            })
+        );
     }
 
     #[test]

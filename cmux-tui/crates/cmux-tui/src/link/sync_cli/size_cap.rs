@@ -1,8 +1,18 @@
-//! The most a chat's streamed copy sends: [`MAX_BYTES`] of files or [`MAX_FILES`] files, counted
+//! How much a chat's streamed copy sends before the chat starts. A copy lists what it would send
 //! by the same rules that pick what goes ([`super::local::collect`]: heavy folders, secrets,
-//! `.gitignore` in git, and in git the repository's history under `.git/`). The count stops the
-//! moment either is passed, so a folder of hundreds of GB is refused in seconds, before anything
-//! is sent, with [`CODE`] and a message that names the folder, what was found and the fix.
+//! `.gitignore` in git, and in git the repository's history under `.git/`), counted against
+//! [`MAX_BYTES`] and [`MAX_FILES`]. A folder under both goes whole, as before. A folder past one
+//! is never refused: the listing stops at the file limit (its cost stays bounded; bytes are only
+//! summed, so a sparse file of hundreds of GB costs nothing) and the copy sends a first pass of
+//! what it listed, at most [`FIRST_BYTES`] in [`FIRST_FILES`] files, the smallest first and no
+//! repository history (`.git` at any depth), so the chat starts in the folder the person chose at
+//! once. Everything else stays on this Mac, counted as `left_on_mac` in the copy's
+//! `skipped_counts` and named, by folder with sizes, in a note at the copy's top that the chat's
+//! agent gets with its first message ([`super::left_note`]); it asks for a file of it with
+//! `cmux link access request PATH`.
+//!
+//! Leo, 2026-11-15, on a Cloud chat at `~/Projects` refused as too big to copy: "why are you guys
+//! still blocking on these?"
 //!
 //! Every surface that copies a folder of this Mac to a Cloud machine goes through it: New Cloud
 //! chat and `cloud start-chat --from-folder` (`link start-chat copy`, `link seed push`), Move to
@@ -10,156 +20,145 @@
 //! a bundle of what the machine lacks, not this copy, so it is not counted here; the copy a seed
 //! falls back to is, `.git/` included.
 //!
+//! Time counts as well as size: a fresh copy this Mac's link would take longer than a minute to
+//! send starts from a first pass too, and every start knows which before any machine is made
+//! ([`super::estimate`]).
+//!
 //! `--allow-large` (on `link seed push`, `link sync push` and `cloud start-chat --from-folder`)
-//! is the one override: it records the folder here ([`allow`]) for [`GRANT_LASTS`], and a copy of
-//! that folder in that time, by any surface (the app's own runs too), sends it whole.
+//! records the folder here ([`allow`]) for [`GRANT_LASTS`], and a copy of that folder in that time,
+//! by any surface (the app's own runs too), sends it whole.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use sha2::{Digest as _, Sha256};
 
-/// The most bytes a copy sends: 20 GiB.
+/// The most bytes a copy sends whole: 20 GiB.
 pub(crate) const MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
-/// The most files a copy sends.
+/// The most files a copy sends whole (and lists).
 pub(crate) const MAX_FILES: u64 = 500_000;
-/// The error code of a refused copy.
-pub(crate) const CODE: &str = "copy.too_large";
+/// What a copy of a folder past [`MAX_BYTES`] or [`MAX_FILES`] sends before its chat starts.
+pub(crate) const FIRST_BYTES: u64 = 256 * 1024 * 1024;
+/// The most files of that first pass.
+pub(crate) const FIRST_FILES: u64 = 20_000;
+/// How far past [`MAX_FILES`] a listing goes on while only repository history (`.git` at any
+/// depth) is over it: a parent of repositories whose nested histories hold most of its files is
+/// listed to its last folder, since a first pass sends no history anyway; the listing's cost stays
+/// bounded at this many times the file limit.
+const HISTORY_ROOM: u64 = 4;
 /// How long an `--allow-large` lasts for its folder.
 const GRANT_LASTS: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// The running total of a copy's files against its limits.
+/// The running total of a copy's files against its limits, and each listed file's size (what a
+/// first pass picks by). Only the file count ends a listing ([`FileLimit`]), so its cost is
+/// bounded; bytes past [`MAX_BYTES`], or files past [`MAX_FILES`] the listing went on past because
+/// they were repository history, make the copy a first pass once the listing is done.
 #[derive(Clone, Debug)]
 pub(super) struct Cap {
-    folder: PathBuf,
     max_bytes: u64,
     max_files: u64,
     bytes: u64,
     files: u64,
-    /// Of `bytes`, those under `.git/` (the repository's history).
-    git_bytes: u64,
+    /// The files counted that are not repository history.
+    working: u64,
+    sizes: HashMap<String, u64>,
+    /// When a start's estimate before any machine (`estimate.rs`) stops listing, as at the file
+    /// limit; none for a copy.
+    until: Option<Instant>,
+    /// The listing stopped at `until`.
+    timed_out: bool,
 }
 
 impl Cap {
-    /// The limits for a copy of `folder` ([`MAX_BYTES`], [`MAX_FILES`]; a test's own in tests).
-    pub(super) fn of(folder: &Path) -> Self {
+    /// The limits for a copy ([`MAX_BYTES`], [`MAX_FILES`]; a test's own in tests).
+    pub(super) fn new() -> Self {
         let (max_bytes, max_files) = limits();
         Self {
-            folder: folder.to_path_buf(),
             max_bytes,
             max_files,
             bytes: 0,
             files: 0,
-            git_bytes: 0,
+            working: 0,
+            sizes: HashMap::new(),
+            until: None,
+            timed_out: false,
         }
     }
 
-    /// Counts one file of `bytes` going as `relative`: [`TooLarge`] once a limit is passed.
-    pub(super) fn charge(&mut self, relative: &str, bytes: u64) -> Result<(), TooLarge> {
+    /// [`Cap::new`] for a listing that also stops at `until`, as at the file limit
+    /// ([`Cap::timed_out`] then says so).
+    pub(super) fn until(until: Instant) -> Self {
+        Self { until: Some(until), ..Self::new() }
+    }
+
+    /// Whether the listing stopped at its time bound ([`Cap::until`]).
+    pub(super) fn timed_out(&self) -> bool {
+        self.timed_out
+    }
+
+    /// The files and bytes counted so far.
+    pub(super) fn listed(&self) -> (u64, u64) {
+        (self.files, self.bytes)
+    }
+
+    /// Counts one file of `bytes` going as `relative`: [`FileLimit`] once the files that are not
+    /// repository history pass the file limit (or all of them pass [`HISTORY_ROOM`] times it),
+    /// which ends the listing.
+    pub(super) fn charge(&mut self, relative: &str, bytes: u64) -> Result<(), FileLimit> {
         self.files += 1;
+        if !super::local::in_history(relative) {
+            self.working += 1;
+        }
+        if self.working > self.max_files || self.files > self.max_files.saturating_mul(HISTORY_ROOM)
+        {
+            return Err(FileLimit);
+        }
+        // The clock is read once every 1,024 files, so the bound adds nothing to the walk's cost.
+        if self.files.is_multiple_of(1024)
+            && self.until.is_some_and(|until| Instant::now() >= until)
+        {
+            self.timed_out = true;
+            return Err(FileLimit);
+        }
         self.bytes = self.bytes.saturating_add(bytes);
-        if relative.starts_with(".git/") {
-            self.git_bytes = self.git_bytes.saturating_add(bytes);
-        }
-        if self.bytes > self.max_bytes || self.files > self.max_files {
-            return Err(TooLarge {
-                folder: self.folder.clone(),
-                bytes: self.bytes,
-                files: self.files,
-                git_bytes: self.git_bytes,
-                max_bytes: self.max_bytes,
-                max_files: self.max_files,
-            });
-        }
+        self.sizes.insert(relative.to_owned(), bytes);
         Ok(())
     }
+
+    /// Whether what was listed is more than a copy sends whole, in bytes or in files.
+    pub(super) fn past(&self) -> bool {
+        self.bytes > self.max_bytes || self.files > self.max_files
+    }
+
+    /// The bytes of every file counted so far.
+    pub(super) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Whether what was listed is more bytes than a copy sends whole.
+    pub(super) fn past_bytes(&self) -> bool {
+        self.bytes > self.max_bytes
+    }
+
+    /// The size `relative` was counted at (0 for one never counted).
+    pub(super) fn size_of(&self, relative: &str) -> u64 {
+        self.sizes.get(relative).copied().unwrap_or(0)
+    }
 }
 
-/// A copy refused before anything was sent: what it found by the time a limit was passed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TooLarge {
-    pub folder: PathBuf,
-    /// At least this much was found (the count stopped here).
-    pub bytes: u64,
-    pub files: u64,
-    /// Of `bytes`, those of the repository's history (`.git/`).
-    pub git_bytes: u64,
-    pub max_bytes: u64,
-    pub max_files: u64,
-}
+/// A listing stopped at the file limit: the copy sends a first pass of what it listed
+/// ([`super::local::collect`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FileLimit;
 
-impl std::fmt::Display for TooLarge {
+impl std::fmt::Display for FileLimit {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let folder = shown(&self.folder);
-        let limit = format!(
-            "a copy sends at most {} or {} files",
-            size(self.max_bytes),
-            count(self.max_files)
-        );
-        // The repository's history is most of it: a seed (a clone from GitHub) is the way.
-        if self.git_bytes.saturating_mul(2) > self.bytes {
-            return write!(
-                formatter,
-                "{folder} is too big to copy to a Cloud machine: it holds at least {} to send, {} of \
-                 it the repository's history (.git) ({limit}). Push it to GitHub so the machine \
-                 clones it instead",
-                size(self.bytes),
-                size(self.git_bytes),
-            );
-        }
-        write!(
-            formatter,
-            "{folder} is too big to copy to a Cloud machine: it holds at least {} in at least {} files \
-             ({limit}). Pick the project folder inside it",
-            size(self.bytes),
-            count(self.files),
-        )
+        formatter.write_str("past the most files a copy sends whole")
     }
 }
 
-impl std::error::Error for TooLarge {}
-
-/// What a person at a terminal adds to a [`TooLarge`] message: the one override.
-pub(crate) const OVERRIDE_HINT: &str =
-    "; to copy it anyway, run the same command with --allow-large";
-
-/// `folder` with this Mac's home as `~`.
-pub(crate) fn shown(folder: &Path) -> String {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    match home.as_deref().and_then(|home| folder.strip_prefix(home).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => folder.display().to_string(),
-    }
-}
-
-/// `bytes` in GB (of 1024³; one decimal under 100 GB), or in MB under 1 GB.
-pub(crate) fn size(bytes: u64) -> String {
-    const GB: f64 = (1024 * 1024 * 1024) as f64;
-    const MB: f64 = (1024 * 1024) as f64;
-    let bytes = bytes as f64;
-    if bytes >= 100.0 * GB {
-        format!("{:.0} GB", bytes / GB)
-    } else if bytes >= GB {
-        let text = format!("{:.1}", bytes / GB);
-        format!("{} GB", text.strip_suffix(".0").unwrap_or(&text))
-    } else {
-        format!("{:.0} MB", bytes / MB)
-    }
-}
-
-/// `number` with its thousands separated by commas.
-pub(crate) fn count(number: u64) -> String {
-    let digits = number.to_string();
-    let mut out = String::new();
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
+impl std::error::Error for FileLimit {}
 
 /// `args` without the `--allow-large` flag, and whether it was there. A word that is the value of
 /// a flag in `takes_value`, or comes after `--`, is never the flag: it stays.
@@ -236,141 +235,27 @@ fn limits() -> (u64, u64) {
     (MAX_BYTES, MAX_FILES)
 }
 
+/// The first pass a copy past its limits sends: [`FIRST_BYTES`] and [`FIRST_FILES`], or a test's own.
+pub(super) fn first_limits() -> (u64, u64) {
+    #[cfg(test)]
+    if let Some(limits) = TEST_FIRST.with(std::cell::Cell::get) {
+        return limits;
+    }
+    // On a slow link the first pass is what goes within the start's time budget (estimate.rs).
+    (super::estimate::within_budget(FIRST_BYTES), FIRST_FILES)
+}
+
 #[cfg(test)]
 thread_local! {
+    /// A test's own first pass (bytes, files) for copies on its thread.
+    pub(super) static TEST_FIRST: std::cell::Cell<Option<(u64, u64)>> =
+        const { std::cell::Cell::new(None) };
     /// A test's own limits (bytes, files) for copies on its thread.
     pub(super) static TEST_LIMITS: std::cell::Cell<Option<(u64, u64)>> =
         const { std::cell::Cell::new(None) };
     /// A test's own state folder for `--allow-large` grants.
     pub(super) static TEST_STATE: std::cell::RefCell<Option<PathBuf>> =
         const { std::cell::RefCell::new(None) };
-}
-
-/// Whether a copy of the plain (not git) folder `folder` passes the limits, counted as the copy
-/// counts it and stopped at the first limit passed: for `cloud start-chat --from-folder`, which
-/// refuses such a folder before any machine is made. A folder with an `--allow-large`, or in git
-/// (a seed may take it whole, never this copy; the copy it falls back to counts it), is not counted.
-pub(crate) fn check_plain(folder: &Path) -> Result<(), TooLarge> {
-    let Ok(folder) = std::fs::canonicalize(folder) else { return Ok(()) };
-    if allowed(&folder) || super::in_git(&folder) {
-        return Ok(());
-    }
-    let cap = Some(Cap::of(&folder));
-    match super::local::collect(&folder, super::local::Rules::Copy, cap) {
-        // Any other failure is the copy's to report.
-        Err(error) => error.downcast::<TooLarge>().map_or(Ok(()), Err),
-        Ok(_) => Ok(()),
-    }
-}
-
-// The way on from a refused copy of a folder that is not a repository: the repositories inside it
-// (`~/Projects`, a parent of many), each a folder a chat can start in instead.
-
-/// The most repositories a refusal names.
-pub(crate) const MAX_REPOS: usize = 24;
-/// The most entries read in one folder while looking for repositories: a folder of thousands of
-/// entries is never read whole.
-const MAX_ENTRIES: usize = 2_000;
-
-/// One git working copy inside the refused folder.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Repo {
-    /// Its path below the folder (`cmux`, `work/api`).
-    pub name: String,
-    /// Its absolute path on this Mac.
-    pub path: PathBuf,
-}
-
-/// The git working copies directly in `folder`, and one level further down (`work/api`), by name,
-/// at most `limit`, and whether there were more. Only `.git` is looked for: no folder below a
-/// repository or two levels down is read, hidden folders are skipped and symlinks never followed,
-/// and at most [`MAX_ENTRIES`] entries of any one folder are read (a folder with more answers "more",
-/// since a repository may be among the unread ones).
-pub(crate) fn child_repos(folder: &Path, limit: usize) -> (Vec<Repo>, bool) {
-    let mut found = Vec::new();
-    let mut more = false;
-    let (children, mut unread) = folders_in(folder);
-    let mut plain = Vec::new();
-    for child in children {
-        if is_repo(&child) {
-            push(&mut found, &mut more, folder, child, limit);
-        } else {
-            plain.push(child);
-        }
-    }
-    for child in plain {
-        if more {
-            break;
-        }
-        let (grandchildren, cut) = folders_in(&child);
-        unread |= cut;
-        for grandchild in grandchildren {
-            if is_repo(&grandchild) {
-                push(&mut found, &mut more, folder, grandchild, limit);
-            }
-        }
-    }
-    found.sort_by(|a, b| a.name.cmp(&b.name));
-    (found, more || unread)
-}
-
-fn push(found: &mut Vec<Repo>, more: &mut bool, folder: &Path, path: PathBuf, limit: usize) {
-    if found.len() >= limit {
-        *more = true;
-        return;
-    }
-    let name = path
-        .strip_prefix(folder)
-        .map_or_else(|_| path.display().to_string(), |rest| rest.display().to_string());
-    found.push(Repo { name, path });
-}
-
-/// The visible folders right in `folder` (no symlinks), by name, at most [`MAX_ENTRIES`] entries
-/// read, and whether entries were left unread (so a repository among them may be missing: the
-/// caller says "and more").
-fn folders_in(folder: &Path) -> (Vec<PathBuf>, bool) {
-    let Ok(mut entries) = std::fs::read_dir(folder) else { return (Vec::new(), false) };
-    let mut folders: Vec<PathBuf> = entries
-        .by_ref()
-        .take(MAX_ENTRIES)
-        .filter_map(Result::ok)
-        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .map(|entry| entry.path())
-        .collect();
-    folders.sort();
-    let cut = entries.next().is_some();
-    (folders, cut)
-}
-
-/// Whether `folder` is a working copy's top: it holds `.git` (a folder, or a worktree's file).
-fn is_repo(folder: &Path) -> bool {
-    std::fs::symlink_metadata(folder.join(".git")).is_ok()
-}
-
-/// What a person at a terminal reads after a refusal of `folder`: the repositories inside it to start
-/// in instead (`; the repositories inside it: cmux, web (start in one: --from-folder ~/Projects/cmux)`),
-/// else nothing.
-pub(crate) fn repos_hint(folder: &Path) -> String {
-    let folder = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
-    let (repos, more) = child_repos(&folder, MAX_REPOS);
-    let Some(first) = repos.first() else { return String::new() };
-    let names: Vec<&str> = repos.iter().map(|repo| repo.name.as_str()).collect();
-    let more = if more { ", and more" } else { "" };
-    format!(
-        "; the repositories inside it: {}{more} (start in one: --from-folder {})",
-        names.join(", "),
-        shell_word(&shown(&first.path))
-    )
-}
-
-/// `path` (as [`shown`] writes it) as one shell word a person can paste: quoted when a shell would
-/// split or expand it, with a leading `~/` left outside the quotes so the shell still expands it.
-fn shell_word(path: &str) -> String {
-    let (home, rest) = path.strip_prefix("~/").map_or(("", path), |rest| ("~/", rest));
-    let plain = !rest.is_empty()
-        && rest.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@%+,".contains(c));
-    if plain { format!("{home}{rest}") } else { format!("{home}'{}'", rest.replace('\'', "'\\''")) }
 }
 
 /// Runs `run` with a copy's limits at `bytes` and `files` on this thread (other modules' tests).

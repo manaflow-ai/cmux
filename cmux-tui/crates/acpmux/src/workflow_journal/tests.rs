@@ -94,7 +94,15 @@ fn native_workflow_journal_files_are_owner_only() {
 
     assert!(crate::owner_only::only_owner_reads(&directory.path().join("resume.lock")).unwrap());
     assert!(
+        crate::owner_only::dacl_is_protected(&directory.path().join("resume.lock")).unwrap(),
+        "resume lock must have an explicit protected DACL, not inherited permissions"
+    );
+    assert!(
         crate::owner_only::only_owner_reads(&directory.path().join("activities.jsonl")).unwrap()
+    );
+    assert!(
+        crate::owner_only::dacl_is_protected(&directory.path().join("activities.jsonl")).unwrap(),
+        "activity journal must have an explicit protected DACL, not inherited permissions"
     );
 }
 
