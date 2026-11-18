@@ -257,7 +257,7 @@ impl Checkpoint {
         // and ordinary Log::open refuse it for a served book.
         if self.cursors.len() > 2
             || self.open.len() > MAX_OPEN_BODIES
-            || self.translator.len() > 32 * 1024
+            || self.translator.len() > crate::translate::MAX_TRANSLATOR_BYTES
             || self.summary.len() > 2048
             || self.prompts.len() > MAX_PROMPTS
             || self.pending_asks.len() > 64

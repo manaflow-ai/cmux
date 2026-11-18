@@ -214,6 +214,11 @@ request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux machine update NAME`; status adds the peer's
 target and `--binary-dir DIR` form when it differs from this build.
 
+SSH enrollment keeps a running daemon on another platform and checks its peer
+protocol instead of requiring the caller's exact build. A missing standalone
+binary is installed from the checked channel for the remote target. See
+[enrollment compatibility](docs/enrollment-compatibility.md).
+
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
 `env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`; inspect
@@ -233,14 +238,14 @@ Five everyday commands, three groups for the rest:
 
 | Command | What it does |
 | --- | --- |
-| `acpmux` | Open the TUI. Starts the daemon if needed. |
+| `acpmux` | Open the TUI. Starts the daemon if needed. A headless acpmux (the default build; the TUI is feature `tui`, which the `cmux` binary carries) hands it to a `cmux` (`ACPMUX_TUI`, beside it, else on PATH); with none, `attach` streams as `--plain`. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
 | `send NAME "text" [--steer\|--no-steer] [--no-wait\|--wait] [-q]` | Prompt and stream the reply. An agent's send (`--from`, the session it runs in, a Claude Code or Codex shell) and one with `--class` are queued as with `--no-wait` unless given `--wait` (or `-q`, `--timeout`). With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply (`--wait`), and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). `--notice --severity info\|warn\|fire --title T [--sender X] [--host H] [--link URL[=LABEL]]...` sends a tool's or reconciler's notice (`_meta.acpmux.notice`, `prompt_provenance.rs`): the text is its body, and the prompt is the rendered `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: URL (LABEL), …` (no tag for info), so an old daemon or page still reads it. The daemon records it with provenance `{kind: "notice", from: "fromAgent", fromName, to, notice: {sender, host?, severity, title, links?}}` and delivers it as a named sender's message (its inbox and digests keep the notice). `--sender` defaults to `--from`, `ACPMUX_FROM`, else the calling session's name, `--host` to this machine; links are https only, at most 16. Accepted over the unix socket and from a peer daemon; a Web client's is refused (`notice.origin_refused`), and a bad field refuses the prompt (`notice.value_refused`, `field` naming it). |
 | `send --status [ID]` | With no ID, every message this daemon still delivers or delivered in the last day, newest first. A queued delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
-| `machine setup HOST [--no-auto-update]` / `machine update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `machine self-update` / `machine hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `machine add NAME [URL]` / `machine ls` / `machine status [NAME]` / `machine rm NAME` / `machine pick [--build]` / `machine dedicated [NAME] [on\|off]` | Machines you added. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` asks each machine's health live: reachable, round trip, disk, load, live sessions, build. |
+| `machine setup HOST [--no-auto-update] [--allow-downgrade] [--now]` / `machine update [--all] [--if-idle] [--keep-newer] [--allow-downgrade] [--now] [--binary-dir DIR]` / `machine self-update [--now]` / `machine hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `machine add NAME [URL]` / `machine ls` / `machine status [NAME]` / `machine rm NAME` / `machine pick [--build]` / `machine dedicated [NAME] [on\|off]` | Machines you added. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` asks each machine's health live: reachable, round trip, disk, load, live sessions, build. |
 | `machine enroll HOST [--harness ID]… [--reverse]` / `machine doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `session stop NAME --if-idle [--expect-revision REV] [--purge]` | Stop it only when it is idle: no turn (one admitted but not started included), queued prompt, pending permission, agent request, background subagent or background process; with `--expect-revision`, only while its revision (`lastSeq` in `ls --json` / `session info --json`) is still REV. Checked under the lock that admits turns, so none starts between the check and the stop. A refusal stops nothing and exits 6 (`busy` with `busyWith`, or `revision_moved`; `error.data.revision` is the current one). Runs on the session's own daemon: not with `--mesh`, and refused for a peer's session (`stop_if_idle_remote`). |
@@ -1125,6 +1130,7 @@ acpmux machine dedicated [HOST] [on|off]  # dedicated: agents run with no per-se
 acpmux machine update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux machine update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux machine update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
+acpmux machine update HOST --allow-downgrade  # the host refuses a binary of an older commit than its own (current, newerInstalled); this installs it anyway
 acpmux ls                              # a HOST column while some row is a peer's; UNKNOWN for a down peer
 acpmux new -m claude --machine HOST "…"   # start a session there; `ensure NAME --machine HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -1174,7 +1180,16 @@ One update of a host runs at a time: the timer, `machine update`, `machine setup
 take the host's update lock (a lease in `~/.acpmux`, kept by the update's connection or the timer's
 process; it needs `flock` or `perl` on the host), and one that finds it held changes nothing
 (`machine update`: `updateRunning`). Every step checks the lease on the host first, so an update whose
-connection dropped stops (`lockLost`). The updates reach the daemon through the
+connection dropped stops (`lockLost`). An update restarts a running daemon at most once an hour,
+whichever update it is: each one, and `machine setup`, stamps `~/.acpmux/update.restarted` (the
+host's clock) when it restarts the daemon, and the host's own install step refuses any install while
+that stamp is under an hour old, so a pusher that never checks first changes nothing either (`busy`,
+reason `restartWindow`; `machine setup` fails with why); the first timer run after the hour brings
+the newest build. A daemon that does not answer is started at once, a stamp from the host's future
+is ignored, a rollback is never held, and `machine update --now`, `machine setup --now` or `machine
+self-update --now` restarts it anyway. The window is the host's: seconds in
+`~/.acpmux/update.restart-window`, else `ACPMUX_UPDATE_RESTART_WINDOW_SECS` in `acpmux.service`'s
+environment or the host shell's; 0 turns it off. The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `held`, `needsBinary`,
 `rolledBack` or `failed`. `machine setup` needs ssh + scp access and a Mac or Linux box with `launchctl`

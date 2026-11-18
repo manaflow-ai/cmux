@@ -180,9 +180,9 @@ where
             accepted = listener.accept(), if tasks.len() < MAX_TUNNELS => {
                 let (client, _) = match accepted {
                     Ok(pair) => pair,
-                    Err(e) if crate::server::accept_ends_listener(&e) => break Err(e),
+                    Err(e) if crate::accept_errors::accept_ends_listener(&e) => break Err(e),
                     Err(e) => {
-                        tokio::time::sleep(crate::server::accept_retry_delay(&e)).await;
+                        tokio::time::sleep(crate::accept_errors::accept_retry_delay(&e)).await;
                         continue;
                     }
                 };

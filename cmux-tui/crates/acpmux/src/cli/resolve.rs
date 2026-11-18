@@ -115,20 +115,7 @@ pub(crate) fn choice_commands(args: &[String], data: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A create/resolve reply's stable id, qualified for subsequent requests on this daemon.
-pub(crate) fn routed_id(session: &Value) -> Result<String> {
-    let id = session["sessionId"]
-        .as_str()
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| anyhow!("the daemon returned no stable session id"))?;
-    // Local replies retain the unqualified id. For a peer, never lose its route by looking
-    // up the bare id a second time: another daemon may hold a copy of the same session.
-    Ok(match session["peer"].as_str() {
-        Some(peer) if id.strip_prefix(&format!("{peer}/")).is_some() => id.to_owned(),
-        Some(peer) => format!("{peer}/{id}"),
-        None => id.to_owned(),
-    })
-}
+pub(crate) use crate::session_identity::routed_id;
 
 pub async fn run(query: String, json_out: bool) -> Result<()> {
     let query = crate::cli::orchestrate::expand_session_key(&query)?;

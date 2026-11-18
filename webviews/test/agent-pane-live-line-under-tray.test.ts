@@ -17,6 +17,7 @@ import type { ServerWebSocket } from "bun";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -252,26 +253,29 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
   /// The live line as drawn: whether it is there, draws its words, and stands in sight over the
   /// bottom stack (its box above the stack's top, and its centre hits it).
   const liveLine = (page: Page) =>
-    page.evaluate(() => {
-      const line = document.querySelector<HTMLElement>(".acpmux-row--below .cv-worked--live");
-      const stack = document.querySelector(".acpmux-main > .acpmux-dock")?.getBoundingClientRect();
-      const tray = document.querySelector(".acpmux-running-tray")?.getBoundingClientRect();
-      const scroll = document.querySelector(".acpmux-main .acpmux-scroll")?.getBoundingClientRect();
-      if (!line) return { present: false, rows: document.querySelectorAll(".acpmux-row").length };
-      const rect = line.getBoundingClientRect();
-      const hit = document.elementFromPoint(rect.left + 4, rect.top + rect.height / 2);
-      return {
-        present: true,
-        text: line.textContent?.replace(/\s+/g, " ").trim(),
-        quiet: line.classList.contains("is-quiet"),
-        bottom: Math.round(rect.bottom),
-        stackTop: stack ? Math.round(stack.top) : null,
-        trayTop: tray ? Math.round(tray.top) : null,
-        scrollBottom: scroll ? Math.round(scroll.bottom) : null,
-        aboveStack: stack ? rect.bottom <= stack.top + 0.5 : true,
-        hit: hit ? line.contains(hit) || hit === line : false,
-      };
-    });
+    page.evaluate(
+      ({ MAIN_DOCK }) => {
+        const line = document.querySelector<HTMLElement>(".acpmux-row--below .cv-worked--live");
+        const stack = document.querySelector(MAIN_DOCK)?.getBoundingClientRect();
+        const tray = document.querySelector(".acpmux-running-tray")?.getBoundingClientRect();
+        const scroll = document.querySelector(".acpmux-main .acpmux-scroll")?.getBoundingClientRect();
+        if (!line) return { present: false, rows: document.querySelectorAll(".acpmux-row").length };
+        const rect = line.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + 4, rect.top + rect.height / 2);
+        return {
+          present: true,
+          text: line.textContent?.replace(/\s+/g, " ").trim(),
+          quiet: line.classList.contains("is-quiet"),
+          bottom: Math.round(rect.bottom),
+          stackTop: stack ? Math.round(stack.top) : null,
+          trayTop: tray ? Math.round(tray.top) : null,
+          scrollBottom: scroll ? Math.round(scroll.bottom) : null,
+          aboveStack: stack ? rect.bottom <= stack.top + 0.5 : true,
+          hit: hit ? line.contains(hit) || hit === line : false,
+        };
+      },
+      { MAIN_DOCK },
+    );
 
   const thought = (text: string) =>
     [
@@ -346,24 +350,27 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
         // From the first frame the line draws, every frame until the turn ends: a frame with no
         // line, a quiet one or one under the stack is a blink (Leo's "it appears and disappears").
         await page.waitForSelector(".acpmux-row--below .cv-worked--live:not(.is-quiet)");
-        await page.evaluate(() => {
-          const misses: string[] = [];
-          (window as unknown as { __misses: string[] }).__misses = misses;
-          // Every painted frame, from here to the reply.
-          window.cmuxAfterPaint(() => {
-            const line = document.querySelector(".acpmux-row--below .cv-worked--live");
-            const stack = document.querySelector(".acpmux-main > .acpmux-dock")?.getBoundingClientRect();
-            const box = line?.getBoundingClientRect();
-            const miss = !line
-              ? "absent"
-              : line.classList.contains("is-quiet")
-                ? "quiet"
-                : stack && box && box.bottom > stack.top + 0.5
-                  ? `under the stack (${Math.round(box.bottom)} > ${Math.round(stack.top)})`
-                  : undefined;
-            if (miss && misses.at(-1) !== miss) misses.push(miss);
-          });
-        });
+        await page.evaluate(
+          ({ MAIN_DOCK }) => {
+            const misses: string[] = [];
+            (window as unknown as { __misses: string[] }).__misses = misses;
+            // Every painted frame, from here to the reply.
+            window.cmuxAfterPaint(() => {
+              const line = document.querySelector(".acpmux-row--below .cv-worked--live");
+              const stack = document.querySelector(MAIN_DOCK)?.getBoundingClientRect();
+              const box = line?.getBoundingClientRect();
+              const miss = !line
+                ? "absent"
+                : line.classList.contains("is-quiet")
+                  ? "quiet"
+                  : stack && box && box.bottom > stack.top + 0.5
+                    ? `under the stack (${Math.round(box.bottom)} > ${Math.round(stack.top)})`
+                    : undefined;
+              if (miss && misses.at(-1) !== miss) misses.push(miss);
+            });
+          },
+          { MAIN_DOCK },
+        );
       }
       // The line must hold through the phase, past its quiet hold (Thinking.tsx QUIET_MS), with the
       // per-frame sampler watching; no event marks "the phase has settled and stayed".

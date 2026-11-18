@@ -3,7 +3,7 @@ import Foundation
 /// Restart notice and held page strings (Resources/Localizable.xcstrings).
 enum CrashStrings {
     static var restartNotice: String {
-        String(localized: "app.restart.notice", defaultValue: "cmux restarted after a problem. Your windows and terminals are back.", bundle: .module)
+        String(localized: "app.restart.notice", defaultValue: "cmux restarted after a problem.", bundle: .module)
     }
 
     static var showLog: String {

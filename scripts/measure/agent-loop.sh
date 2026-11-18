@@ -31,7 +31,7 @@ mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-
 rm -f "$out"/live-apply-*.log
 rm -rf "$out/settings-first"  # the second case's folder (agent-loop.py)
 if [[ -z "$url" ]]; then
-  url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
+  url="$(curl -fsSL --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
   [[ -n "$url" ]] || { echo "AGENT-LOOP no DMG in $feed"; exit 3; }
 fi
 echo "AGENT-LOOP host $(hostname -s) macOS $(sw_vers -productVersion) dmg $url"
@@ -66,12 +66,13 @@ bounded() {
   return "$status"
 }
 
-curl -fsSL --proto '=https' --retry 3 -A cmux-agent-loop/1 -o "$work/in.dmg" "$url" || { echo "AGENT-LOOP download failed"; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-agent-loop/1 -o "$work/in.dmg" "$url" || { echo "AGENT-LOOP download failed"; exit 3; }
 # The app's commit, read from the DMG before the launch: the web tree must be the one it was built from.
 mkdir -p "$mount"
 hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mount" "$work/in.dmg" >/dev/null || { echo "AGENT-LOOP mount failed"; exit 3; }
 plist="$(ls -d "$mount"/*.app/Contents/Info.plist 2>/dev/null | head -n 1)"
-commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
+commit=""
+[[ -f "$plist" ]] && commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
 hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 || true
 rmdir "$mount" 2>/dev/null || true
 # Nightlies stamp the commit's first 7 hex: this checkout resolves it, else GitHub's commit API.
@@ -79,7 +80,7 @@ rmdir "$mount" 2>/dev/null || true
 short="$commit"
 if [[ ${#commit} -lt 40 ]]; then
   commit="$(git -C "$root" rev-parse -q --verify "$short^{commit}" 2>/dev/null \
-    || curl -fsSL --retry 3 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
+    || curl -fsSL --retry 3 --retry-all-errors -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
 fi
 [[ "$commit" =~ ^[0-9a-f]{40}$ && "$commit" == "$short"* ]] || { echo "AGENT-LOOP could not resolve CMUXCommit $short"; exit 3; }
 echo "AGENT-LOOP app commit $short ($commit)"

@@ -25,6 +25,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
   setDefaultTimeout(280_000);
@@ -162,11 +163,12 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
     >;
     expect(seeded.error).toBeUndefined();
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-    const toggle = page.locator("button.acpmux-session-info-toggle").first();
+    const toggle = page.locator(SESSION_INFO_TOGGLE).first();
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.waitForFunction(
-      () => document.querySelector("aside.acpmux-session-info")?.getAttribute("data-presence") === "shown",
+      ({ SESSION_INFO }) => document.querySelector(SESSION_INFO)?.getAttribute("data-presence") === "shown",
+      { SESSION_INFO },
     );
     // Expanded: every section unfolded, Show more open.
     await page.evaluate(async () => {
@@ -189,11 +191,13 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
       ])
         state.setSessionInfoSection(id, true);
     });
-    await page.waitForFunction(() =>
-      document
-        .querySelector("aside.acpmux-session-info")!
-        .getAnimations({ subtree: true })
-        .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
+    await page.waitForFunction(
+      ({ SESSION_INFO }) =>
+        document
+          .querySelector(SESSION_INFO)!
+          .getAnimations({ subtree: true })
+          .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
+      { SESSION_INFO },
     );
     if (seeThrough) {
       // A see-through page whose host glass a stand-in App draws a frame after each report, as the App's.
@@ -206,130 +210,139 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
           () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
       }, hostGlass);
-      await page.waitForFunction(() => {
-        const panel = document.querySelector("aside.acpmux-session-info");
-        return !panel?.hasAttribute("data-host-glass") || panel.hasAttribute("data-host-glass-drawn");
-      });
+      await page.waitForFunction(
+        ({ SESSION_INFO }) => {
+          const panel = document.querySelector(SESSION_INFO);
+          return !panel?.hasAttribute("data-host-glass") || panel.hasAttribute("data-host-glass-drawn");
+        },
+        { SESSION_INFO },
+      );
     }
     return { page, target: String(seeded.session) };
   }
 
   /// Starts the per-frame read of the panel; `__seen` holds the counts.
   const sample = (page: Page) =>
-    page.evaluate(async () => {
-      const w = window as any;
-      const aside = () => document.querySelector<HTMLElement>("aside.acpmux-session-info");
-      const panel = aside()!;
-      const body = panel.querySelector<HTMLElement>(".acpmux-session-info__body")!;
-      const slots = new Map(
-        [...panel.querySelectorAll("[data-slot]")].map((slot) => [slot.getAttribute("data-slot")!, slot]),
-      );
-      const seen = {
-        frames: 0,
-        replaced: 0,
-        slotsReplaced: 0,
-        rowsRemoved: 0,
-        rowsRemovedFrames: 0,
-        removedKinds: {} as Record<string, number>,
-        restShown: 0,
-        fadeFlips: 0,
-        boxMoves: 0,
-        scrolledPx: 0,
-        looks: [] as string[],
-        lookChanges: 0,
-        underWrites: 0,
-      };
-      w.__seen = seen;
-      let look = "";
-      // The in-place blur under the glass (ui/glass/seeThroughBlur.ts): each write of a covered
-      // element's filter repaints that part of the chat.
-      const under = new MutationObserver((records) => {
-        for (const record of records)
-          if (record.attributeName === "data-glass-under" || (record.target as HTMLElement).closest?.(".acpmux-stage"))
-            seen.underWrites += 1;
-      });
-      const stage = document.querySelector(".acpmux-stage");
-      if (stage)
-        under.observe(stage, { subtree: true, attributes: true, attributeFilter: ["data-glass-under", "style"] });
-      let removedThisFrame = 0;
-      const mutations = new MutationObserver((records) => {
-        for (const record of records) {
-          if (record.type === "attributes") {
-            if (record.target === body && record.attributeName?.startsWith("data-fade")) seen.fadeFlips += 1;
-            continue;
+    page.evaluate(
+      async ({ SESSION_INFO }) => {
+        const w = window as any;
+        const aside = () => document.querySelector<HTMLElement>(SESSION_INFO);
+        const panel = aside()!;
+        const body = panel.querySelector<HTMLElement>(".acpmux-session-info__body")!;
+        const slots = new Map(
+          [...panel.querySelectorAll("[data-slot]")].map((slot) => [slot.getAttribute("data-slot")!, slot]),
+        );
+        const seen = {
+          frames: 0,
+          replaced: 0,
+          slotsReplaced: 0,
+          rowsRemoved: 0,
+          rowsRemovedFrames: 0,
+          removedKinds: {} as Record<string, number>,
+          restShown: 0,
+          fadeFlips: 0,
+          boxMoves: 0,
+          scrolledPx: 0,
+          looks: [] as string[],
+          lookChanges: 0,
+          underWrites: 0,
+        };
+        w.__seen = seen;
+        let look = "";
+        // The in-place blur under the glass (ui/glass/seeThroughBlur.ts): each write of a covered
+        // element's filter repaints that part of the chat.
+        const under = new MutationObserver((records) => {
+          for (const record of records)
+            if (
+              record.attributeName === "data-glass-under" ||
+              (record.target as HTMLElement).closest?.(".acpmux-stage")
+            )
+              seen.underWrites += 1;
+        });
+        const stage = document.querySelector(".acpmux-stage");
+        if (stage)
+          under.observe(stage, { subtree: true, attributes: true, attributeFilter: ["data-glass-under", "style"] });
+        let removedThisFrame = 0;
+        const mutations = new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "attributes") {
+              if (record.target === body && record.attributeName?.startsWith("data-fade")) seen.fadeFlips += 1;
+              continue;
+            }
+            for (const node of record.removedNodes) {
+              if (node.nodeType !== 1) continue;
+              const element = node as Element;
+              const rows = element.matches("li, [data-slot], .acpmux-session-info-row")
+                ? 1
+                : element.querySelectorAll("li, .acpmux-session-info-row").length;
+              if (!rows) continue;
+              removedThisFrame += rows;
+              seen.rowsRemoved += rows;
+              const kind = (element.className && String(element.className).split(" ")[0]) || element.tagName;
+              seen.removedKinds[kind] = (seen.removedKinds[kind] ?? 0) + rows;
+            }
           }
-          for (const node of record.removedNodes) {
-            if (node.nodeType !== 1) continue;
-            const element = node as Element;
-            const rows = element.matches("li, [data-slot], .acpmux-session-info-row")
-              ? 1
-              : element.querySelectorAll("li, .acpmux-session-info-row").length;
-            if (!rows) continue;
-            removedThisFrame += rows;
-            seen.rowsRemoved += rows;
-            const kind = (element.className && String(element.className).split(" ")[0]) || element.tagName;
-            seen.removedKinds[kind] = (seen.removedKinds[kind] ?? 0) + rows;
+        });
+        mutations.observe(panel, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["data-fade-top", "data-fade-bottom"],
+        });
+        const box0 = panel.getBoundingClientRect();
+        const top0 = body.scrollTop;
+        let maxTop = top0;
+        const stop = window.cmuxAfterPaint(() => {
+          seen.frames += 1;
+          if (removedThisFrame) seen.rowsRemovedFrames += 1;
+          removedThisFrame = 0;
+          const node = aside();
+          if (node !== panel) {
+            seen.replaced += 1;
+            return true;
           }
-        }
-      });
-      mutations.observe(panel, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeFilter: ["data-fade-top", "data-fade-bottom"],
-      });
-      const box0 = panel.getBoundingClientRect();
-      const top0 = body.scrollTop;
-      let maxTop = top0;
-      const stop = window.cmuxAfterPaint(() => {
-        seen.frames += 1;
-        if (removedThisFrame) seen.rowsRemovedFrames += 1;
-        removedThisFrame = 0;
-        const node = aside();
-        if (node !== panel) {
-          seen.replaced += 1;
+          for (const [id, slot] of slots) {
+            const now = node.querySelector(`[data-slot="${id}"]`);
+            if (now && now !== slot) {
+              seen.slotsReplaced += 1;
+              slots.set(id, now);
+            }
+          }
+          const style = getComputedStyle(node);
+          const now = [
+            node.className,
+            node.getAttribute("data-host-glass-drawn"),
+            node.hasAttribute("data-glass-keeps-underlay") ? "keeps-underlay" : "",
+            node.hasAttribute("data-glass-over") ? "over" : "",
+            style.opacity,
+            style.backgroundColor,
+          ].join("|");
+          if (look && now !== look) seen.lookChanges += 1;
+          if (!seen.looks.includes(now)) seen.looks.push(now);
+          look = now;
+          const box = node.getBoundingClientRect();
+          if (Math.abs(box.left - box0.left) > 0.5 || Math.abs(box.top - box0.top) > 0.5) seen.boxMoves += 1;
+          const view = body.getBoundingClientRect();
+          for (const rest of node.querySelectorAll("[data-rows-rest]")) {
+            const r = rest.getBoundingClientRect();
+            if (r.height > 0 && r.bottom > view.top + 1 && r.top < view.bottom - 1) {
+              seen.restShown += 1;
+              break;
+            }
+          }
+          maxTop = Math.max(maxTop, body.scrollTop);
+          seen.scrolledPx = Math.round(maxTop - top0);
           return true;
-        }
-        for (const [id, slot] of slots) {
-          const now = node.querySelector(`[data-slot="${id}"]`);
-          if (now && now !== slot) {
-            seen.slotsReplaced += 1;
-            slots.set(id, now);
-          }
-        }
-        const style = getComputedStyle(node);
-        const now = [
-          node.className,
-          node.getAttribute("data-host-glass-drawn"),
-          node.hasAttribute("data-glass-keeps-underlay") ? "keeps-underlay" : "",
-          node.hasAttribute("data-glass-over") ? "over" : "",
-          style.opacity,
-          style.backgroundColor,
-        ].join("|");
-        if (look && now !== look) seen.lookChanges += 1;
-        if (!seen.looks.includes(now)) seen.looks.push(now);
-        look = now;
-        const box = node.getBoundingClientRect();
-        if (Math.abs(box.left - box0.left) > 0.5 || Math.abs(box.top - box0.top) > 0.5) seen.boxMoves += 1;
-        const view = body.getBoundingClientRect();
-        for (const rest of node.querySelectorAll("[data-rows-rest]")) {
-          const r = rest.getBoundingClientRect();
-          if (r.height > 0 && r.bottom > view.top + 1 && r.top < view.bottom - 1) {
-            seen.restShown += 1;
-            break;
-          }
-        }
-        maxTop = Math.max(maxTop, body.scrollTop);
-        seen.scrolledPx = Math.round(maxTop - top0);
-        return true;
-      });
-      w.__stopSeen = () => {
-        stop();
-        mutations.disconnect();
-        under.disconnect();
-        return w.__seen;
-      };
-    });
+        });
+        w.__stopSeen = () => {
+          stop();
+          mutations.disconnect();
+          under.disconnect();
+          return w.__seen;
+        };
+      },
+      { SESSION_INFO },
+    );
 
   /// Chromium's delivered frames of `crop`, as PNG, from start to `stop`.
   async function screencast(page: Page) {
@@ -409,7 +422,7 @@ await requireBrowserLane("session-info-scroll-flicker.test.ts", async () => {
         const { page, target } = await openPanel(which, width, 760, glass === "see-through");
         const chromiumPage = engine === "chromium";
         try {
-          const panelBox = (await page.locator("aside.acpmux-session-info").boundingBox())!;
+          const panelBox = (await page.locator(SESSION_INFO).boundingBox())!;
           const scrollable = await page.evaluate(() => {
             const body = document.querySelector<HTMLElement>(".acpmux-session-info__body")!;
             return body.scrollHeight - body.clientHeight;

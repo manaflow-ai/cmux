@@ -9,6 +9,9 @@ import os
 ///
 /// Rules every page gets here, so no provider repeats them:
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
+/// - the router's own host ops and streams run only for a page it serves them
+///   (``PageDescriptor/servesHostOps``) or whose descriptor admits them: an app page's messages
+///   all pass its admission first;
 /// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
 ///   stamps `page`; only a native confirmation sheet makes a call the user's);
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
@@ -156,6 +159,9 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        // Admission first: a page the router serves no host ops (an app page) reaches only what its
+        // descriptor admits, so its messages go straight to ``admit(_:params:)``.
+        guard descriptor.admitsHostOp(op) else { return try await routed(op, params: params, opid: opid) }
         if let reply = try hostCall(op, params: params) { return reply }
         if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
             guard !closed else { throw PageError.closed }
@@ -171,6 +177,11 @@ public final class PageRouter {
             }
             return await contextMenu?(fields) ?? .object(["picked": .null])
         }
+        return try await routed(op, params: params, opid: opid)
+    }
+
+    /// A call to the provider whose route serves `op`, once the descriptor admits it.
+    private func routed(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         let (provider, params) = try admit(op, params: params)
         let gesture = userGestureEvent?() ?? nil
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
@@ -189,7 +200,7 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if PageNativeOp.builtInStreams.contains(stream) {
+        if PageNativeOp.builtInStreams.contains(stream), descriptor.admitsHostOp(stream) {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1

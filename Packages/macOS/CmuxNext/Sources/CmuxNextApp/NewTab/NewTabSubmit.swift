@@ -118,7 +118,7 @@ extension NewTabSubmit {
                 pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
                 return
             }
-            services.linkOpener.open(from: pane, kind: .terminal) { target, placed in
+            services.linkOpener.open(from: pane, kind: .terminal, opening: .tool) { target, placed in
                 target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command, placementOwner: placed != nil) { surface in placed?(surface) }
                 return true
             }

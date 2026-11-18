@@ -59,8 +59,9 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
     (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_stream.rs",
         "\"_acpmux/watch\"",
-        1,
-        "turns watching on with `limit: 1`; the list is read by `call_whole_list`",
+        2,
+        "turns watching on with `limit: 1`, its page unread: on v1 the list is read by \
+         `call_whole_list`, and on the v2 list the descendants by `page` with `family` (row 7c)",
     ),
     (
         "cmux-tui/crates/cmux-tui-core/src/server/mobile_chat.rs",
@@ -137,7 +138,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // `whole_list` itself: the v1 fallback's pager, kept whole until the shim goes.
     ("client.rs", "method::MUX_SESSIONS", 1, "`Client::whole_list`, each page after the first"),
     // The peer link's reads: row 8's, which moves them to the list stream on the link.
-    ("peer.rs", "method::MUX_SESSIONS", 2, "row 8: the peer link's watch pages"),
+    ("peer.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
+    ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.

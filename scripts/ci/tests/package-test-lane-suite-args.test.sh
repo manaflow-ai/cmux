@@ -19,6 +19,10 @@ refuse "ends with '.'" "CmuxNextAppTests."
 refuse "ends with '.'" "CmuxNextAgentPaneTests,CmuxNextAppTests."
 refuse "ends with '/'" "CmuxNextAppTests.SomeSuite/"
 refuse "test filters such as" "CmuxNextAppTests,,CmuxNextPagesTests"
+# each:WORD (every suite whose name holds WORD, one process each) takes one word.
+refuse "each: takes one word" "each:"
+refuse "each: takes one word" "each:Side.bar"
+refuse "each: takes one word" "CmuxNextAppTests,each:Side/bar"
 # Crash program phase 3: an unknown sanitizer is refused before any build.
 CMUX_SWIFT_SANITIZE=memory refuse "CMUX_SWIFT_SANITIZE must be" "CmuxNextAppTests"
 if [ "$fails" -ne 0 ]; then exit 1; fi

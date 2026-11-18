@@ -401,7 +401,7 @@ public final class DaemonStore: StateResourceQueries {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs
             }
-            ProvisionalSplit.noteDaemonPanes(in: self)
+            SnapshotCreations.note(in: self)
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)

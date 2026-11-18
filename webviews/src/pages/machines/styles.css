@@ -31,9 +31,6 @@ html[data-cmux-page="machines"] body {
   text-overflow: ellipsis;
 }
 .machines-header[data-first] { margin-top: 0; }
-/* The active team after "Cloud" (TeamTag.tsx): its icon and name in the header's ink, regular weight. */
-.machines-header .acpmux-team-tag { display: inline-flex; align-items: center; gap: var(--ds-space-1); margin-left: var(--ds-space-2); font-weight: 400; vertical-align: middle; }
-.machines-header .acpmux-team-tag > svg { flex: none; }
 
 .machines-row {
   display: flex;
@@ -112,6 +109,40 @@ html[data-cmux-page="machines"] body {
 .machines-spinner { flex: none; color: var(--page-text-2); }
 .machines-joined-spinner { width: var(--machines-button); }
 
+/* New Workspace on a joined Mac reached through the hub (design/machines-section.md, "Asking another
+   Mac"): the row says where the ask stands in its caption's place, in the caption's ink and size, so
+   nothing on the row or below it moves; Retry follows the words once the ask stopped. While the ask
+   runs a spinner holds the New Workspace slot, shown without hover. */
+.machines-state-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.machines-state-line > .machines-state { min-width: 0; }
+.machines-retry {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  margin: 0 calc(-1 * var(--ds-space-1));
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--ds-color-focus);
+}
+.machines-retry:hover { background: var(--page-hover); }
+.machines-retry:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 0;
+}
+/* The other variants: the words at the trailing edge, or tinted in the caption's place; both put
+   Retry on the New Workspace button, which stays shown once the ask stopped. */
+.machines[data-dial-layout="tinted"] .machines-state[data-dial="waiting"] { color: var(--ds-color-attention); }
+.machines[data-dial-layout="tinted"] .machines-state:is([data-dial="declined"], [data-dial="unanswered"], [data-dial="update"], [data-dial="failed"]) { color: var(--ds-color-danger); }
+.machines:not([data-dial-layout="caption"]) .machines-row:is([data-dial="declined"], [data-dial="unanswered"], [data-dial="update"], [data-dial="failed"]) .machines-new { opacity: 1; }
+
 /* New Workspace and "…": hover chrome. Quiet at rest, shown while the pointer is on the row, a
    control in it has keyboard focus, or its menu is open. The hover fill covers the button alone. */
 .machines-action {
@@ -175,7 +206,7 @@ html[data-cmux-page="machines"] body {
   color: var(--page-text);
 }
 /* The shared glass (ui-glass), never a solid fill; Reduce Transparency makes it solid. */
-.machines-dialog.ui-glass { background: var(--glass-tint); }
+.machines-dialog.ui-glass { --ui-dialog-padding: var(--ds-space-4); padding: var(--ui-dialog-padding); background: var(--glass-tint); }
 .machines-dialog-title {
   margin: 0;
   font: inherit;

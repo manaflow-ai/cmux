@@ -104,33 +104,17 @@ fn bundled() -> Catalog {
     })
 }
 
-/// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old or the new file.
+/// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old
+/// or the new file ([`crate::config::write_atomic`], which also removes the copies of a writer
+/// stopped before its rename).
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
     // A refresh that ends after the home was lost never makes it again (`config::mark_home_lost`).
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file. Owner-only whatever the umask, like the rest of the acpmux home.
     crate::home_fs::create_dir_all(dir, 0o700)?;
-    let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
-    // A file a crashed process left under a reused pid keeps its mode: start anew.
-    let _ = crate::home_fs::remove_file(&tmp);
-    let result = (|| {
-        let mut file = crate::home_fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        crate::home_fs::rename(&tmp, path)?;
-        crate::home_fs::sync_dir(dir)
-    })();
-    if result.is_err() {
-        let _ = crate::home_fs::remove_file(&tmp);
-    }
-    result
+    crate::config::write_atomic_checked(path, bytes).map_err(std::io::Error::other)
 }
 
 impl Default for CatalogService {

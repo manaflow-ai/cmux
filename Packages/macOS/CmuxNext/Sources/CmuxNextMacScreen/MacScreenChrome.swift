@@ -163,6 +163,13 @@ extension MacScreenPaneModel {
         gate == .open && hub?.phase.streamingScope != nil
     }
 
+    /// The toolbar shows the session's controls (access, Full Screen, quality, Send Keys,
+    /// refresh); the palette's viewer rows follow it (``MacScreenViewerControl``).
+    var showsSessionControls: Bool { session != nil && showsStreamControls }
+
+    /// Send Keys can send: a live picture in a session that is not View Only.
+    var canSendKeys: Bool { isLive && !viewOnly }
+
     /// A connected session's card: none while the picture flows, Reconnecting
     /// as soon as the connection stalls (never a frozen picture), Waiting
     /// until the first picture.

@@ -261,11 +261,21 @@ extension SettingsSchemaSamples {
                 .string("dore-moses-tables"), .string("dore-empyrean"), .string("dore-raven"),
                 .string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"),
                 .string("file:/Users/Shared/Harbor.png"), .string("folder:/Users/Shared/Wallpapers"),
+                .string("appearance"), .string("schedule"),
             ],
             refuse: [
                 .string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"),
                 .string("file:"), .string("folder:relative"), .string("folder:"), .string("__not_a_backdrop__"),
                 .number(1), .bool(true),
+            ]
+        ),
+        "domain:app_id": SampleSet(
+            accept: [
+                .string("local/web-pane"), .string("local/showcase-newtab"), .string("manaflow-ai/launcher"),
+            ],
+            refuse: [
+                .string("Foo/Bar"), .string("local/Web"), .string("a/b/c"), .string("launcher"), .string("/b"),
+                .string("a/"), .string("-a/b"), .string("a b/c"), .string(""), .number(1), .bool(true),
             ]
         ),
         "domain:search_template": SampleSet(
@@ -275,6 +285,41 @@ extension SettingsSchemaSamples {
             ],
             refuse: [
                 .string("https://search.example/"), .string("search.example"), .string("not a url %s"), .number(1),
+            ]
+        ),
+        "domain:backdrop_picture": SampleSet(
+            accept: [
+                .string("desktop"), .string("munch-scream"),
+                .string("system:/System/Library/Desktop Pictures/Sonoma.heic"),
+                .string("file:/Users/Shared/Harbor.png"),
+            ],
+            refuse: [
+                .string("none"), .string("daily"), .string("appearance"), .string("schedule"),
+                .string("folder:/Users/Shared/Wallpapers"), .string("system:relative/path.heic"), .string("file:"),
+                .string("__not_a_backdrop__"), .number(1),
+            ]
+        ),
+        "domain:backdrop_schedule": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["07:00": .string("munch-scream"), "9:30": .string("desktop"), "sunset-30m": .string("file:/Users/Shared/Night.png"), "sunrise+1h": .string("system:/System/Library/Desktop Pictures/Sonoma.heic"), "dusk": .string("desktop"), "dawn+90m": .string("desktop"), "noon": .string("desktop")]),
+            ],
+            refuse: [
+                .string("07:00"), .array([]), .object(["24:00": .string("desktop")]),
+                .object(["07:60": .string("desktop")]), .object(["7": .string("desktop")]),
+                .object(["sunset-": .string("desktop")]), .object(["sunset+30s": .string("desktop")]),
+                .object(["midnight": .string("desktop")]), .object(["07:00": .string("daily")]),
+                .object(["07:00": .string("folder:/Users/Shared/Wallpapers")]),
+                .object(["07:00": .string("__not_a_backdrop__")]), .object(["07:00": .number(1)]),
+            ]
+        ),
+        "domain:backdrop_location": SampleSet(
+            accept: [
+                .string("37.77,-122.42"), .string("-33.87, 151.21"), .string("69.65,18.96"),
+            ],
+            refuse: [
+                .string(""), .string("37.77"), .string("91,0"), .string("0,181"), .string("north,east"),
+                .string("1,2,3"), .number(1),
             ]
         ),
     ]

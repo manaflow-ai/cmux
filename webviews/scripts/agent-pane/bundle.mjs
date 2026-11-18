@@ -28,6 +28,7 @@ import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
+import { writeFrameSites } from "./frameSites.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -51,6 +52,14 @@ const artifactMetafile = artifactMetafileIndex >= 0 ? rest[artifactMetafileIndex
 // <link rel="modulepreload">, so they load and parse beside the entry instead of after it.
 const preloadIndex = rest.indexOf("--preload-list");
 const preloadFile = preloadIndex >= 0 ? rest[preloadIndex + 1] : undefined;
+// --frame-sites <file> (with --split) writes the pane's site table there (frameSites.mjs): the
+// build makes external source maps only to read them, and deletes them after.
+const frameSitesIndex = rest.indexOf("--frame-sites");
+const frameSitesFile = frameSitesIndex >= 0 ? rest[frameSitesIndex + 1] : undefined;
+if (frameSitesFile && !split) {
+  console.error("--frame-sites needs --split");
+  process.exit(2);
+}
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
 
 const mode = reactCompilerMode();
@@ -102,8 +111,18 @@ const result = await build({
         jsonParsePlugin,
         katexStylePlugin({ split }),
       ],
-  metafile: Boolean(cssInputsFile || metafileOut || preloadFile),
+  metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile),
+  // External maps add no comment to the scripts: they are the same code, and only the chunks'
+  // content hashes (their names) change, as esbuild hashes a chunk with its map.
+  ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
+if (frameSitesFile && !cssInputsOnly) {
+  const outdir = path.resolve(path.dirname(outfile));
+  const outputs = Object.keys(result.metafile.outputs)
+    .filter((output) => !output.endsWith(".map"))
+    .map((output) => path.relative(outdir, path.resolve(output)));
+  await writeFrameSites({ outdir, outputs, file: frameSitesFile, webviewsRoot: path.dirname(srcRoot) });
+}
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
 if (preloadFile) {
   const outdir = path.resolve(path.dirname(outfile));

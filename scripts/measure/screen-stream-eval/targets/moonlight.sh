@@ -16,6 +16,8 @@ set -euo pipefail
 verb=$1
 shift
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Moonlight's window takes focus and gets posted input: never on a Mac a person uses (person_guard.py).
+python3 -I "$here/person_guard.py" check moonlight || exit 2
 # shellcheck source=../gui-viewer.sh
 source "$here/gui-viewer.sh"
 moonlight=/Applications/Moonlight.app/Contents/MacOS/Moonlight

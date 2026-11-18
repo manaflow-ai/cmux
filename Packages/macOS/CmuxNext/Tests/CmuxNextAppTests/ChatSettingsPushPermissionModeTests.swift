@@ -17,7 +17,7 @@ import Testing
         let url = directory.appending(path: "cmux-next.json")
         try Data(#"{"agents":{"defaultPermissionMode":"fullAccess"}}"#.utf8).write(to: url)
         let forced = ManagedPreferences(forced: ["agents.defaultPermissionMode": .string("ask")])
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(forced), managedWatchFiles: [])
         await settings.reload()
 
@@ -37,7 +37,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux-next.json")
         try Data(#"{"agents":{"defaultPermissionMode":"standard"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 

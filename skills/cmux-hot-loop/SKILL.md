@@ -17,18 +17,27 @@ then push it through the various testing instead of the other way around."
 
 Build only when `plan` says the change needs one.
 
+One command does steps 2 and 3 and leaves the proof: `scripts/cmux-next/hot-verify.py plan --source dir:. --app APP` says
+`needs_build: true|false`; `hot-verify.py look --source dir:.|pr:N --app APP --out DIR` puts the change into a side
+copy of APP, then writes before and after screenshots (light and dark), a click-through, a video and
+`receipt.json`. Post the receipt's `<!-- cmux-hot-verify ... -->` marker on the PR with the shots: cmuxterm-hq's
+`hot_verify_share` counts it (target 80% of the newest hot-eligible merged PRs; goal `hot-verify-share`).
+
 ## Which command, by layer
 
 | Layer | Put it in | Take it out |
 |---|---|---|
 | Web: a PR's `webviews/` | `cmux customize use pr:N` | `cmux customize library off pr-N` |
+| Web: a pushed branch or commit, no PR | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
+| Web: your working copy, no push | `cmux customize use dir:PATH --watch` (applies again about 19 s after each save on a fleet Mac) | `cmux customize library off NAME` |
+| Web: a fork's branch | `cmux customize use OWNER/REPO@REF` (the layer the fork's own workflow published, never our CI) | `cmux customize library off NAME` |
 | Web: your checkout | `cmux live start --worktree <checkout>` (hot reload on every save) | `cmux live stop` |
 | Terminal daemon, acpmux (`cmux-tui/` Rust), a merged commit | `scripts/cmux-next/hot-apply.py apply SHA` | `scripts/cmux-next/hot-apply.py rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources, manifests | a build (`plan` names it) | |
 
-Coming: `cmux customize use branch:NAME`, `sha:SHA` and `dir:PATH` (another lane is adding them); until then use
-`cmux live start` for a checkout and `cmux app try` for a branch or sha.
+Your code layers: `cmux customize library status` (what is on, one line), `library refresh` (pull each layer's
+newest build in place; a fork's new code only through `use` again), `library off --all` (every code layer off; cmux serves its own pages).
 
 ## Examples
 
