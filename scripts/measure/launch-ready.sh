@@ -31,6 +31,12 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   engines=E[,E2]  with a DMG (not dmg=build): one side per engine (chromium or webkit), named for it, each a copy of the
+#                one DMG whose home has its own settings file, cmux-next.json with browser.defaultEngine=E (the app reads
+#                it through CMUX_NEXT_CONFIG_FILE). engines=chromium,webkit interleaves Chromium as launch has it now with
+#                Chromium not started at launch (AppDelegate starts it only for the chromium engine). After each launch
+#                launch-ready-cef.py adds Chromium's start from the app's log (cef.ready, cef.initialize_start,
+#                cef.initialize_dur, cef.load_dur, cef.map_dur, cef_started): a release build serves no debug.cef.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -45,7 +51,7 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 engines="" arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
   LR_STATE=kept
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
@@ -65,6 +71,7 @@ main() {
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
       machines=*) machines="${arg#machines=}" ;;
+      engines=*) engines="${arg#engines=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -75,6 +82,8 @@ main() {
   [[ "$prerun" =~ ^[0-9]+$ && "$prerun" -le 600 ]] || { echo "prerun= takes 0 to 600 seconds" >&2; exit 2; }
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" == build && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
+  [[ -z "$engines" || ( "$dmg" != build && "$engines" =~ ^(chromium|webkit)(,(chromium|webkit))?$ && "$engines" != chromium,chromium && "$engines" != webkit,webkit ) ]] \
+    || { echo "engines= takes chromium, webkit or both (comma), with a DMG (not dmg=build)" >&2; exit 2; }
   echo "LR state $LR_STATE"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
@@ -85,8 +94,16 @@ main() {
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
-  echo "LR session $session prerun $prerun copy $copy machines $machines"
+  cp scripts/measure/launch-ready-cef.py "$out/cef.py"
+  echo "LR session $session prerun $prerun copy $copy machines $machines engines ${engines:-none}"
   local sides=(head)
+  if [[ -n "$engines" ]]; then
+    IFS=, read -r -a sides <<<"$engines"
+    for side in "${sides[@]}"; do
+      mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+      printf '{"browser": {"defaultEngine": "%s"}}\n' "$side" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
+    done
+  fi
   if [[ "$dmg" == build ]]; then
     # nightly-fresh-launch.sh's build_dmg, without running its main. From a file: macOS's bash 3.2 sources nothing
     # from a process substitution.
@@ -125,7 +142,9 @@ main() {
   for side in "${sides[@]}"; do
     local mount="$out/mnt-$side"
     mkdir -p "$mount" "$out/$side"
-    hdiutil attach "$out/$side.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
+    local image="$out/$side.dmg"
+    [[ -n "$engines" ]] && image="$out/head.dmg" # engines=: every side is a copy of the one DMG
+    hdiutil attach "$image" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
     local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
@@ -245,6 +264,11 @@ probe() {
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
+  # engines=: Chromium's start, from the app's log, added to the row's marks (launch-ready-cef.py).
+  if [[ -f "$out/home-$side/cmux-next.json" ]]; then
+    local withcef
+    withcef="$(echo "${line#LR-RUN }" | python3 -I "$out/cef.py" 2>>"$out/cef.log")" && [[ -n "$withcef" ]] && line="LR-RUN $withcef"
+  fi
   echo "$line" | sed "s/^LR-RUN /LR-RUN $side /"
   echo "LR-LOAD $side $label load_1m=$load"
   echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; r.update({"cross_arm": json.loads(sys.argv[3])} if sys.argv[3] else {}); print(json.dumps(r))' "$side" "$load" "$cross" >>"$out/runs.jsonl"

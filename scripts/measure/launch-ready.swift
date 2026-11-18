@@ -18,6 +18,7 @@
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
 // session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
+// With HOME_ROOT/cmux-next.json (launch-ready.sh engines=) the app reads its settings from that file.
 // SOCKET is the app's control socket (default HOME_ROOT/app.sock). A socket path must fit sun_path (104 bytes with
 // its NUL); a fleet worker's checkout is deep enough that HOME_ROOT/app.sock does not, so launch-ready.sh passes a
 // short one under /tmp.
@@ -109,6 +110,9 @@ var environment: [String: String] = [
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
+// A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
+let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
+if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
