@@ -132,6 +132,22 @@ test("one conversation's new message renders that row alone", async () => {
   expect(host.querySelector(`[data-list-row='${id}'] .hm-row-preview`)?.textContent).toBe("A new line");
 });
 
+test("an unread count change renders that row alone, and its accessible label says the new count", async () => {
+  const list = await mount(1_000);
+  const id = list.mounted()[4]!;
+  const before = list.conversations.get(id)!;
+  const next = new Map(list.conversations);
+  // From some unread to more: the dot stays, only the count (in the label) moves.
+  next.set(id, { ...before, unread: before.unread + 2 });
+  rowRenders.reset();
+  list.render({ model: list.modelAt(next) });
+  expect(rowRenders.count("ListRow")).toBe(1);
+  expect(rowRenders.count("PinnedTile")).toBe(0);
+  expect(host.querySelector(`[data-list-row='${id}']`)?.getAttribute("aria-label")).toContain(
+    `${Math.max(before.unread + 2, 1)} unread`,
+  );
+});
+
 test("selecting a row renders it and the row above (its hairline) alone", async () => {
   const list = await mount(1_000);
   const ids = list.mounted();

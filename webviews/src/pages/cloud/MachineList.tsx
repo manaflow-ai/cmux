@@ -121,16 +121,20 @@ const sameItem = (a: MachineItemProps, b: MachineItemProps) =>
     key === "row" ? sameRow(a.row, b.row) : Object.is(a[key], b[key]),
   ) && Object.keys(a).length === Object.keys(b).length;
 
-const sameRow = (a: MachineRow, b: MachineRow) =>
-  a === b ||
-  (a.id === b.id &&
-    a.title === b.title &&
-    a.status === b.status &&
-    a.machine === b.machine &&
-    a.pending === b.pending &&
-    a.idle === b.idle &&
-    a.keep === b.keep &&
-    a.classic === b.classic);
+// Every field of a row (its machine by identity: the mirror keeps an unchanged machine's object). A
+// new field fails to compile here until it is listed, so a rebuilt row never hides a change.
+const ROW_FIELDS: Record<keyof MachineRow, true> = {
+  id: true,
+  title: true,
+  status: true,
+  machine: true,
+  pending: true,
+  idle: true,
+  keep: true,
+  classic: true,
+};
+const FIELDS = Object.keys(ROW_FIELDS) as (keyof MachineRow)[];
+const sameRow = (a: MachineRow, b: MachineRow) => a === b || FIELDS.every((key) => Object.is(a[key], b[key]));
 
 const MachineItem = memo(function MachineItem({
   row,
