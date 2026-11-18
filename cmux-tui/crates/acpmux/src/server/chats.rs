@@ -39,6 +39,10 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_subsessions {key}`: the chat's sub-sessions, read now from its harness's
+//!   store (`cmux_chat_index::subsessions`): `{key, subsessions: [{id, parentId, title, kind,
+//!   state: running|done|failed|idle, depth, updatedMs}]}`, newest first. Claude Code's
+//!   subagents and Codex's spawned threads; none for another harness.
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
@@ -359,6 +363,35 @@ pub(super) async fn route(
                     "title": entry.title,
                     "cwd": entry.cwd,
                     "turns": turns,
+                }))
+            })
+            .await
+        }
+        // A chat's sub-sessions (Claude Code subagents, Codex spawned threads) from its harness's
+        // store, read now and never kept: the sidebar lists them under the chat
+        // (`sidebar.nestedSessions`). Metadata only, newest first, at most
+        // `cmux_chat_index::subsessions::MAX_SUBSESSIONS`.
+        "_acpmux/chat_subsessions" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let key = params
+                .get("key")
+                .and_then(Value::as_str)
+                .and_then(crate::chats::parse_key)
+                .ok_or_else(|| {
+                RpcError::invalid_params("key must be <harness>:<session id>")
+            })?;
+            blocking(move || {
+                let chat = service.get(&key).ok_or_else(|| {
+                    RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
+                })?;
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+                let subsessions = cmux_chat_index::subsessions(&chat.entry, now_ms);
+                Ok(json!({
+                    "key": crate::chats::key_text(&key),
+                    "subsessions": subsessions,
                 }))
             })
             .await

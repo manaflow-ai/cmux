@@ -1,7 +1,9 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! the group hover card's summary (`group_hover_summary`), the ports a
+//! the group hover card's summary (`group_hover_summary`), the sidebar's
+//! nested sessions and their folds (`sidebar_session_tree`,
+//! `sidebar_session_tree_fold`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
 //! launch order hold (`sidebar_launch_order`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
@@ -281,6 +283,20 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_layout_reducer::group_hover_summary::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_layout_reducer::group_hover_summary::summarize(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_session_tree" => {
+                use cmux_layout_reducer::sidebar_session_tree;
+                let request: sidebar_session_tree::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_session_tree::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_session_tree_fold" => {
+                use cmux_layout_reducer::sidebar_session_tree;
+                let request: sidebar_session_tree::FoldRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_session_tree::fold(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"workspace_port_links" => {

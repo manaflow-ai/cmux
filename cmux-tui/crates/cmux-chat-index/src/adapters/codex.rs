@@ -286,7 +286,7 @@ pub(super) fn read_store(root: &Path) -> io::Result<Option<Vec<ChatEntry>>> {
     Ok(Some(entries))
 }
 
-fn newest_state_db(root: &Path) -> io::Result<Option<PathBuf>> {
+pub(crate) fn newest_state_db(root: &Path) -> io::Result<Option<PathBuf>> {
     let mut best: Option<(u64, PathBuf)> = None;
     for child in fs::read_dir(root)?.flatten() {
         let name = child.file_name();

@@ -1562,6 +1562,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_subsessions",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats_search",
       "params": true,
       "result": true
