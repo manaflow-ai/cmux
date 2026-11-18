@@ -52,11 +52,13 @@ final class CloudChatsPagedListUITests: XCTestCase {
     @MainActor func testCloudChatsFlingsMeetRowsWithoutHitches() {
         let app = launch("cloudchats:fast")
         XCTAssertTrue(row(app, 0).waitForExistence(timeout: 10), "no chats")
-        for _ in 0..<10 { list(app).swipeUp(velocity: .fast) }
+        // Pages of 100 land during the flings (600 chats; one page shows at first).
+        for _ in 0..<20 { list(app).swipeUp(velocity: .fast) }
         // The last fling comes to rest (its frame window closes).
         settle(list(app).cells.firstMatch)
         let stats = hud(app)
         record("fling", app.staticTexts["lab.hud"].value as? String ?? "{}")
+        record("fling-hitches", app.staticTexts["lab.hitches"].value as? String ?? "[]")
         attach(app, "cloudchats-after-flings")
         XCTAssertGreaterThanOrEqual(stats.rows, 300, "flings did not show older pages (\(stats.rows) rows)")
         XCTAssertLessThanOrEqual(stats.maxShift, 0.5, "a page moved the reader by \(stats.maxShift) pt")

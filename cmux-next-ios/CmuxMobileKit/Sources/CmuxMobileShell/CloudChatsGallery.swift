@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileLive
 import Observation
+import QuartzCore
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -27,6 +28,7 @@ struct CloudChatsGallery: View {
     @State private var shown = CloudChatList.pageSize
     @State private var hud = PagedLabHUD()
     @State private var probe = PagedListProbe()
+    @State private var hitchLog = CloudChatsHitchLog()
 
     init(scenario: String, scheme: ColorScheme?, clean: Bool) {
         self.scheme = scheme
@@ -59,8 +61,14 @@ struct CloudChatsGallery: View {
         }
         .preferredColorScheme(scheme)
         .task {
-            probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
-            probe.scrolling = { [hud] moving in hud.scrolling(moving) }
+            probe.pageLanded = { [hud, hitchLog] shift, rows in
+                hud.landed(shift: shift, rows: rows)
+                hitchLog.landed(rows: rows)
+            }
+            probe.scrolling = { [hud, hitchLog] moving in
+                hud.scrolling(moving)
+                hitchLog.scrolling(moving)
+            }
             await hub.connect()
         }
     }
@@ -73,6 +81,12 @@ struct CloudChatsGallery: View {
                 .foregroundStyle(theme.colors.label2.color)
                 .accessibilityIdentifier("lab.hud")
                 .accessibilityValue(hud.json(edge: Self.name(edge)))
+            // Each hitch: when, how long, the main thread's CPU in it, and the nearest page landing.
+            Text(verbatim: "hitches \(hitchLog.hitches.count)")
+                .font(theme.type.meta)
+                .foregroundStyle(theme.colors.label2.color)
+                .accessibilityIdentifier("lab.hitches")
+                .accessibilityValue(hitchLog.json)
             HStack(spacing: 16) {
                 Button("Deliver") { hub.deliver() }
                     .accessibilityIdentifier("lab.deliver")
@@ -94,6 +108,61 @@ struct CloudChatsGallery: View {
         case .failed: "failed"
         case .end: "end"
         }
+    }
+}
+
+/// Every hitch of the gallery's scrolls, each with the main thread's CPU time in its frame and how
+/// far it was from the nearest page landing: a hitch at a landing with a busy main thread is the
+/// list's work; one far from any landing with an idle main thread is the simulator's renderer.
+@MainActor
+@Observable
+final class CloudChatsHitchLog {
+    struct Hitch: Codable {
+        var ms: Double
+        var cpuMs: Double?
+        /// Seconds from the hitch's frame to the nearest page landing in its window (nil: none).
+        var fromLanding: Double?
+        var rowsAtLanding: Int?
+    }
+
+    private(set) var hitches: [Hitch] = []
+    @ObservationIgnored private let log = FrameIntervalLog(enabled: true)
+    @ObservationIgnored private var start: CFTimeInterval = 0
+    @ObservationIgnored private var landings: [(at: CFTimeInterval, rows: Int)] = []
+
+    init() {
+        log.onSummary = { [weak self] stats in self?.add(stats) }
+    }
+
+    func scrolling(_ moving: Bool) {
+        if moving {
+            log.begin("cloud-chats")
+            start = CACurrentMediaTime()
+            landings = []
+        } else {
+            log.end()
+        }
+    }
+
+    func landed(rows: Int) {
+        landings.append((CACurrentMediaTime() - start, rows))
+    }
+
+    private func add(_ stats: FrameIntervalStats) {
+        guard let intervals = stats.intervalsMs else { return }
+        let cpu = stats.mainThreadCPUPerFrameMs
+        var at = 0.0
+        for (index, ms) in intervals.enumerated() {
+            at += ms / 1000
+            guard ms > stats.expectedMs * 1.5 else { continue }
+            let nearest = landings.min { abs($0.at - at) < abs($1.at - at) }
+            hitches.append(Hitch(ms: ms, cpuMs: cpu.flatMap { $0.indices.contains(index) ? $0[index] : nil },
+                                 fromLanding: nearest.map { (($0.at - at) * 1000).rounded() / 1000 }, rowsAtLanding: nearest?.rows))
+        }
+    }
+
+    var json: String {
+        (try? String(decoding: JSONEncoder().encode(hitches), as: UTF8.self)) ?? "[]"
     }
 }
 
