@@ -296,7 +296,8 @@ public final class AgentPaneModel {
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
     /// What this chat's last page held when it let go (hibernation); the next handshake
-    /// carries it (`wake`) and clears it.
+    /// carries it (`wake`) and clears it. On a prewarmed page that took the chat it stays until
+    /// the page says that it applied it (``AgentPanePaintReport``).
     @ObservationIgnored public var pendingWake: AgentPaneWakeState?
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
@@ -522,8 +523,10 @@ public final class AgentPaneModel {
     /// keeps its cover until the page draws the chat. False, changing nothing, for a page that is
     /// not an untouched, connected New Tab page.
     @discardableResult
-    public func adoptSpareSession(_ session: String) -> Bool {
+    public func adoptSpareSession(_ session: String, wake: AgentPaneWakeState? = nil) -> Bool {
         guard sessionId == nil, newTab != nil, hasHandshake, !userTouched, !remoteChat, !neverPooled else { return false }
+        // What the chat's last page held: kept until this page says that it took it.
+        if let wake { pendingWake = wake }
         sessionId = session
         transport.sessions.add(session)
         newTab = nil
@@ -608,17 +611,9 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled):
-            AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
-            // The first report only, and before `markPainted`: the pane's loading state leaves on
-            // that call, and what that frame drew is what decides whether the page fades in
-            // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
-            if !hasPainted {
-                paintedFromKeptTail = fromKeptTail
-                paintedSettled = settled
-                pageReportedPaint = true
-            }
-            markPainted()
+        case .painted(let fromKeptTail, let settled, let appliedWake):
+            AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted") // here: both page hosts answer through `respond`
+            AgentPanePaintReport(fromKeptTail: fromKeptTail, settled: settled, appliedWake: appliedWake).apply(to: self)
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
         case .runAttach(let request): return await request.attach(in: self)

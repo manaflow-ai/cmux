@@ -68,7 +68,7 @@ struct ChatScrollRestoreDefaultPathTests {
         }
         func detail(_ session: String, tab: String?) throws -> JSONValue {
             let text = AgentPaneView.adoptEventDetail(session: session, revealTurn: nil, tail: nil,
-                                                      place: AgentPaneView.adoptedPlace(session: session, tab: tab))
+                                                      place: AgentPaneScrollAnchors.adoptedPlace(session: session, tab: tab))
             return try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(text.utf8))))
         }
         AgentPaneScrollAnchors.shared = nil

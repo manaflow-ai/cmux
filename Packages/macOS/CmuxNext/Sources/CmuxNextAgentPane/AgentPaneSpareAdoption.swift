@@ -3,14 +3,16 @@ import CmuxNextWakeups
 public import Foundation
 
 /// Which tab opening an existing chat adopts the prewarmed New Tab page (CmuxNextApp's
-/// `AgentTabStore.view(for:)` and `NewTabSparePool`; ``AgentPaneView/adoptSession(_:revealTurn:moved:)``).
+/// `AgentTabStore.view(for:)` and `NewTabSparePool`; ``AgentPaneView/adoptSession(_:tab:revealTurn:wake:moved:)``).
 /// The spare is this Mac's page, connected to this Mac's acpmux, and its handshake is past, so it
 /// serves only a chat whose open needs nothing that handshake carries:
 /// - a chat of this Mac's acpmux (`thisMac`): not another machine's (its own host), not a Chief
 ///   home's (`chief:` tabs, and an older subagent tab of this Mac's host the Chief home keeps);
 /// - with a session: a tab with none is a New Tab page or a new chat (the spare's own path);
 /// - no New Tab page, no seed (a new chat's folder, draft, prompt or surface);
-/// - no kept or relaunch wake state (a composer or shell box its own handshake hands over).
+/// - no relaunch wake state, and no kept wake state over the adopt event's bound
+///   (``AgentPaneWakeState/adoptEventLimit``): its own page's handshake hands those over. A kept state under
+///   the bound (a chat whose hidden page let go) goes with the adopt event (decision 2026-11-16).
 public nonisolated struct AgentPaneSpareAdoption: Sendable, Equatable {
     public var thisMac: Bool
     public var session: String?
@@ -110,6 +112,15 @@ public nonisolated struct AgentPaneSpareSlot<Spare> {
     /// The next spare to hand out, out of the queue.
     public mutating func take() -> Spare? {
         spares.isEmpty ? nil : spares.removeFirst()
+    }
+
+    /// Sets ``capacity`` to `count` and takes the spares over it out of the queue: the newest ones. The next to
+    /// hand out stays: it drew the context of the next open.
+    public mutating func trim(to count: Int) -> [Spare] {
+        capacity = count
+        let over = Array(spares.dropFirst(capacity))
+        spares.removeLast(over.count)
+        return over
     }
 
     /// Every spare, out of the queue (memory pressure, the last window closing).

@@ -63,6 +63,13 @@ public final class AgentPaneScrollAnchors {
         return entries.last { $0.sessionId == sessionId }?.anchor
     }
 
+    /// Where the reader left chat `session` in tab `tab`, for its adopt event: `.some(nil)` when the
+    /// store keeps no place (the chat opens at its latest message), nil when there is no store (a test
+    /// host, the gallery: the page asks, and is answered nothing). One lookup in the store's bounded list.
+    static func adoptedPlace(session: String, tab: String?) -> AgentPaneScrollAnchor?? {
+        shared.map { $0.anchor(for: session, tab: tab) }
+    }
+
     /// Keeps chat `sessionId`'s place in tab `tab`; nil is its latest message. No tab (a page that
     /// is no tab's): nil forgets the chat's tabless place.
     public func remember(_ anchor: AgentPaneScrollAnchor?, for sessionId: String, tab: String? = nil) {

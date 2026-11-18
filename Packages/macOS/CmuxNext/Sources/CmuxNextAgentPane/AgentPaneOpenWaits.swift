@@ -3,14 +3,19 @@
 /// it adopted) to the page's first `pane.painted`.
 ///
 /// The target is a count, not a time: 0 for a chat whose kept tail the page draws on a connected
-/// page, 1 at most on a connected page, whatever the chat's length. A page made for the tab runs
-/// all of them in a row.
+/// page, 1 at most on a connected page, whatever the chat's length. A page made for the tab that
+/// reads the chat from acpmux runs all of them in a row.
 ///
-/// The host does not observe each wait. It sees 3 reports of the page and GIVES each a fixed
+/// The host does not observe each wait. It sees 3 reports of the page and gives each a fixed
 /// count (``Step/waits``: 3, 2, 1), so this number is the host's model of the page's waits, not
-/// a measure of them. What the page asked acpmux in between is the page's to say
-/// (`debug.agent_pane acp_log`); the count of a real page's open is the bench's (`open_waits` in
-/// the pane's readiness, kept for each traced open).
+/// a measure of them. `open_waits` in the readiness reply is this same model, fed by a real
+/// page's reports; what the page asked acpmux is in `acp_log`.
+///
+/// Two limits of the model. A page that shows the chat's copy from the last launch reports its
+/// paint before its handshake; its count is 0 with no steps, so 0 is the target only for an
+/// adopted page: a reader of the count also reads ``steps`` and knows if the page was adopted.
+/// And `connected` counts when its report came before the paint's report, also when the paint
+/// did not wait for it, so one open can read 3 or 5.
 public struct AgentPaneOpenWaits: Equatable, Sendable {
     public enum Step: String, CaseIterable, Sendable {
         /// The host answered a fresh page's `ready`: the page's process started, its document and

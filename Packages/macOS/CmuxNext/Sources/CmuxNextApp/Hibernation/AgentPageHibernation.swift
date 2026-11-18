@@ -220,7 +220,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? storageScoped
             let stored = tabs.resolvedKey(scoped)
             if let session = view.model.sessionId { tabs.sessions[stored] = session }
-            tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
+            tabs.wakeStates[stored] = (view.model.pendingWake ?? wake).flatMap { $0.isEmpty ? nil : $0 } // a state the page never applied stands
             tabs.views[stored] = nil
             tabs.retirer.retire(view)
             tabs.stopCustomizationWhenUnused()
