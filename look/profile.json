@@ -17,7 +17,7 @@
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 800,
     "agentPane.display.minimap": "off",
-    "agentPane.editedFiles.show": "always",
+    "agentPane.editedFiles.show": "never",
     "agentPane.showContextUsage": true
   },
   "files": {

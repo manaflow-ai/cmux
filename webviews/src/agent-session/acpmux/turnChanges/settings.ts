@@ -8,7 +8,8 @@ export type EditedFilesShow = "always" | "collapsed" | "never";
 export type EditedFilesScope = "turn" | "session";
 export type EditedFilesSettings = { show: EditedFilesShow; maxRows: number; scope: EditedFilesScope };
 
-export const DEFAULT_EDITED_FILES: EditedFilesSettings = { show: "always", maxRows: 3, scope: "turn" };
+// This look branch draws each edit as its own tool row, as Claude Code desktop does: no edited-files card.
+export const DEFAULT_EDITED_FILES: EditedFilesSettings = { show: "never", maxRows: 3, scope: "turn" };
 /// The host's range for maxRows (the schema's).
 export const MAX_ROWS_RANGE = { min: 1, max: 50 } as const;
 
