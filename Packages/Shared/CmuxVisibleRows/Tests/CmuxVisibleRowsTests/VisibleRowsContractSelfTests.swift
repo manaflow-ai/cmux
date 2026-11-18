@@ -25,8 +25,8 @@ import Testing
     }
 
     @Test func theBaselineNamesWhyAndWho() {
-        for (name, why) in VisibleRowsBaseline.knownFailures {
-            #expect(!name.isEmpty && why.contains("fix:"), "baseline line \(name) names no fixing lane")
+        for (name, known) in VisibleRowsBaseline.knownFailures {
+            #expect(!name.isEmpty && known.why.contains("fix:"), "baseline line \(name) names no fixing lane")
         }
     }
 }
