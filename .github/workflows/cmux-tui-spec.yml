@@ -270,7 +270,7 @@ jobs:
   # binary, a compile error or a test the merge parent passes fails the job. A
   # feat-cmux-next push runs the suites plainly, so a base red shows red there.
   # The acpmux-* crates acpmux is built from (acpmux-book, acpmux-core, acpmux-client,
-  # acpmux-build-id, acpmux-list-types) run here too, lib and tests/: no hosted job ran them,
+  # acpmux-build-id, acpmux-list-types, acpmux-transcript-search) run here too, lib and tests/: no hosted job ran them,
   # so two changes left their tests red on base in one day (2026-11-14): #42834 changed what
   # acpmux-book answers and left acpmux-core's test of the old answer, and #42906 left two
   # acpmux-core tests that #42943 repaired. tests/test_cargo_test_verdict.py fails when the
@@ -408,8 +408,8 @@ jobs:
           verdict=../scripts/ci/cargo_test_verdict.py
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
-            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
-            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
+            -p acpmux-list-types -p acpmux-transcript-search --lib --test hub_integration --test ffi --test v2_client
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --test scale --no-fail-fast)
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
