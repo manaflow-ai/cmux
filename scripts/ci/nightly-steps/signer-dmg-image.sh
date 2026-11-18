@@ -7,7 +7,7 @@ set -euo pipefail
 : "${SIGNER_WORK:?}" "${CHANNEL_APP_NAME:?}" "${NIGHTLY_DMG_RELEASE:?}" "${CREATE_DMG_VERSION:?}"
 app="$SIGNER_WORK/$CHANNEL_APP_NAME.app"
 export npm_config_prefix="$RUNNER_TEMP/npm-global"
-npm install --global "create-dmg@${CREATE_DMG_VERSION}" >/dev/null
+"$(dirname "${BASH_SOURCE[0]}")/net-retry.sh" -- npm install --global "create-dmg@${CREATE_DMG_VERSION}" >/dev/null
 work="$(mktemp -d "$RUNNER_TEMP/dmg.XXXXXX")"
 mkdir -p signer-out
 # create-dmg copies the app with the process umask.

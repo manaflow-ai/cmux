@@ -3444,7 +3444,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: ((env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == '') && !env.LEFT_SLOT
         run: |
-          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          for t in 1 2 3; do git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$t" = 3 ] && exit 1; sleep $((t * 15)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
 
       - &download-signing-inputs-paralle
@@ -4083,19 +4083,7 @@ jobs:
       - &x56
         name: Install build deps
         if: ${{ !env.LEFT_SLOT }}
-        run: |
-          CMUX_NODE_BIN="$(command -v node)"
-          export npm_config_prefix="$RUNNER_TEMP/npm-global"
-          mkdir -p "$npm_config_prefix"
-          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
-          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
-          mkdir -p "$wrapper_dir"
-          cat > "$wrapper_dir/create-dmg" <<EOF
-          #!/usr/bin/env bash
-          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
-          EOF
-          chmod +x "$wrapper_dir/create-dmg"
-          echo "$wrapper_dir" >> "$GITHUB_PATH"
+        run: bash -e scripts/ci/nightly-steps/install-create-dmg.sh
 
 
       - &x57
@@ -4890,7 +4878,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
         run: |
-          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          for t in 1 2 3; do git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$t" = 3 ] && exit 1; sleep $((t * 15)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - &x75
         name: Verify bundled CLI commands run from the bundle alone

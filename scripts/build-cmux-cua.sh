@@ -410,6 +410,7 @@ else
         echo "warning: cmux-cua fetch attempt $attempt of 3 failed" >&2
         # A stalled transfer leaves its partial pack behind; drop it so it never moves into the cache.
         find "$TMPDIR_CLONE/.git/objects/pack" -name 'tmp_pack_*' -delete 2>/dev/null || true
+        if [[ "$attempt" -lt 3 ]]; then sleep $((attempt * 10)); fi
       done
       [[ -n "$fetched" ]] || { echo "error: could not fetch cmux-cua $CMUX_CUA_PINNED_SHA" >&2; exit 1; }
     fi
@@ -428,8 +429,19 @@ else
   # builds keep working offline (or through GitHub outages) after the first
   # successful build.
   if ! git -C "$SRC_ROOT" cat-file -e "$CMUX_CUA_PINNED_SHA^{commit}" 2>/dev/null; then
-    GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
-      git -C "$SRC_ROOT" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"
+    # Same bounded retry as the cold-cache fetch above: one stalled transfer must not fail a build.
+    fetched=""
+    for attempt in 1 2 3; do
+      if GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+        git -C "$SRC_ROOT" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; then
+        fetched=1
+        break
+      fi
+      echo "warning: cmux-cua fetch attempt $attempt of 3 failed" >&2
+      find "$SRC_ROOT/.git/objects/pack" -name 'tmp_pack_*' -delete 2>/dev/null || true
+      if [[ "$attempt" -lt 3 ]]; then sleep $((attempt * 10)); fi
+    done
+    [[ -n "$fetched" ]] || { echo "error: could not fetch cmux-cua $CMUX_CUA_PINNED_SHA" >&2; exit 1; }
   fi
   # Materialize the exact pinned tree. A plain `checkout --detach` at the
   # already-checked-out commit silently keeps modified tracked files, so a
