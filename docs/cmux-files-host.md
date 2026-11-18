@@ -9,8 +9,8 @@ that read `~/Desktop`.
 
 DEV builds now run their terminal daemon and their agent daemon under one pinned, team-signed
 helper, **cmux Files (dev)** (`com.cmuxterm.files.dev`). It is the responsible process of
-everything below it, so a person answers once for all DEV builds. Release, NIGHTLY, RC and the
-NEXT DEV daily (a Release build) do not embed it and are unchanged.
+everything below it, so a person answers once for all DEV builds. It is dev only: no shipped
+build embeds it, looks for it or spawns differently (see "Production").
 
 ## What asked, and why
 
@@ -74,9 +74,10 @@ acpmux is the same with `/bin/sh -c 'set -m; "$@" …' acpmux-launch <helper> ru
   live swap), it `exec`s the program in place: the build's terminals run as they did before, and
   ask as the app.
 - **Who turns it on.** The app sets `CMUX_TUI_OWNER_LAUNCHER` for `server ensure` and prefixes
-  acpmux's argv only when its bundle id is DEV or staging (`com.cmuxterm.app.debug[.*]`,
-  `com.cmuxterm.app.staging[.*]`) and it embeds the helper (`FilesHost.launcher`). An owner or
-  acpmux already running keeps its old responsible process until it restarts.
+  acpmux's argv only in a Debug compile (`#if DEBUG`) whose bundle id is DEV
+  (`com.cmuxterm.app.debug[.<tag>]`) and that embeds the helper (`FilesHost`). cmux-tui removes
+  the variable from the owner's environment, so shells never inherit it. An owner or acpmux
+  already running keeps its old responsible process until it restarts.
   `CMUX_NEXT_FILES_HOST=0` in the app's environment turns it off.
 - **Launch Services.** Opened with no arguments (or only `-psn_*`), it exits at once.
 
@@ -93,8 +94,25 @@ acpmux is the same with `/bin/sh -c 'set -m; "$@" …' acpmux-launch <helper> ru
 - An ad-hoc copy is never staged or run as the host: its grant would be keyed to a cdhash, and a
   person could be asked to grant something that is not the pinned helper.
 - No Full Disk Access is asked for or suggested.
-- Release builds never embed it (`embed-files-host-dev.sh` skips every Release configuration),
-  and the app ignores an embedded copy unless its own bundle id is DEV or staging.
+- Shipped builds never embed or use it (see "Production").
+
+## Production
+
+The helper never reaches a shipped build: stable, NIGHTLY, RC, staging, the NEXT DEV daily
+(`com.cmuxterm.app.debug.next`, a Release build), `--release` dogfood tags, TestFlight and the App
+Store. Two independent gates, with no override:
+
+| Gate | Where | Rule |
+| --- | --- | --- |
+| Build | `embed-files-host-dev.sh` (the "Embed Computer Use helper (dev)" phase) | embeds only when `CONFIGURATION` is `Debug` **and** `PRODUCT_BUNDLE_IDENTIFIER` is `com.cmuxterm.app.debug[.<tag>]`; otherwise it embeds nothing and removes a stale copy |
+| App | `FilesHost` (CmuxNextCompat) | `isDebugBuild` is `#if DEBUG`, checked first, so a Release compile returns nil before it reads the disk; the bundle id must be `com.cmuxterm.app.debug[.<tag>]` |
+
+Staging (`com.cmuxterm.app.staging`) does not count as dev: it is a shipping channel (the classic
+migration lists it with stable, NIGHTLY and RC). In a Release build `CMUX_TUI_OWNER_LAUNCHER` is
+never set, so `server ensure` spawns the owner exactly as before, and acpmux's argv is unchanged.
+iOS never embeds it (macOS only). `tests/test_files_host_dev_only.py` runs the real embed script
+for every shipped configuration and bundle id and fails if any would embed it; run it yourself
+after changing the phase, `FilesHost` or the pin (it is not a CI gate).
 
 ## What still asks
 

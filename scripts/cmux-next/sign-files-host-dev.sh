@@ -43,7 +43,7 @@ team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 [[ "$team" == "$team_id" ]] || { echo "error: signed by team '$team', expected $team_id" >&2; exit 1; }
 requirement="identifier \"$bundle_id\" and anchor apple generic and certificate leaf[subject.OU] = \"$team_id\""
 codesign --verify --strict --deep -R "=$requirement" "$app" || { echo "error: the signature does not satisfy $requirement" >&2; exit 1; }
-kind="$(codesign -dvv "$app" 2>&1 | sed -n 's/^Authority=\(Apple Development\|Developer ID Application\).*/\1/p' | head -1)"
+kind="$(codesign -dvv "$app" 2>&1 | sed -En 's/^Authority=(Apple Development|Developer ID Application).*/\1/p' | head -1)"
 mkdir -p "$out"
 rm -f "$out/$asset"
 ditto -c -k --keepParent "$app" "$out/$asset"
