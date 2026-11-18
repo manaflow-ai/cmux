@@ -54,7 +54,9 @@ pub enum Node {
         panes: Vec<u64>,
         expanded: u64,
     },
-    /// A node type this client does not know: kept as it is.
+    /// A node type this client does not know. Its own fields are dropped, as the app's
+    /// `LayoutNode.unknown` drops them when it decodes the daemon's tree; the node keeps its
+    /// place, so a split or a removal elsewhere in the tree leaves it there.
     #[serde(other)]
     Unknown,
 }
@@ -230,6 +232,10 @@ pub enum Request {
         /// `target`, instead of splitting `target` alone (Insert New at a divider).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         around: Option<u64>,
+        /// `split-before-v1` (Split Left, Split Up): `leaf` is the split's first side and is
+        /// listed before `target` in the screen's panes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        before: bool,
     },
     /// Insert New at the divider of split `split` in `layout` (the tree holding it): the split
     /// request to send and the divider's new ratio (`divider_insert`).
@@ -291,22 +297,21 @@ pub fn respond(request: &Request) -> Value {
         value.map_or(Value::Null, |v| serde_json::to_value(v).unwrap_or(Value::Null))
     }
     match request {
-        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row, around } => {
-            json(match around {
-                Some(around) => {
-                    split_around_target(screen, *around, *target, *dir, *ratio, *leaf, split_id)
-                }
-                None => split(
-                    screen,
-                    *target,
-                    *dir,
-                    *ratio,
-                    *leaf,
-                    split_id,
-                    column.as_ref(),
-                    row.as_ref(),
-                ),
-            })
+        Request::Split {
+            screen,
+            target,
+            dir,
+            ratio,
+            leaf,
+            split_id,
+            column,
+            row,
+            around,
+            before,
+        } => {
+            let tree =
+                SplitTree { target: *target, dir: *dir, ratio: *ratio, leaf: *leaf, split_id };
+            json(split(screen, &tree, column.as_ref(), row.as_ref(), *around, *before))
         }
         Request::InsertAtDivider { layout, split } => {
             json(crate::divider_insert::plan(layout, *split))
@@ -339,15 +344,32 @@ pub fn split_leaf(
     new: u64,
     split_id: &str,
 ) -> Option<Node> {
+    split_leaf_as(node, target, dir, ratio, new, split_id, false)
+}
+
+/// [`split_leaf`], with `new` as the split's first side when `before` (`split {before: true}`,
+/// Split Left and Split Up).
+pub fn split_leaf_as(
+    node: &Node,
+    target: u64,
+    dir: Dir,
+    ratio: f64,
+    new: u64,
+    split_id: &str,
+    before: bool,
+) -> Option<Node> {
     match node {
-        Node::Leaf { pane } if *pane == target => Some(Node::Split {
-            split: None,
-            split_id: Some(split_id.to_owned()),
-            dir,
-            ratio,
-            a: Box::new(Node::leaf(target)),
-            b: Box::new(Node::leaf(new)),
-        }),
+        Node::Leaf { pane } if *pane == target => {
+            let (a, b) = if before { (new, target) } else { (target, new) };
+            Some(Node::Split {
+                split: None,
+                split_id: Some(split_id.to_owned()),
+                dir,
+                ratio,
+                a: Box::new(Node::leaf(a)),
+                b: Box::new(Node::leaf(b)),
+            })
+        }
         Node::Split { split, split_id: id, dir: d, ratio: r, a, b } => {
             let rebuilt = |a: Node, b: Node| Node::Split {
                 split: *split,
@@ -357,10 +379,11 @@ pub fn split_leaf(
                 a: Box::new(a),
                 b: Box::new(b),
             };
-            if let Some(a2) = split_leaf(a, target, dir, ratio, new, split_id) {
+            if let Some(a2) = split_leaf_as(a, target, dir, ratio, new, split_id, before) {
                 return Some(rebuilt(a2, (**b).clone()));
             }
-            split_leaf(b, target, dir, ratio, new, split_id).map(|b2| rebuilt((**a).clone(), b2))
+            split_leaf_as(b, target, dir, ratio, new, split_id, before)
+                .map(|b2| rebuilt((**a).clone(), b2))
         }
         _ => None,
     }
@@ -402,26 +425,62 @@ fn after_target(panes: &[u64], target: u64) -> usize {
     at.min(panes.len())
 }
 
+/// Where the new pane goes in the screen's panes before `target` (Split Left, Split Up: the
+/// daemon lists a screen's panes in its layout's order); at the end when the target is not listed.
+fn before_target(panes: &[u64], target: u64) -> usize {
+    panes.iter().position(|p| *p == target).unwrap_or(panes.len())
+}
+
+/// The plain split a `split` request asks for: `target` split along `dir` at `ratio`, showing
+/// `leaf` under public id `split_id`.
+pub struct SplitTree<'a> {
+    pub target: u64,
+    pub dir: Dir,
+    pub ratio: f64,
+    pub leaf: u64,
+    pub split_id: &'a str,
+}
+
 /// A split of `target` (`split_kind.rs`: the target's column tree and row tree take it too),
-/// New Column (`column`) or New Row (`row`). None when cmux-tui would refuse it.
-#[allow(clippy::too_many_arguments)]
+/// New Column (`column`), New Row (`row`), or a split around the whole split `around`
+/// (`split-around-v1`, Insert New at a divider: cmux-tui's `split_around` wraps it, `leaf`
+/// after it). `before` (`split-before-v1`) shows `leaf` as a plain split's first side and lists
+/// it before `target`. None when cmux-tui would refuse it, or when the screen's tree already
+/// places `leaf` (the daemon's layout placed its pane: the split has nothing left to show, and
+/// showing it again would list the pane twice).
+///
+/// Every column tree and row tree that holds `target` takes the split; one that cannot (the
+/// split `around` is not in it with `target` as its last pane) shows nothing. Around a split,
+/// a screen with columns keeps its compat tree as it is when that tree does not name `around`.
 pub fn split(
     screen: &Screen,
-    target: u64,
-    dir: Dir,
-    ratio: f64,
-    leaf: u64,
-    split_id: &str,
+    tree: &SplitTree<'_>,
     column: Option<&ColumnSpec>,
     row: Option<&RowSpec>,
+    around: Option<u64>,
+    before: bool,
 ) -> Option<Placed> {
+    let SplitTree { target, dir, ratio, leaf, split_id } = *tree;
+    if screen.layout.contains(leaf) {
+        return None;
+    }
     if let Some(column) = column {
         return new_column(screen, target, leaf, column);
     }
     if let Some(row) = row {
         return new_row(screen, target, leaf, split_id, row);
     }
-    let layout = split_leaf(&screen.layout, target, dir, ratio, leaf, split_id)?;
+    let take = |node: &Node| match around {
+        Some(around) => {
+            crate::divider_insert::split_around(node, around, target, dir, ratio, leaf, split_id)
+        }
+        None => split_leaf_as(node, target, dir, ratio, leaf, split_id, before),
+    };
+    let layout = match take(&screen.layout) {
+        Some(layout) => layout,
+        None if around.is_some() && !screen.columns.is_empty() => screen.layout.clone(),
+        None => return None,
+    };
     let mut columns = Vec::with_capacity(screen.columns.len());
     for column in &screen.columns {
         if !column.layout.contains(target) {
@@ -429,53 +488,20 @@ pub fn split(
             continue;
         }
         let mut column = column.clone();
-        column.layout = split_leaf(&column.layout, target, dir, ratio, leaf, split_id)?;
+        column.layout = take(&column.layout)?;
         for row in &mut column.rows {
             if row.layout.contains(target) {
-                row.layout = split_leaf(&row.layout, target, dir, ratio, leaf, split_id)?;
+                row.layout = take(&row.layout)?;
             }
         }
         columns.push(column);
     }
-    Some(Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
-}
-
-/// A split of `target` around the whole split `around` (`split-around-v1`, Insert New at a
-/// divider): every tree that holds `around` (the screen's, its column's, its row's) wraps it, as
-/// cmux-tui's `split_around` does. None when no tree holds `around` with `target` as its last pane.
-fn split_around_target(
-    screen: &Screen,
-    around: u64,
-    target: u64,
-    dir: Dir,
-    ratio: f64,
-    leaf: u64,
-    split_id: &str,
-) -> Option<Placed> {
-    use crate::divider_insert::split_around;
-    let wrap = |node: &Node| split_around(node, around, target, dir, ratio, leaf, split_id);
-    let mut placed = false;
-    let layout = match wrap(&screen.layout) {
-        Some(layout) => {
-            placed = true;
-            layout
-        }
-        None => screen.layout.clone(),
+    let pane_at = if before {
+        before_target(&screen.panes, target)
+    } else {
+        after_target(&screen.panes, target)
     };
-    let mut columns = screen.columns.clone();
-    for column in &mut columns {
-        if let Some(wrapped) = wrap(&column.layout) {
-            column.layout = wrapped;
-            placed = true;
-        }
-        for row in &mut column.rows {
-            if let Some(wrapped) = wrap(&row.layout) {
-                row.layout = wrapped;
-                placed = true;
-            }
-        }
-    }
-    placed.then(|| Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
+    Some(Placed { layout, columns, pane_at })
 }
 
 /// New Column (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf` right after
@@ -557,10 +583,14 @@ fn new_row(
 /// A lone tab docked into a new column (`move-tab-to-column {dock}`): the column holding `leaf`
 /// leads the screen's columns (cmux-tui's `commit_tab_drag` puts a left dock first). A zoomed
 /// screen, or one with a dock on that edge already, waits for the daemon's layout:
-/// `reduce_column_dock` there moves the old holder, which this view does not show.
+/// `reduce_column_dock` there moves the old holder, which this view does not show. None too when
+/// the screen's tree already places `leaf` (the daemon's layout placed the dock's pane).
 pub fn dock_column(screen: &Screen, leaf: u64, spec: &ColumnSpec, dock: &Value) -> Option<Shown> {
     let edge = dock.get("edge").and_then(Value::as_str);
-    if screen.zoomed_pane.is_some() || screen.columns.iter().any(|c| c.dock_edge() == edge) {
+    if screen.layout.contains(leaf)
+        || screen.zoomed_pane.is_some()
+        || screen.columns.iter().any(|c| c.dock_edge() == edge)
+    {
         return None;
     }
     let mut columns = screen.columns.clone();
