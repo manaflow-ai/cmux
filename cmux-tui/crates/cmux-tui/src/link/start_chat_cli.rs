@@ -177,9 +177,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
                 if copy.seed_only {
-                    push_seed_only(socket, local, remote, &copy.subpath)
+                    push_seed_only(socket, local, remote, &copy.subpath, &copy.key)
                 } else {
-                    push(socket, local, remote, &copy.subpath)
+                    push(socket, local, remote, &copy.subpath, &copy.key)
                 }
             })
         }),
@@ -1188,21 +1188,69 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
 /// done (`seed_cli`'s record).
-fn push(socket: &Path, local: &Path, remote: &str, subpath: &str) -> Result<Value, Value> {
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+    chat: &str,
+) -> Result<Value, Value> {
+    if let Some(projected) = project_first(socket, local, remote, chat) {
+        return projected;
+    }
+    let _ = subpath;
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
+/// caller seeds or copies as before. Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link start-chat: projecting {} failed: {error:#}; copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
 /// [`push`] that never copies: a refused seed is `seed_refused`
-/// (`--on-seed-refusal ask`).
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
+    chat: &str,
 ) -> Result<Value, Value> {
-    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
+    if let Some(projected) = project_first(socket, local, remote, chat) {
+        return projected;
+    }
+    let _ = subpath;
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -1514,19 +1562,14 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
+/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
+/// keeps its hashed name: `CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
+    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
     let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).

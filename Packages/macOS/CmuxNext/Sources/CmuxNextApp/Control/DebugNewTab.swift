@@ -83,9 +83,9 @@ enum DebugNewTab {
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
             // How many times the app made the JSON text of a New Tab context's shared part since its launch.
             "context_encodes": .number(Double(services.agentTabs.paneShared.newTabText.encodes)),
-            // What a New Tab page opened now would suggest: its open tabs and other workspaces.
+            // What a New Tab page opened now would suggest: its open tabs, other workspaces, and recent pages (address, has an icon).
             "omnibar_tabs": .array(omnibar.tabs.map { .object(["title": .string($0.title), "workspace": $0.workspace.map(JSONValue.string) ?? .null]) }),
-            "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
+            "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }), "omnibar_history": .array(omnibar.recentPageIcons.map { .object(["url": .string($0.url), "icon": .bool($0.icon)]) }),
         ]
         var spares: [JSONValue] = []
         for (base, pid) in parked {
