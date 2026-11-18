@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8";
+pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1748,6 +1748,11 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const RemoteHostAppPermissions = struct {
+    accessibility: wire.Field(bool) = .absent,
+    screen_recording: wire.Field(bool) = .absent,
 };
 
 pub const RemoteHostAppResult = struct {
@@ -6571,6 +6576,31 @@ pub fn feedLocalRead(client: anytype, request: FeedLocalReadRequest) !wire.Decod
     );
 }
 
+pub const FloatPaneRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    pane: Id,
+    transaction: wire.Field(u64) = .absent,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const FloatPaneResult = JsonValue;
+
+pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(FloatPaneResult) {
+    return client.callTyped(
+        FloatPaneResult,
+        .{
+            .name = "float-pane",
+            .authority = "control",
+            .since = 12,
+            .capability = "floating-panes-v1",
+        },
+        request,
+    );
+}
+
 pub const FocusDirectionRequest = struct {
     dir: PaneDirection,
     pane: wire.Field(Id) = .absent,
@@ -8424,6 +8454,30 @@ pub fn putSession(client: anytype, request: PutSessionRequest) !wire.Decoded(Put
     );
 }
 
+pub const QuickTerminalRequest = struct {
+    h: wire.Field(f64) = .absent,
+    mode: wire.Field([]const u8) = .absent,
+    screen: Id,
+    w: wire.Field(f64) = .absent,
+    x: wire.Field(f64) = .absent,
+    y: wire.Field(f64) = .absent,
+};
+
+pub const QuickTerminalResult = JsonValue;
+
+pub fn quickTerminal(client: anytype, request: QuickTerminalRequest) !wire.Decoded(QuickTerminalResult) {
+    return client.callTyped(
+        QuickTerminalResult,
+        .{
+            .name = "quick-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "quick-terminal-v1",
+        },
+        request,
+    );
+}
+
 pub const ReadScreenRequest = struct {
     surface: Id,
 };
@@ -8604,6 +8658,7 @@ pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Dec
 }
 
 pub const RemoteHostConfigRequest = struct {
+    app_permissions: wire.Field(RemoteHostAppPermissions) = .absent,
     computer_use: wire.Field(bool) = .absent,
     headless: wire.Field(bool) = .absent,
     screen_sharing: wire.Field(bool) = .absent,
@@ -12646,7 +12701,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 303;
+pub const command_count: usize = 305;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12764,6 +12819,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "feed-local-handoff-done", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
+    .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
@@ -12841,6 +12897,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "quick-terminal", .authority = "control", .since = 12, .capability = "quick-terminal-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },

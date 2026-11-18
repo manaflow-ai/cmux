@@ -24,13 +24,14 @@ mod stream;
 mod window;
 
 use crate::args::Opts;
-use crate::linux_host::hub::{Hub, HubError};
-use crate::linux_host::identity::{self, Account, Device};
-use crate::linux_host::net::{Message, WebSocket};
-use crate::linux_host::rd_doc::{self, RdDocument};
-use crate::linux_host::session::{close_ends_session, Ticket};
-use crate::linux_host::{b64, printable, stack_login, with_fresh_identity, DEFAULT_HUB};
+use crate::linux_host::{stack_login, with_fresh_identity, DEFAULT_HUB};
 use crate::Res;
+use cmux_hub_host::hub::{Hub, HubError};
+use cmux_hub_host::identity::{self, Account, Device};
+use cmux_hub_host::net::{Message, WebSocket};
+use cmux_hub_host::rd_doc::{self, RdDocument};
+use cmux_hub_host::session::{close_ends_session, Ticket};
+use cmux_hub_host::{b64, printable};
 use cmux_rd_link::net::{Candidate, NetConfig};
 use cmux_rd_link::{KeyPair, Role};
 use serde_json::{json, Value};
@@ -111,7 +112,7 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         device.save(&dir)?;
         let hub = Hub::new(&hub_url, device.clone(), None)?;
         let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register()?;
+        hub.register("linux")?;
         Ok((hub, user_id))
     })?;
     Account { hub: hub_url.clone(), user_id, anchored_until: 0 }.save(&dir)?;

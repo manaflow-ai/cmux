@@ -72,6 +72,8 @@ impl Peer {
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
+            watch_active: AtomicBool::new(false),
+            controls: StdMutex::new(None),
             github_revoked: tokio::sync::Notify::new(),
             github_app: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),
@@ -693,12 +695,21 @@ impl Peer {
 
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
+        self.watch_active.store(false, Ordering::SeqCst);
         self.features.lock_or_recover().clear();
         // The epoch moves first: the mirror that ends with its inbox sees the link gone, and
         // leaves the origin to the next link (`peer_dialer.rs`).
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.end_mirror();
         self.github_revoked.notify_waiters();
+    }
+
+    pub(super) fn watch_active(&self) -> bool {
+        self.watch_active.load(Ordering::Acquire)
+    }
+
+    pub(super) fn set_watch_active(&self, active: bool) {
+        self.watch_active.store(active, Ordering::Release);
     }
 
     /// The hub applied a `Listed` notice of this peer: the rows are now those its link listed
@@ -725,7 +736,7 @@ impl Peer {
         let link = self.link();
         let observed = self.observed(&link);
         let (health, health_at) = self.health_summary();
-        let paths = self.paths_view();
+        let (paths, link_stats) = (self.paths_view(), self.link_stats_view());
         json!({
             "name": self.name,
             "url": self.url,
@@ -751,7 +762,7 @@ impl Peer {
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,
-            "paths": paths,
+            "paths": paths, "linkStats": link_stats,
         })
     }
 

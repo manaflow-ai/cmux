@@ -134,6 +134,26 @@ struct PaneContentAreaHoldTests {
                 "the content heard the landing at \(content.settledFrames), not at its final frame \(view.contentHost.bounds)")
     }
 
+    /// The sidebar's slide lands and tells the whole window its motion ended (`WindowRootView.wireContentAreaMotion`)
+    /// while a pane is still on its own spring, or held until its landing's commit: that pane's content hears nothing
+    /// then (a terminal released its surface hold and reflowed mid-spring), and hears its own landing once (PL-ghostty
+    /// review, minor).
+    @Test func aWindowWideSettleEndsNoHoldOfAPaneStillOnItsSpring() throws {
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let view = try #require(rig.provider.views["p2"]), content = try #require(rig.provider.contents["p2"])
+        content.settledFrames.removeAll()
+        var early: [Int] = []
+        try rig.press(.left) { frame in
+            rig.root.notifyPaneMotionSettled() // the sidebar landed in this frame
+            if !content.settledFrames.isEmpty { early.append(frame) }
+        }
+        rig.root.notifyPaneMotionSettled() // between the landing's frame and its commit
+        #expect(early.isEmpty && content.settledFrames.isEmpty, "the pane's content heard a settle on its spring, frames \(early)")
+        rig.release()
+        #expect(content.settledFrames == [view.contentHost.bounds], "the content heard its own landing \(content.settledFrames.count) times")
+    }
+
     /// A chat that draws its tools in the tab row: its page draws the row, so its area is its whole pane. It follows its
     /// pane in every frame as any content does (before: its whole view held at its start size until after the landing).
     @Test func aPageThatSharesTheTabRowFollowsItsPaneInEveryFrame() throws {
