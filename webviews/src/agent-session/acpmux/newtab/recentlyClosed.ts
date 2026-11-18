@@ -51,6 +51,12 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function useRecentlyClosed(): ClosedItem[] {
-  return useSyncExternalStore(subscribe, recentlyClosed, recentlyClosed);
+const NONE: ClosedItem[] = [];
+const noPushes = () => () => {};
+const none = () => NONE;
+
+/// Off (`read` false: a page that draws no Recently Closed list), it holds no listener and a push
+/// re-renders nothing.
+export function useRecentlyClosed(read = true): ClosedItem[] {
+  return useSyncExternalStore(read ? subscribe : noPushes, read ? recentlyClosed : none, read ? recentlyClosed : none);
 }

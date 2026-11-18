@@ -1135,10 +1135,13 @@ export function NewTabScreen(props: Props) {
     const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
     return () => clearTimeout(timer);
   }, [holdChats]);
-  // The device chat index's newest chats, for the cards under the field.
-  const pushed = useDeviceChats();
+  // The device chat index's newest chats, for the cards under the field. Minimal draws no lists, so
+  // it reads no chat or closed tab: a session push costs a Minimal page, a hidden spare one too, no
+  // list work. With no chats listed yet it still counts device chats, for the first-run starters.
+  const chatList = !minimal && sections.chats !== "none";
+  const pushed = useDeviceChats(chatList || snapshot.sessions.length === 0);
   const device = holdChats ? NO_DEVICE_CHATS : pushed;
-  const closed = useRecentlyClosed();
+  const closed = useRecentlyClosed(!minimal && sections.closed);
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
