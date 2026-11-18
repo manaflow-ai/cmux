@@ -68,6 +68,7 @@ import Testing
         #expect(HighlightTouch.rows(from: nil, to: "b") == ["b"])
         #expect(HighlightTouch.rows(from: "a", to: nil) == ["a"])
         #expect(HighlightTouch.rows(from: "a", to: "a").isEmpty)
-        #expect(HighlightTouch.rows(from: String?.none, to: nil).isEmpty)
+        let none: [String] = HighlightTouch.rows(from: nil, to: nil)
+        #expect(none.isEmpty)
     }
 }
