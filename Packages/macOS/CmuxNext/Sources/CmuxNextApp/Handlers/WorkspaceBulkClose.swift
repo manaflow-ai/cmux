@@ -212,7 +212,7 @@ enum WorkspaceBulkClose {
         // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).
         case .noUndo(incognito: true):
             String(localized: "confirm.closeWorkspaces.noUndoIncognito",
-                   defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
+                   defaultValue: "Incognito workspaces can’t be reopened.", table: "Handlers", bundle: .module)
         case .noUndo(incognito: false):
             String(localized: "confirm.closeWorkspaces.noUndo",
                    defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",

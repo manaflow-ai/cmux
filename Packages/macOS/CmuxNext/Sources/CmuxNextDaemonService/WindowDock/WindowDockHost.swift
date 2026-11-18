@@ -22,7 +22,8 @@ public protocol WindowDockHost: AnyObject {
     func dockMovePaneToNewWorkspace(_ invocation: ActionInvocation) async -> String?
     /// The edge `home.chiefDock.edge` names (left when unset or unknown).
     var chiefDockEdge: DockEdge { get }
-    /// Whether a link from the Chief docks it (`home.chiefDock.openBeside`, and Home is not classic).
+    /// Whether a link from the Chief floats it over the link's workspace (`home.chiefDock.openBeside`, off by default,
+    /// cmux#45889; and Home is not classic).
     var chiefDockOpensBeside: Bool { get }
     /// Whether Home is classic (a top page, no Home workspace to dock).
     var chiefHomeIsClassic: Bool { get }

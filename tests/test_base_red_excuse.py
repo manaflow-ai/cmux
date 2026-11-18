@@ -1027,67 +1027,6 @@ class PortableGhLog(unittest.TestCase):
         self.assertTrue(text.endswith("tail\n"))
 
 
-class AgentApiUnavailable(unittest.TestCase):
-    """The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one
-    `agent.api-unavailable {json}` marker when the CLI's result showed the API never served it. That red is the shared
-    account's, not the PR's, but only for the marker with zero recorded API usage, on the agent pass step alone. Gate
-    run 43637095919 (job 132576237860): the weekly limit, duration_api_ms 0, no tokens, on every PR."""
-
-    NAME, STEP = "Reviewer path (appstore, ipad)", "Agent reviewer pass"
-    EVIDENCE = {"message": "agent pass: API unavailable (rate limited)", "duration_api_ms": 0, "input_tokens": 0,
-                "api_error_status": 429, "api_error_type": "rate_limit_error", "api_error": "usage_limit_reached",
-                "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1}
-
-    def setUp(self):
-        self.gh = FakeGitHub()
-        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=self.NAME, step=self.STEP)
-        self.gh.logs[2] = log(self.NAME, self.STEP, "##[error]agent reviewer pass: the agent wrote a verdict without "
-                              "one screenshot of the app", "##[error]Process completed with exit code 1.")
-
-    def head(self, *errors):
-        self.gh.logs[1] = log(self.NAME, self.STEP, "agent pass: retrying", *errors,
-                              "##[error]Process completed with exit code 1.")
-
-    def marker(self, **changes):
-        return "##[error]agent.api-unavailable " + json.dumps(dict(self.EVIDENCE, **changes), separators=(",", ":"))
-
-    def judged(self) -> str:
-        try:
-            return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
-        except excuse.Refused as why:
-            return f"refused: {why}"
-
-    def test_a_zero_usage_marker_is_not_this_prs_red(self):
-        self.head(self.marker())
-        text = self.judged()
-        self.assertIn(f"excused '{self.NAME}': not this PR (agent API unavailable)", text)
-        self.assertIn("duration_api_ms=0", text)
-        self.assertIn("resets Nov 18 at 3am (UTC)", text)
-
-    def test_a_marker_with_api_usage_stays_the_prs(self):
-        for changes in ({"input_tokens": 5200}, {"duration_api_ms": 41000}, {"input_tokens": None},
-                        {"duration_api_ms": False}):
-            self.head(self.marker(**changes))
-            self.assertNotIn("agent API unavailable", self.judged(), changes)
-
-    def test_failure_text_without_the_marker_stays_the_prs(self):
-        for line in ("##[error]agent reviewer pass: You've hit your weekly limit · resets Nov 18 at 3am (UTC)",
-                     "##[error]agent reviewer pass: agent pass: API unavailable (rate limited): duration_api_ms=0",
-                     "##[error]rate limit: agent.api-unavailable " + json.dumps(self.EVIDENCE)):
-            self.head(line)
-            self.assertNotIn("agent API unavailable", self.judged(), line)
-
-    def test_the_marker_beside_another_red_stays_the_prs(self):
-        self.head(self.marker(), "##[error]agent reviewer pass: the agent wrote a verdict without one screenshot")
-        self.assertNotIn("agent API unavailable", self.judged())
-        # Or another step of the job failed too: the walk itself is judged, not set aside.
-        self.gh.jobs[1]["steps"].insert(2, {"name": "Walk the reviewer path on ipad", "status": "completed",
-                                            "conclusion": "failure"})
-        self.head(self.marker())
-        self.assertNotIn("agent API unavailable", self.judged())
-
-
 class Excusing(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
@@ -7641,6 +7580,64 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFailureText(unittest.TestCase):
+    """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
+    as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
+    offender, tools/test_merge_hold.py, that main's did not: only the failing tests' names were compared. A failing
+    test is the same red on the base only when its failure text (normalised: numbers masked, file names kept) is."""
+    STEP = (".github/workflows/tools-tests.yml test: every other tools/test_*.py (a new suite runs without a step; "
+            "exclusions carry a reason)")
+    UNIT = "test_text_io_encoding.py"
+    FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_ws_check_failure_text"
+
+    def printed(self, name):
+        """The lines the fixture run log NAME (gh's job log, trimmed to the unit's group) printed inside its group."""
+        lines = excuse.lines_of((self.FIXTURES / name).read_text(encoding="utf-8"))
+        start = lines.index(f"##[group]{self.STEP} [{self.UNIT}]")
+        return lines[start + 1:lines.index("##[endgroup]", start)]
+
+    def judge(self, head, main):
+        gh = WsCheckGitHub()
+        gh.verdict(HEAD, 1, {self.STEP: {self.UNIT: head}})
+        gh.verdict(gh.TIP, 2, {self.STEP: {self.UNIT: main}})
+        return excuse.judge(gh.REPO, "main", HEAD, [], gh)
+
+    def test_a_head_whose_lint_test_lists_a_new_offender_is_refused(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(self.printed("head-16b96c09.log"), self.printed("main-d240eaab.log"))
+        said = str(caught.exception)
+        self.assertIn("1 failure(s) not on main", said)
+        # The test is red on main too; its failure text, naming the new offender, is what differs.
+        self.assertIn(f"not excused 'ws-check' test '{self.STEP} :: [{self.UNIT}] "
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry (__main__.Ratchet."
+                      "test_every_tools_file_names_its_encoding_or_holds_no_more_than_its_entry)': red on main", said)
+        self.assertIn("but failing another way there", said)
+        self.assertRegex(said, r"tools/test_merge_hold\.py: # text read\(s\)")
+
+    def test_the_same_failure_on_two_runs_is_still_excused(self):
+        main = self.printed("main-d240eaab.log")
+        self.assertIn("excused 'ws-check': every failure", self.judge(main, main)[0])
+        # Another run of it: other counts, source lines, times and checkout root, the same offenders.
+        moved = [line.replace("[253 chars]", "[260 chars]").replace("132 write_text()", "135 write_text()")
+                 .replace("line 195,", "line 201,").replace("in 5.795s", "in 7.012s")
+                 .replace("/home/runner/_work/cmuxterm-hq/cmuxterm-hq/", "/home/runner/_work/_temp/lw/")
+                 for line in main]
+        self.assertNotEqual(moved, main)
+        self.assertIn("excused 'ws-check': every failure", self.judge(moved, main)[0])
+
+    def test_a_failures_text_is_read_after_its_traceback(self):
+        section = ["test_x (__main__.A.test_x) ... FAIL", "=" * 70, "FAIL: test_x (__main__.A.test_x)", "-" * 70,
+                   "Traceback (most recent call last):", 'File "/w/tools/test_a.py", line 9, in test_x',
+                   "self.check()", 'File "/w/tools/a.py", line 3, in check', "raise ValueError(1)", "^^^^^^^^^^^^",
+                   'File "<string>", line 1, in <module>', "ValueError: tools/b.py is listed", "- 'tools/b.py'",
+                   "=" * 70, "ERROR: test_y (__main__.A.test_y)", "-" * 70, "Traceback (most recent call last):",
+                   'File "/w/tools/test_a.py", line 12, in test_y', "KeyError: 'k'", "-" * 70, "Ran 2 tests in 0.1s",
+                   "FAILED (failures=1, errors=1)"]
+        self.assertEqual(excuse.unittest_failures(section),
+                         [("test_x (__main__.A.test_x)", ["ValueError: tools/b.py is listed", "- 'tools/b.py'"]),
+                          ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
+
+
 class WsCheckSquashTree(unittest.TestCase):
     """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""
@@ -10974,8 +10971,6 @@ RAW_LOG_READERS = {
     "summary_red": "a gate: only refuses",
     "summary_no_verdict": "a gate: only refuses",
     "generated_no_verdict": "a gate: only refuses",
-    "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
-                             "nothing",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14584,7 +14579,6 @@ SCANNERS = {
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
     "base_red_excuse.summary_no_verdict": lambda f: excuse.summary_no_verdict(f.log),
     "base_red_excuse.generated_no_verdict": lambda f: excuse.generated_no_verdict(f.log),
-    "base_red_excuse.agent_api_unavailable": lambda f: excuse.agent_api_unavailable(f.job, f.log),
     "base_red_excuse.ratchet_red": lambda f: excuse.ratchet_red(f.view),
     "base_red_excuse.crash_signals": lambda f: excuse.crash_signals(f.view),
     "base_red_excuse.refused_at_setup": lambda f: excuse.refused_at_setup(f.job, f.log),
@@ -15229,12 +15223,15 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
     NOT_GUARD_WORKFLOWS = {
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
             "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
+            "billing.yml",
             "backend.yml", "ci.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml", "cmux-next-cua-helper-identity.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
-            "coderouter-ci.yml", "fleet-test-compile.yml", "gallery-advisory.yml", "gallery-health.yml",
+            "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
+            "gallery-health.yml",
             "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-cua-signed-host.yml", "nightly-next-launch-smoke.yml",
             "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",

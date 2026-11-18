@@ -1104,14 +1104,6 @@ GENERATED_NO_VERDICT = re.compile(
 # refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
 # script, which spells the same words).
 SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
-# The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one marker when
-# the Claude CLI's own result showed the API never served it: `agent.api-unavailable {json}`, the result's fields.
-# With zero recorded API usage (duration_api_ms 0 and input_tokens 0) nothing was judged and the red is the shared
-# account's, never the pull request's: gate run 43637095919 (job 132576237860), the account's weekly limit, reddened
-# every app PR. Only that marker, on the agent pass step alone, as the job's only error: failure text that names a
-# rate limit, a marker with API usage, or another red beside it stays the PR's.
-AGENT_PASS_STEP = "Agent reviewer pass"
-AGENT_API_UNAVAILABLE = re.compile(r"^##\[error\]agent\.api-unavailable (\{.*\})$")
 # The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
 # shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
 # match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
@@ -2858,36 +2850,6 @@ def summary_red(log: str) -> str | None:
 def summary_no_verdict(log: str) -> str | None:
     """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
     return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
-
-
-def agent_api_unavailable(job: dict, log: str) -> str | None:
-    """The evidence of an agent pass the API never served (AGENT_API_UNAVAILABLE) with zero recorded API usage, when
-    that marker is the job's only red: its one failed step is the agent pass and its one live error line (beside the
-    runner's exit line) is the marker. Else None."""
-    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
-              if step.get("conclusion") == "failure"]
-    if failed != [AGENT_PASS_STEP]:
-        return None
-    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
-              and not text.startswith("##[error]Process completed with exit code")]
-    if len(errors) != 1 or not (match := AGENT_API_UNAVAILABLE.match(errors[0].rstrip())):
-        return None
-    try:
-        evidence = json.loads(match.group(1).replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(evidence, dict):
-        return None
-    api_ms, tokens = evidence.get("duration_api_ms"), evidence.get("input_tokens")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value != 0 for value in (api_ms, tokens)):
-        return None
-    said = ["duration_api_ms=0", "input_tokens=0"]
-    for key in ("api_error_status", "api_error_type", "api_error", "limit"):
-        if isinstance(evidence.get(key), (str, int)) and not isinstance(evidence.get(key), bool):
-            said.append(f"{key}={evidence[key]}")
-    if isinstance(evidence.get("resets"), str):
-        said.append(f"resets {evidence['resets']}")
-    return ", ".join(said)[:300]
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -6286,6 +6248,15 @@ def ws_check_names_step(described: str, step: str) -> bool:
 
 UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
 UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
+# A unittest failure block's parts, on lines lines_of has stripped: the separator lines that end it, a frame's
+# `File "...", line N` line, and the caret line under a frame's source (Python 3.11+). What is left after the frames is
+# the failure's own text: its exception line and, for an assertEqual, the diff.
+UNITTEST_RULE = re.compile(r"^(?:={70,}|-{70,})$")
+UNITTEST_FRAME = re.compile(r'^File ".*", line \d+')
+UNITTEST_CARETS = re.compile(r"^[\^~ ]+$")
+# The line a traceback ends with (`AssertionError: ...`, `subprocess.CalledProcessError: ...`, `KeyError: 'x'`): never
+# skipped as a frame's source line when Python printed none.
+UNITTEST_RAISED = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Iteration|Failure)\b")
 # A step that crashed (a signal, a fatal interpreter error) is never compared by its test names: a crash after a
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
@@ -6475,7 +6446,8 @@ def ws_check_status(repo: str, sha: str, github) -> dict | None:
 
 
 def ws_check_step(lines: list[str], end: int, step: str) -> dict:
-    """{"tests", "lines"} for red STEP, whose closing line is LINES[END]; Refused when its output cannot be read."""
+    """{"tests", "lines", "failures" ({test: its failure text, unittest_failures'})} for red STEP, whose closing line
+    is LINES[END]; Refused when its output cannot be read."""
     start = next((n for n in range(end - 1, -1, -1) if lines[n] in (f"##[group]{step}", f"::group::{step}")), None)
     if start is None:
         raise Refused(f"no '##[group]{step}' line before its result")
@@ -6505,12 +6477,52 @@ def ws_check_step(lines: list[str], end: int, step: str) -> dict:
     own = {norm(text) for text in section if text.startswith("ws-check: ")}
     if not reds and not section:
         raise Refused(f"'{step}' failed with no failing test and no output to compare")
-    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section})}
+    failures: dict[str, set[str]] = {}
+    for test, body in unittest_failures(section):
+        failures.setdefault(test, set()).update(norm(text) for text in body)
+    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section}),
+            "failures": {test: frozenset(body) for test, body in failures.items()}}
+
+
+def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
+    """(test, its failure text) for each FAIL/ERROR block of a unittest run's SECTION (lines_of's lines, blanks
+    dropped): the block's lines after its traceback's frames, up to the next separator. A lint test that lists its
+    offenders fails with them in this text (its AssertionError and diff), so the base's red of that test is told apart
+    from a head's red of it that lists a new offender (leo-workspace#5683)."""
+    found: list[tuple[str, list[str]]] = []
+    at = 0
+    while at < len(section):
+        match = UNITTEST_RED.match(section[at])
+        at += 1
+        if not match:
+            continue
+        if at < len(section) and UNITTEST_RULE.match(section[at]):  # the dashes under "FAIL: test"
+            at += 1
+        body: list[str] = []
+        frames = False
+        while at < len(section) and not UNITTEST_RULE.match(section[at]) and not UNITTEST_RED.match(section[at]):
+            text = section[at]
+            at += 1
+            if text == "Traceback (most recent call last):":
+                frames = True
+            elif frames and UNITTEST_FRAME.match(text):
+                # Its source line, when Python printed one, and the carets under it.
+                if at < len(section) and not (UNITTEST_FRAME.match(section[at]) or UNITTEST_RAISED.match(section[at])
+                                              or UNITTEST_RULE.match(section[at])):
+                    at += 1
+                while at < len(section) and UNITTEST_CARETS.match(section[at]):
+                    at += 1
+            else:
+                frames = False
+                body.append(text)
+        found.append((match[1], body))
+    return found
 
 
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
-    "steps" ({step: {"tests", "lines"}}), "url" and "at" (the status time); Refused when a failure cannot be read."""
+    "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
+    Refused when a failure cannot be read."""
     status = ws_check_status(repo, sha, github)
     if status is None:
         return "none", {"why": "no ws-check status"}
@@ -6578,7 +6590,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
         if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
-        tests, printed = set(), set()
+        tests, printed, failures = set(), set(), {}
         try:
             for end, unit in ends:
                 red = ws_check_step(lines, end, step + unit)
@@ -6588,10 +6600,18 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
                 tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
                 printed |= red["lines"]
+                for test, body in red["failures"].items():
+                    failures.setdefault(f"[{suite}] {test}" if suite else test, set()).update(body)
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
-        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed),
+                       "failures": {test: frozenset(body) for test, body in failures.items()}}
     return "fail", dict(found, steps=steps)
+
+
+def failure_text(verdict: dict, step: str, test: str) -> frozenset:
+    """TEST's failure text (normalised lines) in STEP of a ws_check_verdict fail VERDICT; empty when none was read."""
+    return verdict["steps"].get(step, {}).get("failures", {}).get(test, frozenset())
 
 
 def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
@@ -6697,7 +6717,17 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
-        return step in verdict["steps"] and item in verdict["steps"][step]["tests" if kind == "test" else "lines"]
+        if step not in verdict["steps"]:
+            return False
+        red = verdict["steps"][step]
+        if kind != "test":
+            return item in red["lines"]
+        # A failing test is the base's red only when it fails there the same way: every line of its failure text
+        # (normalised: numbers masked, file names kept) is in the base's failure of that test. 2026-11-17:
+        # leo-workspace#5683 at 16b96c09 merged with its test_text_io_encoding.py red excused by name, main d240eaab
+        # failing that test too, though the head's failure listed a new offender (tools/test_merge_hold.py) main's
+        # did not.
+        return item in red["tests"] and failure_text(head, step, item) <= failure_text(verdict, step, item)
 
     if tip_kind == "pass":
         header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
@@ -6786,9 +6816,22 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             else:
-                missing.append(f"'{step} :: {test}'")
-                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
-                             f"{mb_note()}; this head's own red")
+                # Red by name on a base verdict, but failing another way there: the failure lines none of those
+                # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
+                named = [verdict for _, verdict in window + at_merge_base
+                         if test in verdict["steps"].get(step, {}).get("tests", ())]
+                new = sorted(line for line in failure_text(head, step, test)
+                             if not any(line in failure_text(verdict, step, test) for verdict in named))
+                if named and new:
+                    missing.append(f"'{step} :: {test}' failure '{new[0][:200]}'")
+                    shown = "".join(f", then '{line[:200]}'" for line in new[1:3])
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': red on {tested}{older()}"
+                                 f"{mb_note()} too, but failing another way there: {len(new)} line(s) of its failure "
+                                 f"are not in that red's, first '{new[0][:200]}'{shown}; this head's own red")
+                else:
+                    missing.append(f"'{step} :: {test}'")
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
+                                 f"{mb_note()}; this head's own red")
         unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
         label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
         if unmatched:
@@ -7401,9 +7444,6 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
-    if (said := agent_api_unavailable(job, head_log)) is not None:
-        return Head(f"excused '{name}': not this PR (agent API unavailable): the agent pass's CLI result showed {said} "
-                    f"(job {job.get('id')}); nothing was judged, so rerun it once the account recovers")
     if (said := summary_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                       "neither a pass nor this PR's own red; re-run it")
