@@ -89,8 +89,6 @@ extension PageWebView {
         guard loaded else { return reloadAfterCrashes() }
         rendererRestartPending = true
         if let chromiumPage {
-            // At once, not through the bridge's navigate (which waits on the renderer to turn the
-            // Runtime domain on): the new document gets the binding with its commit.
             chromiumPage.restartRenderer()
             return
         }

@@ -112,7 +112,7 @@ extension PageWebView {
     func loadDocument(_ url: URL) {
         if let chromiumSession {
             chromiumSession.questionKeys?.invalidate()
-            navigateChromium(chromiumSession) { $0.load(url) }
+            chromiumSession.page.load(url)
         } else {
             // The host loaded a document itself: the crash notice's pending WebKit load is moot.
             webKitLoadsOnReload = false
@@ -123,18 +123,7 @@ extension PageWebView {
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
         chromiumSession?.questionKeys?.invalidate()
-        if let chromiumSession { navigateChromium(chromiumSession) { $0.reload() } } else { webView.reload() }
-    }
-
-    /// Starts a navigation of the Chromium page (`navigate` loads or reloads it) through the bridge,
-    /// which turns the Runtime domain on first (``ChromiumPageHostBridge/navigate(_:)``):
-    /// the new document gets the page host binding when it is made. A session that ended meanwhile
-    /// does not navigate.
-    func navigateChromium(_ session: PageChromiumSession, _ navigate: @escaping (any PageChromiumPage) -> Void) {
-        session.bridge.navigate { [weak self, weak session] in
-            guard let self, let session, self.chromiumSession === session else { return }
-            navigate(session.page)
-        }
+        if let chromiumSession { chromiumSession.page.reload() } else { webView.reload() }
     }
 
     // MARK: Start
@@ -205,7 +194,10 @@ extension PageWebView {
         page.resources = { [weak self] url, range in await self?.chromiumResource(url, range: range) ?? .notFound }
         page.readyResources = { [weak self] url in self?.readyChromiumResource(url) }
         do {
-            try await bridge.setUp(documentScripts: scripts.sources)
+            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
+                                                                       documentScripts: scripts.sources) {
+                _ = try await page.devTools(method, params: params)
+            }
             if descriptor.isAgentPage {
                 let descriptor = descriptor
                 let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
@@ -249,7 +241,6 @@ extension PageWebView {
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.navigationStart)
         #endif
-        // The setup left the Runtime domain on: the first document gets the binding when it is made.
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
@@ -318,26 +309,21 @@ extension PageWebView {
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
         case .committed(let url):
-            // The Runtime domain is off between navigations, so no context event tells the channel
-            // its world went with the old document: the commit does.
-            chromiumSession.questionKeys?.documentReplaced()
+            chromiumSession.questionKeys?.invalidate()
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
                 // A navigation the click script did not catch (a script set `location`): the page
                 // comes back, and the URL opens where a link would.
                 openOutside(url, modifiers: [])
-                let back = descriptor.url(route: route)
-                navigateChromium(chromiumSession) { $0.load(back) }
+                chromiumSession.page.load(descriptor.url(route: route))
                 return
             }
-            // The Runtime domain off before the document's scripts run, and the binding again.
-            chromiumSession.bridge.documentCommitted()
+            chromiumSession.bridge.rebind()
             documentCommitted()
             chromiumSession.bridge.evaluate(chromiumZoomScript)
         case .finished:
             documentFinished()
         case .crashed:
-            chromiumSession.bridge.rendererEnded()
             chromiumSession.questionKeys?.invalidate()
             lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
@@ -385,7 +371,7 @@ extension PageWebView {
             if object["control"] as? Bool == true { modifiers.insert(.control) }
             noteTouch()
             switch PageNavigation.policy(for: url, page: descriptor, userClicked: true, mainFrame: true, hook: onNavigate) {
-            case .allow: if let chromiumSession { navigateChromium(chromiumSession) { $0.load(url) } }
+            case .allow: chromiumSession?.page.load(url)
             case .openExternal: openOutside(url, modifiers: modifiers)
             case .cancel: break
             }
