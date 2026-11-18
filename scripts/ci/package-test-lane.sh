@@ -15,6 +15,16 @@
 #   prebuild-one PACKAGE LOG
 #             build PACKAGE and its tests into LOG; the packages phase runs
 #             several of these at once before its serial test pass.
+#   probe-host  print this Mac's iOS simulator host readiness and exit, changing
+#             nothing (simctl may start CoreSimulatorService): one `probe-host
+#             KEY=VALUE` line each for host, os, ram_gib, work_volume_free_gib and
+#             work_volume_total_gib (the step's checkout volume), xcode_apps,
+#             xcode_select, developer_dir, xcodebuild, runtime_builds and simslim,
+#             then `xcrun simctl runtime list`. hq's ios-simulators role records the
+#             runtime builds it shows (mini-fleet.json ios_simulator_observed)
+#             for minis an operator cannot reach over SSH:
+#               cmux-ci run --class light --script scripts/ci/package-test-lane.sh \
+#                 --ref SHA --arg probe-host --target-worker HOST --pin-strict
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
 #   suite PACKAGE_DIR FILTER[,FILTER...] [FILTER[,FILTER...]...]
@@ -57,6 +67,45 @@
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
 set -euo pipefail
+
+# probe-host (see the usage above): read-only, so it runs before any setup and
+# never fails on a missing tool; each line is `probe-host KEY=VALUE`.
+if [ "${1:-}" = probe-host ]; then
+  probe() { printf 'probe-host %s=%s\n' "$1" "$2"; }
+  have() { command -v "$1" >/dev/null 2>&1; }
+  probe host "$(hostname -s 2>/dev/null || hostname)"
+  probe os "$(sw_vers -productVersion 2>/dev/null || uname -sr)"
+  if have sysctl && mem=$(sysctl -n hw.memsize 2>/dev/null); then
+    probe ram_gib "$(( mem / 1073741824 ))"
+  elif [ -r /proc/meminfo ]; then
+    probe ram_gib "$(awk '/^MemTotal:/ {printf "%d", $2 / 1048576}' /proc/meminfo)"
+  else
+    probe ram_gib unknown
+  fi
+  probe work_volume_free_gib "$(df -Pk . 2>/dev/null | awk 'NR == 2 {printf "%d", $4 / 1048576}')"
+  probe work_volume_total_gib "$(df -Pk . 2>/dev/null | awk 'NR == 2 {printf "%d", $2 / 1048576}')"
+  probe xcode_apps "$(cd /Applications 2>/dev/null && ls -d Xcode*.app 2>/dev/null | tr '\n' ' ' || true)"
+  probe xcode_select "$(xcode-select -p 2>/dev/null || echo none)"
+  probe developer_dir "${DEVELOPER_DIR:-unset}"
+  # Capture, then flatten: a tool that prints and then fails keeps one line.
+  first_line() { local v; v=$("$@" 2>/dev/null) && [ -n "$v" ] && printf '%s' "$v" | tr '\n' ' ' || printf unreadable; }
+  if have xcodebuild; then probe xcodebuild "$(first_line xcodebuild -version)"; else probe xcodebuild none; fi
+  if have xcrun && json=$(xcrun simctl list -j runtimes 2>/dev/null); then
+    probe runtime_builds "$(printf '%s' "$json" | python3 -c 'import json, sys
+print(" ".join(r["buildversion"] + ("" if r.get("isAvailable") else "(unavailable)") for r in json.load(sys.stdin).get("runtimes", [])))' 2>/dev/null || echo unreadable)"
+    echo "probe-host simctl runtime list:"
+    xcrun simctl runtime list 2>&1 | sed 's/^/  /' || true
+  else
+    probe runtime_builds none
+  fi
+  simslim=/Users/Shared/cmux-build-fleet/tools/bin/simslim
+  if [ -x "$simslim" ]; then
+    probe simslim "$(first_line "$simslim" --version)"
+  else
+    probe simslim missing
+  fi
+  exit 0
+fi
 
 phase=run
 case "${1:-}" in
