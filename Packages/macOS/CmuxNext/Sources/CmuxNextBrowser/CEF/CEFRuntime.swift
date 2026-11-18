@@ -219,8 +219,10 @@ final class CEFRuntime {
         if let storage { self.storage = storage }
     }
 
-    /// The disk work `CefInitialize` needs done first, read off the main thread from the moment a launch
-    /// predicts Chromium (``preload(layout:)``) or a page asks, so the main thread's start does none of it:
+    /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
+    /// committed (``initializeAfter``; at once when no gate is set), so the main thread's start does none of it
+    /// and nothing of it competes with the window's build: a profiled A/B with this prep running during the build
+    /// put the first frame 17 ms later. ``start(layout:environment:trigger:)`` awaits it before `CefInitialize`:
     /// the profile root exists, the last run's log is kept (``CEFProfileStorage/prepareForLaunch()``), and the
     /// person's own uBlock Origin is looked up (``CEFBuiltInExtensions/personAdBlocker(profiles:fileManager:)``
     /// reads and parses each profile's preference files). The value is that lookup. Once per runtime.
@@ -229,7 +231,9 @@ final class CEFRuntime {
     func beginLaunchPrep() -> Task<Int?, Never> {
         if let launchPrepTask { return launchPrepTask }
         let storage = storage
-        let task = Task.detached(priority: .userInitiated) { () -> Int? in
+        let gate = initializeAfter
+        let task = Task.detached(priority: .utility) { () -> Int? in
+            _ = await CEFRuntime.waitForInitializeGate(gate)
             storage.prepareForLaunch()
             return CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
         }
@@ -394,9 +398,8 @@ final class CEFRuntime {
         preloaded = true
         let task = newLoadTask(candidate, priority: .utility)
         loadTask = task
-        // The reads before CefInitialize (keychain item, profile root, the person's ad blocker) run off the main
-        // thread now, while the first window builds, not after the frame (CMUX-571).
-        _ = keychainTask ?? beginKeychainStep(environment: ProcessInfo.processInfo.environment)
+        // The reads before CefInitialize (profile root, the kept log, the person's ad blocker) start when the first
+        // frame commits, off the main thread, before any page's start needs them (CMUX-571).
         beginLaunchPrep()
         Task { [weak self] in
             _ = await task.value
