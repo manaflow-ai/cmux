@@ -3842,3 +3842,16 @@ jobs on the std minis' nightly slot, which no other PR job asks for, so it skips
 (side_lane_placement.STACK_SLOT; glaeda's runner hook admits it there and ranks it right after nightly jobs). Attempt
 1 only: a rescue re-run is placed as before. The label is read from the run's own payload, so adding it takes effect
 on the PR's next push.
+
+## note-409
+
+Above `fast-tier-cargo: Key the libghostty-vt Zig build` in `.github/workflows/cmux-next.yml`.
+
+rust-cache never keeps a workspace crate, so ghostty-vt-sys's build.rs runs `zig build` of
+libghostty-vt on every run (about 100 s, on the critical path before cmux-tui-core), and the fetch
+step before it unpacks and hashes all 37 package archives into ghostty-next/zig-pkg/ (about 62 s),
+both from nothing on a fresh runner. This cache keeps the unpacked packages and Zig's local and
+global build caches (not p/ or tmp/, which the Zig packages action owns), keyed by the ghostty-next
+gitlink, the Zig version and ghostty-vt-sys's build script. Zig checks every input of its own cache,
+so a restored entry can only be skipped, never used stale. Exact key only, saved by a
+feat-cmux-next push as the cargo cache is (note-210): a gitlink bump runs cold once.

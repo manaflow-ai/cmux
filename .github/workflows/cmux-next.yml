@@ -3768,6 +3768,25 @@ jobs:
           shared-key: cmux-next-fast-tier-cargo
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-409
+      - name: Key the libghostty-vt Zig build
+        id: zig-build-key
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        run: echo "key=ghostty-vt-zig-build-v1-$RUNNER_OS-$RUNNER_ARCH-zig$("${CMUX_ZIG:-zig}" version)-$(git rev-parse HEAD:ghostty-next)-${{ hashFiles('cmux-tui/crates/ghostty-vt-sys/build.rs', 'cmux-tui/build-support/**') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the libghostty-vt Zig build
+        id: zig-build-cache
+        if: ${{ steps.zig-build-key.outputs.key != '' }}
+        uses: ./.github/actions/cache-restore
+        with:
+          path: |
+            ghostty-next/zig-pkg
+            ghostty-next/.zig-cache
+            ~/.cache/zig
+            !~/.cache/zig/p
+            !~/.cache/zig/tmp
+          key: ${{ steps.zig-build-key.outputs.key }}
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-211
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
@@ -3778,6 +3797,19 @@ jobs:
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+
+      - name: Save the libghostty-vt Zig build
+        if: ${{ success() && steps.zig-build-key.outputs.key != '' && steps.zig-build-cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        with:
+          path: |
+            ghostty-next/zig-pkg
+            ghostty-next/.zig-cache
+            ~/.cache/zig
+            !~/.cache/zig/p
+            !~/.cache/zig/tmp
+          key: ${{ steps.zig-build-key.outputs.key }}
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
