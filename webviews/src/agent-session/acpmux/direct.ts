@@ -14928,7 +14928,7 @@ export class AcpmuxDirectClient {
   }
   /// What the person asked in chats on this machine, for History > Your asks (`_acpmux/asks`,
   /// asks/asksModel.ts): read from acpmux's Ask ledger index. An older acpmux answers method not found.
-  async asks(params: Record<string, unknown>): Promise<unknown> {
+  async askLedger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/asks", params, 15_000);
   }
   /// The team's agent spend for History > Team (`_acpmux/team_audit`, teamAudit/teamAuditModel.ts):

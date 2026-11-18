@@ -47,7 +47,7 @@ test("History's Your asks reads through the pane and opens chats and pull reques
     reviewQueue: async () => ({}),
     reviewVerdict: async () => ({}),
     audit: async () => ({}),
-    asks: async (params: Record<string, unknown>) => {
+    askLedger: async (params: Record<string, unknown>) => {
       calls.push(params);
       return { asks: [] };
     },
@@ -69,7 +69,7 @@ test("History's Your asks reads through the pane and opens chats and pull reques
   pages.yourAsks.openUrl("https://github.com/a/b/pull/3");
   expect(native).toEqual([["tab.open", { kind: "browser", text: "https://github.com/a/b/pull/3" }]]);
 
-  const { asks: _asks, ...withoutAsks } = client;
+  const { askLedger: _askLedger, ...withoutAsks } = client;
   const older = historyPages({
     client: () => withoutAsks,
     callNative: async <T>() => undefined as T,

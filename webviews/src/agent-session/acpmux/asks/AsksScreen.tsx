@@ -75,14 +75,14 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
   return (
     <div className="ask" data-loading={state.phase === "loading" || undefined}>
       {status && (
-        <div className="ask-status" role="status">
+        <output className="ask-status">
           {status}
           {state.phase === "failed" && (
             <button type="button" className="ask-link" onClick={read}>
               {t("ledger.retry")}
             </button>
           )}
-        </div>
+        </output>
       )}
       {asks.length > 0 && (
         <ul className="ask-rows" aria-label={t("asks.title")}>
