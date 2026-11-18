@@ -2053,17 +2053,18 @@ const OTHER_CHATS_DRAW_MS = 500;
 /// How long after the person's last wheel tick or scroll other chats' changes still wait.
 const SCROLL_QUIET_MS = 150;
 
-/// When the person last scrolled anything in this page (a wheel tick or a scroll), from one passive
-/// capture listener per page, added the first time a client asks.
-let scrolledAt = Number.NEGATIVE_INFINITY;
-let scrollWatched = false;
+/// When the person last scrolled anything in this page (a wheel tick or a scroll), on the monotonic
+/// clock, from one passive capture listener per window, added the first time a client asks.
+const scrolledAt = new WeakMap<Window, number>();
 function lastScrollAt(): number {
-  if (!scrollWatched && typeof window !== "undefined") {
-    scrollWatched = true;
-    const note = () => (scrolledAt = Date.now());
-    for (const type of ["wheel", "scroll"]) window.addEventListener(type, note, { capture: true, passive: true });
-  }
-  return scrolledAt;
+  if (typeof window === "undefined") return Number.NEGATIVE_INFINITY;
+  const win = window;
+  const at = scrolledAt.get(win);
+  if (at !== undefined) return at;
+  scrolledAt.set(win, Number.NEGATIVE_INFINITY);
+  const note = () => scrolledAt.set(win, performance.now());
+  for (const type of ["wheel", "scroll"]) win.addEventListener(type, note, { capture: true, passive: true });
+  return Number.NEGATIVE_INFINITY;
 }
 
 /// What hidden pages left for their first frame once shown: a client's snapshot and deferred
@@ -8064,7 +8065,7 @@ export class AcpmuxDirectClient {
       createdAt: session.createdAt,
       peer: session.peer,
     });
-    if (added) this.recheckSenders([session]);
+    const rebuilt = added && this.recheckSenders([session]);
     // A chat read ahead ran on: read it again once the list settles (``readAhead`` throttles it).
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
@@ -8122,14 +8123,17 @@ export class AcpmuxDirectClient {
       return;
     }
     // A shown chat draws other chats' changes at most every OTHER_CHATS_DRAW_MS and never while the
-    // person scrolls (`drawOtherChats`). The chats it starts or offers and the one it waits to reopen
-    // still draw in the next frame; a New Tab page, whose list is what it shows, too.
+    // person scrolls (`drawOtherChats`). The chats it started or offers (whose counts and cards it
+    // draws, experiment or not: App.tsx `spawnedSessions`), the one it waits to reopen and a change
+    // that rebuilt its own rows (a sender listed) still draw in the next frame; a New Tab page, whose
+    // list is what it shows, too.
     if (
+      !rebuilt &&
       this.selectedSessionId !== undefined &&
       session.sessionId !== this.selectedSessionId &&
       session.sessionId !== this.missingSession &&
-      !this.offerChildIds().includes(session.sessionId) &&
-      !this.isStartedChild(session)
+      session.spawnedBy !== this.selectedSessionId &&
+      !this.offerChildIds().includes(session.sessionId)
     )
       return this.drawOtherChats();
     this.emitInFrame("session changed");
@@ -8147,7 +8151,7 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = true;
       return;
     }
-    const now = Date.now();
+    const now = performance.now();
     const wait = Math.max(this.otherChatsDrawnAt + OTHER_CHATS_DRAW_MS - now, lastScrollAt() + SCROLL_QUIET_MS - now);
     if (wait <= 0) {
       this.otherChatsDrawnAt = now;
@@ -8648,9 +8652,10 @@ export class AcpmuxDirectClient {
   /// named before it was listed, the rows are read again, so that prompt draws as its message. The
   /// queue keeps its live order and text; a prompt waiting in it whose `queued` record still holds
   /// that text is read again too, unless the person edited it since (an edit makes it theirs).
-  private recheckSenders(added: readonly Session[]): void {
-    if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
-    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
+  /// True when it rebuilt the chat's own rows (a sender it did not know is listed now).
+  private recheckSenders(added: readonly Session[]): boolean {
+    if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return false;
+    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return false;
     this.rebuildKeepingLiveState();
     const queued = new Map<string, any>();
     for (const event of [...this.events].sort((a, b) => a.seq - b.seq)) {
@@ -8680,6 +8685,7 @@ export class AcpmuxDirectClient {
           )
         : entry;
     });
+    return true;
   }
 
   /// The selected chat's own agent session (its harness thread), from its summary or its listing:
