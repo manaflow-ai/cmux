@@ -256,6 +256,40 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(planned["needs_build"])
         self.assertIn("Rust the app links (FFI), in the commits the app lacks", planned["build"])
 
+    def test_a_repin_the_app_lacks_puts_the_fork_s_release_in_first(self):
+        # 2026-11-17: 7 of the 8 Rust looks that failed planned `rust` here, then ended `hot-apply.py apply --parts
+        # rust exited 3`: the NIGHTLY pinned an older app FFI release than the fork, and no FFI source changed in
+        # the commits between, so the plan saw nothing while hot-apply held the daemon back for the repin.
+        self.fx.base = self.fx.commit({hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)}, "pin",
+                                      parent=self.fx.base)
+        tip = self.advance_base({hv.FFI_PIN_FILE: self.PIN % ("b" * 40, "1" * 64)})
+        head = self.fx.commit({"cmux-tui/crates/cmux-tui/src/main.rs": "fn main() { println!(\"mine\"); }\n"},
+                              "change", parent=tip)
+        h = hv.hot()
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=[]):
+            planned = self.plan(head)
+        self.assertEqual(planned["layers"], ["rust"])
+        self.assertFalse(planned["needs_build"], planned["build"])
+        self.assertEqual(planned["ffi_baseline"]["source"], "b" * 40)
+        self.assertEqual(planned["ffi_baseline"]["app_pin_source"], "a" * 40)
+        with unittest.mock.patch.object(h.ffi_part, "additive", return_value=["drops ffi_old()"]):
+            planned = self.plan(head)
+        self.assertTrue(planned["needs_build"])
+        self.assertEqual(planned["build"]["Rust the app links (FFI), in the commits the app lacks"], [hv.FFI_PIN_FILE])
+        self.assertNotIn("ffi_baseline", planned)
+        self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
+
+    def test_a_checkout_without_the_xcode_project_reads_the_rules_root(self):
+        # The 2026-11-18 swap-vs-dev-build sample planned from such a checkout: with no project file every cmux-tui
+        # path read as a bundled helper's input, and 28-36% of PR heads "needed a build" (2-5% with the project).
+        tree = Path(self.tmp.name) / "sparse"
+        (tree / "cmux-tui").mkdir(parents=True)
+        (tree / "cmux-tui/Cargo.toml").write_text("[workspace]\n")
+        self.assertTrue(hv.needs_rules_root(tree))
+        (tree / "cmux.xcodeproj").mkdir()
+        (tree / "cmux.xcodeproj/project.pbxproj").write_text("// project\n")
+        self.assertEqual(hv.needs_rules_root(tree), not (hv.ROOT / hv.ROUTE).is_file())
+
     def test_a_daemon_change_after_resource_drift_swaps_the_daemon(self):
         # The fleet's looks on cmux#43653 and cmux#43683 crashed here ("module 'hot_apply' has no attribute
         # 'NATIVE_IN_TUI'", removed by #43797): a resource, manifest or non-live Swift file in the commits the app
