@@ -17,15 +17,19 @@ for (const entry of catalog.icons) {
   if (!("alias" in entry && entry.alias === false) && !aliases.has(entry.sf)) aliases.set(entry.sf, entry.name);
 }
 
+/// An action's SF Symbol as a row icon. A symbol the cmux pack draws (an override or the pack icon
+/// for that symbol) is the pack's own SVG, the same art and padding as the rows' other icons; the
+/// host's image of it (drawn edge to edge) read bigger beside them (Lucas 2026-11-18: two search
+/// icons, two sizes). Only a symbol the pack lacks asks the host for its image.
 export function CommandGlyph({ symbol = "command" }: { symbol?: string }) {
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
   const revision = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolHostSnapshot, harnessSymbolHostSnapshot);
-  const override = overrides.get(symbol);
+  const pack = overrides.get(symbol) ?? aliases.get(symbol);
   useEffect(() => {
-    if (!override) loadHarnessSymbol(symbol);
-  }, [symbol, override, revision]);
+    if (!pack) loadHarnessSymbol(symbol);
+  }, [symbol, pack, revision]);
   const src = symbols.get(symbol);
-  if (!override && src)
+  if (!pack && src)
     return <span className="nt-command-symbol" data-symbol={symbol} style={{ maskImage: `url("${src}")` }} />;
-  return <Icon name={override ?? aliases.get(symbol) ?? "composer.command"} size={14} />;
+  return <Icon name={pack ?? "composer.command"} size={14} />;
 }
