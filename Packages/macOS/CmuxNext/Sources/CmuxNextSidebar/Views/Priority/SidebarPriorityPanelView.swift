@@ -42,7 +42,6 @@ final class SidebarPriorityPanelView: NSView {
     var places: [String: Int] = [:]
     /// `tops` and `places` at the last placement: a chat that ranks into view slides in from where it was.
     private var placed: (tops: [CGFloat], places: [String: Int]) = ([0], [:])
-    /// The panel's row work, for the count tests (`SidebarPriorityRenderCountTests`).
     let listWork = ListWorkMeter()
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     let ticker = DemandTimer(owner: "sidebar-priority-minute")
@@ -101,9 +100,7 @@ final class SidebarPriorityPanelView: NSView {
 
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel, oldTops = tops
-        self.panel = panel
-        // The App hands the whole ranked list: comparing it with the last one reads every chat (`VisibleRowsBaseline`).
-        listWork.walked(panel.entries.count)
+        self.panel = panel; listWork.walked(panel.entries.count) // the compares below read every chat (`VisibleRowsBaseline`)
         // Hiding invalidates even a press below the drag threshold: its release may never reach
         // the hidden row. A re-rank, a fold or a height change also invalidates the press's slot.
         if old.shown != panel.shown || old.collapsed != panel.collapsed || oldTops != tops
