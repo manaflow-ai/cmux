@@ -7,7 +7,8 @@ settings, a chat stylesheet, and optional views and extensions. People install i
 cmux setup install github.com/OWNER/REPO
 ```
 
-This page is the process, start to finish, for anyone: copy the template, check it, take the
+Every `cmux setup` command (install, update, remove, export, check) is in
+[setup-repos.md](setup-repos.md). This page is the process, start to finish, for anyone: copy the template, check it, take the
 gallery pictures, cut a release, get it listed, and keep it working as cmux changes. The formats
 themselves are documented where they live; this page links to them at the step that needs them.
 
