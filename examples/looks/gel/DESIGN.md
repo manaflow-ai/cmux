@@ -89,7 +89,22 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
 | The custom hover card on first hover | none | A workspace's hover card opens collapsed (its tabs only); the `cmux.hovercard/1` card draws after Show details | hover a row, then Show details |
 
 **Gel needs the goo.** It is designed with `flush-goo` on: set Debug Settings > Corner flush >
-"Flush, goo" once. Everything else installs with the setup.
+"Flush, goo" once. Everything else installs with the setup. Once `appearance.cornerFlush` is a
+setting (#46367), the setup carries `"appearance.cornerFlush": "flush-goo"` and this step goes away.
+
+**Open: the goo against an opaque chat.** The folder tab, and its fillets, paint what the window
+paints: clear over a see-through window, so the tab shows the same glass as the content below it.
+Gel's window is glass (`appearance.backgroundOpacity: 0.88`) but its chat is opaque
+(`appearance.surfaces.agentPane.opacity: 1`), so on a chat tab the tab shows glass while the card
+under it is the opaque tone, and the tab reads as a separate pill with no visible fillets (first
+capture, 2026-11-18). Two ways to close it, each giving up something this design chose:
+
+- the whole window opaque (`appearance.backgroundOpacity: 1`): tab and card match and the goo
+  shows, but the sidebar loses its glass;
+- the chat on the window's glass (drop `agentPane.opacity`): the goo shows, but the chat is no
+  longer the opaque reading surface its contrast numbers assume.
+
+To be decided from real captures of both.
 
 ## Contrast
 
