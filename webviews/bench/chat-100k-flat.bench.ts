@@ -1695,6 +1695,26 @@ try {
             top: [...byPath].sort((a, b) => b[1] - a[1]).slice(0, 12),
             observed,
             deps: JSON.parse(JSON.stringify(w.__deps, (key, value) => (key === "last" ? undefined : value))) as unknown,
+            heavy: [...document.querySelectorAll<HTMLElement>(".acpmux-row")]
+              .map((row) => ({
+                id: row.dataset.rowId ?? "-",
+                kind: row.dataset.kind ?? row.className.split(/\s+/).slice(0, 3).join("."),
+                elements: row.getElementsByTagName("*").length,
+                cards: row.querySelectorAll(".cv-agentcall").length,
+                height: Math.round(row.getBoundingClientRect().height),
+                top: Math.round(row.getBoundingClientRect().top),
+              }))
+              .sort((a, b) => b.elements - a.elements)
+              .slice(0, 8),
+            outside: [...document.querySelectorAll<HTMLElement>(".cv-agentcall")]
+              .filter((card) => !card.closest(".acpmux-row"))
+              .map((card) => {
+                const parts: string[] = [];
+                for (let at: Element | null = card; at && parts.length < 8; at = at.parentElement)
+                  parts.push(at.tagName.toLowerCase() + "." + (at.className || "").toString().split(/\s+/)[0]);
+                return parts.join(" < ");
+              })
+              .slice(0, 3),
           };
         });
         console.log(
@@ -1705,6 +1725,8 @@ try {
         for (const o of report.observed.filter((o) => o.hits && o.subtree < report.elements - 100))
           console.log(`    observer on ${o.target} (${o.subtree} elements; ${o.options}): ${o.hits} of the mutations`);
         console.log(`    deps changed: ${JSON.stringify(report.deps)}`);
+        for (const row of report.heavy) console.log(`    heavy row ${JSON.stringify(row)}`);
+        for (const path of report.outside) console.log(`    card outside rows: ${path}`);
       }
     };
 
