@@ -9,7 +9,6 @@ const pump = createDocumentPump<ChatRowsBatch, NonNullable<ReturnType<typeof par
   frameKey: "chat-rows",
   globalKey: "cmuxChatRows",
   parse: (value) => (typeof value === "string" ? parseChange(value) : null),
-  makePart: () => new StorePart(),
   route: (change, hosts, parts) => {
     const sid = changeSid(change);
     if (sid === null) return;

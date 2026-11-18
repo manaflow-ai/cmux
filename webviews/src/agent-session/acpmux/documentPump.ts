@@ -6,7 +6,6 @@ export type DocumentPumpOptions<Batch, Change, Host, Part> = {
   frameKey: string;
   globalKey: string;
   parse(value: unknown): Change | null;
-  makePart(): Part;
   route(change: Change, hosts: ReadonlySet<Host>, parts: Map<Host, Part>): void;
   commit(host: Host, part: Part): void;
   take(post: DocumentPumpPost | undefined, batch: Batch): void;
@@ -59,6 +58,10 @@ export function createDocumentPump<Batch, Change, Host, Part>(options: DocumentP
     lanes.frame(options.frameKey, (slice) => drain(lanes, slice, 0));
   }
 
+  // perf-hot: 4ms chat-rows-frame-apply
+  // The drain owns frame pacing and yields before applying more input. Receivers must commit
+  // their parts before answering `taken`, so the daemon never advances past a batch the document
+  // has not applied. A malformed line is skipped and still taken by the same contract.
   function drain(lanes: Lanes, slice: Slice, applied: number): void | Promise<void> {
     for (;;) {
       if (!current) {

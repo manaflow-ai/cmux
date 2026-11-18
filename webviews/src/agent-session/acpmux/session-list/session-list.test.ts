@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createLanes, type Lanes, type LanesEnv } from "../schedule";
 import { SessionListHost } from "./host";
 import { listenForSessionList, receiveSessionList, resetSessionListReceiver } from "./receiver";
-import { LIST_MAX_QUESTIONS, SessionListStore } from "./store";
+import { LIST_MAX_QUESTIONS, SessionListStore, type SessionListBatch } from "./store";
 
 type Call = { method: string; params: Record<string, unknown> };
 
@@ -144,7 +144,7 @@ test("malformed and unknown changes never prevent one taken", async () => {
   expect(calls.filter((call) => call.method === "list.taken").map((call) => call.params.batch)).toEqual([2]);
 });
 
-test("a serialized driver batch is applied once by the document store", async () => {
+test("the checked-in ListBatch bytes are applied once by the document store", async () => {
   const clock = engine();
   const lanes = clock.lanes();
   lanesMade.push(lanes);
@@ -155,17 +155,23 @@ test("a serialized driver batch is applied once by the document store", async ()
       return method === "list.open" ? { sid: params.sid } : {};
     },
     new SessionListStore(),
-    () => "s.serialized",
+    () => "fixture-sid",
   );
   await host.open();
-  const snapshots: string[][] = [];
-  host.store.subscribe("s.serialized", (snapshot) =>
-    snapshots.push(snapshot.slots.get("all")?.map((item) => item.sessionId) ?? []),
-  );
-  const batch = JSON.stringify({ batch: 8, changes: [rowsChange("s.serialized", ["driver-row"])] });
-  receiveSessionList(JSON.parse(batch), lanes);
+  host.store.questionAsked("fixture-sid", "q-older", "older");
+  host.store.questionAsked("fixture-sid", "q-family", "family");
+  const fixture = JSON.parse(
+    await Bun.file(new URL("./fixtures/v2-session-list-batch.bin", import.meta.url)).text(),
+  ) as SessionListBatch;
+  receiveSessionList(fixture, lanes);
   await clock.frame();
-  expect(snapshots).toEqual([["driver-row"]]);
+  const snapshot = host.store.snapshot("fixture-sid")!;
+  expect(snapshot.slots.get("all")?.map((item) => item.chatId)).toEqual(["chat-b", "chat-old"]);
+  expect(snapshot.slots.get("live")?.map((item) => item.chatId)).toEqual(["chat-live"]);
+  expect(snapshot.questions.get("q-older")?.rows).toEqual([]);
+  expect(snapshot.questions.get("q-family")?.deeper).toEqual([{ origin: "local", chatId: "chat-child" }]);
+  expect(snapshot.off).toBe("lost");
+  expect(snapshot.error).toBe("list.protocol");
   expect(calls.filter((call) => call.method === "list.taken")).toHaveLength(1);
 });
 
@@ -189,7 +195,7 @@ test("question ids are opaque and a page event may beat its operation reply", as
   await host.open();
   const seen: string[] = [];
   host.store.subscribe("local.1", (snapshot) => seen.push([...snapshot.questions.keys()][0] ?? ""));
-  const page = host.page("local.1", { key: { origin: "local", chatId: "head" } }, "family");
+  const page = host.page("local.1", { kind: "family", key: { origin: "local", chatId: "head" } });
   await clock.frame();
   expect(seen).toEqual([]);
   answer!({ id: "q1" });
@@ -222,7 +228,7 @@ test("on clears a lost state and closes one question without closing its sid", a
     () => "s.on",
   );
   await host.open();
-  const id = (await host.page("s.on", {}, "family")) as string;
+  const id = (await host.page("s.on", { kind: "family" })) as string;
   host.store.apply({ kind: "off", sid: "s.on", code: "lost" });
   host.store.commit("s.on");
   expect(host.store.snapshot("s.on")?.off).toBe("lost");
@@ -243,5 +249,5 @@ test("page refuses unknown caller fields before posting wire-shaped data", async
     () => "s.request",
   );
   await host.open();
-  expect(await host.page("s.request", { cursor: "wire" }, "family")).toEqual({ ok: false, code: "list.request" });
+  expect(await host.page("s.request", { kind: "family", cursor: "wire" })).toEqual({ ok: false, code: "list.request" });
 });

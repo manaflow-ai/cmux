@@ -8,7 +8,6 @@ const pump = createDocumentPump<SessionListBatch, SessionListChange, SessionList
   frameKey: "session-list",
   globalKey: "cmuxSessionList",
   parse: parseSessionListChange,
-  makePart: () => new Set<string>(),
   route: (change, hosts, parts) => {
     const stores = new Set<SessionListHost["store"]>();
     for (const host of hosts) {
@@ -33,10 +32,9 @@ const visibilityHosts = new Set<SessionListHost>();
 let stopVisibility: (() => void) | undefined;
 
 export function addSessionListHost(host: SessionListHost, post: SessionListPost): void {
-  const first = visibilityHosts.size === 0;
   pump.add(host, post);
   visibilityHosts.add(host);
-  if (first && typeof document !== "undefined" && document.hidden) void host.visible(false);
+  if (stopVisibility && typeof document !== "undefined") void host.visible(!document.hidden);
 }
 
 export function removeSessionListHost(host: SessionListHost): void {
@@ -52,6 +50,7 @@ export function listenForSessionList(lanes?: Lanes): void {
   };
   document.addEventListener("visibilitychange", onVisibility);
   stopVisibility = () => document.removeEventListener("visibilitychange", onVisibility);
+  for (const host of visibilityHosts) void host.visible(!document.hidden);
 }
 
 export function resetSessionListReceiver(): void {
