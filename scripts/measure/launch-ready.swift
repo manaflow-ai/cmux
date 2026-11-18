@@ -246,7 +246,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "shell_requested": rel(shellRequested),
@@ -254,6 +254,15 @@ var row: [String: Any] = [
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+// The settle (the app's layout.* marks, LaunchLayoutSettle), in ms after main_start like the summary's: the first frame
+// the watch read, the last change after it, and their difference, so a receipt can count pairs moving the same way.
+if let first = marks["layout.first_frame"], let last = marks["layout.settle"] {
+    func afterMain(_ ms: Double) -> Any { marks["main_start"].map { (ms - $0).rounded(toPlaces: 1) } ?? NSNull() }
+    row["layout"] = ["first_frame_ms": afterMain(first), "settle_ms": afterMain(last),
+                     "settle_minus_first_frame_ms": (last - first).rounded(toPlaces: 1), "max_move_pt": marks["layout.max_move"] ?? 0]
+} else {
+    row["layout"] = "none"
+}
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
 print("LR-RUN", String(decoding: data, as: UTF8.self))

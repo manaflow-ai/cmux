@@ -105,7 +105,50 @@ def judge(row, expect, prev):
     return "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
 
 
-def summarize(rows, case="kept", seeded=""):
+def layout_of(row):
+    """One launch's settle from the app's layout.* marks (LaunchLayoutSettle), in ms after its own main_start: the
+    first frame the watch read, the last frame in which anything on screen moved, appeared or went away, their
+    difference, the largest move in points and the view that made it. None when the launch has no layout mark."""
+    marks = row.get("marks") or {}
+    main, first, settle = marks.get("main_start"), marks.get("layout.first_frame"), marks.get("layout.settle")
+    if first is None or settle is None:
+        return None
+    after = (lambda ms: round(ms - main, 1)) if main is not None else (lambda ms: None)
+    moved = next((k[len("layout.max_move."):] for k in marks if k.startswith("layout.max_move.")), "none")
+    return {"first_frame_ms": after(first), "settle_ms": after(settle), "settle_minus_first_frame_ms": round(settle - first, 1),
+            "max_move_pt": marks.get("layout.max_move", 0), "moved": moved,
+            "last": next((k[len("layout.last."):] for k in marks if k.startswith("layout.last.")), "none"),
+            "capped": "layout.capped" in marks, "web_settle_ms": after(marks["web.layout.settle"]) if "web.layout.settle" in marks else None,
+            "web_max_move_px": marks.get("web.layout.max_move")}
+
+
+def layout_line(side, runs, params=""):
+    """LR-LAYOUT SIDE: the side's settle, medians over its measured launches (Leo, 2026-11-18: "well did you guys have
+    more solution ideas tho for getting faster draws and settles?"). A side with no layout mark prints settle_ms=none;
+    each launch without one counts in n_missing."""
+    layouts = [lay for lay in (layout_of(r) for r in runs) if lay]
+
+    def med(name, q=None):
+        vals = sorted(lay[name] for lay in layouts if lay.get(name) is not None)
+        if not vals:
+            return "none"
+        return round(statistics.median(vals) if q is None else vals[min(len(vals) - 1, int(q * len(vals)))], 1)
+
+    def most(name):
+        named = Counter(lay[name] for lay in layouts if lay[name] != "none")
+        return ",".join(f"{k}:{v}" for k, v in named.most_common(3)) or "none"
+
+    fields = {"n": len(layouts), "n_missing": len(runs) - len(layouts), "first_frame_ms": med("first_frame_ms"),
+              "settle_ms": med("settle_ms"), "settle_minus_first_frame_ms": med("settle_minus_first_frame_ms"),
+              "settle_minus_first_frame_p90_ms": med("settle_minus_first_frame_ms", 0.9), "max_move_pt": med("max_move_pt"),
+              "max_move_pt_max": med("max_move_pt", 1.0), "moved": most("moved"), "last": most("last"),
+              "capped": sum(lay["capped"] for lay in layouts), "web_settle_ms": med("web_settle_ms"),
+              "web_max_move_px": med("web_max_move_px")}
+    print("LR-LAYOUT", side, (params + " " if params else "") + " ".join(f"{k}={v}" for k, v in fields.items()), flush=True)
+    return fields
+
+
+def summarize(rows, case="kept", seeded="", params=""):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
     expect, result = EXPECT[case], {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
@@ -151,7 +194,8 @@ def summarize(rows, case="kept", seeded=""):
         print("LR-USABLE", side, med["usable"], flush=True)
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
-        result[side] = {"failed": failed, "surface": first}
+        layout = layout_line(side, [r for r in runs if r.get("window_on_screen") is not None], params)
+        result[side] = {"failed": failed, "surface": first, "layout": layout}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}
     if len(set(firsts.values())) > 1:
@@ -169,7 +213,9 @@ def main(argv=None):
     parser.add_argument("--front", default="", choices=["", "home", "tab"])
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in open(args.runs) if line.strip()]
-    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front)
+    params = " ".join(f"{k}={v}" for k, v in (("state", args.state), ("case", args.case), ("daemon", args.daemon),
+                                                  ("snapshot", args.snapshot), ("front", args.front)) if v)
+    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front, params)
     return 0
 
 
