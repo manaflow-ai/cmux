@@ -11280,13 +11280,17 @@ struct ContentView: View {
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
-        let trimmed = TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
-            shellDirectory: rawShellDirectory.trimmingCharacters(in: .whitespacesAndNewlines),
+        let shellDirectory = rawShellDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredDirectory = TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
+            shellDirectory: shellDirectory,
             foregroundDirectory: focusedTerminalForegroundDirectory(in: workspace)
         )
-        guard !trimmed.isEmpty else { return nil }
-        guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
-        return URL(fileURLWithPath: trimmed, isDirectory: true)
+        // The foreground directory can vanish after the resolver checked it; the shell's may still exist.
+        for directory in [preferredDirectory, shellDirectory]
+            where !directory.isEmpty && FileManager.default.fileExists(atPath: directory) {
+            return URL(fileURLWithPath: directory, isDirectory: true)
+        }
+        return nil
     }
 
     /// The live working directory of the focused terminal's foreground job, or
@@ -11300,15 +11304,14 @@ struct ContentView: View {
               !workspace.isRemoteTerminalSurface(focusedPanelId) else {
             return nil
         }
-        let foregroundProcessPath = workspace.terminalPanel(for: focusedPanelId)
-            .flatMap { $0.surface.foregroundProcessID() }
-            .flatMap { CmuxTopProcessSnapshot.processPath(pid: Int($0)) }
-        guard TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(
-            processPath: foregroundProcessPath
-        ) else {
+        // Read the foreground PID once so the multiplexer check and the cwd describe the same process.
+        guard let pid = workspace.terminalPanel(for: focusedPanelId)?.surface.foregroundProcessID(),
+              TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(
+                  processPath: CmuxTopProcessSnapshot.processPath(pid: Int(pid))
+              ) else {
             return nil
         }
-        return workspace.liveForegroundProcessWorkingDirectory(panelId: focusedPanelId)
+        return TerminalWorkingDirectoryResolver.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
     }
 
 #if DEBUG
