@@ -31,8 +31,17 @@ nonisolated enum ChromiumPageWindowVisibility {
     static let occlusionSelector = #selector(getter: NSWindow.occlusionState)
     static let activeSpaceSelector = #selector(getter: NSWindow.isOnActiveSpace)
 
+    static let parentSelector = #selector(getter: NSWindow.parent)
+
     private typealias StateQuery = @convention(c) (AnyObject, Selector) -> UInt
     private typealias Query = @convention(c) (AnyObject, Selector) -> Bool
+    private typealias ObjectQuery = @convention(c) (AnyObject, Selector) -> Unmanaged<AnyObject>?
+
+    /// `object`'s own implementation of `sel`, called as `type`. AppKit's getters are read through their
+    /// implementations, as Chromium reads them: the swizzled getters run from AppKit and Chromium, not from Swift.
+    private static func implementation<T>(of sel: Selector, in object: AnyObject, as type: T.Type) -> T? {
+        class_getMethodImplementation(object_getClass(object), sel).map { unsafeBitCast($0, to: type) }
+    }
 
     /// Overrides `occlusionState` and `isOnActiveSpace` on `pageClass` to
     /// answer the parent window's state while the window is an embedded child
@@ -42,6 +51,7 @@ nonisolated enum ChromiumPageWindowVisibility {
     static func followParentWindow(_ pageClass: AnyClass) -> Bool {
         let occlusionSel = occlusionSelector
         let spaceSel = activeSpaceSelector
+        let parentSel = parentSelector
         let embeddedSel = ChromiumPageWindowOcclusion.embeddedSelector
         guard let superclass = class_getSuperclass(pageClass),
               let inheritedOcclusion = class_getInstanceMethod(superclass, occlusionSel),
@@ -52,14 +62,19 @@ nonisolated enum ChromiumPageWindowVisibility {
         let ownOcclusion = unsafeBitCast(method_getImplementation(inheritedOcclusion), to: StateQuery.self)
         let ownSpace = unsafeBitCast(method_getImplementation(inheritedSpace), to: Query.self)
         let isEmbedded = unsafeBitCast(method_getImplementation(embeddedMethod), to: Query.self)
-        let embeddingParent: (NSWindow) -> NSWindow? = { window in
-            isEmbedded(window, embeddedSel) ? window.parent : nil
+        let embeddingParent: (AnyObject) -> AnyObject? = { window in
+            guard isEmbedded(window, embeddedSel) else { return nil }
+            return implementation(of: parentSel, in: window, as: ObjectQuery.self)?(window, parentSel)?.takeUnretainedValue()
         }
-        let occlusion: @convention(block) (NSWindow) -> UInt = { window in
-            embeddingParent(window).map { $0.occlusionState.rawValue } ?? ownOcclusion(window, occlusionSel)
+        let occlusion: @convention(block) (AnyObject) -> UInt = { window in
+            guard let parent = embeddingParent(window),
+                  let state = implementation(of: occlusionSel, in: parent, as: StateQuery.self) else { return ownOcclusion(window, occlusionSel) }
+            return state(parent, occlusionSel)
         }
-        let space: @convention(block) (NSWindow) -> Bool = { window in
-            embeddingParent(window).map(\.isOnActiveSpace) ?? ownSpace(window, spaceSel)
+        let space: @convention(block) (AnyObject) -> Bool = { window in
+            guard let parent = embeddingParent(window),
+                  let onSpace = implementation(of: spaceSel, in: parent, as: Query.self) else { return ownSpace(window, spaceSel) }
+            return onSpace(parent, spaceSel)
         }
         class_replaceMethod(pageClass, occlusionSel, imp_implementationWithBlock(occlusion),
                             method_getTypeEncoding(inheritedOcclusion))
