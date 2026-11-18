@@ -155,20 +155,24 @@ impl Hub {
     /// it holds the turn, so the prompt queues behind it. True when the prompt must queue (its
     /// compaction, or an earlier prompt's, holds or takes the turn): it then goes as a plain
     /// prompt, never a steer into the compaction.
-    pub(super) async fn return_compact_first(
+    ///
+    /// Synchronous up to the wait, which owns all it holds: `PromptOptions` is not `Sync`, so a
+    /// reference to it across the await would make the prompt's future not `Send`.
+    pub(super) fn return_compact_first(
         self: &Arc<Self>,
         session: &Arc<Session>,
         blocks: &[Value],
         opts: &PromptOptions,
-    ) -> bool {
+    ) -> impl Future<Output = bool> + Send + 'static {
+        let ready = |queue: bool| futures_util::future::Either::Left(std::future::ready(queue));
         if opts.steer_only || opts.no_queue || opts.after_turn.is_some() {
-            return false;
+            return ready(false);
         }
         if Self::return_compacting(session) {
-            return true;
+            return ready(true);
         }
         if opts.cache_compact == Some(Choice::Keep) || slash_command(blocks) || !persons_own(opts) {
-            return false;
+            return ready(false);
         }
         // An idle chat only: a running turn or a queued prompt warms the cache first.
         if session.turn().is_some()
@@ -176,16 +180,16 @@ impl Hub {
             || session.queued() > 0
             || session.harness_turn.load(Ordering::SeqCst)
         {
-            return false;
+            return ready(false);
         }
         let usage = session.read_meta(|m| m.usage.clone());
         let min_tokens = if opts.cache_compact.is_none() { read_min_tokens() } else { None };
         if !due(opts.cache_compact, min_tokens, usage.as_ref(), now_ms()) {
-            return false;
+            return ready(false);
         }
         // Taken by this prompt only: a second prompt arriving now queues behind it.
         if !STARTING.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone()) {
-            return true;
+            return ready(true);
         }
         let (taken, accepted) = tokio::sync::oneshot::channel::<bool>();
         let compact = PromptOptions {
@@ -212,15 +216,19 @@ impl Hub {
                 }
             }),
         );
-        let started = match tokio::time::timeout(ACCEPT_WAIT, accepted).await {
-            Ok(Ok(started)) => started,
-            // Refused (a turn began meanwhile, a gate): the prompt goes as is.
-            Ok(Err(_)) => false,
-            // Still not taken (a stuck admission): the prompt queues rather than steers in ahead.
-            Err(_) => true,
-        };
-        STARTING.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
-        started
+        let id = session.id.clone();
+        futures_util::future::Either::Right(async move {
+            let started = match tokio::time::timeout(ACCEPT_WAIT, accepted).await {
+                Ok(Ok(started)) => started,
+                // Refused (a turn began meanwhile, a gate): the prompt goes as is.
+                Ok(Err(_)) => false,
+                // Still not taken (a stuck admission): the prompt queues rather than steers in
+                // ahead.
+                Err(_) => true,
+            };
+            STARTING.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            started
+        })
     }
 }
 
