@@ -17,6 +17,32 @@ private let theme = CmuxMobileTheme.standard
 /// Past classic: several agents at once (one workspace each, each with its model), the Mac's
 /// own agents and models, photos sent with the first message, and a refused start that comes
 /// back with the Mac's reason. The draft (`WorkspaceCreator.taskDraft`) outlives the screen.
+/// Where New Task chooses Chat or Terminal. The person compares the four before one stays.
+enum TaskLaunchStyle: Int, CaseIterable {
+    /// The title's menu (Rename, then Chat or Terminal); the subtitle says which.
+    case titleMenu = 1
+    /// The title's menu, and a hold on Start for "Start in Chat" or "Start in Terminal" once.
+    case titleMenuAndHold = 2
+    /// A chip at the head of the pickers row.
+    case chip = 3
+    /// Two Start buttons, Chat and Terminal; the one used last is filled.
+    case twoStarts = 4
+
+    /// `-cmux-mobile-task-launch-style N` (DEBUG), else the title's menu.
+    static var current: TaskLaunchStyle {
+        #if DEBUG
+        let args = CommandLine.arguments
+        if let at = args.firstIndex(of: "-cmux-mobile-task-launch-style"), at + 1 < args.count,
+           let raw = Int(args[at + 1]), let style = TaskLaunchStyle(rawValue: raw) {
+            return style
+        }
+        #endif
+        return .titleMenu
+    }
+
+    var titleHasLaunch: Bool { self == .titleMenu || self == .titleMenuAndHold }
+}
+
 struct TaskComposerScreen: View {
     @Bindable var creator: WorkspaceCreator
     /// The team's same-name Macs, tagged as the filter menu tags them.
@@ -42,6 +68,7 @@ struct TaskComposerScreen: View {
     /// What Start sent, shown while the screen closes (the composer's draft is cleared at once).
     @State private var sent: TaskDraft?
     @FocusState private var promptFocused: Bool
+    private let launchStyle = TaskLaunchStyle.current
 
     private var draft: TaskDraft { sent ?? creator.taskDraft }
     private var mac: MacDevice? { creator.taskMac(for: draft) }
@@ -71,14 +98,15 @@ struct TaskComposerScreen: View {
                 .toolbarTitleMenu {
                     RenameButton()
                         .disabled(sent != nil)
-                    Picker("Open in", selection: Binding(get: { draft.launch },
-                                                          set: { if sent == nil { creator.taskDraft.launch = $0 } })) {
-                        ForEach(TaskLaunch.allCases, id: \.self) { launch in
-                            Label(launch.title, systemImage: launch.systemImage).tag(launch)
+                    if launchStyle.titleHasLaunch {
+                        Picker("Open in", selection: launchBinding) {
+                            ForEach(TaskLaunch.allCases, id: \.self) { launch in
+                                Label(launch.title, systemImage: launch.systemImage).tag(launch)
+                            }
                         }
+                        .pickerStyle(.inline)
+                        .accessibilityIdentifier("taskComposer.launch")
                     }
-                    .pickerStyle(.inline)
-                    .accessibilityIdentifier("taskComposer.launch")
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -198,23 +226,30 @@ struct TaskComposerScreen: View {
             if !draft.images.isEmpty || !draft.files.isEmpty || loadingPhotos > 0 || fileRefusal != nil {
                 attachments
             }
-            // The agent and each of its settings, each its own pill (more than fit: the row scrolls).
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    agentsPill
-                    settingsPills
-                }
-                .padding(.horizontal, 12)
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .frame(height: 44)
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-            .accessibilityIdentifier("taskComposer.settingsRow")
-            HStack(spacing: 0) {
+            // One row, so the prompt keeps the height: Task Options and attach, then the agent and
+            // each of its settings as pills (they scroll between the buttons), then Start.
+            HStack(spacing: 4) {
                 optionsButton
                 attachMenu
-                Spacer(minLength: 8)
-                startButton
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if launchStyle == .chip { launchChip }
+                        agentsPill
+                        settingsPills
+                    }
+                    .padding(.horizontal, 4)
+                }
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                // The pills fade at both ends where they slide under the buttons.
+                .mask {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 8)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 8)
+                    }
+                }
+                .accessibilityIdentifier("taskComposer.settingsRow")
+                startButtons
             }
             .frame(height: 44)
             .padding(.horizontal, 12)
@@ -489,19 +524,74 @@ struct TaskComposerScreen: View {
         }
     }
 
-    private var startButton: some View {
+    private var launchBinding: Binding<TaskLaunch> {
+        Binding(get: { draft.launch }, set: { if sent == nil { creator.taskDraft.launch = $0 } })
+    }
+
+    /// Option 3: Chat or Terminal as the first chip of the pickers row.
+    private var launchChip: some View {
+        Menu {
+            Picker("Open in", selection: launchBinding) {
+                ForEach(TaskLaunch.allCases, id: \.self) { launch in
+                    Label(launch.title, systemImage: launch.systemImage).tag(launch)
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: draft.launch.systemImage).foregroundStyle(theme.colors.label2.color)
+                Text(draft.launch.title)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
+            }
+            .fixedSize()
+            .modifier(TaskComposerPillLabel(isError: false))
+        }
+        .menuOrder(.fixed)
+        .disabled(sent != nil)
+        .accessibilityLabel("Open in")
+        .accessibilityValue(draft.launch.title)
+        .accessibilityIdentifier("taskComposer.launchChip")
+    }
+
+    @ViewBuilder private var startButtons: some View {
+        switch launchStyle {
+        case .titleMenu, .chip:
+            startButton(title: "Start", launch: nil)
+        case .titleMenuAndHold:
+            // Tap: where the subtitle says. Hold: either, this once.
+            startButton(title: "Start", launch: nil)
+                .contextMenu {
+                    ForEach(TaskLaunch.allCases, id: \.self) { launch in
+                        Button("Start in \(launch.title)", systemImage: launch.systemImage) { start(in: launch) }
+                            .accessibilityIdentifier("taskComposer.startIn.\(launch.rawValue)")
+                    }
+                }
+        case .twoStarts:
+            // The one not used last first, so the filled one sits at the edge, under the thumb.
+            let other: TaskLaunch = draft.launch == .chat ? .terminal : .chat
+            HStack(spacing: 6) {
+                startButton(title: other.title, launch: other, filled: false)
+                startButton(title: draft.launch.title, launch: draft.launch)
+            }
+        }
+    }
+
+    /// `launch`: starts there and keeps it as the next default (nil: where the subtitle says).
+    private func startButton(title: String, launch: TaskLaunch?, filled: Bool = true) -> some View {
         let count = max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
-        // Where it opens is the subtitle's (the title menu's Chat or Terminal); Start says Start.
-        return Button(action: start) {
-            Text("Start")
+        let tinted = enabled && filled
+        return Button { start(in: launch) } label: {
+            Text(title)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(enabled ? theme.colors.onAccent.color : theme.colors.label3.color)
+                .foregroundStyle(tinted ? theme.colors.onAccent.color : enabled ? theme.colors.label.color : theme.colors.label3.color)
                 .padding(.horizontal, 16)
                 .frame(height: 38)
-                .glassEffect(enabled ? .regular.tint(theme.colors.accent.color).interactive() : .regular, in: .capsule)
+                .glassEffect(tinted ? .regular.tint(theme.colors.accent.color).interactive() : .regular.interactive(), in: .capsule)
                 .overlay(alignment: .topTrailing) {
-                    if count > 1 {
+                    if count > 1, filled {
                         Text("\(count)")
                             .font(.caption2.weight(.bold))
                             .monospacedDigit()
@@ -519,10 +609,10 @@ struct TaskComposerScreen: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
-        .accessibilityValue("in \(draft.launch.title)")
+        .accessibilityLabel(launch.map { "Start in \($0.title)" } ?? (count > 1 ? "Start \(count)" : "Start"))
+        .accessibilityValue("in \((launch ?? draft.launch).title)")
         .accessibilityHint(blocker?.message ?? (count > 1 ? "Starts the task on \(count) agents, one workspace each" : ""))
-        .accessibilityIdentifier("taskComposer.start")
+        .accessibilityIdentifier(launch.map { "taskComposer.start.\($0.rawValue)" } ?? "taskComposer.start")
     }
 
     // MARK: Actions
@@ -546,9 +636,12 @@ struct TaskComposerScreen: View {
         close()
     }
 
-    private func start() {
+    /// `launch`: this once (a hold on Start) or as the new default (Two Starts); nil: the draft's.
+    private func start(in launch: TaskLaunch? = nil) {
         guard blocker == nil, sent == nil, loadingPhotos == 0, loadingFiles == 0, let catalog else { return }
+        if let launch, launchStyle == .twoStarts { creator.taskDraft.launch = launch }
         var task = draft
+        if let launch { task.launch = launch }
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
             task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
         }
@@ -562,7 +655,9 @@ struct TaskComposerScreen: View {
             return pick
         }
         sent = draft
-        let made = creator.startTask(task)
+        // A hold on Start opens it elsewhere this once: the default stays the subtitle's.
+        let keep: TaskLaunch? = launchStyle == .titleMenuAndHold && launch != nil ? draft.launch : nil
+        let made = creator.startTask(task, keepLaunch: keep)
         guard !made.isEmpty else {
             sent = nil
             theme.haptics.warning()

@@ -354,6 +354,18 @@ extension WorkspaceCreator {
     /// Starts the task: one workspace per chosen agent (the Mac's default agent when none is
     /// chosen), each an optimistic row at once, whose chat gets the prompt and images as its
     /// first message. Clears the draft. Returns the placeholders (empty when it can't start).
+    /// `keepLaunch`: where the next task opens (a one-off start elsewhere keeps the default);
+    /// nil: where this one opened.
+    @discardableResult
+    public func startTask(_ draft: TaskDraft, keepLaunch: TaskLaunch?) -> [Workspace] {
+        let made = startTask(draft)
+        if let keepLaunch, !made.isEmpty {
+            taskDraft.launch = keepLaunch
+            rememberTaskLaunch(keepLaunch)
+        }
+        return made
+    }
+
     @discardableResult
     public func startTask(_ draft: TaskDraft) -> [Workspace] {
         guard taskBlocker(draft) == nil, let mac = taskMac(for: draft), let folder = taskFolder(for: draft, on: mac.id) else {
