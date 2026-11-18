@@ -158,11 +158,8 @@ export function RecipientField({
     return true;
   };
   const move = (offset: number) => {
-    const pickable = rows.flatMap((row, index) => (isSelectable(row) ? [index] : []));
-    if (pickable.length === 0) return;
-    const at = pickable.indexOf(highlighted);
-    const next = pickable[Math.min(Math.max(at + offset, 0), pickable.length - 1)]!;
-    setMoved({ key: rowsKey, index: next });
+    const next = nextSelectable(rows, highlighted, offset);
+    if (next >= 0) setMoved({ key: rowsKey, index: next });
   };
   const keys = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -337,10 +334,12 @@ function SuggestionList({
     else if (bottom > element.scrollTop + height) element.scrollTop = bottom - height;
   }, [highlighted, tops, height]);
   const overscan = 4 * ROW;
-  let start = 0;
-  while (start < rows.length && tops[start + 1]! < scrollTop - overscan) start++;
-  let end = start;
-  while (end < rows.length && tops[end]! < scrollTop + height + overscan) end++;
+  // The first row whose bottom reaches the overscan, and the first whose top is past it: two
+  // binary searches, not a walk from the first row.
+  const start = Math.min(rows.length, firstAtLeast(tops, scrollTop - overscan, 1) - 1);
+  const end = Math.max(start, Math.min(rows.length, firstAtLeast(tops, scrollTop + height + overscan, 0)));
+  // A row's key is its place, read from a map made once per list (not a search per row).
+  const keys = useMemo(() => new Map(rows.map((row, index) => [row, String(index)])), [rows]);
   return (
     <Listbox
       id={id}
@@ -354,14 +353,13 @@ function SuggestionList({
       onActiveIndexChange={(index) => {
         if (rows[index] && isSelectable(rows[index]!)) onHighlight(index);
       }}
-      getKey={(row) => String(rows.indexOf(row))}
+      getKey={(row) => keys.get(row) ?? ""}
       getItemId={(_, index) => `${id}-${index}`}
       textValue={(row) => (row.kind === "recipient" ? recipientLabel(row.recipient) : "")}
       itemAttributes={(row, index) => ({
         "aria-disabled": row.kind === "header" ? "true" : undefined,
         "aria-label":
           row.kind === "header" ? row.title : rowName(row, strings) + (lines.get(index) ? `, ${lines.get(index)}` : ""),
-        "data-highlighted": index === highlighted ? "true" : undefined,
         "data-kind": row.kind === "header" ? "header" : "row",
       })}
       renderItem={(row, index) => <SuggestionRowView row={row} line={lines.get(index)} strings={strings} />}
@@ -370,6 +368,30 @@ function SuggestionList({
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     />
   );
+}
+
+/** The first index from `from` whose top is at least `value` (`tops.length` when none). */
+function firstAtLeast(tops: readonly number[], value: number, from: number): number {
+  let low = from;
+  let high = tops.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (tops[middle]! < value) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/** Up or Down from `highlighted`: the next selectable row that way, skipping headers; from no
+ * highlight, the first selectable row; at the end, the same row. -1 when no row is selectable. */
+function nextSelectable(rows: readonly SuggestionRow[], highlighted: number, offset: number): number {
+  if (highlighted < 0 || !rows[highlighted] || !isSelectable(rows[highlighted]!)) {
+    for (let index = 0; index < rows.length; index++) if (isSelectable(rows[index]!)) return index;
+    return -1;
+  }
+  for (let index = highlighted + offset; index >= 0 && index < rows.length; index += offset)
+    if (isSelectable(rows[index]!)) return index;
+  return highlighted;
 }
 
 function rowName(row: SuggestionRow, strings: Strings): string {
