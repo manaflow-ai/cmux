@@ -1096,12 +1096,17 @@ fn schema_socket_owner(
 /// bound session socket). A refusal leaves the evidence for the start to
 /// report.
 #[cfg(unix)]
-fn recover_cloud_remote_state(args: &Args) {
+fn recover_cloud_remote_state(
+    session: &str,
+    state_dir: Option<&std::path::Path>,
+    link_socket: Option<&std::path::Path>,
+    admin_socket: Option<&std::path::Path>,
+) {
     match remote_runtime::recover_inactive_daemon_state(
-        &args.session,
-        args.remote_state_dir.as_deref(),
-        args.remote_link_socket.as_deref(),
-        args.remote_admin_socket.as_deref(),
+        session,
+        state_dir,
+        link_socket,
+        admin_socket,
     ) {
         Ok(actions) => {
             for action in actions {
@@ -2419,7 +2424,12 @@ fn run_server(
     #[cfg(unix)]
     let remote_runtime = if args.remote {
         if trusted_carrier {
-            recover_cloud_remote_state(&args);
+            recover_cloud_remote_state(
+                &args.session,
+                args.remote_state_dir.as_deref(),
+                args.remote_link_socket.as_deref(),
+                args.remote_admin_socket.as_deref(),
+            );
         }
         let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
