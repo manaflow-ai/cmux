@@ -1170,14 +1170,19 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let outcome = run_once(runner, request);
     // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
     let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    if request.make_room { make_room(runner, request, outcome) } else { outcome }
+    if request.make_room { make_room(runner, request, began, outcome) } else { outcome }
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
 /// delete frees room at once. An archive keeps the machine until its disk is archived, so the run
 /// ends there and says to ask again once it is gone; from the CLI the archive may also need a person
 /// (cloud_retention.rs), which that step's own answer says.
-fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Outcome {
+fn make_room(
+    runner: &mut dyn Runner,
+    request: &Request,
+    began: Instant,
+    outcome: Outcome,
+) -> Outcome {
     let Outcome::Failed { error, .. } = &outcome else { return outcome };
     if at(error, "code").as_str() != Some("cloud.machine_cap") {
         return outcome;
@@ -1233,8 +1238,9 @@ fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Ou
         );
     }
     // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
-    let again = Request { make_room: false, ..request.clone() };
-    let began = runner.now();
+    // The rerun keeps the run's one deadline: `--timeout` counts from the command's start, not from here.
+    let until = request.until.or(Deadline::of(request, began).0);
+    let again = Request { make_room: false, until, ..request.clone() };
     let outcome = run_once(runner, &again);
     fresh::replace_stuck(runner, &again, began, outcome)
 }
