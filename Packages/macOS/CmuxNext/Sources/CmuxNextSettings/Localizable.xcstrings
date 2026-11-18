@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agents.mcpServers.enabled": {
+      "comment": "Settings > MCP Servers: toggle title",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Saved Servers in Agent Chats"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الخوادم المحفوظة في محادثات الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Sačuvani serveri u chatovima agenata"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gemte servere i agentchats"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Gespeicherte Server in Agent-Chats"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Servidores guardados en chats de agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Serveurs enregistrés dans les discussions"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Server salvati nelle chat degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで保存済みサーバー"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ម៉ាស៊ីនមេដែលបានរក្សាទុកក្នុងការជជែក"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅의 저장된 서버"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Lagrede servere i agentchatter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zapisane serwery w czatach agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Servidores salvos nos chats de agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сохранённые серверы в чатах агентов"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เซิร์ฟเวอร์ที่บันทึกไว้ในแชทเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde kayıtlı sunucular"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Збережені сервери в чатах агентів"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Máy chủ đã lưu trong trò chuyện agent"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理聊天中的已存服务器"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天中的已存伺服器"}}
+      }
+    },
+    "settings.agents.mcpServers.enabled.help": {
+      "comment": "Settings > MCP Servers: toggle help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "New chats can use the servers listed above."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يمكن للمحادثات الجديدة استخدام الخوادم المدرجة أعلاه."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Novi chatovi mogu koristiti servere navedene gore."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Nye chats kan bruge serverne ovenfor."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Neue Chats können die oben genannten Server nutzen."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los chats nuevos pueden usar los servidores de arriba."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les nouvelles discussions utilisent les serveurs ci-dessus."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Le nuove chat possono usare i server elencati sopra."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいチャットで上のサーバーを使えます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែកថ្មីអាចប្រើម៉ាស៊ីនមេខាងលើ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새 채팅에서 위에 나열된 서버를 사용할 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Nye chatter kan bruke serverne ovenfor."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nowe czaty mogą używać serwerów wymienionych wyżej."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Novos chats podem usar os servidores listados acima."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Новые чаты могут использовать серверы выше."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชทใหม่ใช้เซิร์ฟเวอร์ที่แสดงด้านบนได้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Yeni sohbetler yukarıdaki sunucuları kullanabilir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Нові чати можуть використовувати сервери вище."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện mới có thể dùng các máy chủ ở trên."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "新聊天可以使用上方列出的服务器。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "新聊天可以使用上方列出的伺服器。"}}
+      }
+    },
     "settings.choice.fontSmoothingAuto": {
       "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
       "extractionState": "manual",
@@ -1088,6 +1142,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Theo múi giờ"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "来自时区"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自時區"}}
+      }
+    },
+    "settings.group.mcpServers": {
+      "comment": "Settings > MCP Servers: the group under the list of servers.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Agent Chats"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "محادثات الوكلاء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Chatovi agenata"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agentchats"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agent-Chats"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chats de agentes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Discussions d’agents"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Chat degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャット"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជជែករបស់ភ្នាក់ងារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agentchatter"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Czaty agentów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Chats de agentes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Чаты агентов"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แชทของเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Чати агентів"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Trò chuyện với agent"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "代理聊天"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天"}}
       }
     },
     "settings.placeholder.wordOrPhrase": {
@@ -226246,6 +226327,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "擴充功能的新分頁頁面"
+          }
+        }
+      }
+    },
+    "settings.category.mcpServers": {
+      "comment": "Settings sidebar category: the services agents use for the person.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP Servers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خوادم MCP"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP serveri"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP-servere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP-Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidores MCP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveurs MCP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server MCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP サーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមេ MCP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP 서버"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP-servere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serwery MCP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidores MCP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Серверы MCP"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซิร์ฟเวอร์ MCP"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP Sunucuları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервери MCP"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ MCP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP 伺服器"
           }
         }
       }

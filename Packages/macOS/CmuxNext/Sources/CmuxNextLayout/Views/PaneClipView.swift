@@ -41,6 +41,26 @@ final class PaneClipView: NSView {
         CATransaction.commit()
     }
 
+    /// The size the pane's content keeps while the pane's layer moves to a smaller rect (`PaneHostView+MoveHold`); nil
+    /// when the content fills this view. While it is set the content is larger than this view, and this view's layer
+    /// has the pane's change of size as a move (`PaneCommitMotion.moveClip`): it cuts the content where it shows.
+    var moveHeldSize: CGSize?
+
+    /// Held content covers this view. A size that the held content does not cover (a second change made the pane
+    /// larger than it was before the first) ends the hold here: the content takes this view's size in this pass, as
+    /// the content of a pane that grows does with no hold.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard let held = moveHeldSize else { return }
+        if held.width < newSize.width - Self.heldGroundSlack || held.height < newSize.height - Self.heldGroundSlack { moveHeldSize = nil }
+    }
+
+    /// Content that leaves takes no hold to the content that comes after it (a host made ahead and adopted again).
+    override func willRemoveSubview(_ subview: NSView) {
+        super.willRemoveSubview(subview)
+        if !(subview is PaneHeldGroundView) { moveHeldSize = nil }
+    }
+
     /// The ground beside and beyond held content (``showHeldGround(_:around:header:footer:leading:)``): at most one part
     /// beyond its top or bottom edge and one beside it, in the view tree only while they show.
     private let heldGrounds = [PaneHeldGroundView(), PaneHeldGroundView()]
