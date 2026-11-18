@@ -1596,11 +1596,6 @@ impl Hub {
             }),
             _ => None,
         };
-        // A turn that ended well clears the chat's rate-limit strikes (`rate_hold.rs`).
-        if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
-        {
-            self.rate_turn_ok(session);
-        }
         self.schedule_auto_resume(session, &turn_id, cut);
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
@@ -1635,6 +1630,12 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
+        // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
+        // every turn's end comes here, a recovered or carried one's too.
+        if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.rate_turn_ok(session);
+        }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in

@@ -194,3 +194,45 @@ async fn a_429_storm_holds_the_chat_backs_off_and_loses_no_message() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// One agent message, alone, leads a turn the limit refuses before its model reads a word: it
+/// goes back under its own prompt id (`digest.rs` `requeue_unread`) with nothing queued behind it
+/// to fold it into another turn. Its prompt id is still in the chat's prompt ledger with the
+/// refused turn's outcome, so the copy must not answer as that prompt's duplicate and leave the
+/// queue: once the limit lifts it goes in with a turn that completes.
+#[tokio::test]
+async fn a_lone_agent_message_a_429_refused_goes_in_once_the_limit_lifts() {
+    let root = std::env::temp_dir().join(format!("acpmux-429-lone-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let (limit, wire) = (root.join("rate-limited"), root.join("wire.ndjson"));
+    std::fs::write(&limit, "").unwrap();
+    let env = BTreeMap::from([
+        ("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned()),
+        ("FAKE_WIRE_LOG".to_owned(), wire.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    let id = new_session(&mut c, "coord-429-lone").await;
+
+    let text = "the only report from lane-1";
+    let r = c.request(method::SESSION_PROMPT, from_agent(&id, "m-lone", "lane-1", text)).await;
+    assert!(r.unwrap_err().contains("429"), "the limit refused the message's turn");
+    assert_eq!(model_requests(&wire), 1, "the refused turn reached the model once");
+
+    std::fs::remove_file(&limit).unwrap();
+    let lifted = tokio::time::Instant::now();
+    let bound = DELAYS_MS[DELAYS_MS.len() - 1] * 2 + 10_000;
+    while lifted.elapsed() < Duration::from_millis(bound)
+        && !completed_texts(&hub, &id).contains(text)
+    {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        completed_texts(&hub, &id).contains(text),
+        "the refused agent message never went in with a completed turn; events {:?}",
+        kinds(&hub, &id)
+    );
+
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
