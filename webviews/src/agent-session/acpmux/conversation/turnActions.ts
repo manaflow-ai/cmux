@@ -34,6 +34,16 @@ export type TurnActions = {
   /// Absent where the chat is not a Cloud chat or the host serves no rewind (App.tsx
   /// `cloudTurnRewind`), so no prompt draws it.
   rewind?: { ready: ReadonlySet<string>; before(rowId: string): Promise<{ seconds: number }> };
+  /// Back to before this turn in a chat on this machine (LocalRewind.tsx, the same button): `ready`,
+  /// the prompt row ids whose turn acpmux took a rewind checkpoint for (localRewindModel.ts
+  /// `localRewindPrompts`); `dryRun`, what would go back (the files' count, or why they can't);
+  /// `apply`, the rewind, which opens the rewound chat and offers Undo. Absent where acpmux took no
+  /// checkpoint (`agents.turnCheckpoints` off), so no prompt draws it.
+  localRewind?: {
+    ready: ReadonlySet<string>;
+    dryRun(rowId: string): Promise<import("./localRewindModel").RewindDryRun>;
+    apply(rowId: string, choice: import("./localRewindModel").RewindChoice): Promise<void>;
+  };
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
   /// acpmux does not serve forks.
   fork?: (throughSeq: number) => void;

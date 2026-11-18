@@ -47,6 +47,7 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { LocalRewindInline } from "./LocalRewind";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -313,6 +314,8 @@ export function UserBubble({
             </MessageFooterRow>
           </UserFooter>
         )}
+        {/* Back to before this turn's inline look asks here, under the bubble (LocalRewind.tsx). */}
+        <LocalRewindInline rowId={row.id} />
       </div>
     </>
   );

@@ -596,6 +596,13 @@ export type AcpmuxRow = {
   tokens?: TurnTokenSplit;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// A turn summary's rewind checkpoint (conversation/localRewindModel.ts): acpmux took one before the
+  /// turn's prompt (`agents.turnCheckpoints`), or says why it could not. Its prompt then offers Back
+  /// to before this turn in a chat on this machine.
+  rewind?: import("./conversation/localRewindModel").TurnRewind;
+  /// A sent prompt's own acpmux seq (its echo's), which `_acpmux/rewind` names; absent for a prompt
+  /// acpmux has not logged, or one paged in from the transcript.
+  promptSeq?: number;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
   inlineParts?: PromptContentPart[];

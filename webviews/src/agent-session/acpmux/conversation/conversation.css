@@ -1009,6 +1009,88 @@
   right: calc(var(--cv-action-inset) + var(--grid-base));
   bottom: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2 + var(--grid-base));
 }
+/* Back to before this turn's ask in a chat on this machine (LocalRewind.tsx): a small form in the
+   popover anchored to the prompt's Rewind, or the row under the prompt (the inline look). The
+   choices, then the reason the files can't be reset, then Cancel and Rewind at the end. */
+.cv-rewind-popover {
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+}
+.cv-rewind-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: var(--ds-space-3);
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-rewind-ask__title {
+  margin: 0;
+  font-weight: var(--weight-semibold, 600);
+}
+.cv-rewind-ask__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.cv-rewind-ask__check {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.cv-rewind-ask__check input {
+  margin: 0;
+}
+.cv-rewind-ask__check:has(input:disabled) {
+  color: var(--cv-text-muted);
+}
+.cv-rewind-ask__note {
+  margin: 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-rewind-ask__error {
+  margin: 0;
+  color: var(--agent-status-failure, var(--cv-text));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-rewind-ask__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+.cv-rewind-ask__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+/* The inline look: one row under the bubble, its choices then its buttons, at the bubble's right edge. */
+.cv-rewind-inline {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--ds-space-1);
+}
+.cv-rewind-ask[data-look="inline"] {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cv-text) 4%, transparent);
+}
+.cv-rewind-ask[data-look="inline"] .cv-rewind-ask__note,
+.cv-rewind-ask[data-look="inline"] .cv-rewind-ask__error {
+  flex-basis: 100%;
+  text-align: end;
+}
 /* The rows' icon buttons are Claude's 24px squares (--cv-action-button), not the 20px compact ones. */
 :is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
   width: var(--cv-action-button);

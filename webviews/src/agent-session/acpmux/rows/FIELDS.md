@@ -197,7 +197,7 @@ This section is the input for rows/notYet.ts.
 ### 2c (the translator, decision 231)
 
 - **a, row heads:** `at` in ms; `seq` on forkable rows; `assistantPhase` (not named in decision 231).
-- **a, user rows:** `from`, `author`, `sentFrom`, `inlineParts`, `pasted`, `agentText`, `continues` (decision 236). (Built, and so off this list: viaCli, promptId and steerPromptId; the parity corpus shows them drawn the same.)
+- **a, user rows:** `from`, `author`, `sentFrom`, `inlineParts`, `pasted`, `agentText`, `continues` (decision 236); `promptSeq`, the prompt's own seq, which Back to before this turn names (conversation/localRewindModel.ts). (Built, and so off this list: viaCli, promptId and steerPromptId; the parity corpus shows them drawn the same.)
 - **a, ask rows** (permission, question, secret), patched with `decision` and `answeredBy`. These also give the snapshot's `permission`, `permissionsWaiting`, `permissionsQueued`, `permissionGroups` and `secret` (c).
 - **a, the turn-end notice in every book, Claude's too:** `checkpoint`, `stopForced`, `continued`, `retry`. (`continues` is the user row's. Built, and so off this list: tokens, error, errorCode and seq; the parity corpus shows them drawn the same.)
 - **a, records as rows**, patched by a later event: `compaction` (reason, error, preTokens, postTokens), `failover` (from, to), `recap` (key, awayMs, since), `policyUnenforced` (policy), `planBuild`, `memory`, `coach`, `presetApproval`, `offers`, `received`, `agentPair`, `backgroundTask`, `incoming` (sender, message, kind), `inboxThread` (threadId, sender, preview, newest, count, promptIds).

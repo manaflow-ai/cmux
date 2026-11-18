@@ -131,6 +131,7 @@ import {
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { readTurnRewind } from "./conversation/localRewindModel";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
@@ -10027,6 +10028,8 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptId ? { promptId } : {}),
+          // Its own seq, which Back to before this turn names (conversation/localRewindModel.ts).
+          ...(event.seq >= 1 ? { promptSeq: event.seq } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
           // at the same size (imageEntries.ts withSentShapes).
@@ -10198,6 +10201,9 @@ export class AcpmuxDirectClient {
         this.rows.delete("typing");
         this.rows.delete(TURN_RETRY);
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
+        // The rewind checkpoint acpmux took before the turn's prompt, or why it took none
+        // (conversation/localRewindModel.ts): only with `agents.turnCheckpoints` on.
+        const rewind = event.kind === "turn_result" ? readTurnRewind(msg) : undefined;
         const status = String(msg.status ?? "completed");
         const summaryId = `summary-${resultTurnId ?? event.seq}`;
         // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
@@ -10243,6 +10249,7 @@ export class AcpmuxDirectClient {
             error: msg.errorText ?? (status === "failed" && typeof msg.error === "string" ? msg.error : undefined),
             ...(typeof msg.errorCode === "string" && msg.errorCode ? { errorCode: msg.errorCode } : {}),
             ...(checkpoint ? { checkpoint } : {}),
+            ...(rewind ? { rewind } : {}),
             // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). The turn reads
             // as any stop does; only the footer's tooltip says cmux ended it (Leo, 2026-11-03:
             // "idk if it should be showing things like that").
@@ -14760,6 +14767,31 @@ export class AcpmuxDirectClient {
         this.emit();
       }
     }
+  }
+  /// Back to before this turn (conversation/localRewindModel.ts): acpmux's rewind of the shown chat to
+  /// before prompt `seq`, its conversation (a fork through the turn before, or the harness's own
+  /// rewind) and/or its files (back to the checkpoint taken before that prompt). `dryRun` changes
+  /// nothing and answers what would go back and why the files can't. A refusal rejects with acpmux's
+  /// `reason` (`shared`, `not_git`, `fork.unsupported`, ...).
+  rewind(
+    seq: number,
+    choice: { conversation: boolean; files: boolean },
+    dryRun = false,
+    sessionId = this.actingSessionId,
+  ): Promise<unknown> {
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/rewind", {
+      sessionId,
+      seq,
+      conversation: choice.conversation,
+      files: choice.files,
+      ...(dryRun ? { dryRun: true } : {}),
+    });
+  }
+  /// A rewind's Undo for its files: acpmux puts chat `sessionId`'s folder back to the safety
+  /// checkpoint it took before resetting them.
+  rewindUndo(sessionId: string, safetyCheckpointId: string): Promise<unknown> {
+    return this.request("_acpmux/rewind_undo", { sessionId, safetyCheckpointId });
   }
   /// Cancel on the pending fork: acpmux stops it where it is, by the token its request named it
   /// with, and leaves nothing of it; one already made is taken back whole. Its answer opens

@@ -58,6 +58,7 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmu
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
+import { localRewindConfirm } from "../agent-session/acpmux/conversation/localRewind.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
@@ -189,6 +190,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  localRewindConfirm,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

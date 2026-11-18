@@ -443,6 +443,17 @@ import {
   type EditableTurns,
 } from "./conversation/editPrompt";
 import {
+  applyRewind,
+  localRewindKey,
+  localRewindMap,
+  localRewindPrompts,
+  parseDryRun,
+  undoRewind,
+  type RewindChoice,
+  type RewindUndo,
+} from "./conversation/localRewindModel";
+import { LocalRewindNotice } from "./conversation/LocalRewind";
+import {
   CloudTurnCheckpoints,
   readyPromptKey,
   readyPromptMap,
@@ -2243,6 +2254,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const rewindRowsKey = readyPromptKey(readyPromptRows(snapshot.rows, marksFor(cloudTurnRewind, snapshot.sessionId)));
   const rewindRows = useMemo(() => readyPromptMap(rewindRowsKey), [rewindRowsKey]);
   const rewindReady = useMemo<ReadonlySet<string>>(() => new Set(rewindRows.keys()), [rewindRows]);
+  // Back to before this turn in a chat on this machine (conversation/localRewindModel.ts): the prompts
+  // whose turn acpmux took a rewind checkpoint for (`agents.turnCheckpoints`), each with its seq.
+  // None with the setting off, so no prompt draws it. Rebuilt only when they change.
+  const localRewindRowsKey = localRewindKey(localRewindPrompts(snapshot.rows));
+  const localRewindRows = useMemo(() => localRewindMap(localRewindRowsKey), [localRewindRowsKey]);
+  const localRewindReady = useMemo<ReadonlySet<string>>(() => new Set(localRewindRows.keys()), [localRewindRows]);
+  // The rewind just made, which the line over the composer offers to undo while its chat shows.
+  const [localRewindUndo, setLocalRewindUndo] = useState<RewindUndo>();
+  const [localRewindUndoing, setLocalRewindUndoing] = useState(false);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   // A running chat still permits editing an earlier completed prompt: editResend forks through that
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
@@ -4286,6 +4306,34 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
           },
         }),
+      // Back to before this turn on this machine: acpmux's dry run when the ask opens, then its
+      // rewind; a conversation that went back opens its fork here with the prompt in the composer.
+      ...(!cloudMachineID &&
+        connected &&
+        localRewindReady.size > 0 && {
+          localRewind: {
+            ready: localRewindReady,
+            dryRun: async (rowId: string) => {
+              const seq = localRewindRows.get(rowId);
+              const client = directClient.current;
+              if (seq === undefined || !client) throw new Error(translate("error.notOpen"));
+              return parseDryRun(await client.rewind(seq, { conversation: true, files: true }, true));
+            },
+            apply: async (rowId: string, choice: RewindChoice) => {
+              const seq = localRewindRows.get(rowId);
+              const client = directClient.current;
+              const original = snapshotRef.current?.sessionId;
+              if (seq === undefined || !client || !original) throw new Error(translate("error.notOpen"));
+              const undo = await applyRewind(seq, choice, {
+                original,
+                rewind: (at, parts) => client.rewind(at, parts, false, original),
+                open: (sessionId) => callNative("chat.select", { sessionId }),
+                restorePrompt: (text) => composerHandle.current?.restore(text, []),
+              });
+              setLocalRewindUndo(undo);
+            },
+          },
+        }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -4499,6 +4547,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       cloudTurnRewind,
       rewindRows,
       rewindReady,
+      localRewindRows,
+      localRewindReady,
       cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       cloudTeamMachine,
@@ -13369,6 +13419,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const forkPendingLine = snapshot.forkPending && (
     <ForkPendingLine since={snapshot.forkPending.since} onCancel={() => directClient.current?.cancelFork()} />
   );
+  // After Back to before this turn, while the chat it left shows (the fork, or the same chat for a
+  // files-only rewind): what went back, and Undo, which puts the files back and reopens the chat as
+  // it was (conversation/localRewindModel.ts `undoRewind`).
+  const rewindLine = localRewindUndo &&
+    snapshot.sessionId === (localRewindUndo.rewound ?? localRewindUndo.original) && (
+      <LocalRewindNotice
+        undo={localRewindUndo}
+        undoing={localRewindUndoing}
+        onDismiss={() => setLocalRewindUndo(undefined)}
+        onUndo={() => {
+          const client = directClient.current;
+          if (!client || localRewindUndoing) return;
+          setLocalRewindUndoing(true);
+          undoRewind(localRewindUndo, {
+            restoreFiles: (sessionId, safetyCheckpointId) => client.rewindUndo(sessionId, safetyCheckpointId),
+            open: (sessionId) => callNative("chat.select", { sessionId }),
+          }).then(
+            () => {
+              setLocalRewindUndoing(false);
+              setLocalRewindUndo(undefined);
+            },
+            () => {
+              setLocalRewindUndoing(false);
+              notices.failed(translate("rewind.undoFailed"));
+            },
+          );
+        }}
+      />
+    );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
   let lastReply: (typeof snapshot.rows)[number] | undefined;
@@ -13447,6 +13526,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {asks}
                 {hostLine}
                 {forkPendingLine}
+                {rewindLine}
               </>
             }
             composer={composer}
@@ -14351,6 +14431,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 )}
                 {hostLine}
                 {forkPendingLine}
+                {rewindLine}
                 <LiveTypingLine
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
