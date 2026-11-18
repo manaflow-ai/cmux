@@ -249,20 +249,33 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
-fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
-    let origin = bare_origin(value)?;
+/// The classic web app's staging host. It still serves the staging sign-in page, so it is approved
+/// for `auth_web_origin` only: no service that receives credentials (VM, platform, share, device
+/// hub, Stack) may be pointed at it.
+const CLASSIC_STAGING_SIGN_IN_HOST: &str = "cmux-staging.vercel.app";
+
+fn allowed_origin(field: &str, value: &str, selected: &str) -> Result<(), String> {
+    let origin = bare_origin(value).map_err(|error| format!("client-config {field}: {error}"))?;
     if is_loopback_origin(&origin) {
         return if is_loopback_origin(selected) {
             Ok(())
         } else {
-            Err(format!("remote client-config cannot name a loopback origin: {value}"))
+            Err(format!("remote client-config cannot name a loopback origin for {field}: {value}"))
         };
     }
-    if approved_remote_host(&origin) {
+    if approved_remote_host(&origin)
+        || (field == "auth_web_origin" && is_classic_staging_sign_in(&origin))
+    {
         Ok(())
     } else {
-        Err(format!("client-config service origin is outside the approved host policy: {value}"))
+        Err(format!("client-config {field} is outside the approved host policy: {value}"))
     }
+}
+
+fn is_classic_staging_sign_in(origin: &str) -> bool {
+    url::Url::parse(origin).is_ok_and(|url| {
+        url.scheme() == "https" && url.host_str() == Some(CLASSIC_STAGING_SIGN_IN_HOST)
+    })
 }
 
 /// Client-config is backend-owned, but it is also allowed to name credential
@@ -279,7 +292,6 @@ fn approved_remote_host(origin: &str) -> bool {
         || host.ends_with(".cmux.com")
         || host == "cmux.dev"
         || host.ends_with(".cmux.dev")
-        || host == "cmux-staging.vercel.app"
         || host.ends_with(".debussy.workers.dev")
 }
 
@@ -290,18 +302,19 @@ fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
     if bare_origin(&config.configuration.api_origin)? != selected {
         return Err("client-config API origin differs from the selected backend".into());
     }
-    for origin in [
-        &config.configuration.api_origin,
-        &config.configuration.auth_web_origin,
-        &config.configuration.vm_origin,
-        &config.configuration.platform_origin,
-        &config.configuration.mobile_origin,
-        &config.configuration.device_hub_origin,
-        &config.configuration.share_room_origin,
-        &config.configuration.share_api_origin,
-        &config.configuration.stack_origin,
+    let c = &config.configuration;
+    for (field, origin) in [
+        ("api_origin", &c.api_origin),
+        ("auth_web_origin", &c.auth_web_origin),
+        ("vm_origin", &c.vm_origin),
+        ("platform_origin", &c.platform_origin),
+        ("mobile_origin", &c.mobile_origin),
+        ("device_hub_origin", &c.device_hub_origin),
+        ("share_room_origin", &c.share_room_origin),
+        ("share_api_origin", &c.share_api_origin),
+        ("stack_origin", &c.stack_origin),
     ] {
-        allowed_origin(origin, selected)?;
+        allowed_origin(field, origin, selected)?;
     }
     if config.configuration.stack_project_id.is_empty() {
         return Err("client-config Stack project is empty".into());
@@ -518,6 +531,37 @@ mod tests {
         let mut invalid = valid;
         invalid.configuration.api_origin = crate::PRODUCTION_API.into();
         assert!(validate(&invalid, crate::DEVELOPMENT_API).is_err());
+    }
+
+    #[test]
+    fn classic_staging_host_is_approved_only_for_the_staging_sign_in_origin() {
+        // The staging sign-in page still lives on the classic host. No other field may point there:
+        // a client-config naming it for the VM, platform or share service would send that service's
+        // credentials to the classic web app.
+        let classic = format!("https://{CLASSIC_STAGING_SIGN_IN_HOST}");
+        let valid = config(crate::DEVELOPMENT_API);
+        let mut sign_in = valid.clone();
+        sign_in.configuration.auth_web_origin = classic.clone();
+        validate(&sign_in, crate::DEVELOPMENT_API).unwrap();
+        type Field = fn(&mut Configuration) -> &mut String;
+        let fields: [(&str, Field); 7] = [
+            ("vm_origin", |c| &mut c.vm_origin),
+            ("platform_origin", |c| &mut c.platform_origin),
+            ("mobile_origin", |c| &mut c.mobile_origin),
+            ("device_hub_origin", |c| &mut c.device_hub_origin),
+            ("share_room_origin", |c| &mut c.share_room_origin),
+            ("share_api_origin", |c| &mut c.share_api_origin),
+            ("stack_origin", |c| &mut c.stack_origin),
+        ];
+        for (name, field) in fields {
+            let mut invalid = valid.clone();
+            *field(&mut invalid.configuration) = classic.clone();
+            let refused = validate(&invalid, crate::DEVELOPMENT_API).unwrap_err();
+            assert!(refused.contains(name), "{name}: {refused}");
+        }
+        // The selected API origin is checked against the selection first; the classic host can't be
+        // selected at all.
+        assert!(Environment::parse(&classic).is_err());
     }
 
     #[test]
