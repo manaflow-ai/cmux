@@ -51,14 +51,20 @@ import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord } from "./toolFailureCauseModel";
 import { useRevealPins, useStepWindow, windowedSteps } from "./stepWindow";
+import { sameList } from "./toolGroupRowModel";
 
-export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
-  return items.length === 1 ? (
-    <McpCallRow item={items[0]!} />
-  ) : (
-    <McpGroupRow items={items} disclosureKey={disclosureKey} />
-  );
-}
+/// Memoized on its calls (the same objects unless a chunk changed one, direct.ts), so a chunk
+/// streamed to another group in the row draws this one again never.
+export const McpCallRows = memo(
+  function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
+    return items.length === 1 ? (
+      <McpCallRow item={items[0]!} />
+    ) : (
+      <McpGroupRow items={items} disclosureKey={disclosureKey} />
+    );
+  },
+  (a, b) => a.disclosureKey === b.disclosureKey && sameList(a.items, b.items),
+);
 
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
