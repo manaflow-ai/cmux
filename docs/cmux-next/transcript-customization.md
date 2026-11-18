@@ -74,9 +74,9 @@ transcript jump.
 | Look | Feel | Tokens it sets |
 |---|---|---|
 | `cmux` | The chat as cmux draws it. This is the default. | none |
-| `claude` | Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards, in the style of the Claude app | `density: comfortable`, `messageWidth: 720`, `fontSize: 15`, `lineHeight: 1.5`, `toolCards: minimal`, `userMessage.radius: 16`, `userMessage.maxWidth: 0.8`, `userMessage.fill: 0.06`, `toolCard.radius: 12` |
-| `codex` | A narrow column, a rounded bubble for your messages, borderless cards and no times, in the style of the Codex app | `messageWidth: 640`, `lineHeight: 1.5`, `userMessage.radius: 14`, `userMessage.fill: 0.12`, `toolCard.radius: 10`, `toolCard.border: none`, `toolCards: minimal`, `timestamps: off` |
-| `studio` | Dense work logs: tight rows, a squarer bubble, small radii | `density: compact`, `messageWidth: 736`, `userMessage.paddingInline: 12`, `toolCard.radius: 6`, `codeCard.radius: 6` |
+| `claude` | Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards, in the style of the Claude app | `density: comfortable`, `messageWidth: 720`, `fontSize: 15`, `lineHeight: 1.4`, `toolCards: minimal`, `userMessage.radius: 16`, `userMessage.maxWidth: 0.8`, `userMessage.fill: 0.04`, `toolCard.radius: 12` |
+| `codex` | A narrow column, a rounded bubble for your messages, borderless cards and no times, in the style of the Codex app | `messageWidth: 640`, `fontSize: 13`, `lineHeight: 1.6`, `userMessage.radius: 10`, `userMessage.paddingBlock: 7`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 10`, `toolCard.border: none`, `toolCards: minimal`, `timestamps: off` |
+| `studio` | Dense work logs: tight rows, a rounded bubble, small radii | `density: compact`, `messageWidth: 736`, `userMessage.paddingBlock: 11`, `userMessage.paddingInline: 12`, `userMessage.fill: 0.05`, `toolCard.radius: 6`, `codeCard.radius: 6` |
 
 The table file has every value of every look.
 
