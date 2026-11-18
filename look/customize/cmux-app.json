@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Sessions",
+  "version": "1.0.0",
+  "description": "Your agent sessions as the Claude Code desktop app lists them: filter by status, project or environment, and group by project.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSessions",
+      "title": "Sessions",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "middle", "maxRows": 50 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent sessions: title, state, project, machine and times.",
+    "workspace:read": "Know which workspace is open, to mark its session.",
+    "workspace:write": "Show a session's workspace when you click it.",
+    "actions:run": "Open a session that has no workspace in a new tab."
+  }
+}

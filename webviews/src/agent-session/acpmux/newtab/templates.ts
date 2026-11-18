@@ -89,8 +89,8 @@ export function pickNewTabStyle(style: PageStyle, deps: { callNative: Native; sh
   deps.show(style);
 }
 
-/// The template an unset `tabs.newTabTemplate` shows (the schema's default, NewTabTemplate.fallback).
-export const DEFAULT_NEW_TAB_TEMPLATE: NewTabTemplate = "minimal";
+/// The template an unset `tabs.newTabTemplate` shows: this look branch opens on Claude Code desktop's page (Default).
+export const DEFAULT_NEW_TAB_TEMPLATE: NewTabTemplate = "default";
 
 /// The template to show: the saved one, else the Debug Settings design (`a` is Classic), else Minimal.
 export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {

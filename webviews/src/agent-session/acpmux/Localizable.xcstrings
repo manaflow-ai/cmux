@@ -146110,7 +146110,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edited {file}"
+            "value": "Edit {file}"
           }
         },
         "es": {
@@ -337473,7 +337473,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wrote {file}"
+            "value": "Write {file}"
           }
         },
         "es": {

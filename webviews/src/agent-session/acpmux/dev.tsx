@@ -68,6 +68,8 @@ import "./conversation/DispatchCard.css";
 import "./conversation/AgentMessageRow.css";
 import "./harnessStatus.css";
 import "../../markdown-task-checkbox.css";
+// The Claude Code desktop look, last so it wins over the shared sheets (look/README.md).
+import "./claudeLook.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
 import { prepareMockTransport } from "./mockTransport";

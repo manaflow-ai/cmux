@@ -34,6 +34,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
 import { ToolLabel } from "./ToolVerb";
+import { ClaudeFileLabel } from "./ClaudeFileLabel";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
@@ -465,15 +466,20 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              <ToolLabel
-                whole
-                text={toolGroupLabel(
-                  t,
-                  kind,
-                  items,
-                  files.map((file) => file.path),
-                )}
-              />
+              {kind === "edits" && files.length === 1 && tools.every((tool) => tool.diffs?.length) ? (
+                // One file's edit, as Claude Code desktop draws it: "Edit" then the path in a chip.
+                <ClaudeFileLabel line={t("tools.edited.file", { file: "\u0000" })} path={files[0]!.path} />
+              ) : (
+                <ToolLabel
+                  whole
+                  text={toolGroupLabel(
+                    t,
+                    kind,
+                    items,
+                    files.map((file) => file.path),
+                  )}
+                />
+              )}
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
             {/* One call says why it failed in a word; several say how many, "(2 failed)", as Claude

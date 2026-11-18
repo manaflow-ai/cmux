@@ -26,8 +26,8 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   codex: "Codex",
 };
 
-/// New viewers use Codex's look across agent families; explicit choices remain saved.
-export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
+/// This look branch (Claude Code desktop) starts every viewer on Claude's look; explicit choices remain saved.
+export const DEFAULT_COMPOSER_LOOK: ComposerLook = "claude";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {

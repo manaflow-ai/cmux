@@ -1,0 +1,19 @@
+/* The Claude Code desktop app's chat colours: your prompt in a dark pill on the right, the file
+   chips and code on a slightly lighter warm grey, clay links, a dark rounded composer. Shapes and
+   weights live in the look branch's web layer (webviews/src/agent-session/acpmux/claudeLook.css). */
+:root {
+  --cv-bubble: #2d2c29;
+  --cv-code-bg: #302f2c;
+  --cv-link: #e08a6c;
+  --claude-chip: #302f2c;
+}
+.cv-user__bubble {
+  border-radius: 12px;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #2a2926;
+  --acpmux-composer-edge: rgb(255 255 255 / 10%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 14px;
+}

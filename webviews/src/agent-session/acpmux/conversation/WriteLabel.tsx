@@ -14,28 +14,27 @@ import { isDeniedPath } from "../chips/paths";
 import type { Translate } from "../i18n";
 
 import { SessionCwdContext } from "../turnChanges/sessionRows";
-import { fileName } from "./toolGroups";
 import { ToolLabel } from "./ToolVerb";
-import { leadingVerb } from "./toolVerbModel";
+import { ClaudeFileLabel } from "./ClaudeFileLabel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { type Tool, type WriteCall } from "./writeLabelModel";
 /// The line of a file-writing call (`writeCall`): its verb, the file name that opens it, and once
 /// it finished its counts. A failed call keeps the running verb; its row adds "failed".
 export function WriteLabel({ tool, write, t }: { tool: Tool; write: WriteCall; t: Translate }) {
   const cwd = useContext(SessionCwdContext);
+  const readOnly = useTranscriptReadOnly();
   const done = tool.status === "completed";
   if (!write.path) return <ToolLabel text={t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed")} />;
   const [before, after = ""] = t(done ? "tools.wrote.file" : "tools.writing.file", { file: "\u0000" }).split("\u0000");
   const counts = done ? write.counts : undefined;
-  const name = <WriteFileName path={write.path} cwd={cwd} />;
+  const folder = cwd?.replace(/\/+$/, "");
+  const full =
+    write.path.startsWith("/") || write.path.startsWith("~") || !folder ? write.path : `${folder}/${write.path}`;
+  const opens = !isDeniedPath(full) && !readOnly;
   return (
     <>
-      {/* "Wrote" in the run's verb column (ToolVerb.tsx), the file after it. */}
-      <ToolLabel verb={after ? undefined : leadingVerb(before ?? "")} subject={name}>
-        {before}
-        {name}
-        {after}
-      </ToolLabel>
+      {/* "Write" in bold, the path in a mono chip (ClaudeFileLabel.tsx, Claude Code desktop's row). */}
+      <ClaudeFileLabel line={`${before ?? ""}\u0000${after}`} path={full} {...(opens ? { full } : {})} />
       {counts && (
         <span className="cv-tool__counts">
           <span className="cv-edit-diff__add">+{counts.additions}</span>
@@ -43,21 +42,5 @@ export function WriteLabel({ tool, write, t }: { tool: Tool; write: WriteCall; t
         </span>
       )}
     </>
-  );
-}
-
-/// The written file's name, plain text (Lucas, 2026-11-06: no link on a Wrote row). The row's
-/// context menu still opens it (Open, `data-path`); a path no chip opens (a key, `.env`) and a
-/// read-only transcript carry no path.
-function WriteFileName({ path, cwd }: { path: string; cwd?: string }) {
-  const name = fileName(path);
-  const folder = cwd?.replace(/\/+$/, "");
-  const full = path.startsWith("/") || path.startsWith("~") || !folder ? path : `${folder}/${path}`;
-  const readOnly = useTranscriptReadOnly();
-  if (isDeniedPath(full) || readOnly) return <span className="cv-tool__file">{name}</span>;
-  return (
-    <span className="cv-tool__file" data-path={full}>
-      {name}
-    </span>
   );
 }

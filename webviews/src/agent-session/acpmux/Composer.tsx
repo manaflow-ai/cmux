@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { ClaudeBranchBar, CREATE_PR_PROMPT } from "./ClaudeBranchBar";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
@@ -2809,6 +2810,16 @@ function ComposerFrame({
         onLeave={() => field.current?.focus()}
       />
       {context}
+      {/* Claude Code desktop's branch bar over the box: base ← branch, the chat's line counts, Create PR. */}
+      {look === "claude" && !locationVisible && (
+        <ClaudeBranchBar
+          {...(branch ? { branch } : {})}
+          rows={snapshot.rows}
+          {...(livePullRequest ? { pullRequest: livePullRequest } : {})}
+          disabled={!remote.canSend || snapshot.isWorking}
+          onCreatePr={() => void onSend(CREATE_PR_PROMPT)}
+        />
+      )}
       {dropHost && (
         <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
       )}

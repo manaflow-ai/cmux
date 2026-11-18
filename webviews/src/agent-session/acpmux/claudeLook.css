@@ -1,0 +1,124 @@
+/* The Claude Code desktop look (look/README.md): the chat's own pieces as that app draws them.
+   Colours come from the look's theme (look/profile.json: the warm near-black page, the clay
+   accent #d97757); this sheet sets shapes, weights and the few fixed marks the app draws in clay. */
+:root {
+  --claude-clay: #d97757;
+  --claude-chip: color-mix(in srgb, var(--agent-text, #ececea) 9%, transparent);
+}
+
+/* Tool rows: "Edit" in bold full ink, the file in a mono chip, the counts after it, one line. */
+.cv-claude-file-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+}
+.cv-claude-verb {
+  font-weight: 600;
+  color: var(--cv-text, var(--agent-text));
+}
+.cv-claude-chip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: baseline;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--claude-chip);
+  font-family: var(--cv-mono);
+  font-size: 0.86em;
+  line-height: 1.35;
+  color: var(--cv-text, var(--agent-text));
+}
+.cv-tool .cv-tool__counts {
+  margin-inline-start: 8px;
+  font-family: var(--cv-mono);
+  font-size: 0.86em;
+}
+.cv-tool .cv-tool__counts > * + * {
+  margin-inline-start: 2px;
+}
+/* A row of plain words ("Typecheck", "Run tests", "Updated todos") keeps the verb's full ink. */
+.cv-tool.is-strong > .cv-tool__text {
+  color: var(--cv-text, var(--agent-text));
+}
+.cv-tool .cv-tool__icon {
+  display: none;
+}
+
+/* Your prompt: a dark pill on the right. */
+.acpmux-shell .cv-user__bubble {
+  --glass-tint: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  border-radius: 12px;
+}
+
+/* The live line: a clay asterisk before "2m 14s · ↓18.6k tokens". It turns while the turn runs
+   (only where motion is on; still otherwise). */
+.cv-worked--live::before {
+  content: "\273B";
+  flex: none;
+  color: var(--claude-clay);
+  font-size: 1.15em;
+  line-height: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]) .cv-worked--live::before {
+    animation: claude-asterisk 2.4s linear infinite;
+  }
+}
+@keyframes claude-asterisk {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The branch bar over the composer (ClaudeBranchBar.tsx). */
+.acpmux-claude-branch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  color: var(--agent-text-secondary, var(--agent-text));
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.acpmux-claude-branch-bar__head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-text);
+}
+.acpmux-claude-branch-bar__arrow {
+  opacity: 0.7;
+}
+.acpmux-claude-branch-bar__counts {
+  display: inline-flex;
+  gap: 4px;
+  font-family: var(--cv-mono, ui-monospace, monospace);
+}
+.acpmux-claude-branch-bar__create,
+.acpmux-claude-branch-bar__pr {
+  margin-inline-start: auto;
+  padding: 1px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-text-secondary, var(--agent-text));
+  font: inherit;
+}
+.acpmux-claude-branch-bar__create:not(:disabled):hover {
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+}
+
+/* The composer: a dark rounded box. */
+.acpmux-composer .acpmux-composer-box {
+  --acpmux-composer-radius: 14px;
+}

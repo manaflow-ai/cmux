@@ -1,0 +1,133 @@
+{
+  "prompt": "migrate the API client to fetch with retries",
+  "steps": [
+    {
+      "atMs": 800,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "I'll swap axios for fetch and add a retry wrapper.\n\n"
+        }
+      }
+    },
+    {
+      "atMs": 1500,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "e1",
+        "kind": "edit",
+        "title": "Edit src/api/client.ts",
+        "status": "in_progress",
+        "locations": [
+          {
+            "path": "/work/acme-web/src/api/client.ts"
+          }
+        ],
+        "content": [
+          {
+            "type": "diff",
+            "path": "/work/acme-web/src/api/client.ts",
+            "oldText": "import axios from 'axios';\n// line 1\n// line 2\n// line 3\n// line 4\n// line 5\n// line 6\n// line 7\n// line 8\n// line 9\n// line 10\n// line 11\n// line 12\n// line 13\n// line 14\n// line 15\n// line 16\n// line 17\n// line 18\n// line 19\n// line 20\n// line 21\n// line 22\n// line 23\n// line 24\n// line 25\n// line 26\n// line 27\n// line 28\n// line 29\n// line 30\n// line 31\n// line 32\n// line 33\n// line 34\n// line 35\n// line 36\n// line 37\n// line 38\n// line 39\n// line 40\n// line 41\n// line 42\n// line 43\n// line 44\n// line 45\n// line 46\n// line 47\n// line 48\n// line 49\n// line 50\n// line 51\n// line 52\n// line 53\n// line 54\n// line 55\n// line 56\n// line 57\n// line 58\n// line 59\n// line 60\n// line 61\n// line 62\n// line 63\n// line 64\n// line 65\n// line 66\n// line 67\n// line 68\n// line 69\n// line 70\n// line 71\n// line 72\n// line 73\n// line 74\n// line 75\n// line 76\n// line 77\n// line 78\n// line 79\n// line 80\n// line 81\n// line 82\n// line 83\n",
+            "newText": "import { withRetry } from './retry';\n// fetch line 0\n// fetch line 1\n// fetch line 2\n// fetch line 3\n// fetch line 4\n// fetch line 5\n// fetch line 6\n// fetch line 7\n// fetch line 8\n// fetch line 9\n// fetch line 10\n// fetch line 11\n// fetch line 12\n// fetch line 13\n// fetch line 14\n// fetch line 15\n// fetch line 16\n// fetch line 17\n// fetch line 18\n// fetch line 19\n// fetch line 20\n// fetch line 21\n// fetch line 22\n// fetch line 23\n// fetch line 24\n// fetch line 25\n// fetch line 26\n// fetch line 27\n// fetch line 28\n// fetch line 29\n// fetch line 30\n// fetch line 31\n// fetch line 32\n// fetch line 33\n// fetch line 34\n// fetch line 35\n// fetch line 36\n// fetch line 37\n// fetch line 38\n// fetch line 39\n// fetch line 40\n// fetch line 41\n// fetch line 42\n// fetch line 43\n// fetch line 44\n// fetch line 45\n// fetch line 46\n// fetch line 47\n// fetch line 48\n// fetch line 49\n// fetch line 50\n// fetch line 51\n// fetch line 52\n// fetch line 53\n// fetch line 54\n// fetch line 55\n// fetch line 56\n// fetch line 57\n// fetch line 58\n// fetch line 59\n// fetch line 60\n// fetch line 61\n// fetch line 62\n// fetch line 63\n// fetch line 64\n// fetch line 65\n// fetch line 66\n// fetch line 67\n// fetch line 68\n// fetch line 69\n// fetch line 70\n// fetch line 71\n// fetch line 72\n// fetch line 73\n// fetch line 74\n// fetch line 75\n// fetch line 76\n// fetch line 77\n// fetch line 78\n// fetch line 79\n// fetch line 80\n// fetch line 81\n// fetch line 82\n// fetch line 83\n// fetch line 84\n// fetch line 85\n// fetch line 86\n// fetch line 87\n// fetch line 88\n// fetch line 89\n// fetch line 90\n// fetch line 91\n// fetch line 92\n// fetch line 93\n// fetch line 94\n// fetch line 95\n// fetch line 96\n// fetch line 97\n// fetch line 98\n// fetch line 99\n// fetch line 100\n// fetch line 101\n// fetch line 102\n// fetch line 103\n// fetch line 104\n// fetch line 105\n// fetch line 106\n// fetch line 107\n// fetch line 108\n// fetch line 109\n// fetch line 110\n"
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 2200,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "e1",
+        "status": "completed"
+      }
+    },
+    {
+      "atMs": 2600,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "w1",
+        "kind": "edit",
+        "title": "Write src/api/retry.ts",
+        "status": "in_progress",
+        "rawInput": {
+          "file_path": "/work/acme-web/src/api/retry.ts",
+          "content": "// retry line 0\n// retry line 1\n// retry line 2\n// retry line 3\n// retry line 4\n// retry line 5\n// retry line 6\n// retry line 7\n// retry line 8\n// retry line 9\n// retry line 10\n// retry line 11\n// retry line 12\n// retry line 13\n// retry line 14\n// retry line 15\n// retry line 16\n// retry line 17\n// retry line 18\n// retry line 19\n// retry line 20\n// retry line 21\n// retry line 22\n// retry line 23\n// retry line 24\n// retry line 25\n// retry line 26\n// retry line 27\n// retry line 28\n// retry line 29\n// retry line 30\n// retry line 31\n// retry line 32\n// retry line 33\n// retry line 34\n// retry line 35\n// retry line 36\n// retry line 37\n// retry line 38\n// retry line 39\n// retry line 40\n// retry line 41\n// retry line 42\n// retry line 43\n// retry line 44\n// retry line 45\n// retry line 46\n"
+        },
+        "locations": [
+          {
+            "path": "/work/acme-web/src/api/retry.ts"
+          }
+        ],
+        "content": [
+          {
+            "type": "diff",
+            "path": "/work/acme-web/src/api/retry.ts",
+            "oldText": null,
+            "newText": "// retry line 0\n// retry line 1\n// retry line 2\n// retry line 3\n// retry line 4\n// retry line 5\n// retry line 6\n// retry line 7\n// retry line 8\n// retry line 9\n// retry line 10\n// retry line 11\n// retry line 12\n// retry line 13\n// retry line 14\n// retry line 15\n// retry line 16\n// retry line 17\n// retry line 18\n// retry line 19\n// retry line 20\n// retry line 21\n// retry line 22\n// retry line 23\n// retry line 24\n// retry line 25\n// retry line 26\n// retry line 27\n// retry line 28\n// retry line 29\n// retry line 30\n// retry line 31\n// retry line 32\n// retry line 33\n// retry line 34\n// retry line 35\n// retry line 36\n// retry line 37\n// retry line 38\n// retry line 39\n// retry line 40\n// retry line 41\n// retry line 42\n// retry line 43\n// retry line 44\n// retry line 45\n// retry line 46\n"
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 3200,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "w1",
+        "status": "completed"
+      }
+    },
+    {
+      "atMs": 3800,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "Swapped axios for native fetch with a `withRetry` wrapper \u2014 exponential backoff, jitter, capped at 3 attempts on 429/503.\n\n"
+        }
+      }
+    },
+    {
+      "atMs": 4400,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "x1",
+        "kind": "execute",
+        "title": "Run tests",
+        "status": "in_progress",
+        "rawInput": {
+          "command": "bun test src/api",
+          "description": "Run tests"
+        }
+      }
+    },
+    {
+      "atMs": 9000,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "x1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "12 pass\n0 fail\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 9500,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "All 12 API tests pass."
+        }
+      }
+    }
+  ],
+  "endAtMs": 10000
+}
