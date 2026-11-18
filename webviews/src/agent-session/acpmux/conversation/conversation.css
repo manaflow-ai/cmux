@@ -7786,9 +7786,10 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
     backdrop-filter: none;
   }
 }
-/* Liquid Glass off (appearance.liquidGlass): the same solid surface. */
+/* Liquid Glass off (appearance.liquidGlass): the same solid surface, through its veil, so the hover
+   wash above still draws over a solid fill. */
 :where(:root[data-glass="off"]) .cv-selection-reply {
-  background: var(--glass-surface);
+  --cv-selection-reply-veil: 100%;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
