@@ -73,9 +73,10 @@ const LOOK_PREFIXES: [&str; 8] = [
 ];
 /// Look keys outside those prefixes: the terminal and chat code fonts and
 /// the sidebar's shape and edges.
-const LOOK_KEYS: [&str; 7] = [
+const LOOK_KEYS: [&str; 8] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
+    "agentPane.display.code.scale",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",

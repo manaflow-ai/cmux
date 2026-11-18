@@ -88,7 +88,9 @@ backdrop picture is:
   must match the file's bytes.
 - A face key is one family name, optionally suffixed `:italic`. Its value is one of the theme's own
   files, `file:../fonts/NAME`.
-- `font.uiFamily` wins over `font.ui`, and `font.proseFamily` wins over `font.preset`.
+- `font.uiFamily` wins over `font.ui`, and `font.proseFamily` wins over `font.preset`. A theme
+  file may also set `agentPane.display.code.family` and `agentPane.display.code.scale`, to match
+  inline code to the pack.
 - Install copies the fonts and the license text to `~/.config/cmux/fonts/<entry>/` and points the
   theme file there; `cmux theme remove` deletes them.
 - `cmux theme check DIR` on the repository folder reports a missing license, a bad font file and a

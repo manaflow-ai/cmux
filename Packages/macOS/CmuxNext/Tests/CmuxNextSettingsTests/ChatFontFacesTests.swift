@@ -124,13 +124,13 @@ import Testing
         let folder = URL(fileURLWithPath: "/tmp/cmux-config/themes", isDirectory: true)
         let text = #"""
         { "agentPane.display.font.uiFamily": "Pack Sans, system-ui", "agentPane.display.font.proseFamily": "Pack Serif",
-          "agentPane.display.code.family": "Pack Mono",
+          "agentPane.display.code.family": "Pack Mono", "agentPane.display.code.scale": 0.8,
           "agentPane.display.font.faces": { "Pack Sans": "file:../fonts/PackSans.woff2", "Pack Serif:italic": "file:/Library/Fonts/P.otf" } }
         """#
         let overlay = ThemeFileOverlay(name: "pack", source: .success(text), base: .object([:]), folder: folder)
         #expect(overlay.diagnostics.isEmpty, "\(overlay.diagnostics)")
         #expect(overlay.values.map { $0.path.joined(separator: ".") } == [
-            "agentPane.display.code.family", "agentPane.display.font.faces",
+            "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.font.faces",
             "agentPane.display.font.proseFamily", "agentPane.display.font.uiFamily",
         ])
         #expect(overlay.applied(to: .object([:])).value(at: AgentPaneDisplaySettingsSchema.facesPath) == .object([

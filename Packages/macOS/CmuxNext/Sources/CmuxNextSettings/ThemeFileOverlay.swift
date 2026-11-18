@@ -52,7 +52,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookPrefixes = ["appearance.", "agentPane.display.font.", "ui.animation", "ui.calm", "ui.paneAnimations",
                                "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal and chat code fonts and the sidebar's shape and edges.
-    static let lookKeys: Set<String> = ["terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize", "sidebar.style",
+    static let lookKeys: Set<String> = ["terminal.fontFamily", "agentPane.display.code.family", "agentPane.display.code.scale", "terminal.fontSize", "sidebar.style",
                                         "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook"]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.

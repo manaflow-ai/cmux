@@ -414,6 +414,7 @@ fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_theme
         "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
         "agentPane.display.font.proseFamily": "Pack Serif",
         "agentPane.display.code.family": "Pack Mono",
+        "agentPane.display.code.scale": 0.8,
         "agentPane.display.font.faces": {
             "Pack Sans": "file:../fonts/PackSans.woff2",
             "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
@@ -432,6 +433,7 @@ fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_theme
         file.keys(),
         [
             "agentPane.display.code.family",
+            "agentPane.display.code.scale",
             "agentPane.display.font.faces",
             "agentPane.display.font.proseFamily",
             "agentPane.display.font.uiFamily",
