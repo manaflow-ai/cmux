@@ -1,0 +1,58 @@
+{
+  "caption": "With an update downloaded, type restart in the Command Palette to install it and reopen cmux.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "An update has downloaded",
+      "rpc": {
+        "method": "debug.updater",
+        "params": {
+          "action": "stage",
+          "version": "0.99.0"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Open the Command Palette",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Type restart",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "restart"
+          },
+          "focus": true
+        }
+      },
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.17,
+    0.13,
+    0.66,
+    0.7
+  ]
+}

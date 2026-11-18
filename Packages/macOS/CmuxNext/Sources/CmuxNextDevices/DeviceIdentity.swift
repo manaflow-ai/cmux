@@ -1,4 +1,3 @@
-internal import CCmuxLayoutReducerFFI
 public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
@@ -167,30 +166,9 @@ extension DeviceIdentity {
         static func ask(accounts: [String] = [], deletes: [Delete] = []) throws -> Slots {
             struct Request: Encodable { var accounts: [String], deletes: [Delete] }
             guard let request = try? JSONEncoder().encode(Request(accounts: accounts, deletes: deletes)),
-                  let reply = call("cloud_identity_device_slots", request),
+                  let reply = AppRules.call("cloud_identity_device_slots", request),
                   let slots = try? JSONDecoder().decode(Slots.self, from: reply) else { throw Failure.rulesUnanswered }
             return slots
-        }
-
-        /// One JSON call of the app FFI (`cmux_layout_reducer_json`); nil when it does not answer.
-        private static func call(_ operation: String, _ request: Data) -> Data? {
-            var capacity = 4096
-            for _ in 0..<2 {
-                var output = [UInt8](repeating: 0, count: capacity)
-                var length = 0
-                let code: Int32 = request.withUnsafeBytes { bytes in
-                    operation.withCString { op in
-                        output.withUnsafeMutableBytes { out in
-                            cmux_layout_reducer_json(bytes.bindMemory(to: UInt8.self).baseAddress, request.count, op,
-                                                     out.bindMemory(to: UInt8.self).baseAddress, out.count, &length)
-                        }
-                    }
-                }
-                if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, length > capacity { capacity = length; continue }
-                guard code == CMUX_LAYOUT_REDUCER_OK, length <= capacity else { return nil }
-                return Data(output.prefix(length))
-            }
-            return nil
         }
     }
 }

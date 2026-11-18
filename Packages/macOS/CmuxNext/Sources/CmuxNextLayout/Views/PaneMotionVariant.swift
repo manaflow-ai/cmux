@@ -5,8 +5,9 @@ public import CmuxNextDesign
 /// Every choice reuses Motion tokens and the same fixed-size content hosts.
 /// The standard choice preserves the shipping motion until dogfood selects a preset.
 public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, TunableChoice {
-    /// The split spring (`split`) for splits and closes, and the zoom spring (`zoom`, critically
-    /// damped, DESIGN.md 2026-10-18 "Spring").
+    /// The tokens of the motion pairs (`MotionPair.pane`, `MotionPair.zoom`): `split` for a split
+    /// and `paneClose` for a close, `zoom` for a zoom and `unzoom` for the way back. Each exit ends
+    /// sooner than its enter.
     case standard
     /// Short, critically damped movement with no overshoot.
     case crisp
@@ -19,10 +20,11 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
     }
 
     /// A close's spring: the closed pane's neighbours springing into its space. The standard one
-    /// is the split's (plans/cmux-next/close-animation/DESIGN.md): a close is a split run backwards.
+    /// is a split run backwards (plans/cmux-next/close-animation/DESIGN.md) in 75% of the split's
+    /// time: the exit of `MotionPair.pane`.
     var closeSpring: MotionSpring {
         switch self {
-        case .standard: .split
+        case .standard: .paneClose
         case .crisp: .disappear
         }
     }
@@ -35,9 +37,19 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
         }
     }
 
+    /// A zoom's spring: the pane growing to fill its screen.
     var expandSpring: MotionSpring {
         switch self {
         case .standard: .zoom
+        case .crisp: .move
+        }
+    }
+
+    /// An unzoom's spring: the zoomed pane going back to its place. The standard one is the exit
+    /// of `MotionPair.zoom`, 75% of the zoom's time.
+    var restoreSpring: MotionSpring {
+        switch self {
+        case .standard: .unzoom
         case .crisp: .move
         }
     }

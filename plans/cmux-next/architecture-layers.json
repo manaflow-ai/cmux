@@ -138,7 +138,7 @@
     "CmuxNextApp": {"layer": "app", "mixes": ["core", "service", "domain", "ui"], "plan": "composition root only (section 4)"},
 
     "CMUXAuthCore": {"layer": "core", "package": "Packages/Shared/CMUXAuthCore", "note": "pure auth values"},
-    "CMUXMobileCore": {"layer": "core", "package": "Packages/Shared/CMUXMobileCore", "note": "shared mobile values and protocol; CmuxTheme sits on it"},
+    "CMUXMobileCore": {"layer": "core", "package": "Packages/Shared/CMUXMobileCore", "note": "shared mobile values and protocol; the Mac app does not link it"},
     "CmuxAgentQuestion": {"layer": "core", "package": "Packages/Shared/CmuxAgentQuestion", "note": "harness-neutral question model"},
     "CmuxInstallAuthCore": {"layer": "core", "package": "Packages/Shared/CmuxInstallAuthCore", "note": "install auth crypto values"},
     "CmuxFeedPushCore": {"layer": "core", "package": "Packages/Shared/CmuxFeedPushCore", "note": "feed push crypto values"},

@@ -2,14 +2,15 @@ use std::cell::Cell;
 
 use serde_json::{Value, json};
 
+use super::super::agents::turn::Outcome;
 use super::super::cloud_start_chat::Machine;
-use super::joined::{self, JoinedMachine, Settled, Sources};
+use super::joined::{self, Carrier, JoinedMachine, Settled, Sources};
 use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_preflight,
-    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target,
-    read_setting, route, route_or_joined, route_start, setting_stream, start_words,
+    here_wait, here_words, in_environment, names_cloud, new_args, parse, parse_with, peer_words,
+    pick_target, read_setting, route, route_or_joined, route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -55,6 +56,29 @@ fn listed() -> Value {
     ]})
 }
 
+/// The `_acpmux/peers` answer of the acpmux a chat here starts in: the machines New Agent Chat's
+/// Environment picker lists (an ssh peer the person added, one reconnecting, one only the hub
+/// reaches, and `box`, which the catalog also has as an ssh device with no route of its own).
+fn peers() -> Value {
+    json!({"peers": [
+        {"name": "studio", "url": "ssh://studio", "connected": true, "state": "connected"},
+        {"name": "box", "url": "ssh://box", "connected": true, "state": "connected"},
+        {"name": "napping", "url": "ssh://napping", "connected": false, "state": "reconnecting"},
+        {"name": "old", "url": "ws://old", "connected": true},
+        {"name": "far", "connected": true, "state": "connected", "via": "hub"},
+    ]})
+}
+
+/// A peers read a route must not make.
+fn unread_peers() -> Result<Value, String> {
+    panic!("peers read")
+}
+
+/// An acpmux with no peers: a name the catalog does not route falls through to a joined machine.
+fn no_peers() -> Result<Value, String> {
+    Ok(json!({"peers": []}))
+}
+
 /// `route` with the fixtures, signed in or not.
 fn at(on: &str, signed_in: bool) -> Result<Route, Value> {
     route(
@@ -63,6 +87,7 @@ fn at(on: &str, signed_in: bool) -> Result<Route, Value> {
             catalog: || Ok(catalog()),
             signed_in: || signed_in,
             cloud_machines: || Ok(listed()),
+            peers: || Ok(peers()),
         },
     )
 }
@@ -97,7 +122,12 @@ fn no_target_is_a_chat_here() {
         ])
     );
     let unread = || -> Result<Value, Value> { panic!("read") };
-    let reads = Reads { catalog: unread, signed_in: || panic!("asked"), cloud_machines: unread };
+    let reads = Reads {
+        catalog: unread,
+        signed_in: || panic!("asked"),
+        cloud_machines: unread,
+        peers: unread_peers,
+    };
     assert_eq!(route(None, reads), Ok(Route::Here));
     assert_eq!(at("here", false), Ok(Route::Here));
 }
@@ -263,6 +293,7 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
         catalog: || -> Result<Value, Value> { panic!("no catalog read") },
         signed_in: move || signed_in,
         cloud_machines: || -> Result<Value, Value> { panic!("no VM is looked at") },
+        peers: unread_peers,
     };
     assert_eq!(route_start(&picked, reads(true)), Ok(Route::Cloud(Machine::New)));
     let signed_out = route_start(&picked, reads(false)).unwrap_err();
@@ -345,6 +376,7 @@ fn on_vm(listed: Value) -> Result<Route, Value> {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
             cloud_machines: || Ok(listed),
+            peers: unread_peers,
         },
     )
 }
@@ -391,6 +423,7 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
             cloud_machines: || Ok(unloaded),
+            peers: unread_peers,
         },
     )
     .unwrap_err();
@@ -402,7 +435,12 @@ fn vm_reuses_my_vm_and_makes_one_only_when_i_have_none() {
     let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
     let device = route(
         Some("machine_vm"),
-        Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(unloaded) },
+        Reads {
+            catalog: || Ok(catalog()),
+            signed_in: || true,
+            cloud_machines: || Ok(unloaded),
+            peers: unread_peers,
+        },
     )
     .unwrap_err();
     assert_eq!(
@@ -424,6 +462,7 @@ fn devices_are_checked_against_the_daemons_catalog() {
             false
         },
         cloud_machines: || -> Result<Value, Value> { panic!("listed") },
+        peers: unread_peers,
     };
     // The local device needs no sign-in, and is not asked for one.
     assert_eq!(route(Some("machine_mac"), reads), Ok(Route::Here));
@@ -450,7 +489,12 @@ fn devices_are_checked_against_the_daemons_catalog() {
 fn the_object_catalog_reads_like_the_daemons_array() {
     let object = || Ok(json!({"machines": catalog()}));
     for on in ["machine_mac", "dev", "twin", "machine_box", "machine_gone"] {
-        let reads = Reads { catalog: object, signed_in: || true, cloud_machines: || Ok(listed()) };
+        let reads = Reads {
+            catalog: object,
+            signed_in: || true,
+            cloud_machines: || Ok(listed()),
+            peers: || Ok(peers()),
+        };
         assert_eq!(route(Some(on), reads), at(on, true), "{on}");
     }
 }
@@ -462,7 +506,12 @@ fn a_cloud_device_is_an_existing_cloud_vm() {
     let with = |listed: Value| {
         route(
             Some("machine_vm"),
-            Reads { catalog: || Ok(catalog()), signed_in: || true, cloud_machines: || Ok(listed) },
+            Reads {
+                catalog: || Ok(catalog()),
+                signed_in: || true,
+                cloud_machines: || Ok(listed),
+                peers: unread_peers,
+            },
         )
     };
     assert_eq!(
@@ -522,6 +571,7 @@ fn a_vm_target_signed_out_says_to_sign_in() {
     let reads = Reads {
         catalog: || -> Result<Value, Value> { panic!("catalog") },
         signed_in: || false,
+        peers: unread_peers,
         cloud_machines: || Ok(json!({"account": {"signed_in": false}, "machines": []})),
     };
     assert_eq!(code(route(Some("vm:dev"), reads)), "chat_target.signed_out");
@@ -596,6 +646,7 @@ fn on_joined(on: &str, rows: Option<Vec<Value>>) -> Result<Route, Value> {
                     catalog: || Ok(catalog()),
                     signed_in: || true,
                     cloud_machines: || Ok(listed()),
+                    peers: no_peers,
                 },
             )
         },
@@ -608,6 +659,17 @@ fn joined_at(id: Option<&str>, name: &str, host: &str) -> Result<Route, Value> {
         id: id.map(str::to_owned),
         name: name.to_owned(),
         host: host.to_owned(),
+        carrier: Carrier::Hub,
+    }))
+}
+
+/// A machine acpmux reaches itself, as `--on` resolves it.
+fn peer_at(host: &str) -> Result<Route, Value> {
+    Ok(Route::Joined(JoinedMachine {
+        id: None,
+        name: host.to_owned(),
+        host: host.to_owned(),
+        carrier: Carrier::Peer,
     }))
 }
 
@@ -625,6 +687,7 @@ fn a_joined_machine_is_a_chat_target_by_name_or_id() {
                     catalog: || Ok(catalog()),
                     signed_in: || true,
                     cloud_machines: || Ok(listed()),
+                    peers: no_peers,
                 },
             )
         },
@@ -708,7 +771,12 @@ fn a_catalog_device_without_a_route_is_its_joined_machine() {
         || {
             route(
                 Some("studio"),
-                Reads { catalog, signed_in: || true, cloud_machines: || Ok(listed()) },
+                Reads {
+                    catalog,
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                    peers: no_peers,
+                },
             )
         },
         Sources { hub, rows: || Ok(joined_rows()) },
@@ -719,8 +787,12 @@ fn a_catalog_device_without_a_route_is_its_joined_machine() {
 /// The acpmux start: `session start NAME --machine HOST`, with the harness and folder.
 #[test]
 fn a_joined_start_is_acpmuxs_mesh_start() {
-    let machine =
-        JoinedMachine { id: Some("m_desk".into()), name: "Desk Mac".into(), host: "mini-2".into() };
+    let machine = JoinedMachine {
+        id: Some("m_desk".into()),
+        name: "Desk Mac".into(),
+        host: "mini-2".into(),
+        carrier: Carrier::Hub,
+    };
     // A joined machine has no Cloud environment to pick: refused, never dropped.
     let in_env = start(&["--on", "Desk Mac", "--environment", "env_1", "go"]);
     assert!(in_environment(&in_env, Route::Joined(machine.clone())).is_err());
@@ -745,8 +817,16 @@ fn a_joined_start_is_acpmuxs_mesh_start() {
             "--json"
         ])
     );
-    // --wait waits for a Cloud chat only.
-    assert!(joined::start_words(&start(&["--wait", "go"]), &machine, "n").is_err());
+    // hq#11835 row 6: --wait waits on a joined machine too (it was refused); a bad --timeout,
+    // or one with no --wait, is still refused before anything starts.
+    assert_eq!(
+        joined::start_words(&start(&["--wait", "--timeout", "60", "go"]), &machine, "n").unwrap(),
+        words(&["session", "start", "n", "--machine", "mini-2", "--json"])
+    );
+    assert!(joined::start_words(&start(&["--timeout", "60", "go"]), &machine, "n").is_err());
+    assert!(
+        joined::start_words(&start(&["--wait", "--timeout", "0", "go"]), &machine, "n").is_err()
+    );
     // The name: --name, else a few words of the prompt and four letters.
     assert_eq!(joined::chat_name(&plain, "abcd"), "run-the-tests-abcd");
     assert_eq!(joined::chat_name(&start(&["--name", "lane-a", "go"]), "abcd"), "lane-a");
@@ -955,6 +1035,86 @@ fn a_refused_or_unset_setting_is_no_setting() {
     finish(app);
 }
 
+/// `cmux chat --on studio` used to refuse every machine but this Mac and a Cloud VM
+/// (`chat_target.no_route`, "the CLI cannot start one there yet"), though New Agent Chat starts
+/// chats on the machines it lists. Now a name the catalog does not route is the acpmux peer of
+/// that exact name, as the composer's Environment picker starts one.
+#[test]
+fn a_machine_new_agent_chat_lists_is_a_peer_route() {
+    // Not in the catalog: the peer.
+    assert_eq!(at("studio", true), Ok(Route::Peer("studio".into())));
+    assert_eq!(at("old", true), Ok(Route::Peer("old".into())), "no state: connected decides");
+    // In the catalog with no route of its own, and a peer by that name: the peer.
+    assert_eq!(at("box", true), Ok(Route::Peer("box".into())));
+    // Named by its catalog id, which no peer has: still no route, and the message says why.
+    let by_id = at("machine_box", true).unwrap_err();
+    assert_eq!(by_id["code"], "chat_target.no_route");
+    assert!(by_id["message"].as_str().unwrap().contains("New Agent Chat lists"), "{by_id}");
+    // A peer not connected now: refused with its state, to retry.
+    let napping = at("napping", true).unwrap_err();
+    assert_eq!(
+        (napping["code"].as_str(), napping["retryable"].as_bool()),
+        (Some("chat_target.unavailable"), Some(true))
+    );
+    assert!(napping["message"].as_str().unwrap().contains("reconnecting"), "{napping}");
+    // A machine only the hub reaches is no peer a chat starts on.
+    assert_eq!(code(at("far", true)), "chat_target.no_route");
+    // This Mac, a Cloud VM and a device's own refusal never become a peer.
+    assert_eq!(at("local", true), Ok(Route::Here));
+    assert_eq!(at("dev", true), Ok(Route::Cloud(Machine::Target("vm-dev".into()))));
+    assert_eq!(code(at("machine_term", true)), "chat_target.not_permitted");
+    assert_eq!(code(at("twin", true)), "chat_target.ambiguous_device");
+    // Neither a device nor a peer.
+    assert_eq!(code(at("nowhere", true)), "chat_target.unknown_device");
+    // The peers cannot be read: the catalog's refusal, saying so.
+    let unread = route(
+        Some("studio"),
+        Reads {
+            catalog: || Ok(catalog()),
+            signed_in: || true,
+            cloud_machines: || Ok(listed()),
+            peers: || Err("no acpmux".to_owned()),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(unread["code"], "chat_target.unknown_device");
+    assert_eq!(unread["details"]["peers_unread"], "no acpmux");
+}
+
+/// A chat on a peer is `agents chat new --peer PEER` with the start's settings; what it cannot
+/// take is refused, never dropped.
+#[test]
+fn a_peer_chat_is_agents_chat_new_with_the_peer() {
+    let go = start(&["--on", "studio", "--agent", "codex", "--cwd", "/srv/app", "go"]);
+    assert_eq!(
+        peer_words(&words(&["--json"]), &go, "studio").unwrap(),
+        words(&[
+            "--json",
+            "agents",
+            "chat",
+            "new",
+            "--peer",
+            "studio",
+            "--harness",
+            "codex",
+            "--cwd",
+            "/srv/app",
+            "--",
+            "go"
+        ])
+    );
+    for refused in [
+        &["--on", "studio", "--wait", "go"][..],
+        &["--on", "studio", "--from-folder", ".", "go"],
+        &["--on", "studio", "--repo", "manaflow-ai/cmux", "go"],
+        &["--on", "studio", "--cwd", "relative", "go"],
+    ] {
+        assert!(peer_words(&[], &start(refused), "studio").is_err(), "{refused:?}");
+    }
+    let environment = start(&["--on", "studio", "--environment", "env_1", "go"]);
+    assert!(in_environment(&environment, Route::Peer("studio".into())).is_err());
+}
+
 /// #38355 review F2: the account's list decides before the hub's. A machine revoked on the
 /// account that the hub still lists (revocation reaches the hub later) is refused, never
 /// started on; so is it by its id.
@@ -976,6 +1136,7 @@ fn a_revoked_machine_the_hub_still_lists_is_refused() {
                         catalog: || Ok(catalog()),
                         signed_in: || true,
                         cloud_machines: || Ok(listed()),
+                        peers: no_peers,
                     },
                 )
             },
@@ -1111,6 +1272,7 @@ fn two_slow_calls_end_at_the_one_start_deadline() {
         words: &["session", "start", "n", "--machine", "studio", "--json"],
         target: "studio/n",
         prompt: Some("go"),
+        receipt: true,
     };
     let limit = Duration::from_secs(1);
     let began = std::time::Instant::now();
@@ -1148,6 +1310,7 @@ fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
         words: &["session", "start", "n", "--machine", "studio", "--json"],
         target: "studio/n",
         prompt: Some("go"),
+        receipt: true,
     };
     // The start answers at once; the send takes longer than the deadline.
     let mut acp = slow_acp(Duration::ZERO, started, &calls);
@@ -1190,4 +1353,250 @@ fn a_first_prompt_not_confirmed_in_time_is_not_retryable() {
     .unwrap();
     assert_eq!(receipt["detail"], "s1");
     assert_eq!(sent.unwrap()["status"], "queued");
+}
+
+/// acpmux's peers as `acp host ls` lists them on a person's laptop: ssh peers added with
+/// `acpmux machine add` (no `via`), one down, and a machine only the hub reaches.
+fn laptop_peers() -> Vec<Value> {
+    vec![
+        json!({"name": "gcp-agent-lane-3", "carrier": "ssh", "connected": true,
+               "state": "connected"}),
+        json!({"name": "cosmic-gray", "carrier": "ssh", "connected": false, "state": "down",
+               "error": "ssh: connect to host cosmic-gray port 22: Operation timed out"}),
+        json!({"name": "gcp-agent-lane-6", "connected": true, "state": "connected",
+               "via": "hub"}),
+    ]
+}
+
+/// `route_or_joined` on the laptop: no catalog device has these names, and the account's list
+/// must not be needed for a machine acpmux reaches itself.
+fn on_laptop(on: &str, rows: impl FnOnce() -> Result<Vec<Value>, String>) -> Result<Route, Value> {
+    route_or_joined(
+        Some(on),
+        || {
+            route(
+                Some(on),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                    peers: no_peers,
+                },
+            )
+        },
+        Sources { hub: laptop_peers, rows },
+    )
+}
+
+/// hq#11835 row 2: `acpmux machine add gcp-agent-lane-3` made it `connected` in `acpmux machine
+/// ls`, with sessions listed as gcp-agent-lane-3/NAME, but `cmux chat --on gcp-agent-lane-3`
+/// answered `chat_target.unknown_device` ("no connected device has the id gcp-agent-lane-3"):
+/// only a machine joined through the hub was a target. Every machine acpmux reaches is one
+/// now, by its acpmux name in any case, with no sign-in.
+#[test]
+fn a_machine_acpmux_reaches_itself_is_a_chat_target() {
+    let unread = || -> Result<Vec<Value>, String> { panic!("read the account's list") };
+    assert_eq!(on_laptop("gcp-agent-lane-3", unread), peer_at("gcp-agent-lane-3"));
+    assert_eq!(on_laptop("GCP-Agent-Lane-3", unread), peer_at("gcp-agent-lane-3"));
+    // Signed out, it still starts: nothing about it is the account's.
+    let signed_out = || Err("not signed in".to_owned());
+    assert_eq!(on_laptop("gcp-agent-lane-3", signed_out), peer_at("gcp-agent-lane-3"));
+    // A peer acpmux cannot reach now is refused as retryable, saying why and what to run.
+    let down = on_laptop("cosmic-gray", unread).unwrap_err();
+    assert_eq!(down["code"], "chat_target.unavailable", "{down}");
+    assert_eq!(down["retryable"], true);
+    let message = down["message"].as_str().unwrap();
+    assert!(message.contains("acpmux cannot reach cosmic-gray now"), "{message}");
+    assert!(message.contains("Operation timed out"), "{message}");
+    assert!(down["details"]["next"].as_str().unwrap().contains("machine status cosmic-gray"));
+    // A machine only the hub lists still takes the account's check (unverified signed out).
+    assert_eq!(code(on_laptop("gcp-agent-lane-6", signed_out)), "chat_target.unverified");
+    // `joined:ID` never names a peer, and a name nothing lists keeps the catalog's refusal.
+    assert_eq!(
+        code(on_laptop("joined:gcp-agent-lane-3", signed_out)),
+        "chat_target.unknown_device"
+    );
+    assert_eq!(code(on_laptop("nowhere", || Ok(Vec::new()))), "chat_target.unknown_device");
+    // The fixtures' `box` is an ssh peer and a catalog device with no CLI route: acpmux starts it.
+    let found = route_or_joined(
+        Some("box"),
+        || {
+            route(
+                Some("box"),
+                Reads {
+                    catalog: || Ok(catalog()),
+                    signed_in: || true,
+                    cloud_machines: || Ok(listed()),
+                    peers: no_peers,
+                },
+            )
+        },
+        Sources { hub, rows: || Ok(joined_rows()) },
+    );
+    assert!(matches!(found, Ok(Route::Joined(JoinedMachine { carrier: Carrier::Peer, .. }))));
+}
+
+/// The start on a peer is acpmux's own `new --machine HOST`, detached, with the harness and
+/// folder; it answers once the session runs, so no receipt is read.
+#[test]
+fn a_peer_start_is_acpmuxs_new_on_that_machine() {
+    let Ok(Route::Joined(machine)) = peer_at("gcp-agent-lane-3") else { unreachable!() };
+    assert_eq!(machine.placement(), "peer:gcp-agent-lane-3");
+    let full = start(&["--on", "x", "--agent", "codex", "--model", "gpt-6", "--cwd", "/w", "go"]);
+    assert_eq!(
+        joined::start_words(&full, &machine, "n").unwrap(),
+        words(&[
+            "new",
+            "--machine",
+            "gcp-agent-lane-3",
+            "-n",
+            "n",
+            "-d",
+            "-m",
+            "codex/gpt-6",
+            "--cwd",
+            "/w",
+            "--json"
+        ])
+    );
+    let calls = std::cell::RefCell::new(Vec::new());
+    let answers = |words: &[&str]| match words.first() {
+        Some(&"new") => json!({"sessionId": "s-1", "name": "n", "state": "ready"}),
+        Some(&"send") => json!({"status": "delivered"}),
+        other => panic!("{other:?} called"),
+    };
+    let steps = joined::Steps {
+        words: &["new", "--machine", "gcp-agent-lane-3", "-n", "n", "-d", "--json"],
+        target: "gcp-agent-lane-3/n",
+        prompt: Some("go"),
+        receipt: false,
+    };
+    let (started, sent) = joined::start_chat(
+        &steps,
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        slow_acp(Duration::ZERO, answers, &calls),
+    )
+    .unwrap();
+    let said: Vec<String> = calls.into_inner().into_iter().map(|(words, _)| words).collect();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[1].starts_with("send gcp-agent-lane-3/n - --no-wait"), "{said:?}");
+    // The answer keeps the record's id and name, not its whole 27 KB.
+    let answer = joined::start_answer(&machine, "gcp-agent-lane-3/n", started, sent);
+    assert_eq!(answer["placement"], "peer:gcp-agent-lane-3");
+    assert_eq!(answer["remote_session_id"], "s-1");
+    assert_eq!(answer["start"], json!({"sessionId": "s-1", "name": "n"}));
+    assert_eq!(answer["next"]["wait"], "cmux chat wait gcp-agent-lane-3/n");
+}
+
+/// A fake `cmux acp` for a wait: `acp wait` answers `waits` in turn, `session info` `infos`.
+fn wait_acp<'a>(
+    waits: &'a std::cell::RefCell<Vec<Result<Value, Value>>>,
+    infos: &'a std::cell::RefCell<Vec<Value>>,
+    said: &'a std::cell::RefCell<Vec<String>>,
+) -> impl FnMut(&[&str], Option<&str>, Duration) -> Result<Value, Value> + 'a {
+    move |words, _stdin, _limit| {
+        said.borrow_mut().push(words.join(" "));
+        match words.first() {
+            Some(&"wait") => waits.borrow_mut().remove(0),
+            Some(&"session") => Ok(infos.borrow_mut().remove(0)),
+            other => panic!("{other:?} called"),
+        }
+    }
+}
+
+fn waited(status: &str, reply: &str) -> Value {
+    json!({"sessions": [{"name": "h/n", "status": status, "reply": reply, "error": null,
+                         "pendingPermissions": 0}], "timedOut": false})
+}
+
+/// hq#11835 row 6: `cmux chat --on MACHINE --wait` was refused ("--wait and --timeout wait for
+/// a chat here or in Cloud"). It waits through `acpmux wait` now, and a wait that came back
+/// before the prompt's turn began (the chat still idle from the turn before) waits again.
+#[test]
+fn a_wait_on_another_machine_is_for_the_prompts_turn() {
+    let said = std::cell::RefCell::new(Vec::new());
+    // The first wait sees the turn before (the count is still 1); the second, the new turn.
+    let waits = std::cell::RefCell::new(vec![
+        Ok(waited("ready", "the old reply")),
+        Ok(waited("ready", "ok")),
+    ]);
+    let infos = std::cell::RefCell::new(vec![
+        json!({"turnCount": 1, "status": "ready"}),
+        json!({"turnCount": 2, "status": "ready"}),
+    ]);
+    let outcome =
+        joined::wait_turn("h/n", Some(1), Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    let Outcome::Done(answer) = outcome else { panic!("{outcome:?}") };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(answer["session_id"], "h/n");
+    assert_eq!(answer["follow_up"]["wait"], "cmux chat wait h/n");
+    let said = said.into_inner();
+    assert_eq!(said.iter().filter(|words| words.starts_with("wait h/n --timeout ")).count(), 2);
+    // `chat wait` (no baseline) takes the first answer and reads no info.
+    let said = std::cell::RefCell::new(Vec::new());
+    let waits = std::cell::RefCell::new(vec![Ok(waited("ready", "last reply"))]);
+    let infos = std::cell::RefCell::new(Vec::new());
+    let outcome =
+        joined::wait_turn("h/n", None, Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    assert!(matches!(&outcome, Outcome::Done(answer) if answer["reply"] == "last reply"));
+    assert_eq!(said.into_inner().len(), 1);
+    // An info acpmux cannot answer leaves the wait's word: never a wait with no end.
+    let said = std::cell::RefCell::new(Vec::new());
+    let waits = std::cell::RefCell::new(vec![Ok(waited("ready", "ok"))]);
+    let infos = std::cell::RefCell::new(vec![json!({"error": {"code": "no_session"}})]);
+    let outcome =
+        joined::wait_turn("h/n", Some(0), Duration::from_secs(30), wait_acp(&waits, &infos, &said));
+    assert!(matches!(&outcome, Outcome::Done(answer) if answer["reply"] == "ok"));
+}
+
+/// acpmux's wait exits 3 at its timeout and 2 on a permission, its answer on stdout: they are
+/// `chat.wait_timeout` (exit 3) and `chat.permission_waiting` (exit 2), as for a chat here.
+#[test]
+fn a_wait_on_another_machine_times_out_and_stops_at_a_permission_as_here() {
+    let failed =
+        |answer: Value| Err(json!({"code": "acpmux.failed", "details": {"answer": answer}}));
+    let run = |first: Result<Value, Value>| {
+        let said = std::cell::RefCell::new(Vec::new());
+        let waits = std::cell::RefCell::new(vec![first]);
+        let infos = std::cell::RefCell::new(Vec::new());
+        joined::wait_turn("h/n", None, Duration::from_secs(30), wait_acp(&waits, &infos, &said))
+    };
+    let Outcome::Failed { error, exit } = run(failed(json!({"sessions": [], "timedOut": true})))
+    else {
+        panic!("done")
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3), "{error}");
+    assert_eq!(error["details"]["answer"]["timed_out"], true);
+    let mut blocked = waited("permission", "");
+    blocked["sessions"][0]["pendingPermissions"] = json!(1);
+    let Outcome::Failed { error, exit } = run(failed(blocked)) else { panic!("done") };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.permission_waiting"), 2), "{error}");
+    // A failure with no answer is the chat lost (exit 1), not a hang.
+    let Outcome::Failed { error, exit } = run(Err(json!({"code": "acpmux.unreachable"}))) else {
+        panic!("done")
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.lost"), 1), "{error}");
+    // The start's ids stay in the answer `--wait` prints.
+    let done = joined::with_answer(
+        Outcome::Done(json!({"reply": "ok"})),
+        json!({"session_id": "h/n", "placement": "peer:h", "reply": "not this"}),
+    );
+    let Outcome::Done(answer) = done else { unreachable!() };
+    assert_eq!(
+        (answer["reply"].as_str(), answer["placement"].as_str()),
+        (Some("ok"), Some("peer:h"))
+    );
+}
+
+/// `acp wait` prints its answer pretty and exits 2 or 3: the whole answer is kept with the
+/// failure (it was lost: only a single JSON line was parsed on a failing exit).
+#[test]
+fn a_failing_cmux_acp_keeps_its_pretty_answer() {
+    let mut shell = cmux_process::Command::new("/bin/sh");
+    shell.args(["-c", "printf '{\\n  \"timedOut\": true,\\n  \"sessions\": []\\n}\\n'; exit 3"]);
+    let error =
+        joined::run_acp(shell, &["wait", "h/n"], None, Duration::from_secs(60)).unwrap_err();
+    assert_eq!(error["code"], "acpmux.failed", "{error}");
+    assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
 }

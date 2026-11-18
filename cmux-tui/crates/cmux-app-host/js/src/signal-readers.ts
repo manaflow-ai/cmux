@@ -64,7 +64,7 @@ async function githubPulls(params: Record<string, any>, call: Caller): Promise<P
       headers: { Accept: "application/vnd.github+json" },
       body: null
     })
-    if (r.status < 200 || r.status >= 300) throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500)
+    if (r.status < 200 || r.status >= 300) throw publicFailure(r.status)
     return (JSON.parse(r.body || "{}") as { items?: Array<Record<string, any>> }).items ?? []
   }
   const byId = new Map<number, Pull>()
@@ -133,6 +133,23 @@ const PUBLIC_ROWS = 5
 /** The gateway's answers that mean "no route here" (switch to the public API), not "try again". */
 const NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"])
 
+/** An unverified app installs sandboxed: the host refuses its network ops whatever it was granted. */
+const SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions."
+function isSandboxed(e: unknown): boolean {
+  return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message)
+}
+
+/** A public API answer that is not 2xx; 403 and 429 there are GitHub's per-network limit for signed-out reads. */
+function publicFailure(status: number): CmuxError {
+  const limited = status === 403 || status === 429
+  return new CmuxError(
+    "upstream.failed",
+    limited ? "GitHub's public API limit for this network is used up; it resets within the hour. Sign in to GitHub (gh auth login) to read without it." : `GitHub answered ${status}`,
+    { status, ...(limited ? { limit: "public" } : {}) },
+    limited || status >= 500
+  )
+}
+
 /**
  * One GitHub GET for a read: the gateway first; once it refuses, the public API with If-None-Match
  * for the rest of that read. `needsPerson` marks a path that names @me, which the public route
@@ -141,13 +158,13 @@ const NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connecte
 function githubGetter(call: Caller, signalName: string) {
   let viaGateway = true
   let gatewayError: unknown = null
-  const refused = () => {
+  const refused = (netError?: unknown) => {
     if (gatewayError instanceof CmuxError && gatewayError.retryable) return gatewayError
     const code = codeOf(gatewayError)
     return new CmuxError(
       code === "scope.missing" ? "scope.missing" : "integration.unavailable",
-      "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.",
-      { signal: signalName, gateway: code },
+      isSandboxed(gatewayError) || isSandboxed(netError) ? SANDBOXED : "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.",
+      { signal: signalName, gateway: code, sandboxed: isSandboxed(gatewayError) || isSandboxed(netError) },
       code !== "scope.missing"
     )
   }
@@ -178,14 +195,14 @@ function githubGetter(call: Caller, signalName: string) {
       })
     } catch (e) {
       // No net:api.github.com either: say what would make it work.
-      if (e instanceof CmuxError && e.code === "scope.missing") throw refused()
+      if (e instanceof CmuxError && e.code === "scope.missing") throw refused(e)
       throw e
     }
     if (r.status === 304 && known?.etag) {
       keep(path, known.etag, known.body, now)
       return known.body as T
     }
-    if (r.status < 200 || r.status >= 300) throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500)
+    if (r.status < 200 || r.status >= 300) throw publicFailure(r.status)
     const body = JSON.parse(r.body || "null") as T
     const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1]
     keep(path, etag ?? "", body, now)
@@ -343,4 +360,44 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
   return rows.filter((r) => r.state === "open" || (merged && r.state === "merged")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
-export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges }
+/**
+ * `http.json`: one GET of `params.url` through the daemon's shared cache (`net.fetch` with
+ * `cache: "shared"`, apps/http_cache.rs), parsed as JSON. The daemon fetches each URL once for every
+ * app and mount that reads it, keeps it fresh for max(60 s, the response's max-age) and serves the kept
+ * body while it revalidates; the egress gate checks this app's net:<host> grant on every read.
+ */
+async function httpJson(params: Record<string, any>, call: Caller): Promise<unknown> {
+  const url = String(params.url ?? "")
+  const r = await call<{ status: number; body?: string; cache?: { failed?: { status?: number; code?: string; message?: string } } }>("net.fetch", {
+    url,
+    method: "GET",
+    headers: {},
+    body: null,
+    cache: "shared"
+  })
+  const host = () => {
+    try {
+      return new URL(url).host
+    } catch {
+      return url
+    }
+  }
+  const retryable = (status: number) => status === 408 || status === 429 || status >= 500
+  // The daemon served its kept body because the last fetch failed: the watch keeps the value it has
+  // (status stale) and shows this error, as for any failed re-read.
+  const failed = r.cache?.failed
+  if (failed) {
+    const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`
+    throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status))
+  }
+  if (r.status < 200 || r.status >= 300) {
+    throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status))
+  }
+  try {
+    return JSON.parse(r.body ?? "")
+  } catch {
+    throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true)
+  }
+}
+
+export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson }

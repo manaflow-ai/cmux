@@ -59,6 +59,85 @@ grep -Fq 'rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-bui
 grep -Fq 'rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"' "$ROOT/scripts/reload.sh" \
   || fail "reload.sh no longer drops the last build's marker before a measurement build (an interrupted build must leave none)"
 
+# The worker keeps a measurement step's DerivedData between steps, so a later step can meet a module of the app
+# FFI that is older than its header: xcodebuild then fails with exit 65 (the line in `stale` below). That
+# build goes through stale-module-second-build.sh: it clears the folder's build state and builds ONE more
+# time. Another build error, a second failure and a build that passed build once. A DerivedData that is not
+# the measurement one and a reload that is no measurement step run xcodebuild itself: once, and its failure
+# is the failure.
+eval "$(awk '/^set_xcodebuild_command\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+declare -F set_xcodebuild_command >/dev/null || fail "set_xcodebuild_command not found in reload.sh"
+grep -Fq '"${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"' "$ROOT/scripts/reload.sh" \
+  || fail "reload.sh's locked build does not run the command of set_xcodebuild_command"
+[[ -x "$ROOT/scripts/cmux-next/stale-module-second-build.sh" ]] \
+  || fail "scripts/cmux-next/stale-module-second-build.sh is missing or not executable"
+(
+  co="$(mktemp -d /var/tmp/cmux-reload-second-build.XXXXXX)"; trap 'rm -rf "$co"' EXIT
+  co="$(cd "$co" && pwd -P)"
+  mkdir -p "$co/scripts/cmux-next" "$co/bin"
+  cp "$ROOT/scripts/cmux-next/stale-module-second-build.sh" "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" \
+    "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$co/scripts/cmux-next/"
+  # xcodebuild's stand-in: each call is one line (its arguments) in $FAKE_BUILDS; the first $FAKE_FAILS calls
+  # print $FAKE_LINE and exit $FAKE_CODE.
+  cat > "$co/bin/xcodebuild" <<'EOF'
+#!/bin/bash
+echo "$*" >> "$FAKE_BUILDS"
+if [[ "$(wc -l < "$FAKE_BUILDS")" -le "$FAKE_FAILS" ]]; then printf '%s\n** BUILD FAILED **\n' "$FAKE_LINE"; exit "$FAKE_CODE"; fi
+echo "** BUILD SUCCEEDED **"
+EOF
+  chmod +x "$co/bin/xcodebuild"
+  SCRIPT_DIR="$co/scripts"; RELOAD_LOG="$co/reload.log"; measure="$co/.build/DerivedData/cmux-measure"
+  stale="<unknown>:0: error: file '/checkout/.build/DerivedData/cmux-measure/Build/Products/Release/include/CAcpmuxClientFFI/acpmux_client.h' has been modified since the module file '/checkout/.build/DerivedData/cmux-measure/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/CAcpmuxClientFFI-B8DKNIPA8HRBV100IOQXLN9HL.pcm' was built"
+  other="/checkout/Packages/macOS/CmuxNext/Sources/CmuxNextAgentList/AcpmuxClient.swift:12:5: error: cannot find 'missing' in scope"
+  # A DerivedData that holds a build and its packages, an empty log, no build yet.
+  fresh() {
+    DERIVED_DATA="$1"; rm -rf "$co/.build" "$co/elsewhere" "$co/builds" "$co/terminal"
+    mkdir -p "$DERIVED_DATA/Build/Products" "$DERIVED_DATA/SourcePackages"; : > "$RELOAD_LOG"
+  }
+  # The build as reload.sh runs it: the command of the real set_xcodebuild_command with the build's arguments,
+  # its output in the reload log, the terminal on fd 4.
+  build() {
+    fresh "$1"; set_xcodebuild_command; status=0
+    PATH="$co/bin:$PATH" FAKE_BUILDS="$co/builds" FAKE_FAILS="$fails" FAKE_LINE="$line" FAKE_CODE="$code" \
+      "${XCODEBUILD_COMMAND[@]}" -scheme cmux build >> "$RELOAD_LOG" 2>&1 4>"$co/terminal" || status=$?
+    builds="$(wc -l < "$co/builds" | tr -d ' ')"
+  }
+  export CMUX_CI_STEP_CLASS=exclusive
+  fails=1 line="$stale" code=65; build "$measure"
+  [[ "$status" -eq 0 && "$builds" -eq 2 ]] || fail "a stale module in a measurement step: exit $status after $builds builds (want 0 after 2)"
+  [[ "$(sort -u "$co/builds")" == "-scheme cmux build" ]] || fail "the two builds did not get the build's arguments: $(cat "$co/builds")"
+  grep -q 'stale module: second build' "$RELOAD_LOG" || fail "the second build is not said in the log"
+  grep -q 'stale module: second build' "$co/terminal" || fail "the second build is not said on the terminal (fd 4)"
+  [[ ! -e "$measure/Build" && -d "$measure/SourcePackages" ]] || fail "the second build kept the stale build state or lost the packages"
+  fails=1 line="$other" code=65; build "$measure"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
+    || fail "another build error: exit $status after $builds builds (want 65 after 1, the build state kept)"
+  if grep -q 'stale module' "$RELOAD_LOG" "$co/terminal"; then fail "another build error was said to be a stale module"; fi
+  fails=2 line="$stale" code=66; build "$measure"
+  [[ "$status" -eq 66 && "$builds" -eq 2 ]] || fail "a second failure: exit $status after $builds builds (want 66 after 2, no third build)"
+  fails=0 line="$stale" code=65; build "$measure"
+  [[ "$status" -eq 0 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] || fail "a build that passed: exit $status after $builds builds"
+  fails=1 line="$stale" code=65; build "$co/elsewhere/cmux-one"
+  [[ "${XCODEBUILD_COMMAND[*]}" == xcodebuild ]] || fail "a DerivedData that is not the measurement one builds with: ${XCODEBUILD_COMMAND[*]}"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$co/elsewhere/cmux-one/Build/Products" ]] \
+    || fail "a DerivedData that is not the measurement one: exit $status after $builds builds (want 65 after 1)"
+  # A person's reload (no measurement step) does not change: xcodebuild itself, once.
+  unset CMUX_CI_STEP_CLASS
+  fails=1 line="$stale" code=65; build "$measure"
+  [[ "${XCODEBUILD_COMMAND[*]}" == xcodebuild ]] || fail "a reload that is no measurement step builds with: ${XCODEBUILD_COMMAND[*]}"
+  [[ "$status" -eq 65 && "$builds" -eq 1 && -d "$measure/Build/Products" ]] \
+    || fail "a reload that is no measurement step: exit $status after $builds builds (want 65 after 1)"
+  # The helper by itself: with no fd 4 the line goes to the log only; with no command it is a usage error.
+  fresh "$measure"; status=0
+  env -i PATH="$co/bin:/usr/bin:/bin" FAKE_BUILDS="$co/builds" FAKE_FAILS=1 FAKE_LINE="$stale" FAKE_CODE=65 \
+    /bin/bash "$co/scripts/cmux-next/stale-module-second-build.sh" "$measure" "$RELOAD_LOG" xcodebuild build >> "$RELOAD_LOG" 2>&1 4>&- || status=$?
+  [[ "$status" -eq 0 && "$(wc -l < "$co/builds" | tr -d ' ')" -eq 2 ]] || fail "the helper with no fd 4: exit $status"
+  grep -q 'stale module: second build' "$RELOAD_LOG" || fail "the helper with no fd 4 did not say the second build in the log"
+  status=0
+  /bin/bash "$co/scripts/cmux-next/stale-module-second-build.sh" "$measure" "$RELOAD_LOG" >/dev/null 2>&1 || status=$?
+  [[ "$status" -eq 2 ]] || fail "the helper with no command exited $status (want 2)"
+)
+
 # The parser must record --derived-data and the tag default must go through the resolver with it.
 awk '/^    --derived-data\)/,/;;/' "$ROOT/scripts/reload.sh" | grep -q 'DERIVED_SET=1' \
   || fail "the --derived-data parser no longer sets DERIVED_SET=1"
