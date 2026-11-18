@@ -311,6 +311,7 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
   { id: "invalid-key", kind: "invalid-key", error: "invalid x-api-key" },
   { id: "subscription-login", kind: "subscription-login", error: "Not logged in · Please run /login" },
   { id: "auth", kind: "auth", error: "401 Unauthorized: stream disconnected" },
+  { id: "needs-mac", kind: "needs-mac", error: "Claude needs the Mac to sign in: open cmux" },
   {
     id: "auth-team-machine",
     kind: "subscription-login",
@@ -374,6 +375,7 @@ export const KINDS: { [kind in FailureKind]: true } = {
   "subscription-login": true,
   "proxy-auth": true,
   auth: true,
+  "needs-mac": true,
   "disk-full": true,
   "context-full": true,
   "codex-config": true,
