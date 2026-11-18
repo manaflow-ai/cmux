@@ -3,6 +3,7 @@ import CmuxNextPages
 import os
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxPagePushBound
 
 /// The host side of the pane's acpmux connection (design B, localapp-isolation-spike.md): the
 /// host owns the WebSocket, puts the LocalApp token in the first frame, checks every page frame
@@ -57,6 +58,18 @@ import CmuxNextWakeups
         public var maximumOutstandingBytes = 64 << 20
         public var connectTimeout: TimeInterval = 10
         public init() {}
+
+        /// The unacked bounds as the push ledger reads them.
+        var pushBounds: PagePushLedger.Bounds {
+            PagePushLedger.Bounds(maximumUnackedBytes: maximumUnackedBytes, maximumUnackedPushes: maximumUnackedPushes)
+        }
+
+        /// The queue bounds as the socket's held stream reads them (a held page: hidden or stalled).
+        var queueBounds: PageQueueBounds {
+            PageQueueBounds(maximumFrames: maximumQueuedFrames, maximumBytes: maximumQueuedBytes,
+                            heldFrames: hiddenQueuedFrames, heldBytes: hiddenQueuedBytes,
+                            ceilingFrames: ceilingQueuedFrames, ceilingBytes: ceilingQueuedBytes)
+        }
     }
 
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.transport")
@@ -298,17 +311,16 @@ import CmuxNextWakeups
         didSet { if paneHidden != oldValue { socket?.setHidden(socketHolds) } }
     }
 
-    /// The pushes the page has not acked, oldest first: their seq and frame bytes. At most
-    /// ``Limits/maximumUnackedPushes`` (past it the host stops pushing), so the bound is cheap.
-    private var unacked: [(seq: Int, bytes: Int)] = []
-    private var unackedBytes = 0
+    /// The pushes the page has not acked and whether the host holds its pushes (``PagePushLedger``).
+    private var ledger: PagePushLedger
     /// The last push ``flush()`` made, so ``awaitAck(seq:_:)`` counts its bytes while it is unacked.
-    private var lastPush: (seq: Int, bytes: Int)?
+    private var lastPush: PagePushLedger.Push?
     /// The page stopped acking past ``Limits/maximumUnackedBytes`` or ``Limits/maximumUnackedPushes``:
-    /// no push goes until it acks again, and its socket holds the stream as for a hidden pane.
-    public private(set) var pageStalled = false
-    /// Times the host stopped pushing a page that did not ack, and frame bytes pushed in all (tests, the bench).
-    public private(set) var stalls = 0
+    /// no push goes until it answers again, and its socket holds the stream as for a hidden pane.
+    public var pageStalled: Bool { ledger.stalled }
+    /// Times the host stopped pushing a page that did not ack (tests, the bench).
+    public var stalls: Int { ledger.stalls }
+    /// Frame bytes pushed in all (tests, the bench).
     public private(set) var pushedBytes = 0
 
     /// The socket holds the stream within its hidden bound: nobody sees the pane, or its page does not drain.
@@ -316,13 +328,12 @@ import CmuxNextWakeups
 
     /// The page host's push carries no completion: the pacer's next push waits for the page's ack
     /// of `seq` (``acked(connection:seq:inputPending:)``), or ``Limits/ackDeadline``, whichever is first.
-    /// Past the deadline with the unacked bounds full, it waits for the ack alone (``pageStalled``).
+    /// Past the deadline with the unacked bounds full, it waits for the page alone (``pageStalled``).
     public func awaitAck(seq: Int, _ done: @escaping @MainActor @Sendable () -> Void) {
         // A push replaces the one before it only after that one's completion ran; finish it anyway.
         finishAck(timedOut: false)
         if let push = lastPush, push.seq == seq {
-            unacked.append(push)
-            unackedBytes += push.bytes
+            ledger.pushed(seq: push.seq, bytes: push.bytes)
             lastPush = nil
         }
         awaitingAck = (seq, done)
@@ -337,12 +348,7 @@ import CmuxNextWakeups
         guard connection == current else { return }
         inputPendingAt = inputPending ? ProcessInfo.processInfo.systemUptime : nil
         acks += 1
-        // Pushes ack in order: this one and every one before it are applied.
-        if let last = unacked.lastIndex(where: { $0.seq <= seq }) {
-            for push in unacked[...last] { unackedBytes -= push.bytes }
-            unacked.removeFirst(last + 1)
-        }
-        if pageStalled {
+        if ledger.acked(seq: seq) {
             resumeStalledPage()
             return
         }
@@ -355,9 +361,10 @@ import CmuxNextWakeups
         ackTimer.cancel()
         if timedOut {
             ackTimeouts += 1
-            // The page is a bound behind and still silent: the next push waits for its ack alone.
-            if unackedBytes >= limits.maximumUnackedBytes || unacked.count >= limits.maximumUnackedPushes {
-                stallPage()
+            let wasStalled = ledger.stalled
+            // The page is a bound behind and still silent: the next push waits for the page alone.
+            guard ledger.deadlinePassed() else {
+                if !wasStalled { stallPage() }
                 return
             }
         }
@@ -368,19 +375,13 @@ import CmuxNextWakeups
     /// Stops pushing a page that does not drain; its socket holds the stream within the hidden
     /// bound and sheds past it, so neither the host nor the page's renderer grows while it is stuck.
     private func stallPage() {
-        guard !pageStalled else { return }
-        pageStalled = true
-        stalls += 1
         socket?.setHidden(socketHolds)
-        Self.logger.error("agent pane transport: the page stopped draining, pushes held connection=\(self.current, privacy: .public) unacked_pushes=\(self.unacked.count, privacy: .public) unacked_bytes=\(self.unackedBytes, privacy: .public)")
+        Self.logger.error("agent pane transport: the page stopped draining, pushes held connection=\(self.current, privacy: .public) unacked_pushes=\(self.ledger.unacked.count, privacy: .public) unacked_bytes=\(self.ledger.unackedBytes, privacy: .public)")
     }
 
     /// The page answered: the held push's completion runs, so the next push brings what the socket
     /// held and one `_acpmux/lagged` if it shed, and the page reads the rest from its cursor.
     private func resumeStalledPage() {
-        pageStalled = false
-        unacked.removeAll()
-        unackedBytes = 0
         socket?.setHidden(socketHolds)
         Self.logger.notice("agent pane transport: the page drains again connection=\(self.current, privacy: .public)")
         guard let waiting = awaitingAck else { return }
@@ -397,6 +398,7 @@ import CmuxNextWakeups
     public init(limits: Limits = Limits(), pacer: (any AgentPaneTransportPacer)? = nil,
                 gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
         self.limits = limits
+        self.ledger = PagePushLedger(bounds: limits.pushBounds)
         self.gestures = gestures
         self.pacerStorage = pacer ?? AgentPaneNextTurnPacer()
         webModes = { [weak self] session, configId, value in
@@ -426,10 +428,8 @@ import CmuxNextWakeups
         awaitingAck = nil
         ackTimer.cancel()
         inputPendingAt = nil
-        unacked.removeAll()
-        unackedBytes = 0
+        ledger.reset()
         lastPush = nil
-        pageStalled = false
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
@@ -532,7 +532,7 @@ import CmuxNextWakeups
     /// this returns, so a later frame never overtakes them). Their work runs off the main thread.
     public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
         // A page that sends runs its script: it drains again, though its ack (or an old page's) did not come.
-        if pageStalled, id == current { resumeStalledPage() }
+        if id == current, ledger.pageAnswered() { resumeStalledPage() }
         pending.append(PendingSend(connection: id, frames: frames, reply: reply))
         guard !draining else { return }
         draining = true
@@ -705,7 +705,7 @@ import CmuxNextWakeups
         event.seq = delivery
         let bytes = frames.reduce(0) { $0 + $1.utf8.count }
         pushedBytes += bytes
-        lastPush = batch.closed == nil ? (delivery, bytes) : nil
+        lastPush = batch.closed == nil ? PagePushLedger.Push(seq: delivery, bytes: bytes) : nil
         beforePageWork?()
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }

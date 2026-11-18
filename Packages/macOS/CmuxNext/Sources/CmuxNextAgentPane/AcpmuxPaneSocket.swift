@@ -1,6 +1,7 @@
 import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxPagePushBound
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
@@ -34,12 +35,11 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var passFrames = 0
         var passBytes = 0
         /// Every frame held for the page: unchecked, in the running pass, and queued.
-        var heldFrames: Int { raw.count + passFrames + inbox.count }
-        var heldBytes: Int { rawBytes + passBytes + inboxBytes }
-        /// Stream notifications left out since the page fell a full queue behind
-        /// (``AcpmuxPaneShedding``); nil while none is. `shedEnding`: its end is queued.
-        var shed: Int?
-        var shedEnding = false
+        var heldFrames: Int { raw.count + passFrames + inbox.count + episode.deferred.count }
+        var heldBytes: Int { rawBytes + passBytes + inboxBytes + episode.deferredBytes }
+        /// Stream notifications left out since the page fell a full queue behind or was held
+        /// (``AcpmuxPaneShedding``), and whether the episode's end is queued.
+        var episode = PageShedEpisode()
         var questionNotificationQueued = false
         var signaled = false
         var outstanding = 0
@@ -69,20 +69,18 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// The page is a full queue behind with `bytes` more: stream notifications are shed. A hidden
         /// pane's queue is smaller: what it misses it reads again once shown (``AcpmuxPaneShedding``).
         func full(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
-            let frames = hidden ? min(limits.hiddenQueuedFrames, limits.maximumQueuedFrames) : limits.maximumQueuedFrames
-            let most = hidden ? min(limits.hiddenQueuedBytes, limits.maximumQueuedBytes) : limits.maximumQueuedBytes
-            return heldFrames >= frames || heldBytes + bytes > most
+            limits.queueBounds.full(frames: heldFrames, bytes: heldBytes, adding: bytes, held: hidden)
         }
 
         /// Past the ceiling with `bytes` more: even a reply no longer queues.
         func pastCeiling(_ limits: AgentPaneTransport.Limits, adding bytes: Int) -> Bool {
-            heldFrames >= limits.ceilingQueuedFrames || heldBytes + bytes > limits.ceilingQueuedBytes
+            limits.queueBounds.pastCeiling(frames: heldFrames, bytes: heldBytes, adding: bytes)
         }
 
         /// Caught up enough to end a shed episode: a quarter of the queue or less waits. A hidden
         /// pane is never caught up: its episode ends once it shows, so it reads what it missed once.
         func caughtUp(_ limits: AgentPaneTransport.Limits) -> Bool {
-            !hidden && heldFrames <= limits.maximumQueuedFrames / 4 && heldBytes <= limits.maximumQueuedBytes / 4
+            limits.queueBounds.caughtUp(frames: heldFrames, bytes: heldBytes, held: hidden)
         }
     }
 
@@ -235,7 +233,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         // The plain path: nothing shed and room left, one lock and no scan.
         let decided = state.withLock { state -> Bool? in
             guard state.closed == nil else { return false }
-            if state.shed != nil || state.full(limits, adding: bytes) { return nil }
+            if state.episode.running || state.full(limits, adding: bytes) { return nil }
             return admit(received, bytes: bytes, into: &state)
         }
         if let start = decided {
@@ -246,13 +244,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         enum Outcome { case queued(start: Bool), shed(first: Bool), overflow, gone }
         let outcome = state.withLock { state -> Outcome in
             guard state.closed == nil else { return .gone }
-            if sheddable, state.shed != nil || state.full(limits, adding: bytes) {
-                let first = state.shed == nil
-                state.shed = (state.shed ?? 0) + 1
-                return .shed(first: first)
+            switch state.episode.admit(sheddable: sheddable, full: state.full(limits, adding: bytes),
+                                       pastCeiling: state.pastCeiling(limits, adding: bytes)) {
+            case .shed(let first): return .shed(first: first)
+            case .overflow: return .overflow
+            case .queue: return .queued(start: admit(received, bytes: bytes, into: &state))
             }
-            if state.pastCeiling(limits, adding: bytes) { return .overflow }
-            return .queued(start: admit(received, bytes: bytes, into: &state))
         }
         switch outcome {
         case .queued(let start): if start { inbound.async { [self] in process() } }
@@ -281,24 +278,22 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// pass over frames that came before it, so the page reads what it missed from where they end.
     private func endSheddingIfCaughtUp() {
         let queue = state.withLock { state -> Bool in
-            guard state.closed == nil, state.shed != nil, !state.shedEnding, state.caughtUp(limits) else { return false }
-            state.shedEnding = true
-            return true
+            guard state.closed == nil else { return false }
+            return state.episode.beginEnding(caughtUp: state.caughtUp(limits))
         }
         if queue { inbound.async { [self] in endShedding() } }
     }
 
     private func endShedding() {
-        let dropped = state.withLock { state -> Int? in
-            state.shedEnding = false
-            guard state.closed == nil, let shed = state.shed else { return nil }
-            state.shed = nil
-            return shed
+        let ending = state.withLock { state -> PageShedEpisode.Ending? in
+            let ending = state.episode.end()
+            return state.closed == nil ? ending : nil
         }
-        guard let dropped else { return }
-        AgentPaneTransport.logger.notice("agent pane transport shed stream notifications dropped=\(dropped, privacy: .public) connection=\(self.connection, privacy: .public); the page reads them again")
-        // Awaited: a hidden page gets it too, so its chat is whole when it is shown.
-        enqueue([AcpmuxPaneShedding.lagMarker(dropped: dropped)], awaited: 1)
+        guard let ending else { return }
+        AgentPaneTransport.logger.notice("agent pane transport shed stream notifications dropped=\(ending.dropped, privacy: .public) connection=\(self.connection, privacy: .public); the page reads them again")
+        // Awaited: a hidden page gets it too, so its chat is whole when it is shown. The prompts
+        // and permission records kept in the episode go right after it (``PageShedEpisode/deferred``).
+        enqueue([AcpmuxPaneShedding.lagMarker(dropped: ending.dropped)] + ending.deferred, awaited: 1)
     }
 
     /// The frame as native UTF-8. URLSessionWebSocketTask hands a text frame over as a bridged
@@ -502,6 +497,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             if endsPass { state.withLock { $0.passFrames = 0; $0.passBytes = 0 } }
             return
         }
+        // A pass's transcript records kept in a shed episode wait for its marker (``PageShedEpisode/deferred``).
+        // Passes and the episode's end run on the inbound queue, so it cannot end before this lock.
+        let records: [Int: Int] = endsPass && state.withLock({ $0.episode.running })
+            ? Dictionary(uniqueKeysWithValues: frames.indices.filter { AcpmuxPaneShedding.transcriptRecord(frames[$0]) }
+                .map { ($0, frames[$0].utf8.count) })
+            : [:]
         let bytes = frames.reduce(0) { $0 + $1.utf8.count }
         let (wake, queued, onQueued) = state.withLock { state -> (Bool, Int, (@Sendable (Int) -> Void)?) in
             if endsPass {
@@ -509,8 +510,16 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 state.passBytes = 0
             }
             guard state.closed == nil else { return (false, 0, nil) }
-            state.inbox.append(contentsOf: frames)
-            state.inboxBytes += bytes
+            if records.isEmpty || !state.episode.running {
+                state.inbox.append(contentsOf: frames)
+                state.inboxBytes += bytes
+            } else {
+                for (index, frame) in frames.enumerated() {
+                    if let size = records[index], state.episode.deferRecord(frame, bytes: size) { continue }
+                    state.inbox.append(frame)
+                    state.inboxBytes += frame.utf8.count
+                }
+            }
             if awaited > 0 { state.awaitedThrough = state.inbox.count }
             if answers > 0 { state.answeredThrough = state.inbox.count }
             // A pacer holding a hidden pane's frames is woken again for frames its page waits on.
