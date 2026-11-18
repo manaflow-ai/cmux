@@ -59,9 +59,15 @@ public struct CloudMachineRoute: Sendable {
     /// and every start on a new machine ended here. Its chat starts on the software the image came with; a
     /// machine that does report and is not routed is still refused. A capability the start then lacks ends it
     /// where it is used (``CloudOutdatedMachine/requireCapability(holds:lacks:relink:within:update:missing:)``, ``tooOld``).
-    public func prepare(serves: @MainActor () -> Bool = { true }, _ update: @escaping @Sendable () async -> Void) async throws {
+    ///
+    /// `carriesConnection`: the chat's own model connection goes with its agent launch (a connection the person
+    /// set up, sent as the launch's start credentials), so the chat does not use the machine's route. A machine
+    /// that reports no route (``Verdict/notEdge``) then starts as it is, as `cmux chat --on vm:new` always did:
+    /// refusing it ended every start from the page where the Cloud service gives machines no model route
+    /// (2026-11-17). A machine that holds its own provider login, or whose agent service is down, is still refused.
+    public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-        if await serves(), let verdict = try? await routeVerdict(), verdict == .ready || verdict == .unsupported {
+        if await serves(), let verdict = try? await routeVerdict(), Self.starts(verdict, carriesConnection: carriesConnection) {
             logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(verdict.rawValue, privacy: .public)); no update")
             return
         }
@@ -73,8 +79,20 @@ public struct CloudMachineRoute: Sendable {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model-route report after its update, or the update did not end in time; starting on its own software")
                 return
             }
+            // The update could not give the machine a route, but the launch carries the chat's own connection to
+            // a daemon that takes one: the chat starts on that.
+            if refused.verdict == .notEdge, carriesConnection, await serves() {
+                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's own connection goes with its launch")
+                return
+            }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
         }
+    }
+
+    /// Whether a start goes on with a machine that answered `verdict`, with no update: routed, or on software from
+    /// before the report, or unrouted while the chat brings its own connection (``prepare(serves:carriesConnection:_:)``).
+    public nonisolated static func starts(_ verdict: Verdict, carriesConnection: Bool) -> Bool {
+        verdict == .ready || verdict == .unsupported || (verdict == .notEdge && carriesConnection)
     }
 
     private struct Request: Encodable { var stdout: String? }

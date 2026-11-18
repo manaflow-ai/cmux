@@ -36,6 +36,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var environment: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
     public var reservationKey: String?
+    /// The size a new machine needs for the chat's folder or repository (``sized(_:local:)``); nil: the chat size.
+    public var size: CloudChatSize?
+    /// The bytes the folder's copy sends, as the start's preflight counted them; nil when not counted.
+    public var folderBytes: Int64?
+    /// The largest size the account's plan gives, as the page read it (`cloudMachine.list` `plan.max_size`); nil: not known.
+    public var planMax: CloudChatSize?
     /// Native Send authorization reserved before waiting for the speculative lease.
     var gestureTicket: String?
     /// The page's send again after its `cloud.signIn` signed in: authorized only by
@@ -110,6 +116,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
         self.signedIn = signedIn as? Bool ?? false
+        self.planMax = (params?["planMax"] as? String).flatMap(CloudChatSize.init(rawValue:)) // a size this app does not know: none
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -370,7 +377,7 @@ extension AgentPaneCloudStart {
                                     environmentId: String? = nil, setupState: String? = nil, setupStatus: String? = nil,
                                     setupStartedAt: Double? = nil, setupFinishedAt: Double? = nil,
                                     setupError: String? = nil, setupHasScript: Bool? = nil,
-                                    cloneProgress: SeedProgress? = nil, to view: AgentPaneView) {
+                                    cloneProgress: SeedProgress? = nil, leftOnMac: Int64? = nil, to view: AgentPaneView) {
         var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
         if let folder { value["folder"] = .string(folder) }
         if let machine { value["machine"] = .string(machine) }
@@ -381,6 +388,8 @@ extension AgentPaneCloudStart {
         if let cloneStartedAt { cloneFields["startedAt"] = .number(cloneStartedAt) }
         if let cloneFinishedAt { cloneFields["finishedAt"] = .number(cloneFinishedAt) }
         if let cloneProgress { cloneFields.merge(Self.fields(cloneProgress)) { $1 } }
+        // A first pass: the files left on this Mac, so the card says the copy is partial.
+        if let leftOnMac, leftOnMac > 0 { cloneFields["left_on_mac"] = .number(Double(leftOnMac)) }
         if !cloneFields.isEmpty { value["clone"] = .object(cloneFields) }
         if let environmentId { value["environmentId"] = .string(environmentId) }
         var setupFields: [String: JSONValue] = [:]
