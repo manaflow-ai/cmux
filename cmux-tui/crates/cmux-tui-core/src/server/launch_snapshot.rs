@@ -18,8 +18,17 @@
 //! session whose snapshot is megabytes and whose tabs change state every few
 //! seconds then costs a bounded number of bytes an hour, not one whole file
 //! per change.
+//!
+//! Two things write the file at once, with no settle, delay or byte-budget
+//! wait: the close of a connection that wrote a native frontend projection
+//! (the app quit, was force quit, crashed or was killed), and an explicit
+//! `flush-launch-snapshot` (`launch-snapshot-flush-v1`). The writer wakes and
+//! writes on that pass, so a quick relaunch on the same daemon draws the
+//! window records the app saved last, not the write before them. Everything
+//! else keeps the timing above.
 
 use crate::panic_free::RecoverPoison;
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -36,6 +45,104 @@ pub(crate) const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 /// Failed writes back off (a full disk must not turn into a write loop).
 const WRITE_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY_MAX: Duration = Duration::from_secs(60);
+/// How long `flush-launch-snapshot` waits for its write before it answers
+/// `flushed:false` (the write still happens; a quit does not wait for it).
+pub(crate) const LAUNCH_SNAPSHOT_FLUSH_WAIT: Duration = Duration::from_secs(1);
+
+/// Requests for an immediate write (`flush-launch-snapshot`) and their
+/// answers. The Mux holds it while the writer runs.
+pub(crate) struct LaunchSnapshotFlush {
+    /// The writer's events, to wake it (replaced in place when it resubscribes).
+    events: Arc<Mutex<MuxEventReceiver>>,
+    state: Mutex<FlushState>,
+    answered: Condvar,
+}
+
+#[derive(Default)]
+struct FlushState {
+    /// The newest request, and the newest one a write pass answered.
+    requested: u64,
+    answered: u64,
+    /// Whether that pass left the file holding the current snapshot.
+    current: bool,
+    /// The writer stopped: nothing answers a later request.
+    stopped: bool,
+    /// Open connections that wrote a native frontend projection.
+    writers: HashSet<u64>,
+}
+
+impl LaunchSnapshotFlush {
+    fn new(events: Arc<Mutex<MuxEventReceiver>>) -> Self {
+        Self { events, state: Mutex::new(FlushState::default()), answered: Condvar::new() }
+    }
+
+    /// Asks the writer to write now and waits up to `wait` for it. True once
+    /// the file holds the snapshot as of this request (written now, or
+    /// already the same); false when the write failed, the writer stopped or
+    /// `wait` passed.
+    pub(crate) fn flush(&self, wait: Duration) -> bool {
+        let Some(ticket) = self.request() else { return false };
+        let deadline = Instant::now() + wait;
+        let mut state = self.state.lock().recover_poison();
+        while state.answered < ticket && !state.stopped {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            state = self.answered.wait_timeout(state, remaining).recover_poison().0;
+        }
+        state.answered >= ticket && state.current
+    }
+
+    /// Asks for an immediate write and wakes the writer; its ticket, or None
+    /// once the writer stopped.
+    fn request(&self) -> Option<u64> {
+        let ticket = {
+            let mut state = self.state.lock().recover_poison();
+            if state.stopped {
+                return None;
+            }
+            state.requested += 1;
+            state.requested
+        };
+        self.events.lock().recover_poison().wake();
+        Some(ticket)
+    }
+
+    /// `client` wrote a native frontend projection (`put-frontend-projection`):
+    /// it is the frontend whose window records the snapshot carries.
+    pub(crate) fn projection_writer(&self, client: u64) {
+        self.state.lock().recover_poison().writers.insert(client);
+    }
+
+    /// A connection closed. When it wrote a native frontend projection (the
+    /// app quit, was force quit, crashed or was killed: each closes its
+    /// socket), the writer writes at once, as on `flush-launch-snapshot`,
+    /// so a relaunch draws the records it saved last. Nothing waits for it.
+    pub(crate) fn client_left(&self, client: u64) {
+        let wrote = self.state.lock().recover_poison().writers.remove(&client);
+        if wrote {
+            let _ = self.request();
+        }
+    }
+
+    /// The newest unanswered request, if any.
+    fn pending(&self) -> Option<u64> {
+        let state = self.state.lock().recover_poison();
+        (state.requested > state.answered).then_some(state.requested)
+    }
+
+    fn answer(&self, ticket: u64, current: bool) {
+        let mut state = self.state.lock().recover_poison();
+        state.answered = state.answered.max(ticket);
+        state.current = current;
+        self.answered.notify_all();
+    }
+
+    fn stop(&self) {
+        self.state.lock().recover_poison().stopped = true;
+        self.answered.notify_all();
+    }
+}
 
 /// When the writer writes after a change.
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +180,7 @@ pub struct LaunchSnapshotWriter {
     writes: Arc<AtomicU64>,
     bytes: Arc<AtomicU64>,
     mux: Weak<Mux>,
+    flush: Arc<LaunchSnapshotFlush>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -102,8 +210,10 @@ impl LaunchSnapshotWriter {
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.events.lock().recover_poison().close();
+        self.flush.stop();
         if let Some(mux) = self.mux.upgrade() {
             mux.set_launch_snapshot_path(None);
+            mux.set_launch_snapshot_flush(None);
         }
     }
 }
@@ -142,6 +252,8 @@ pub fn start_launch_snapshot_writer_with(
     let thread_bytes = bytes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
+    let flush = Arc::new(LaunchSnapshotFlush::new(events.clone()));
+    let thread_flush = flush.clone();
     let thread =
         std::thread::Builder::new().name("mux-launch-snapshot".into()).spawn(move || {
             // Write once at start, so a relaunch finds the current layout even
@@ -159,6 +271,14 @@ pub fn start_launch_snapshot_writer_with(
                 if thread_stop.load(Ordering::Acquire) {
                     break;
                 }
+                // A flush request writes on this pass: what is queued is in
+                // the snapshot it computes, and no settle, delay, retry or
+                // byte-budget wait holds it back.
+                let urgent = thread_flush.pending();
+                if urgent.is_some() {
+                    while thread_events.try_recv().is_ok() {}
+                    dirty_since.get_or_insert_with(Instant::now);
+                }
                 let now = Instant::now();
                 let due = dirty_since.map(|first| {
                     let settled = last_change + timing.settle;
@@ -167,11 +287,13 @@ pub fn start_launch_snapshot_writer_with(
                     let due = retry_at.map_or(due, |retry_at| due.max(retry_at));
                     budget_at.map_or(due, |budget_at| due.max(budget_at))
                 });
-                if let Some(due) = due
-                    && now >= due
-                {
+                if urgent.is_some() || due.is_some_and(|due| now >= due) {
                     let Some(mux) = weak.upgrade() else { break };
-                    match write_launch_snapshot(&mux, &thread_path) {
+                    let result = write_launch_snapshot(&mux, &thread_path);
+                    if let Some(ticket) = urgent {
+                        thread_flush.answer(ticket, result.is_ok());
+                    }
+                    match result {
                         Ok((dropped, written)) => {
                             if written > 0 {
                                 budget_at = Some(
@@ -235,8 +357,10 @@ pub fn start_launch_snapshot_writer_with(
                 thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                 thread_writes.fetch_add(1, Ordering::AcqRel);
             }
+            thread_flush.stop();
         })?;
     mux.set_launch_snapshot_path(Some(path.clone()));
+    mux.set_launch_snapshot_flush(Some(flush.clone()));
     Ok(Some(LaunchSnapshotWriter {
         path,
         stop,
@@ -244,8 +368,16 @@ pub fn start_launch_snapshot_writer_with(
         writes,
         bytes,
         mux: Arc::downgrade(mux),
+        flush,
         thread: Some(thread),
     }))
+}
+
+/// `flush-launch-snapshot`: writes the launch snapshot now and answers once it
+/// landed (`flushed:true`), or after [`LAUNCH_SNAPSHOT_FLUSH_WAIT`], or at
+/// once without a writer (`flushed:false`).
+pub(super) fn flush_command(mux: &Mux) -> anyhow::Result<Value> {
+    Ok(json!({"flushed": mux.flush_launch_snapshot(LAUNCH_SNAPSHOT_FLUSH_WAIT)}))
 }
 
 /// How long the writer waits after it wrote `written` bytes.
@@ -595,6 +727,173 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// A quit's last save asks for the file at once (`flush-launch-snapshot`):
+    /// with a settle, delay and byte budget far past the wait, only that request
+    /// writes the moved window in time, and its answer says it landed. A quick
+    /// relaunch then draws the move, not the write before it.
+    #[test]
+    fn cmux_next_launch_snapshot_flush_writes_at_once_without_waiting_to_settle() {
+        let root = temp_root("flush");
+        let mux = Mux::open_persistent("launch-snapshot-flush", SurfaceOptions::default(), &root)
+            .unwrap();
+        let writer = start_launch_snapshot_writer_with(
+            &mux,
+            LaunchSnapshotTiming {
+                settle: Duration::from_secs(10),
+                max_delay: Duration::from_secs(30),
+                max_bytes_per_second: 1,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let identify = run_command(&mux, json!({"cmd":"identify"}));
+        assert!(
+            identify["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|capability| capability == LAUNCH_SNAPSHOT_FLUSH_CAPABILITY)
+        );
+        // The start write: from here the byte budget alone holds the next one
+        // back for (its size / 1) seconds.
+        let start = run_command(&mux, json!({"cmd":"flush-launch-snapshot"}));
+        assert_eq!(start["flushed"], json!(true));
+        let started = read_snapshot(writer.path()).expect("the start write");
+        assert!(!workspace_names(&started).contains(&"moved".to_string()));
+
+        let save = |name: &str| {
+            run_command(
+                &mux,
+                json!({
+                    "cmd":"put-frontend-projection",
+                    "frontend":"cmux-next",
+                    "scope":"personal",
+                    "subject_key":"windows",
+                    "schema_version":1,
+                    "projection":{"windows":[{"id":"w1","frame":name}]},
+                    "origin":"test",
+                    "mutation_id":format!("launch-snapshot-flush-{name}"),
+                }),
+            );
+        };
+        let frame = |snapshot: &Value| {
+            snapshot["frontend_projections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|projection| projection["subject_key"] == "windows")
+                .map(|projection| projection["projection"]["windows"][0]["frame"].clone())
+        };
+        mux.create_empty_workspace(Some("moved".into()), None, None).unwrap();
+        save("moved");
+        // The normal path waits out its 10 s settle.
+        std::thread::sleep(Duration::from_millis(300));
+        let lagging = read_snapshot(writer.path()).unwrap();
+        assert_eq!(frame(&lagging), frame(&started), "the settle holds the normal write back");
+
+        let asked = Instant::now();
+        let reply = run_command(&mux, json!({"cmd":"flush-launch-snapshot"}));
+        let took = asked.elapsed();
+        assert_eq!(reply["flushed"], json!(true));
+        assert!(took < Duration::from_secs(1), "the flush took {took:?}");
+        // The file holds the save when the answer comes, with no wait.
+        let flushed = read_snapshot(writer.path()).unwrap();
+        assert_eq!(frame(&flushed), Some(json!("moved")));
+        assert!(workspace_names(&flushed).contains(&"moved".to_string()));
+        // One write a request: a second one with nothing new writes no bytes.
+        let bytes = writer.bytes_written();
+        assert_eq!(
+            run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"],
+            json!(true)
+        );
+        assert_eq!(writer.bytes_written(), bytes);
+
+        drop(writer);
+        // With no writer, the request answers at once.
+        assert_eq!(
+            run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"],
+            json!(false)
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The app quits, is force quit, crashes or is killed right after a window
+    /// record save, and sends nothing more: its socket closes. That close
+    /// writes the snapshot at once, so a relaunch draws the save. The close of
+    /// a connection that wrote no native projection (a CLI call) waits as before.
+    #[test]
+    fn cmux_next_launch_snapshot_writes_at_once_when_the_app_connection_closes() {
+        let root = temp_root("app-close");
+        let mux =
+            Mux::open_persistent("launch-snapshot-app-close", SurfaceOptions::default(), &root)
+                .unwrap();
+        let writer = start_launch_snapshot_writer_with(
+            &mux,
+            LaunchSnapshotTiming {
+                settle: Duration::from_secs(10),
+                max_delay: Duration::from_secs(30),
+                max_bytes_per_second: 1,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        // The start write; the byte budget alone then holds the next one back.
+        assert_eq!(
+            run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"],
+            json!(true)
+        );
+        let frame = |snapshot: &Value| {
+            snapshot["frontend_projections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|projection| projection["subject_key"] == "windows")
+                .map(|projection| projection["projection"]["windows"][0]["frame"].clone())
+        };
+        let started = frame(&read_snapshot(writer.path()).unwrap());
+        assert_eq!(started, None);
+
+        const APP: u64 = 41;
+        const CLI: u64 = 42;
+        run_command_as(
+            &mux,
+            APP,
+            json!({
+                "cmd":"put-frontend-projection",
+                "frontend":"cmux-next",
+                "scope":"personal",
+                "subject_key":"windows",
+                "schema_version":1,
+                "projection":{"windows":[{"id":"w1","frame":"moved"}]},
+                "origin":"test",
+                "mutation_id":"launch-snapshot-app-close",
+            }),
+        );
+        run_command_as(&mux, CLI, json!({"cmd":"ping"}));
+        // Another connection's close writes nothing early.
+        assert!(disconnect_client(&mux, CLI, false));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(frame(&read_snapshot(writer.path()).unwrap()), started);
+
+        let closed = Instant::now();
+        assert!(disconnect_client(&mux, APP, false));
+        let deadline = closed + Duration::from_secs(1);
+        loop {
+            if frame(&read_snapshot(writer.path()).unwrap()) == Some(json!("moved")) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the app's close did not write the snapshot in 1 s");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        drop(writer);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// The app draws the Pinned band from the snapshot before it connects
     /// (Lawrence 2026-10-29: pins came back minutes after an update), so the
     /// snapshot holds the sidebar document as `sidebar.get` returns it, and a
@@ -844,11 +1143,15 @@ mod tests {
     }
 
     fn run_command(mux: &Arc<Mux>, request: Value) -> Value {
+        run_command_as(mux, 0, request)
+    }
+
+    fn run_command_as(mux: &Arc<Mux>, client: u64, request: Value) -> Value {
         let command: Command = serde_json::from_value(request).unwrap();
         let writer = MessageWriter::new(QueuedSink {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         });
-        handle_command(mux, mux.local_test_client(0), command, &writer).unwrap()
+        handle_command(mux, mux.local_test_client(client), command, &writer).unwrap()
     }
 }

@@ -138,6 +138,8 @@ fn disconnect_client_with_notice(
         record
     };
     mux.activity.disconnect(client);
+    // The app's window records are in: a relaunch draws them (launch_snapshot.rs).
+    mux.launch_snapshot_client_left(client);
     mux.unbind_conversation_principal(client);
     #[cfg(unix)]
     mux.forget_cloud_token_client(client);
