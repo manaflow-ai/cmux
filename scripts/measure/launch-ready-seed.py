@@ -89,6 +89,19 @@ class Seed:
             raise RuntimeError(f"{name}{' ' + target if target else ''}: {str(reply['error'])[:200]}")
         return reply if isinstance(reply, dict) else {}
 
+    def close(self, key):
+        """Closes the workspace whose model key (or id) is KEY and waits until the topology no longer lists it."""
+        def find():
+            return next((w.get("id") for w in self.topology().get("workspaces") or []
+                         if key in (w.get("key"), w.get("id"))), None)
+        workspace = find()
+        if not workspace:
+            raise RuntimeError(f"no workspace with key {key} to close")
+        self.action("closeWorkspace", target=f"workspace:{workspace}")
+        if not wait(lambda: find() is None, 10):
+            raise RuntimeError(f"workspace {key} ({workspace}) still listed 10 s after closeWorkspace")
+        self.row.update(closed=workspace, workspaces_left=len(self.topology().get("workspaces") or []))
+
     def build(self):
         """Raises RuntimeError naming the step that failed."""
         windows = self.window_ids()
@@ -142,14 +155,21 @@ def main(argv=None):
     # quits it after reading that front).
     parser.add_argument("--front", choices=["home", "tab"], default="home")
     parser.add_argument("--stay", action="store_true")
+    # launch-ready.sh snapshot=unknown: close the workspace with this model key (closeWorkspace), and nothing else.
+    parser.add_argument("--close-workspace", default="")
     args = parser.parse_args(argv)
     started = time.monotonic()
     seed, code = Seed(args.socket, args.windows, args.workspaces, args.front), 0
+    if args.close_workspace:
+        seed.row = {"close_asked": args.close_workspace}
     if not wait(lambda: seed.topology().get("loaded") and seed.topology().get("windows"), 120, 0.25):
         seed.row["error"], code = "the control socket never answered with a loaded topology and a window in 120 s", 2
     else:
         try:
-            seed.build()
+            if args.close_workspace:
+                seed.close(args.close_workspace)
+            else:
+                seed.build()
         except RuntimeError as error:
             seed.row["error"], code = str(error), 1
         finally:

@@ -55,7 +55,7 @@ class CaseNameTests(unittest.TestCase):
 
 
 class ReopenTests(unittest.TestCase):
-    def test_kept_tab_reopened(self):
+    def test_state_kept_reopens_the_last_workspace_and_tab(self):
         result, lines = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs"),
                              row("head", "run2", TAB, TAB_MARKS, "tabs")])
         self.assertEqual(result["head"]["failed"], [])
@@ -84,7 +84,7 @@ class ReopenTests(unittest.TestCase):
         result, _ = run([row("head", "prime", legacy), row("head", "run1", dict(legacy, tab="tab_y"), HOME_MARKS, "home")])
         self.assertEqual(result["head"]["failed"], [])
 
-    def test_seeded_front_is_the_anchor(self):
+    def test_state_kept_front_home_reopens_home(self):
         rows = [row("head", "prime", HOME), row("head", "run1", TAB, TAB_MARKS, "tabs"),
                 row("head", "run2", HOME, HOME_MARKS, "home")]
         result, _ = run(rows, "kept", "home")
@@ -96,22 +96,22 @@ class ReopenTests(unittest.TestCase):
         self.assertTrue(any("front=home not seeded" in l for l in lines))
         self.assertIn("LR-REOPENED head 1/1 case=kept", lines)
 
-    def test_update_compares_the_old_copys_front(self):
+    def test_state_kept_case_update_reopens_the_last_workspace_and_tab(self):
         rows = [row("head", "prime", HOME), row("head", "old1", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs"),
                 row("head", "old2", TAB), row("head", "run2", HOME, HOME_MARKS, "home")]
         result, _ = run(rows, "update")
         self.assertEqual(result["head"]["failed"], ["run2"])
 
-    def test_cold_expects_the_last_tab(self):
+    def test_state_kept_daemon_cold_reopens_the_last_workspace_and_tab(self):
         result, _ = run([row("head", "prime", TAB), row("head", "run1", HOME, HOME_MARKS, "home")], "cold")
         self.assertEqual(result["head"]["failed"], ["run1"])
 
-    def test_unknown_expects_home(self):
+    def test_state_kept_snapshot_unknown_lands_on_home(self):
         result, _ = run([row("head", "prime", TAB), row("head", "run1", HOME, HOME_MARKS, "home"),
                          row("head", "run2", TAB, TAB_MARKS, "tabs")], "unknown")
         self.assertEqual(result["head"]["failed"], ["run2"])
 
-    def test_foreign_needs_no_foreign_windows_then_own_front(self):
+    def test_state_kept_snapshot_foreign_draws_no_foreign_windows_then_reopens_its_own(self):
         rows = [row("head", "prime", TAB), row("foreign-head", "prime", OTHER_TAB),
                 row("head", "run1", TAB, {"reveal.tabs": 1.0}, "tabs"),
                 row("head", "run2", TAB, TAB_MARKS, "tabs")]
@@ -120,7 +120,7 @@ class ReopenTests(unittest.TestCase):
         self.assertEqual(result["head"]["failed"], ["run2"])
         self.assertTrue(any("foreign launch snapshot" in l for l in lines))
 
-    def test_fresh_expects_home_first(self):
+    def test_state_fresh_lands_on_home(self):
         rows = [row("head", "prime"), row("head", "run1", TAB, HOME_MARKS, "home"),
                 row("head", "run2", TAB, dict(HOME_MARKS, **TAB_MARKS), "tabs"), row("head", "run3", None, {}, None)]
         result, lines = run(rows, "fresh")

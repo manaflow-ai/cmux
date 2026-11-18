@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # launch-ready.sh's restore cases: which case arguments combine (case_args_ok), daemon=cold ending only the side's
-# copy's processes, snapshot=unknown removing only the home's workspace registry files, and the summary reading a
-# runs.jsonl end to end (launch-ready-summary.py).
+# copy's processes, snapshot=unknown reading the launch snapshot path from the defaults and keeping and putting back
+# the snapshot and defaults (never the registry), and the summary reading a runs.jsonl end to end (launch-ready-summary.py).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,18 +16,17 @@ sha=0123456789abcdef0123456789abcdef01234567
 ok kept "" warm own home "" small || { echo "state=kept front=home refused" >&2; exit 1; }
 ok kept update warm own home "$sha" small || { echo "state=kept case=update front=home refused" >&2; exit 1; }
 ok kept "" cold own home "" small || { echo "state=kept daemon=cold front=home refused" >&2; exit 1; }
-ok kept "" cold unknown "" "" small || { echo "snapshot=unknown refused" >&2; exit 1; }
+ok kept "" warm unknown "" "" small || { echo "snapshot=unknown refused" >&2; exit 1; }
+! ok kept "" warm unknown home "" small || { echo "snapshot=unknown front=home accepted" >&2; exit 1; }
 ! ok kept update warm own "" "" small || { echo "case=update without base= accepted" >&2; exit 1; }
 ! ok bare "" cold own "" "" small || { echo "state=fresh daemon=cold accepted" >&2; exit 1; }
 ! ok bare "" warm own home "" small || { echo "state=fresh front=home accepted" >&2; exit 1; }
 ! ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 accepted" >&2; exit 1; }
 echo 'launch-ready cases: the case arguments combine as agreed'
 
-# cold_daemon: kills only the pids running from OUT/SIDE/, and with snapshot=unknown removes only the registry files.
+# cold_daemon: kills only the pids running from OUT/SIDE/.
 out="$root/out"
-mkdir -p "$out/head" "$out/home-head/h/Library/Application Support/cmux/state/s1"
-state="$out/home-head/h/Library/Application Support/cmux/state/s1"
-touch "$state/workspace-registry.sqlite3" "$state/workspace-registry.sqlite3-wal" "$state/machine-id"
+mkdir -p "$out/head"
 ps() {
   case "$*" in
     *pid=,command=*) printf '%s\n' "101 $out/head/cmux NEXT.app/Contents/Resources/bin/cmux-tui daemon" \
@@ -38,14 +37,40 @@ ps() {
 killed=""
 kill() { killed="$killed $*"; }
 sleep() { :; }
-line="$(LR_SNAPSHOT=unknown cold_daemon "$out" head run1)"
-[[ "$line" == "LR-COLD head run1 stopped=1 registry_files_removed=2" ]] || { echo "cold_daemon printed '$line'" >&2; exit 1; }
-[[ -f "$state/machine-id" && ! -e "$state/workspace-registry.sqlite3" ]] || { echo "cold_daemon removed the wrong files" >&2; exit 1; }
-LR_SNAPSHOT=own cold_daemon "$out" head run2 >/dev/null
+line="$(cold_daemon "$out" head run1)"
+[[ "$line" == "LR-COLD head run1 stopped=1" ]] || { echo "cold_daemon printed '$line'" >&2; exit 1; }
+cold_daemon "$out" head run2 >/dev/null
 [[ "$killed" == *101* && "$killed" != *102* && "$killed" != *103* ]] || { echo "cold_daemon killed '$killed'" >&2; exit 1; }
-! LR_SNAPSHOT=unknown cold_daemon "$out" head run3 >/dev/null || { echo "snapshot=unknown with no registry passed" >&2; exit 1; }
 unset -f ps kill sleep
-echo 'launch-ready cases: daemon=cold ends only the copy'"'"'s daemons; snapshot=unknown removes only the registry'
+echo 'launch-ready cases: daemon=cold ends only the copy'"'"'s daemons'
+
+# snapshot=unknown: the launch snapshot path comes from the defaults' cmuxNext.launchSnapshotPath.<session>, and
+# unknown_restore puts the kept snapshot and defaults back (the registry is never touched). console-session.sh is a
+# stand-in that runs its command.
+home="$out/home-head"
+state="$home/h/Library/Application Support/cmux"
+mkdir -p "$state" "$root/work/scripts/ci/frame-pacing"
+printf '#!/usr/bin/env bash\nexec "$@"\n' >"$root/work/scripts/ci/frame-pacing/console-session.sh"
+chmod +x "$root/work/scripts/ci/frame-pacing/console-session.sh"
+python3 -I -c 'import plistlib, sys
+plistlib.dump({"cmuxNext.launchSnapshotPath.s1": sys.argv[2], "other": 1}, open(sys.argv[1], "wb"))' \
+  "$home/defaults.plist" "$state/launch-snapshot.json"
+[[ "$(launch_snapshot_path "$home/defaults.plist")" == "$state/launch-snapshot.json" ]] \
+  || { echo "launch_snapshot_path read '$(launch_snapshot_path "$home/defaults.plist")'" >&2; exit 1; }
+[[ -z "$(launch_snapshot_path "$root/none.plist")" ]] || { echo "launch_snapshot_path read a missing plist" >&2; exit 1; }
+echo kept >"$home/unknown-snapshot.keep"
+cp "$home/defaults.plist" "$home/unknown-defaults.keep"
+printf '%s\n' "$state/launch-snapshot.json" >"$home/unknown-snapshot.path"
+echo rewritten >"$state/launch-snapshot.json"
+echo rewritten >"$home/defaults.plist"
+touch "$state/workspace-registry.sqlite3"
+(cd "$root/work" && unknown_restore "$out" head) || { echo "unknown_restore failed" >&2; exit 1; }
+[[ "$(cat "$state/launch-snapshot.json")" == kept ]] || { echo "unknown_restore did not put the snapshot back" >&2; exit 1; }
+cmp -s "$home/defaults.plist" "$home/unknown-defaults.keep" || { echo "unknown_restore did not put the defaults back" >&2; exit 1; }
+[[ -f "$state/workspace-registry.sqlite3" ]] || { echo "the registry was removed" >&2; exit 1; }
+rm "$home/unknown-snapshot.path"
+! (cd "$root/work" && unknown_restore "$out" head >/dev/null) || { echo "unknown_restore with nothing kept passed" >&2; exit 1; }
+echo 'launch-ready cases: snapshot=unknown puts the kept snapshot and defaults back, never the registry'
 
 # The summary end to end: an A/B whose head restored tabs where base showed Home.
 {

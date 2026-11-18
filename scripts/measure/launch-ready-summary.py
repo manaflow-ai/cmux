@@ -13,7 +13,7 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
   update   case=update: the old copy's last front, on the new copy's first launch
   cold     daemon=cold: the last front, the daemon ended first as a reboot ends it
   foreign  snapshot=foreign: no foreign windows drawn (no launch_snapshot_shown), then this home's own last front
-  unknown  snapshot=unknown: the daemon knows none of the snapshot's workspaces, so Home
+  unknown  snapshot=unknown: the snapshot's front workspace no longer exists in the daemon, so Home
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
@@ -31,6 +31,16 @@ from collections import Counter
 # The expectation per case, in one place: "home" (the launch shows Home), "last" (the launch before's front, Home
 # included) or "own" (as last, and no window drawn from a foreign launch snapshot). daemon=cold is "last": a dead
 # daemon never sends the launch to Home; only a missing workspace does, and that is snapshot=unknown.
+# Each arm maps 1:1 to the restore lane's Rust test of the same case:
+#   state=fresh                  state_fresh_lands_on_home
+#   state=kept                   state_kept_reopens_the_last_workspace_and_tab
+#   state=kept case=update       state_kept_case_update_reopens_the_last_workspace_and_tab
+#   state=kept daemon=cold       state_kept_daemon_cold_reopens_the_last_workspace_and_tab
+#   state=kept snapshot=foreign  state_kept_snapshot_foreign_draws_no_foreign_windows_then_reopens_its_own
+#   state=kept snapshot=unknown  state_kept_snapshot_unknown_lands_on_home
+#   state=kept front=home        state_kept_front_home_reopens_home (and with case=update or daemon=cold: Home too)
+# snapshot=unknown: the snapshot's front workspace key no longer exists in the daemon (same session and registry id;
+# a different registry id is snapshot=foreign).
 EXPECT = {"fresh": "home", "kept": "last", "update": "last", "cold": "last", "foreign": "own", "unknown": "home"}
 
 
