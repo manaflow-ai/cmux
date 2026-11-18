@@ -541,6 +541,53 @@ class Command(unittest.TestCase):
             status = receipt.main(["manaflow-ai/cmux", "42", HEAD], run=run)
         self.assertEqual(status, 3, err.getvalue())
 
+    def rest_github(self, comments=(), reviews=(), head=HEAD, graphql_err="gh-quota: refused: GitHub's GraphQL rate "
+                    "limit is spent for login until 08:37Z (reset)"):
+        """GraphQL refused as the gh-quota shim refused it on 2026-11-18 (cmux#45937); REST answers."""
+        calls = []
+        user = {"login": "teamleaderleo", "type": "User"}
+        rest_reviews = [{"state": "APPROVED", "submitted_at": at, "body": "", "author_association": "MEMBER",
+                         "user": user, "commit_id": oid} for at, oid in reviews]
+        rest_comments = [{"created_at": f"2026-10-21T05:{n // 60:02d}:{n % 60:02d}Z", "body": body,
+                          "author_association": "MEMBER", "user": user} for n, body in enumerate(comments)]
+
+        def run(args):
+            calls.append(args)
+            route = args[1]
+            if route == "graphql":
+                return 3, "", graphql_err
+            if route.endswith("/pulls/42"):
+                return 0, json.dumps({"head": {"sha": head}, "labels": [{"name": "ci"}]}), ""
+            page = int(route.rsplit("page=", 1)[1])
+            items = rest_reviews if "/reviews?" in route else rest_comments
+            return 0, json.dumps(items[(page - 1) * 100:page * 100]), ""
+
+        return run, calls
+
+    def test_a_graphql_quota_refusal_reads_the_reviews_over_rest(self):
+        run, calls = self.rest_github(comments=["noise"] * 150 + [SHIP])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = receipt.main(["manaflow-ai/cmux", "42", HEAD], run=run)
+        self.assertEqual(status, 0, err.getvalue())
+        self.assertTrue(out.getvalue().startswith("receipt="), out.getvalue())
+        routes = [args[1] for args in calls]
+        self.assertIn("repos/manaflow-ai/cmux/issues/42/comments?per_page=100&page=2", routes)
+        self.assertTrue(all("--paginate" not in args for args in calls), calls)
+
+    def test_the_rest_read_keeps_the_graphql_windows_and_shape(self):
+        run, _ = self.rest_github(comments=[SHIP] + ["noise"] * 40, reviews=[("2026-10-21T04:00:00Z", HEAD)])
+        pr_read = receipt.read_pr("manaflow-ai/cmux", "42", run=run)
+        self.assertEqual(pr_read["headRefOid"], HEAD)
+        self.assertEqual(pr_read["labels"], {"nodes": [{"name": "ci"}]})
+        # Only the newest 40 comments, as GraphQL's comments(last:40): the SHIP fell out of the window.
+        self.assertEqual(len(pr_read["comments"]["nodes"]), 40)
+        self.assertNotIn(SHIP, [node["body"] for node in pr_read["comments"]["nodes"]])
+        self.assertEqual(pr_read["reviews"]["nodes"][0]["author"], USER)
+        self.assertEqual(pr_read["reviews"]["nodes"][0]["commit"], {"oid": HEAD})
+        # An approval of the head, read over REST, passes the gate as it does over GraphQL.
+        self.assertTrue(receipt.receipt(pr_read, HEAD))
+
     def test_an_unreadable_pull_request_refuses(self):
         def run(args):
             return 1, "", "HTTP 502"
