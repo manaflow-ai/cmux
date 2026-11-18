@@ -82,6 +82,9 @@ for (const running of [false, true]) {
     session: { turnCount: prompts },
     daemonIndexes: true,
     askedPageSize: true,
+    // The production build's sheets, unminified so each rule to swap keeps its own selector; DEV=1 reads the
+    // dev server's.
+    ...(process.env.DEV === "1" ? {} : { production: { minify: false } }),
   });
   try {
     const page = await pane.open({ width: 1100, height: 800 });
