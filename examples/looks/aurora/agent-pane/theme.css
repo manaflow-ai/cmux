@@ -1,0 +1,16 @@
+/* Aurora's chat: the prompt bubble is a faint teal glass with a violet hairline (the aurora's two
+   ends, the only place the chat shows them), cards are a neutral wash, and the corner follows the
+   glass's rounder geometry without becoming a capsule.
+   Every value is one color for both appearances: a tint with alpha reads as pale teal on snow and
+   deep teal on polar night, so light and dark need no second rule (contrast numbers: DESIGN.md).
+   Links and the transcript's text keep the host's colors, which the theme file sets per
+   appearance and the host holds to 4.5:1.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-user-bubble-tint: rgb(45 212 191 / 0.14);
+  --cv-user-bubble-edge: rgb(139 92 246 / 0.38);
+  --cv-user-bubble-radius: 16px;
+  --cv-card-fill: rgb(127 132 150 / 0.08);
+  --cv-card-ring: rgb(127 132 150 / 0.24);
+}

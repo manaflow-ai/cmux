@@ -14,6 +14,12 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "aurora",
+      "addon": "aurora",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
       "id": "claude",
       "surface": "composer",
       "addon": null,

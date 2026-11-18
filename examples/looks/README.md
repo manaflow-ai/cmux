@@ -8,6 +8,7 @@ file, a few settings, a stylesheet of public chat tokens and a sidebar view, in 
 | --- | --- |
 | [`studio`](studio) | A dense, near-black workbench: quiet chrome, compact rows, a boxed prompt with a hairline |
 | [`paper`](paper) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
+| [`aurora`](aurora) | Clear glass chrome over your desktop, a solid chat, a teal-to-violet accent used sparingly; light and dark |
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux/examples/looks/studio@feat-cmux-next   # on, as one layer
