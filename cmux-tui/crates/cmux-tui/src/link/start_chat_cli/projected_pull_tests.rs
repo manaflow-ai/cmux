@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 use super::super::{RECORD, Record, build, stage};
 use super::*;
 
+#[path = "projected_pull_ledger_tests.rs"]
+mod journal;
 #[path = "projected_pull_moves_tests.rs"]
 mod moves;
 #[path = "projected_pull_random_tests.rs"]

@@ -36,7 +36,7 @@ impl Run<'_, '_> {
             if waits(item) {
                 later_vanished.push(item);
             } else {
-                self.item(item)?;
+                self.step(item)?;
             }
         }
         let mut later = Vec::new();
@@ -52,12 +52,12 @@ impl Run<'_, '_> {
                 continue;
             }
             for item in &group.items {
-                self.item(item)?;
+                self.step(item)?;
             }
             if group.origin.is_some() {
                 moves.push(group);
             } else {
-                self.settle(group);
+                self.settle(group)?;
             }
         }
         let mut kept = Vec::new();
@@ -65,7 +65,7 @@ impl Run<'_, '_> {
             let landed = !self.unlanded.iter().any(|path| at_or_below(path, &group.head));
             match &group.origin {
                 Some(origin) if !landed => kept.push(origin.clone()),
-                _ => self.settle(group),
+                _ => self.settle(group)?,
             }
         }
         for item in later_vanished {
@@ -77,7 +77,7 @@ impl Run<'_, '_> {
                 whole &= self.waited(item, &kept)?;
             }
             if whole {
-                self.settle(group);
+                self.settle(group)?;
             }
         }
         Ok(())
@@ -90,7 +90,7 @@ impl Run<'_, '_> {
             self.refuse(&item.path, "origin_kept");
             return Ok(false);
         }
-        self.item(item)?;
+        self.step(item)?;
         Ok(true)
     }
 }

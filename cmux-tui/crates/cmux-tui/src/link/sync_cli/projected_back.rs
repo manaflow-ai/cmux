@@ -141,6 +141,9 @@ pub(in crate::link) struct Back<'a> {
     pub manifest: &'a Manifest,
     /// Decide and report only: nothing is read from the machine's files or changed here.
     pub dry_run: bool,
+    /// Stop (code `stopped`) before the item after this many, as a kill there would: for tests
+    /// of a pull cut short. None runs every item.
+    pub stop_after: Option<u64>,
 }
 
 /// One change of the upper layer.
@@ -219,6 +222,13 @@ struct Run<'a, 'l> {
     /// Paths whose machine version did not land here in this pull: refused, or a conflict with
     /// nothing beside.
     unlanded: BTreeSet<String>,
+    /// Keeps each path the moment it is settled (the mount's journal), so a pull stopped at any
+    /// point leaves nothing it changed unrecorded.
+    keep: &'l mut dyn FnMut(&str, &Pulled) -> std::io::Result<()>,
+    /// Why `keep` failed: the pull stops after the item that hit it.
+    lost: Option<std::io::Error>,
+    /// Items applied so far.
+    steps: u64,
 }
 
 fn ms(since: Instant) -> u64 {
@@ -226,11 +236,13 @@ fn ms(since: Instant) -> u64 {
 }
 
 /// Runs one pull through the machine daemon at `socket`, taking `ledger` along (the caller keeps
-/// it, also after a failure: what was applied is in it). Its summary line without the mount.
+/// it, also after a failure: what was applied is in it). Each path it settles also goes to
+/// `keep` as it is settled, before the next item. Its summary line without the mount.
 pub(in crate::link) fn pull(
     back: &Back<'_>,
     socket: &Path,
     ledger: &mut Ledger,
+    keep: &mut dyn FnMut(&str, &Pulled) -> std::io::Result<()>,
 ) -> Result<Value, Failure> {
     let started = Instant::now();
     let mut remote = Remote::connect(socket)
@@ -251,6 +263,9 @@ pub(in crate::link) fn pull(
         upper: BTreeMap::new(),
         ignored: BTreeSet::new(),
         unlanded: BTreeSet::new(),
+        keep,
+        lost: None,
+        steps: 0,
     };
     run.all(changes)?;
     let out = run.out;
@@ -412,13 +427,42 @@ impl Run<'_, '_> {
     }
 
     /// Notes `group` settled: its tag on its head, so a later pull skips it.
-    fn settle(&mut self, group: &Group) {
+    fn settle(&mut self, group: &Group) -> Result<(), Failure> {
         if let Some(tag) = &group.tag
             && !self.back.dry_run
-            && let Some(pulled) = self.ledger.paths.get_mut(&group.head)
+            && let Some(pulled) = self.ledger.paths.get(&group.head)
         {
-            pulled.machine.clone_from(tag);
+            let pulled = Pulled { machine: tag.clone(), mac: pulled.mac.clone() };
+            self.write_down(&group.head, pulled);
         }
+        self.journaled()
+    }
+
+    /// Applies one item, then stops the pull if what it settled could not be kept.
+    fn step(&mut self, item: &Item) -> Result<(), Failure> {
+        if self.back.stop_after.is_some_and(|stop| self.steps >= stop) {
+            return Err(Failure::new("stopped", "stopped before the next item"));
+        }
+        self.steps = self.steps.saturating_add(1);
+        self.item(item)?;
+        self.journaled()
+    }
+
+    fn journaled(&mut self) -> Result<(), Failure> {
+        match self.lost.take() {
+            Some(error) => Err(Failure::new("ledger_unwritable", format!("the journal: {error}"))),
+            None => Ok(()),
+        }
+    }
+
+    /// Settles `path` at `pulled`: kept first, then in the ledger.
+    fn write_down(&mut self, path: &str, pulled: Pulled) {
+        if self.lost.is_none()
+            && let Err(error) = (self.keep)(path, &pulled)
+        {
+            self.lost = Some(error);
+        }
+        self.ledger.paths.insert(path.to_owned(), pulled);
     }
 
     /// The work list: moved folders first (while what they bring is still here to serve), then
@@ -584,7 +628,7 @@ impl Run<'_, '_> {
 
     fn record(&mut self, path: &str, tag: &str, mac: Left) {
         if !self.back.dry_run {
-            self.ledger.paths.insert(path.to_owned(), Pulled { machine: tag.to_owned(), mac });
+            self.write_down(path, Pulled { machine: tag.to_owned(), mac });
         }
     }
 
