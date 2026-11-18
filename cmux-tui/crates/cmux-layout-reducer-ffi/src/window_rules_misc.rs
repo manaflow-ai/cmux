@@ -295,6 +295,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             );
             json!({ "registryId": id })
         }
+        // Where the launch's front window lands: the last workspace and tab, or Home (Leo ask-b7aac8d3f9).
+        b"window_launch_landing" => {
+            let facts: launch::LandingFacts = read(request)?;
+            value(launch::landing(&facts))?
+        }
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
