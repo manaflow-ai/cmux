@@ -3041,6 +3041,11 @@ pre.cv-math-source {
   min-height: 0;
   padding-bottom: var(--cv-tool-run-bottom-gap);
 }
+/* A later part of a running turn's long run (runParts.ts) keeps the room the run's flex gap gave
+   its entry (`.cv-tools` gap above), so the parts draw as the one row did; model.ts counts it. */
+.acpmux-row.acpmux-row--run-part {
+  padding-top: var(--grid-base);
+}
 /* Gallery versions for the transcript spacing review. The selected default is the root rhythm
    above; these are capture-only comparisons. */
 :root[data-transcript-tool-spacing="tight"] {

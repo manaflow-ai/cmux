@@ -20,6 +20,7 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
+import { cutLongRuns } from "./runParts";
 import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -1260,7 +1261,9 @@ function shapedTurn(
       ...line,
     ];
     // What was still going when the person sent into the running turn draws after the prompt.
-    if (live) shaped = afterSends(shaped, clockOffset);
+    // A run that keeps many cards in sight (a coordinator's Agent calls) draws as rows of a few
+    // each, so the transcript mounts only those near the window (runParts.ts).
+    if (live) shaped = cutLongRuns(afterSends(shaped, clockOffset));
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.

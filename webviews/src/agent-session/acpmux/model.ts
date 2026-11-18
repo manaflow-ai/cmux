@@ -38,6 +38,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { isRunPart } from "./conversation/runPartId";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
@@ -1759,6 +1760,9 @@ const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
+/// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
+const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -2397,8 +2401,8 @@ function fallbackRowHeight(
       const groups = toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps.
       if (row.runOpen || groups.some(staysInSight))
-        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+        return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
+      if (isFoldedRun(items)) return finish(runPartTop(row) + TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
     let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
@@ -2410,7 +2414,7 @@ function fallbackRowHeight(
         if (group.type === "sendGroup" && group.items.length > 1)
           steps +=
             messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
+    return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
