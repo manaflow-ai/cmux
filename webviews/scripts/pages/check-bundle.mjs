@@ -149,7 +149,7 @@ try {
     const openStart = performance.now();
     let openMs = null;
     try {
-      const route = name === "server-cards" ? "#/pair-invite" : "";
+      const route = name === "server-cards" ? "#/server-panel" : "";
       await page.goto(`http://${name}.pages.test${mode === "daemon" ? `/pages/${name}/` : "/"}?mock${route}`, {
         waitUntil: "load",
         timeout: 30_000,

@@ -235,7 +235,7 @@ import Testing
 
     /// The frame of the change's own turn and each display frame after it show one layout: the one before the change,
     /// then, from the display frame that shows the change on, the one after it. That frame is the first one after the
-    /// change; a zoom's is the one at which the dim that comes over the other panes is at its end (`PaneZoomDimTests`).
+    /// change, for a zoom too: this fixture asks for no move of its panes, so no dim comes (`PaneZoomDimTests`).
     /// Every pane's content is at the rect its pane gives it in each of them, and no content takes more than one new size.
     @Test(arguments: changes)
     func aLayoutChangeShowsInOneFrame(_ change: Change) throws {
@@ -254,8 +254,8 @@ import Testing
         let old = Rest(harness.model.screens, in: screen, style: style)
         #expect(old.isShown(by: Self.shown(screen)), "the screen does not rest at the layout before the change: \(Self.shown(screen).panes)")
         let sizesBefore = harness.provider.contents.mapValues(\.sizes.count)
-        // The display frame that shows the change: the first one. A zoom shows after the dim over the other panes has had
-        // its fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        // The display frame that shows the change: the first one, for a zoom too: no frame waits for a dim
+        // (`PaneZoomDimTests.showFrame(of:)`; a zoom whose pane moves brings its dim in that frame).
         let first = change.name == "zoom" ? PaneZoomDimTests.showFrame(of: screen) : 1
         try #require(first <= Self.frames, "the zoom's dim takes \(first) display frames; this test steps \(Self.frames)")
 
