@@ -65,11 +65,13 @@ pub(crate) enum Mode {
 pub(crate) fn settings_mode(doc: Option<&Value>) -> Mode {
     let Some(doc) = doc else { return Mode::Off };
     let get = |key: &str| crate::user_settings::value(doc, key);
-    match get(SETTING_MODE).and_then(Value::as_str) {
+    match get(SETTING_MODE).as_ref().and_then(Value::as_str) {
         Some("beforeExpiry") => Mode::BeforeExpiry,
         Some("onReturn") => Mode::OnReturn,
         Some(_) => Mode::Off,
-        None if get(SETTING_ENABLED).and_then(Value::as_bool) == Some(true) => Mode::BeforeExpiry,
+        None if get(SETTING_ENABLED).as_ref().and_then(Value::as_bool) == Some(true) => {
+            Mode::BeforeExpiry
+        }
         None => Mode::Off,
     }
 }

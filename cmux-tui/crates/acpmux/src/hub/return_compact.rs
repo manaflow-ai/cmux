@@ -28,7 +28,7 @@ const DEFAULT_RETURN_MIN_TOKENS: u64 = 200_000;
 const RETURN_MIN_TOKENS_RANGE: (u64, u64) = (20_000, 1_000_000);
 /// How long the person's prompt waits for the compaction to take the turn: it records at once,
 /// so this bounds only a stuck admission.
-const ACCEPT_WAIT: Duration = Duration::from_secs(15);
+const ACCEPT_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// A client's word for one prompt (`_meta.acpmux.cacheCompact`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +58,7 @@ pub(crate) fn settings_min_tokens(doc: Option<&Value>) -> Option<u64> {
     }
     let tokens = doc
         .and_then(|doc| crate::user_settings::value(doc, SETTING_RETURN_MIN_TOKENS))
+        .as_ref()
         .and_then(Value::as_f64)
         .filter(|n| n.is_finite())
         .map_or(DEFAULT_RETURN_MIN_TOKENS, |n| {
