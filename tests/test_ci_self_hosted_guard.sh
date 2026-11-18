@@ -1134,6 +1134,9 @@ SIGNER_BUILD_ROUTE
     # pull_request_target write token on fork pull requests (trust policy).
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # The one file still on the CI_TRUSTED_RUNNER selector that admits ubuntu-24.04: its own guard refuses a
+    # change to it without Leo's leo-approved-port label; a follow-up PR carries it.
+    "language-boundaries.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     # The signer jobs and their picks, a measured exception: notarization-bound, not CPU-bound (HQ
     # build-fleet summary, W44 p50 on Blacksmith 32 vCPU: signer-app 240 s, signer-dmg 199 s, signer-build
     # 7 s, the pick 11 s; 74 picks already ran hosted, p50 9 s). Hosted Ubuntu is trusted like Blacksmith and
