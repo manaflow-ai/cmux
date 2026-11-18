@@ -273,6 +273,25 @@ class WebValidationTests(unittest.TestCase):
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
                 self.assertIn("if: matrix.shard == 1", body)
 
+    def test_a_cancelled_shard_still_reports_the_check_reds_it_found(self):
+        """Shard 1 runs the lint, format and type checks as continue-on-error steps, and only the last
+        step turns their reds into a failure. With `if: !cancelled()` that step never ran when the shard
+        hit its time limit, so a red already found was dropped: job 134839261712 (run 44258208231,
+        cmux#45552) logged a TS2322 at 13:41Z that nothing reported. The gate runs on `always()`; a step
+        the cancel cut short has outcome `cancelled`, never `failure`, so it reads only finished reds."""
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["react-apps-check-shard"]["steps"]
+        gate = next(s for s in steps if s.get("name") == "Fail on the gate checks")
+        self.assertEqual(gate["if"], "${{ always() }}")
+        for step in steps:
+            if step.get("if") == "matrix.shard == 1":
+                with self.subTest(step=step["name"]):
+                    self.assertIs(step.get("continue-on-error"), True)
+                    var = next(k for k, v in gate["env"].items() if v == f"${{{{ steps.{step['id']}.outcome }}}}")
+                    self.assertIn(f'"{var}|{step["name"]}"', gate["run"])
+                    self.assertIn('= "failure"', gate["run"])
+
     def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
         """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
         anyway (run 43337871244): the tests now skip and the gate step names the engine step."""
