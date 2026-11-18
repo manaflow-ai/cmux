@@ -67,8 +67,8 @@ extension SettingsSchema {
         // A walkthrough choice, never permission to read Messages or send a reply.
         "imessage.automationSkipped": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
-        // The app that opens your files from a menu: an agent must not pick what runs them.
-        "files.textEditor": .userOnly,
+        // The apps that open your folders and files: an agent must not pick what runs them.
+        "editor.default": .userOnly, "files.textEditor": .userOnly,
         // Where a terminal program's URLs open, and a command that may run for each: an agent must not pick what runs or move a sign-in page into a browser it drives.
         "terminal.linkOpener.default": .userOnly, "terminal.linkOpener.rules": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).

@@ -190,6 +190,34 @@ extension BrowserSettingsSchema {
         let group = SettingsText.keyed("settings.group.files", "Files")
         return [
             SettingDescriptor(
+                EditorDefaultSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.editor.default", "Open in Editor"),
+                help: SettingsText.keyed("settings.editor.default.help", "The app Open in Editor opens a folder or file in. One not installed uses the first editor found."),
+                kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.editor.firstFound", "The First Editor Found")),
+                    SettingChoice("vscode", "Visual Studio Code"),
+                    SettingChoice("cursor", "Cursor"),
+                    SettingChoice("zed", "Zed"),
+                    SettingChoice("xcode", "Xcode"),
+                    SettingChoice("sublime", "Sublime Text"),
+                    SettingChoice("intellij", "IntelliJ IDEA"),
+                    SettingChoice("webstorm", "WebStorm"),
+                    SettingChoice("pycharm", "PyCharm"),
+                    SettingChoice("goland", "GoLand"),
+                    SettingChoice("rustrover", "RustRover"),
+                    SettingChoice("clion", "CLion"),
+                    SettingChoice("phpstorm", "PhpStorm"),
+                    SettingChoice("rubymine", "RubyMine"),
+                    SettingChoice("rider", "Rider"),
+                    SettingChoice("fleet", "Fleet"),
+                    SettingChoice("nova", "Nova"),
+                ]),
+                default: .string(EditorDefaultSetting.fallback),
+                keywords: ["editor", "open in", "ide", "vscode", "cursor", "zed", "xcode", "jetbrains", "folder", "default"]
+            ),
+            SettingDescriptor(
                 TextEditorSetting.configPath,
                 section: .general,
                 group: group,
