@@ -40,6 +40,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var size: CloudChatSize?
     /// The bytes the folder's copy sends, as the start's preflight counted them; nil when not counted.
     public var folderBytes: Int64?
+    /// The largest size the account's plan gives, as the page read it (`cloudMachine.list` `plan.max_size`); nil: not known.
+    public var planMax: CloudChatSize?
     /// Native Send authorization reserved before waiting for the speculative lease.
     var gestureTicket: String?
     /// The page's send again after its `cloud.signIn` signed in: authorized only by
@@ -114,6 +116,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         let signedIn = params?["signedIn"]
         if let signedIn, !(signedIn is Bool) { return nil }
         self.signedIn = signedIn as? Bool ?? false
+        self.planMax = (params?["planMax"] as? String).flatMap(CloudChatSize.init(rawValue:)) // a size this app does not know: none
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's

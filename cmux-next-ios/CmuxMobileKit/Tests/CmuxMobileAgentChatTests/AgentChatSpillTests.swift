@@ -136,19 +136,27 @@ import Testing
     /// turns of 16 KB replies arrive 100 at a time, with the window applied after each arrival
     /// as the list does at rest, then without. Measured as live heap bytes (malloc's size in
     /// use, with the store alive), which allocator reuse between the runs does not skew.
+    ///
+    /// The live bytes are what letting go of the store and its spill frees, read just before
+    /// and just after: malloc's size in use is the whole process's, and read across the fill
+    /// (seconds) it would count other suites' bytes as the store's (FeedSpillTests'
+    /// memoryWithSpill did, PR #45399).
     @Test func memoryStaysFlatWithTheWindow() async {
         func run(windowed: Bool) -> (live: Int, held: Int) {
-            let store = Self.store()
-            let start = Self.heapInUse()
-            for chunk in 0..<10 {
-                Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
-                if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
+            var alive = 0
+            var held = 0
+            do {
+                let store = Self.store()
+                for chunk in 0..<10 {
+                    Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
+                    if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
+                }
+                store.spill?.flush()
+                held = store.turns.count
+                alive = Self.heapInUse()
+                store.spill?.reset()
             }
-            store.spill?.flush()
-            let live = Self.heapInUse() - start
-            let held = store.turns.count
-            store.spill?.reset()
-            return (live, held)
+            return (alive - Self.heapInUse(), held)
         }
         let before = run(windowed: false)
         let after = run(windowed: true)
@@ -157,6 +165,8 @@ import Testing
         Attachment.record(line, named: "membench.txt")
         #expect(after.held <= AgentChatStore.windowTrigger)
         #expect(before.held == 1000)
+        // Letting the store go frees at least its replies, so the reading sees the store.
+        #expect(before.live >= 1000 * 16_384)
         #expect(after.live < before.live / 4)
     }
 

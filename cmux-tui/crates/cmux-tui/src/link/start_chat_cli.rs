@@ -328,9 +328,15 @@ struct PlanRequest {
     /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
     #[serde(default)]
     size: Option<String>,
-    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal.
+    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal
+    /// and a disk grown past the size's own (`disk_gib`).
     #[serde(default)]
     bytes: Option<u64>,
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`): with it a
+    /// size grows its disk (`disk_gib`, at most the plan's largest disk); none or a size off the ladder: not known, and
+    /// nothing grows.
+    #[serde(default)]
+    plan_max: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -489,6 +495,12 @@ fn plan_with_calls(
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
                 size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
+                // Sent only with a size above the chat size (`body`).
+                disk_gib: preflight::grown_disk_gib(
+                    request.size.as_deref(),
+                    request.bytes,
+                    request.plan_max.as_deref(),
+                ),
             };
             let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
@@ -525,6 +537,17 @@ fn plan_with_calls(
                             .unwrap_or(id),
                         disk_bytes: disk,
                     };
+                    // The plan's largest size asked grown for a folder no size within the plan holds, made at a
+                    // disk below its floor (a platform that ignores `disk_gib`): the plan's size refusal, with its
+                    // upgrade, as a start past the plan's sizes gets from the platform.
+                    if let Some(refusal) = preflight::outgrown_plan(
+                        ask.size.as_deref(),
+                        request.bytes,
+                        request.plan_max.as_deref(),
+                        &machine,
+                    ) {
+                        return refusal;
+                    }
                     if let Some(refusal) =
                         preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
                     {
@@ -770,10 +793,16 @@ pub(super) struct Ensure {
     reservation_send_key: Option<String>,
     /// The ladder size the chat's folder needs, sent only above the chat size ([`ENSURE_SIZE_FIELD`]).
     size: Option<String>,
+    /// The disk in GiB the folder needs past that size's own ([`preflight::grown_disk_gib`], [`ENSURE_DISK_FIELD`]).
+    disk_gib: Option<u64>,
 }
 
 /// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
 pub(super) const ENSURE_SIZE_FIELD: &str = "size";
+/// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve, and is otherwise
+/// the plan's size refusal, [`preflight::outgrown_plan`]).
+pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {
     fn of(flags: &Flags) -> Option<Self> {
@@ -814,6 +843,7 @@ impl Ensure {
             reservation_key: None,
             reservation_send_key: None,
             size: None,
+            disk_gib: None,
         })
     }
 
@@ -838,6 +868,9 @@ impl Ensure {
         }
         if let Some(size) = &self.size {
             body.set(ENSURE_SIZE_FIELD, json!(size));
+            if let Some(disk_gib) = self.disk_gib {
+                body.set(ENSURE_DISK_FIELD, json!(disk_gib));
+            }
         }
         body
     }
