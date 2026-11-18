@@ -289,7 +289,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("cmux", "cmux"),
                     SettingChoice("claude", "Claude"),
                     SettingChoice("codex", "Codex"),
-                    SettingChoice("studio", SettingsText.keyed("settings.choice.transcriptLookStudio", "Studio")),
+                    SettingChoice("studio", "Studio"),
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]

@@ -1038,7 +1038,7 @@
             {
               "value": "studio",
               "title": {
-                "key": "settings.choice.transcriptLookStudio",
+                "key": null,
                 "text": "Studio"
               }
             }
