@@ -10,6 +10,7 @@
 //! each other cannot ask back and forth.
 
 use super::Origin;
+use super::host_power;
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -93,6 +94,13 @@ pub(crate) async fn host_health_with(
     if let Some((used, total)) = swap() {
         v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
+    // Power and network for Auto chat placement (`host_power.rs`): a closed lid, a low battery
+    // or a network that is down change where a chat runs. A debug override can stand in for each.
+    let assume = host_power::assumed(crate::store::now_ms());
+    if let Some(power) = host_power::power_json(host_power::power().await, assume.as_ref()) {
+        v.set("power", power);
+    }
+    v.set("network", host_power::network_json(host_power::network_up(), assume.as_ref()));
     v.set(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
