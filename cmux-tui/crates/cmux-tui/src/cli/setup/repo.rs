@@ -278,7 +278,8 @@ fn git(dir: &Path, config: &[&str], args: &[&str]) -> Result<String, String> {
 }
 
 /// Fetches `reference` at its ref (the default branch when none) and checks
-/// out that one commit. Any git host: a shallow fetch of the commit.
+/// out that one commit. Any git host: a shallow fetch of the commit, and of
+/// a setup in a folder only that folder's files.
 fn fetch(reference: &Reference) -> Result<Checkout, Failure> {
     fetch_from(reference, &reference.clone_url(), &[])
 }
@@ -294,8 +295,23 @@ fn fetch_from(reference: &Reference, url: &str, config: &[&str]) -> Result<Check
     let mut checkout = Checkout { dir, commit: String::new() };
     let wanted = reference.git_ref.as_deref().unwrap_or("HEAD");
     let run = |args: &[&str]| git(&checkout.dir, config, args);
+    // A setup in a folder (a look in a monorepo) fetches the commit's trees
+    // with no file contents, then checks out only its folder: the checkout
+    // fetches that folder's files from `origin` in one batch. A host with no
+    // filter support sends the whole commit, as before.
+    let sparse = (!reference.path.is_empty()).then(|| format!("/{}/", reference.path));
+    let fetch_args: &[&str] = if sparse.is_some() {
+        &["fetch", "-q", "--depth", "1", "--filter=blob:none", "--no-tags", "origin", wanted]
+    } else {
+        &["fetch", "-q", "--depth", "1", "--no-tags", "origin", wanted]
+    };
     let fetched = run(&["init", "-q"])
-        .and_then(|_| run(&["fetch", "-q", "--depth", "1", "--no-tags", url, wanted]))
+        .and_then(|_| run(&["remote", "add", "origin", url]))
+        .and_then(|_| run(fetch_args))
+        .and_then(|_| match &sparse {
+            Some(folder) => run(&["sparse-checkout", "set", "--no-cone", folder]),
+            None => Ok(String::new()),
+        })
         .and_then(|_| run(&["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]))
         .and_then(|_| run(&["rev-parse", "HEAD"]));
     match fetched {
