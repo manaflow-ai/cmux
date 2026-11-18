@@ -8,6 +8,11 @@
   "keep": [
     {
       "surface": "menu",
+      "name": "remoteBrowserPage",
+      "reason": "keep: Debug builds only; its rows are a remote page's own right-click menu and <select> options, sent by that page and answered back to it (RemoteBrowserNativeUI, RT5), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
       "name": "terminalPaste",
       "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
     },
