@@ -334,19 +334,22 @@ pub(crate) fn late_views() {
                 let Some(surface) = ids.iter().find_map(|id| s.store.surface(id)) else { continue };
                 let Ok(surface) = serde_json::to_value(&surface) else { continue };
                 let row = &s.call(&call_id).row;
-                let mut msg = json!({"toolCallId": call_id, "surface": surface});
+                let mut fields = Map::new();
+                fields.insert("toolCallId".into(), json!(call_id));
+                fields.insert("surface".into(), json!(surface));
                 for (k, v) in [("kind", &row.kind), ("status", &row.status), ("tool", &row.tool)] {
                     if !v.is_empty() {
-                        msg[k] = json!(v);
+                        fields.insert(k.into(), json!(v));
                     }
                 }
                 for (k, v) in
                     [("title", &row.title), ("rawInput", &row.raw_input), ("content", &row.content)]
                 {
                     if let Some(v) = v {
-                        msg[k] = v.clone();
+                        fields.insert(k.into(), v.clone());
                     }
                 }
+                let msg = Value::Object(fields);
                 sends.push((late.clone(), msg));
             }
         }

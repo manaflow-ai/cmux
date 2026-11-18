@@ -549,7 +549,9 @@ impl SurfaceStore {
                     .map(|m| text::clean(&functions::eval_text(m, ctx)))
                     .filter(|m| !m.is_empty());
                 if let Some(m) = &user_text {
-                    action["userMessage"] = Value::String(m.clone());
+                    if let Some(fields) = action.as_object_mut() {
+                        fields.insert("userMessage".into(), Value::String(m.clone()));
+                    }
                     sends.push(Send { label: "message".into(), value: m.clone() });
                 }
                 let metadata = st.send_data_model.then(|| {
@@ -666,8 +668,10 @@ impl SurfaceStore {
             }
         }
         let mut out = held.outbound;
-        if let Outbound::Agent { message, .. } = &mut out {
-            message["action"]["timestamp"] = Value::String(timestamp.to_string());
+        if let Outbound::Agent { message, .. } = &mut out
+            && let Some(action) = message.get_mut("action").and_then(Value::as_object_mut)
+        {
+            action.insert("timestamp".into(), Value::String(timestamp.to_string()));
         }
         Ok(out)
     }
