@@ -115,10 +115,7 @@ impl Waker {
         if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        Ok(Self(Arc::new(Pipe {
-            read: fds[0],
-            write: fds[1],
-        })))
+        Ok(Self(Arc::new(Pipe { read: fds[0], write: fds[1] })))
     }
 
     pub fn wake(&self) {
@@ -170,11 +167,7 @@ pub struct Picture {
 
 impl Picture {
     pub fn height(&self) -> usize {
-        self.image
-            .y
-            .len()
-            .checked_div(self.image.width)
-            .unwrap_or(0)
+        self.image.y.len().checked_div(self.image.width).unwrap_or(0)
     }
 }
 
@@ -239,20 +232,14 @@ pub fn run(
     let window_done = Arc::new(AtomicBool::new(false));
     let win = Window::open(&config.display, &config.title, config.control)?;
     let window_thread = {
-        let (mailbox, present_waker, input_waker, done) = (
-            mailbox.clone(),
-            present_waker.clone(),
-            input_waker.clone(),
-            window_done.clone(),
-        );
-        std::thread::Builder::new()
-            .name("rd-view-window".into())
-            .spawn(move || {
-                let report = win.run(&mailbox, &present_waker, &input_tx, &input_waker);
-                done.store(true, Ordering::SeqCst);
-                input_waker.wake();
-                report
-            })?
+        let (mailbox, present_waker, input_waker, done) =
+            (mailbox.clone(), present_waker.clone(), input_waker.clone(), window_done.clone());
+        std::thread::Builder::new().name("rd-view-window".into()).spawn(move || {
+            let report = win.run(&mailbox, &present_waker, &input_tx, &input_waker);
+            done.store(true, Ordering::SeqCst);
+            input_waker.wake();
+            report
+        })?
     };
 
     let mut reassembler = Reassembler::new(DEADLINE_US);
@@ -278,18 +265,9 @@ pub fn run(
     let ended: String = 'run: loop {
         let timeout_ns = reassembler
             .next_nack_us(5_000, 50_000)
-            .map_or(FEEDBACK_EVERY_NS, |d| {
-                d.saturating_mul(1000).saturating_sub(now_ns())
-            })
-            .min(if sender.is_empty() {
-                FEEDBACK_EVERY_NS
-            } else {
-                INPUT_REPEAT_NS
-            });
-        wait_readable(
-            &[net.event_fd(), hub_waker.fd(), input_waker.fd()],
-            Some(timeout_ns),
-        )?;
+            .map_or(FEEDBACK_EVERY_NS, |d| d.saturating_mul(1000).saturating_sub(now_ns()))
+            .min(if sender.is_empty() { FEEDBACK_EVERY_NS } else { INPUT_REPEAT_NS });
+        wait_readable(&[net.event_fd(), hub_waker.fd(), input_waker.fd()], Some(timeout_ns))?;
         hub_waker.drain();
         input_waker.drain();
         for message in from_hub.try_iter() {
@@ -317,9 +295,7 @@ pub fn run(
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::PathChanged {
-                    kind: Some(k),
-                    rtt_us,
-                    ..
+                    kind: Some(k), rtt_us, ..
                 }) => {
                     let name = k.wire_name().to_owned();
                     let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
@@ -335,13 +311,7 @@ pub fn run(
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     match serde_json::from_slice::<Control>(&record) {
-                        Ok(Control::Welcome {
-                            encoder,
-                            width,
-                            height,
-                            caps,
-                            ..
-                        }) => {
+                        Ok(Control::Welcome { encoder, width, height, caps, .. }) => {
                             eprintln!(
                                 "Streaming {width}x{height} ({encoder}{})",
                                 if caps.iter().any(|c| c == H264_BASELINE) {
@@ -429,9 +399,8 @@ pub fn run(
     }
     mailbox.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
     present_waker.wake();
-    let window_report = window_thread
-        .join()
-        .unwrap_or_else(|_| Err("the window thread panicked".into()));
+    let window_report =
+        window_thread.join().unwrap_or_else(|_| Err("the window thread panicked".into()));
     let window_report = window_report.unwrap_or_else(|e| {
         eprintln!("cmux-rd view: window: {e}");
         window::Report::default()
@@ -465,10 +434,7 @@ pub fn run(
     if let Some(path) = &config.stats_file {
         std::fs::write(path, format!("{report}\n"))?;
     }
-    Ok(Ended {
-        reason: ended,
-        connected,
-    })
+    Ok(Ended { reason: ended, connected })
 }
 
 fn header(kind: DatagramKind) -> DatagramHeader {
@@ -521,16 +487,12 @@ fn on_datagram(
     released_since_feedback: &mut bool,
 ) {
     let now = now_ns();
-    let Ok((h, payload)) = DatagramHeader::decode(d) else {
-        return;
-    };
+    let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
     match h.kind {
         DatagramKind::Video | DatagramKind::Fec => {
             stats.bytes += d.len() as u64;
-            arrivals.push(Arrival {
-                transport_seq: h.transport_seq,
-                arrival_us: (now / 1000) as u32,
-            });
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
             let released = reassembler.push(&h, payload, now / 1000);
             let last = released.len().saturating_sub(1);
             for (i, frame) in released.into_iter().enumerate() {
@@ -561,9 +523,7 @@ fn on_datagram(
             }
         }
         DatagramKind::InputAck if payload.len() >= 4 => {
-            sender.ack(u32::from_le_bytes([
-                payload[0], payload[1], payload[2], payload[3],
-            ]));
+            sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
         }
         _ => {}
     }
@@ -599,9 +559,8 @@ fn maybe_feedback(
 ) {
     let now = now_ns();
     let since = now.saturating_sub(*last_feedback_ns);
-    let nack_due = reassembler
-        .next_nack_us(5_000, 50_000)
-        .is_some_and(|deadline| now / 1000 >= deadline);
+    let nack_due =
+        reassembler.next_nack_us(5_000, 50_000).is_some_and(|deadline| now / 1000 >= deadline);
     if !(*released_since_feedback
         || since >= KEEPALIVE_NS
         || nack_due
@@ -629,9 +588,7 @@ fn maybe_feedback(
     }
     send(&Feedback {
         acked_frame: reassembler.last_released(),
-        decode_us: recent
-            .get(recent.len() / 2)
-            .map_or(0, |m| (m * 1000.0) as u32),
+        decode_us: recent.get(recent.len() / 2).map_or(0, |m| (m * 1000.0) as u32),
         need_recovery: reassembler.need_recovery(),
         arrivals: std::mem::take(arrivals),
         nacks,
@@ -669,14 +626,8 @@ mod tests {
         let mut slot = mailbox.lock().unwrap();
         assert_eq!(slot.replaced, 1);
         let shown = slot.ready.take().unwrap();
-        assert_eq!(
-            (shown.image.y[0], shown.complete_ns, shown.height()),
-            (2, 20, 2)
-        );
-        assert_eq!(
-            current.y[0], 1,
-            "the replaced buffer comes back for the next decode"
-        );
+        assert_eq!((shown.image.y[0], shown.complete_ns, shown.height()), (2, 20, 2));
+        assert_eq!(current.y[0], 1, "the replaced buffer comes back for the next decode");
         assert!(slot.ready.is_none());
     }
 
