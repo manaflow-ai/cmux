@@ -1497,6 +1497,29 @@
         "groups" : [
 
         ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
         "id" : "models",
         "lead" : [
           "models"
@@ -2267,6 +2290,7 @@
         "categories" : [
           "chat",
           "agents",
+          "mcpServers",
           "models",
           "cloud",
           "chief"
