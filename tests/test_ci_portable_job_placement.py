@@ -351,6 +351,21 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64")
         self.assertEqual(placed.linux_jobs, ("cmux-next-daemon-tests",))
 
+    def test_a_vouched_label_counts_its_os_unknown_single_label_runners(self):
+        # 2026-11-18: GitHub lists the GCP build lane's runners (one label each) with os "unknown".
+        config = env(JOBS="build-linux build", LINUX_ONLY="build-linux build",
+                     FLEET_LINUX="cmux-gcp-lane-build-x64", REQUIRE_LIVE_CAPACITY="1")
+        gcp = {"name": "gcp-build-1", "status": "online", "busy": False, "os": "unknown",
+               "labels": [{"name": "cmux-gcp-lane-build-x64"}]}
+        placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": "1"}, [gcp, {**gcp, "busy": True}], snapshot(), NOW)
+        self.assertEqual((placed.linux_runner, placed.linux_jobs), ("cmux-gcp-lane-build-x64", ("build-linux",)))
+        # Not vouched, another label (a Mac's), or a non-Linux OS: nothing is placed.
+        for vouch, runner in (("", gcp), ("1", {**gcp, "labels": [{"name": "cmux-gcp-lane-build-x64"}, {"name": "macOS"}]}),
+                              ("1", {**gcp, "os": "macOS"})):
+            with self.subTest(vouch=vouch, runner=runner):
+                placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": vouch}, [runner], snapshot(), NOW)
+                self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
+
     def test_a_mac_first_job_takes_a_mini_before_fleet_linux(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32", MAC_FIRST="tooling-tests"),
                                   idle(1), snapshot(), NOW)
