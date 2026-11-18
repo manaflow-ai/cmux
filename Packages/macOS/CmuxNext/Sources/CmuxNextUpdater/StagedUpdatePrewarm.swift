@@ -162,7 +162,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
                         let status: String
                         do {
                             try Task.checkCancellation()
-                            let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
+                            // A stop reaches the run's whole process group: the Chromium start's renderer and GPU
+                            // helpers would outlive a stop of the app alone.
+                            let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout,
+                                                                                 terminationScope: .processGroup))
                             // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
                             status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
                         } catch {
