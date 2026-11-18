@@ -289,6 +289,12 @@ fn await_socket(socket: &Path, wait: Duration) -> Result<(), String> {
     }
 }
 
+/// The acpmux home this host's daemon uses (its socket's), where the
+/// machine's MCP connections live too (cmux-mcp-connect `shared`).
+pub fn home() -> PathBuf {
+    daemon_home(&socket_path())
+}
+
 fn daemon_home(socket: &Path) -> PathBuf {
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)

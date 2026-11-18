@@ -21,7 +21,11 @@
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
-// HIDDEN=0 keeps every chat shown.
+// HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
+// before cmux#45531).
+// TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
+// later idle window, and of one with every page's focus blurred, and prints what each renderer thread ran (idleTrace.ts):
+// the frames' owner and the thread pool's work (in long x20, V8's memory-reducer GC marking the bigger heap).
 // HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a hidden one) for
 // DevTools. HEAP_RETAINERS=1 prints, per launch, the renderers' memory-infra allocators and what holds the JS heap
 // (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
@@ -57,6 +61,7 @@ import { CoordinatorTurn } from "./coordinatorTurn";
 import { newestPage } from "./daemonPage";
 import { takeSnapshot } from "./heapProbe";
 import { printRetainers, type Retainers } from "./heapRetainers";
+import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
@@ -69,6 +74,7 @@ const STREAM_S = Number(process.env.STREAM_S ?? 10);
 const TPS = Number(process.env.TPS ?? 30);
 const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
+const HIDDEN_FOCUS = process.env.HIDDEN_FOCUS === "1";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
@@ -144,6 +150,7 @@ const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const HEAP_RETAINERS = process.env.HEAP_RETAINERS === "1";
 const retainerBase = new Map<number, Retainers>();
 const WAKES = process.env.WAKES === "1";
+const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
@@ -468,11 +475,21 @@ try {
           (timeout as Callback)(counted(fn), ...rest)) as typeof setTimeout;
         globalThis.setInterval = ((fn: unknown, ...rest: unknown[]) =>
           (interval as Callback)(counted(fn), ...rest)) as typeof setInterval;
-        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) =>
-          frame((time) => {
+        const sites = new Map<string, number>();
+        (globalThis as unknown as { __benchRafSites: typeof sites }).__benchRafSites = sites;
+        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) => {
+          const site =
+            new Error().stack
+              ?.split("\n")
+              .slice(2, 5)
+              .map((line) => line.trim())
+              .join(" < ") ?? "?";
+          return frame((time) => {
             wakes.raf += 1;
+            sites.set(site, (sites.get(site) ?? 0) + 1);
             fn(time);
           });
+        };
         MessagePort.prototype.postMessage = function (this: MessagePort, ...args: unknown[]) {
           wakes.posts += 1;
           return (post as Callback).apply(this, args) as void;
@@ -668,16 +685,20 @@ try {
       // idle windows (run 44055105953: 20 empty chats' idle windows read 10.3/4.0/1.9 % and 7.2/5.2/3.2 % after the
       // hide, with flat 2-4 % settle samples before it and no heap drop in them).
       if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
-        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
-        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
-        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app, and it
+        // loses focus, as a tab switched away from does. Headless Chromium emulates focus for every page, so each
+        // chat's composer kept the caret and blinked it: a main frame each blink (~2 a second a page, 0 paints;
+        // every page's in one renderer, the 40 a second the browser-wide traces read). Blurring the field stops it
+        // (TRACE=DIR, run 44093806454: 40 to 0 main frames a second). Only the document's state is faked: Chromium
+        // would still draw a hidden page that asked; minimizing a page's window does not hide it in headless Chromium
+        // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
         for (const { page } of pages.slice(0, -1))
-          await page.evaluate(() => {
+          await page.evaluate((blur) => {
             Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
             Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
             document.dispatchEvent(new Event("visibilitychange"));
-          });
+            if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
+          }, !HIDDEN_FOCUS);
       }
       // The pages' own settling (read-ahead, fonts, the first paints, after a burst its drain, and V8's collections after
       // it) is not idle: it is timed from the pages' final state (every record in, the hidden pages hidden) to the
@@ -807,6 +828,9 @@ try {
         return total;
       };
       const idleWakes: (Wakes & { switches: number })[] = [];
+      // TRACE=DIR: one browser-wide trace over every idle window, so a burst on the thread pool is named.
+      const windowsCdp = TRACE ? await browser.newBrowserCDPSession() : undefined;
+      const stopWindowsTrace = windowsCdp ? await startIdleTrace(windowsCdp) : undefined;
       let idleGcWindows = 0;
       for (let round = 0; round < REPEAT; round++) {
         // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
@@ -865,6 +889,12 @@ try {
       }
       // WAKES=1 in a launch of many chats: what each page draws while idle (a hidden one and the shown one traced),
       // and every page's running animations, so work a hidden or off-screen page still does is named.
+      if (stopWindowsTrace) {
+        fs.mkdirSync(TRACE!, { recursive: true });
+        console.log(`  ${name}: browser-wide trace of the idle windows`);
+        console.log(await stopWindowsTrace(path.join(TRACE!, `${name}-windows.json.gz`)));
+        await windowsCdp!.detach();
+      }
       if (WAKES && count > 1) {
         for (const [index, { page }] of pages.entries()) {
           const running = await runningAnimations(page);
@@ -882,6 +912,58 @@ try {
           const traced = await paintWindow(page, cdp, IDLE_S, sources);
           console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
+      }
+      if (TRACE) {
+        // TRACE=DIR: what each page's frames come from (the rAF sites the init script saw, through the build's maps),
+        // a control page of plain text in the same browser, and one browser-wide trace of IDLE_S idle.
+        if (WAKES)
+          for (const index of [0, count - 1]) {
+            const sites = await pages[index]!.page.evaluate(() => {
+              const map = (globalThis as unknown as { __benchRafSites?: Map<string, number> }).__benchRafSites;
+              const out = map ? [...map] : [];
+              map?.clear();
+              return out;
+            });
+            const mapSite = (site: string) =>
+              sources
+                ? site.replace(
+                    /(?:https?:\/\/[^\s)]*\/)?assets\/([^\s/:)]+\.js):(\d+):(\d+)/g,
+                    (_, file: string, line: string, column: string) =>
+                      sources(file, Number(line) - 1, Number(column) - 1),
+                  )
+                : site;
+            for (const [site, n] of sites.sort((a, b) => b[1] - a[1]).slice(0, 6))
+              console.log(`  ${name}: page ${index} rAF since load x${n} from ${mapSite(site)}`);
+          }
+        const control = await context.newPage();
+        await control.goto("data:text/html,<p>control</p>");
+        const controlCdp = await context.newCDPSession(control);
+        console.log(describePaintWindow(`${name} control page idle`, await paintWindow(control, controlCdp, IDLE_S)));
+        await control.close();
+        fs.mkdirSync(TRACE, { recursive: true });
+        const browserCdp = await browser.newBrowserCDPSession();
+        console.log(`  ${name}: browser-wide idle trace`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-idle.json.gz`)));
+        // What has focus on each page: a focused editable blinks its caret, a frame each blink.
+        const focus = new Map<string, number>();
+        for (const { page } of pages) {
+          const what = await page.evaluate(() => {
+            const active = document.activeElement;
+            const label = active
+              ? `${active.tagName.toLowerCase()}${typeof active.className === "string" && active.className ? `.${active.className.trim().split(/\s+/).slice(0, 3).join(".")}` : ""}`
+              : "none";
+            return `${label}${(active as HTMLElement | null)?.isContentEditable ? " (editable)" : ""}; hasFocus ${document.hasFocus()}`;
+          });
+          focus.set(what, (focus.get(what) ?? 0) + 1);
+        }
+        for (const [what, n] of focus) console.log(`  ${name}: focus on ${n} page(s): ${what}`);
+        for (const { page } of pages)
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        // fixed-wait: the blurred fields stop their carets.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        console.log(`  ${name}: browser-wide idle trace, every page's focus blurred`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-blurred.json.gz`)));
+        await browserCdp.detach();
       }
       const idlePct = median(idleWindows);
       for (const [round, wakes] of idleWakes.entries())
