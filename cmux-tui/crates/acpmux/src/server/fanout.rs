@@ -41,6 +41,8 @@ fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
     tests::panic_if_marked(&ev.session_id);
+    #[cfg(test)]
+    tests::count_wake(conn);
     deliver(hub, conn, ev);
 }
 
@@ -186,5 +188,25 @@ pub(super) mod tests {
         if session.starts_with(PANIC_PREFIX) {
             panic!("fan-out test panic for {session}");
         }
+    }
+
+    /// A connection named with this prefix (its `initialize` `clientInfo.name`) has the hub
+    /// events its fan-out task woke for counted under that name (`fanout_interest_tests.rs`). A
+    /// name is one test's own, so parallel tests never read each other's counts.
+    pub(in crate::server) const WAKE_PREFIX: &str = "fanout-wake-";
+
+    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::LazyLock::new(Default::default);
+
+    pub(super) fn count_wake(conn: &super::Conn) {
+        let name = conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if name.starts_with(WAKE_PREFIX) {
+            *WAKES.lock().unwrap_or_else(|e| e.into_inner()).entry(name).or_default() += 1;
+        }
+    }
+
+    /// Hub events the fan-out of the connection named `name` woke for.
+    pub(in crate::server) fn wakes(name: &str) -> u64 {
+        WAKES.lock().unwrap_or_else(|e| e.into_inner()).get(name).copied().unwrap_or(0)
     }
 }

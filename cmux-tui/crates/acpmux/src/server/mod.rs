@@ -2544,3 +2544,8 @@ mod update_cost_bench;
 #[cfg(test)]
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
+
+// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+#[cfg(test)]
+#[path = "fanout_interest_tests.rs"]
+mod fanout_interest_tests;
