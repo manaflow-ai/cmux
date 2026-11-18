@@ -14,29 +14,49 @@ import Testing
     /// Waits, without spinning, until `condition` holds: it reads the model's observed state
     /// and wakes when that state changes. The host's messages reach the model through a
     /// main-actor task each, so when that happens depends on what else the process runs, not on
-    /// this test. (A loop of yields here kept the main actor busy for every other test; the
-    /// test's time limit bounds a condition that never holds.)
+    /// this test. (A loop of yields here kept the main actor busy for every other test.)
+    /// `condition` must read at least one tracked property that changes: `contextMenu` and
+    /// other `@ObservationIgnored` state never wake it. The wait ends when the test is cancelled
+    /// (its time limit), so a condition that never holds fails the `#expect` after it.
     func until(_ condition: @escaping @MainActor () -> Bool) async {
-        while !condition() {
-            await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
-                let once = ResumeOnce(changed)
-                // The continuation's body runs at once, on the caller's actor: the main actor.
-                let holds = MainActor.assumeIsolated {
-                    withObservationTracking { condition() } onChange: { once.resume() }
+        while !condition(), !Task.isCancelled {
+            let wake = Wake()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (changed: CheckedContinuation<Void, Never>) in
+                    wake.set(changed)
+                    // The continuation's body runs at once, on the caller's actor: the main actor.
+                    let holds = MainActor.assumeIsolated {
+                        withObservationTracking { condition() } onChange: { wake.fire() }
+                    }
+                    if holds { wake.fire() }
                 }
-                if holds { once.resume() }
+            } onCancel: {
+                wake.fire()
             }
         }
     }
 
-    /// Resumes a continuation the first time only: an observed change and a condition that
-    /// already held can both try.
-    final class ResumeOnce: @unchecked Sendable {
+    /// Resumes the wait once: on the first observed change, a condition that already held, or
+    /// cancellation, whichever comes first (a fire before the continuation is set resumes it
+    /// as soon as it is).
+    final class Wake: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Void, Never>?
-        init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
-        func resume() {
+        private var fired = false
+
+        func set(_ continuation: CheckedContinuation<Void, Never>) {
+            let resumeNow = lock.withLock { () -> Bool in
+                if fired { return true }
+                self.continuation = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+
+        func fire() {
             let pending = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                guard !fired else { return nil }
+                fired = true
                 defer { continuation = nil }
                 return continuation
             }
