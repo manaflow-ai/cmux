@@ -156,6 +156,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// The pull request badges the rows drew at the last render that saw them change (`RenderState.pullRequests`).
+    var drawnPullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
     /// The sections the list showed at the last render (for the provisional check).

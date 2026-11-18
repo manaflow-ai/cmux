@@ -162,11 +162,27 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
 public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
-    public var state: SidebarSessionTreeState?
+    public var state: SidebarSessionTreeState? {
+        didSet {
+            // Only the agents' states moved (a lane's turn started or ended, many a second across 10,000 sessions):
+            // `statesRevision`, which redraws no row unless a folded parent rolls them up. Anything else: the shape.
+            var (now, was) = (state, oldValue)
+            (now?.states, was?.states) = ([:], [:])
+            if now != was { shapeRevision &+= 1 } else { statesRevision &+= 1 }
+        }
+    }
     /// Every row's pull request badge, with the tree on or off.
-    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:] { didSet { pullRequestsRevision &+= 1 } }
     /// The parents the user folded (a chevron on the row), kept across launches.
-    public private(set) var collapsed: Set<WorkspaceID>
+    public private(set) var collapsed: Set<WorkspaceID> { didSet { shapeRevision &+= 1 } }
+    /// Moves on every write of the tree other than its agents' states alone (on or off, parents, pull requests in the
+    /// tree, folds): what the list draws changes. A render compares this counter, never the tree's whole-list
+    /// dictionaries (cmuxterm-hq#13493).
+    public private(set) var shapeRevision: UInt64 = 0
+    /// Moves on a write that changed only the agents' states (`SidebarSessionTreeState.states`).
+    public private(set) var statesRevision: UInt64 = 0
+    /// Moves on every write of `pullRequests`.
+    public private(set) var pullRequestsRevision: UInt64 = 0
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
