@@ -414,8 +414,18 @@ final class CEFRuntime {
     ) throws(BrowserEngineError) {
         if let error = startError() { throw error }
         if state == .ready { return }
-        try finishStart(Self.loadLibrary(candidate), person: CEFBuiltInExtensions.personAdBlocker(profiles: storage.root),
-                        environment: environment, trigger: "debugWindow")
+        // No preload ran its prep (``beginLaunchPrep()``), so this start does the same reads on the spot, and records
+        // them as the prep so a later start does not rotate the log a second time.
+        let person: Int?
+        if launchPrepTask == nil {
+            storage.prepareForLaunch()
+            let read = CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+            launchPrepTask = Task { read }
+            person = read
+        } else {
+            person = CEFBuiltInExtensions.personAdBlocker(profiles: storage.root)
+        }
+        try finishStart(Self.loadLibrary(candidate), person: person, environment: environment, trigger: "debugWindow")
     }
 
     private func startError() -> BrowserEngineError? {
