@@ -101,7 +101,7 @@ public struct LaunchSnapshot: Sendable {
     /// let snapshot = LaunchSnapshot.readAtLaunch(work: work, build: build)   // in `main`, before the other launch reads
     /// daemon.start(..., launchSnapshot: await snapshot.value)
     /// ```
-    public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchSnapshot?, Never> {
+    public static func readAtLaunch(work: BackgroundWork, build: BuildIdentity) -> Task<LaunchSnapshotRead, Never> {
         readAtLaunch(work: work) { DaemonLauncher.appNames(build: build) }
     }
 
@@ -111,19 +111,23 @@ public struct LaunchSnapshot: Sendable {
     /// for this read, and `main` posts the pages' and the terminals' saved frames (megabytes, decoded) on the
     /// same slot right after it. A read that entered the lane only when its task first ran queued behind them.
     static func readAtLaunch(work: BackgroundWork, location: LaunchSnapshotLocation = LaunchSnapshotLocation(),
-                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshot?, Never> {
-        let (results, result) = AsyncStream<LaunchSnapshot?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                             names: @escaping @Sendable () -> (session: String, stateDirectory: URL?)) -> Task<LaunchSnapshotRead, Never> {
+        let (results, result) = AsyncStream<LaunchSnapshotRead>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // `.blockShutdown`: the launch awaits the result, so a shutdown of `work` must not skip the item.
         work.post(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
             let daemon = names()
-            result.yield(Self.saved(session: daemon.session, stateDirectory: daemon.stateDirectory, location: location))
+            let snapshot = Self.saved(session: daemon.session, stateDirectory: daemon.stateDirectory, location: location)
+            let kind = LaunchKind.of(snapshot: snapshot, pathRecorded: location.path(session: daemon.session) != nil,
+                                     registryExists: LaunchSnapshotLocation.registryExists(session: daemon.session, in: daemon.stateDirectory))
+            result.yield(LaunchSnapshotRead(snapshot: snapshot, kind: kind))
             result.finish()
             DaemonLaunchTimings.shared.mark("daemon.launch_snapshot_read")
+            if kind == .bare { DaemonLaunchTimings.shared.mark("launch.bare") }
         }
         // task-owner: AppDelegate.launchSnapshot; awaited once by its launch task, which then drops it.
         return Task.detached(priority: .userInitiated) {
-            for await snapshot in results { return snapshot }
-            return nil
+            for await read in results { return read }
+            return LaunchSnapshotRead(snapshot: nil, kind: .unknown)
         }
     }
 
@@ -162,6 +166,44 @@ public struct LaunchSnapshot: Sendable {
     }
 }
 
+/// The launch's read (``LaunchSnapshot/readAtLaunch(work:build:)``): the snapshot, and what the launch has to restore.
+public struct LaunchSnapshotRead: Sendable {
+    public var snapshot: LaunchSnapshot?
+    public var kind: LaunchKind
+
+    public init(snapshot: LaunchSnapshot?, kind: LaunchKind) {
+        self.snapshot = snapshot
+        self.kind = kind
+    }
+}
+
+/// What a launch has to restore, known on the files lane before the first window (the bare launch, piece 8 of hq
+/// `docs/design/launch-shell-first.md`). A missing snapshot alone is not "nothing": a file too large, of another
+/// schema or session, or never written by an older daemon reads as nil beside real saved windows. So ``bare`` is
+/// claimed only when the evidence says so, and everything else is ``unknown``, today's path. The restore itself
+/// still runs on every launch; ``bare`` only spares work that exists for restored windows (Chromium for a
+/// restored chat's page), so a wrong ``bare`` costs a cold first page, never a lost window.
+public enum LaunchKind: Sendable, Equatable {
+    /// Nothing to restore: the snapshot holds no window and no workspace but Home, or the home is fresh (no
+    /// recorded snapshot path and no registry of the session in its state directory).
+    case bare
+    /// Saved state may exist.
+    case unknown
+
+    /// - Parameters:
+    ///   - snapshot: the read snapshot; nil when there was none or it was not used.
+    ///   - pathRecorded: a handshake recorded the session's snapshot path (the daemon of this session ran here).
+    ///   - registryExists: the session has a registry folder (`<session>-<id>`) in its state directory, or the
+    ///     directory could not be listed.
+    public static func of(snapshot: LaunchSnapshot?, pathRecorded: Bool, registryExists: Bool) -> LaunchKind {
+        if let snapshot {
+            let noWindows = snapshot.windows?.windows.isEmpty ?? true
+            return noWindows && snapshot.tree.workspaces.allSatisfy(\.isHome) ? .bare : .unknown
+        }
+        return !pathRecorded && !registryExists ? .bare : .unknown
+    }
+}
+
 /// Where the daemon of a session keeps its launch snapshot, remembered from
 /// the last handshake (`identify.launch_snapshot_path`), so the next launch
 /// can read it before connecting. Stored per session name in the app's
@@ -197,6 +239,20 @@ public struct LaunchSnapshotLocation: Sendable {
             return (file.path, modified)
         }
         return candidates.max { $0.1 < $1.1 }?.0
+    }
+
+    /// Whether `session` has a registry folder (`<session>-<id>`) in its daemon's state directory: `stateDirectory`,
+    /// else cmux-tui's default (`CMUX_TUI_STATE_DIR`, else `~/Library/Application Support/cmux-tui/sessions`,
+    /// cmux-tui-platform's `workspace_state_dir`). A directory that does not exist has none; one that cannot be
+    /// listed counts as having one (``LaunchKind/unknown``). Blocking: call it on a files lane.
+    public static func registryExists(session: String, in stateDirectory: URL?, files: FileManager = .default,
+                                      environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        let directory = stateDirectory ?? environment["CMUX_TUI_STATE_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? files.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/cmux-tui/sessions", isDirectory: true)
+        guard files.fileExists(atPath: directory.path) else { return false }
+        guard let entries = try? files.contentsOfDirectory(atPath: directory.path) else { return true }
+        // `<session>-<id>` with one id part, as ``find(session:in:files:)`` matches.
+        return entries.contains { $0.hasPrefix(session + "-") && !$0.dropFirst(session.count + 1).contains("-") }
     }
 
     /// The daemon's snapshot file name (`LAUNCH_SNAPSHOT_FILE`).

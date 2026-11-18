@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
     private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
-    private var launchSnapshot: Task<LaunchSnapshot?, Never>?  // started in `main` (readAtLaunch); nil once the launch took its result
+    private var launchSnapshot: Task<LaunchSnapshotRead, Never>?  // started in `main` (readAtLaunch): the snapshot and the launch kind; nil once the launch took its result
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(environment: AppEnvironment,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch),
-         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshotRead, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
@@ -84,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
-            let snapshot = await launchSnapshot?.value ?? nil; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: the bare launch (piece 8)
+            let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown); launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: the bare launch (piece 8)
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                try await finishLaunching(snapshot); await firstFrame.opened(); await refresh()
+                try await finishLaunching(read); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -104,13 +104,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                try? await finishLaunching(snapshot) // only cancellation throws; Quit must not resume startup
+                try? await finishLaunching(read) // only cancellation throws; Quit must not resume startup
             }
             cloudBootstrap = nil
         }
     }
 
-    private func finishLaunching(_ launchSnapshot: LaunchSnapshot?) async throws {
+    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot
         let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(services: services, launch: settingsRead)
+        startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
@@ -321,7 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
+    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead, bare: Bool) {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
-        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); firstFrame.whenOpen { [cef = services.cache.cef] in cef.preload() } } // the framework map holds dyld's loader lock, which the window's build waits on: map it once the first frame is in (a restored chat's page that starts Chromium sooner loads it itself); CefInitialize waits for the first frame unless the last quit left a page on screen (CMUX-571)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); if !bare { firstFrame.whenOpen { [cef = services.cache.cef] in cef.preload() } } } // bare (nothing restored): no page asks yet, so no framework map at launch (piece 8). Otherwise the framework map, which holds dyld's loader lock the window's build waits on, runs once the first frame is in (a restored chat's page that starts Chromium sooner loads it itself); CefInitialize waits for the first frame unless the last quit left a page on screen (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         firstFrame.whenOpen { [weak services] in services.map { WorkspaceAutoNameWiring(services: $0).start(settings: settings) } } // hq#1957; its per-workspace watches: after the first frame
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
