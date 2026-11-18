@@ -172,6 +172,9 @@ BOUNDED_SELECTOR_JOBS = {
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
+# The fleet reconciler boots one disposable Linux runner per queued job. Keep this
+# allowlist explicit: other owned labels are reusable and must not receive App keys.
+OWNED_EPHEMERAL_RUNNER_LABELS = frozenset({"cmux-fleet-linux-x64"})
 # Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
@@ -275,7 +278,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
     """Why a runs-on could put a secret on a machine it does not name; [] when it never can.
 
     Structural, so complete without enumerating values: the runs-on is a || chain whose every
-    operand yields a Blacksmith label the expression writes out, whatever its conditions are:
+    operand yields a Blacksmith or explicitly disposable owned label the expression writes out,
+    whatever its conditions are:
     a string literal, `conditions && 'literal'` (a false condition only passes on to the next
     operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R`. The chain
     ends with a literal, so it never yields a falsy value. The one exception is the fork branch
@@ -286,8 +290,10 @@ def runner_label_errors(runs_on: str) -> list[str]:
         return []
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
-        if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
-            return []  # One fixed ephemeral label: a Blacksmith VM or a GitHub-hosted one.
+        if (re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on)
+                or HOSTED_LITERAL_LABEL.fullmatch(runs_on)
+                or runs_on in OWNED_EPHEMERAL_RUNNER_LABELS):
+            return []  # One fixed ephemeral label: Blacksmith, hosted, or disposable owned.
         return [f"{runs_on!r} is not an ephemeral label"]
     try:
         chain = _alternatives(parse_expression(expression.group(1)))

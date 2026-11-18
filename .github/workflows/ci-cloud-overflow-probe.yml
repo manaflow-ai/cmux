@@ -49,8 +49,8 @@ permissions: {}
 # One probe at a time: a second waits instead of racing the first one's writes.
 # The group is fixed on purpose: the switch's variable writes and record delete
 # are separate calls, so two watches must never run at once. A run whose probe
-# never starts cannot hold it for long: the watch uses the owned GCP control
-# runner rather than a Blacksmith label that can stall, decides within
+# never starts cannot hold it for long: the watch uses the owned per-job
+# ephemeral control runner rather than a Blacksmith label that can stall, decides within
 # CI_CLOUD_PROBE_MINUTES, and force-cancels its own run. The switch's Linux
 # failover stays on Blacksmith.
 concurrency:
@@ -84,10 +84,11 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Keep this control job on the owned GCP Linux pool. It must not inherit
-    # CI_TRUSTED_RUNNER or any Blacksmith label: a dead overflow label would
-    # otherwise keep this watcher queued and hold the concurrency group.
-    runs-on: cmux-gcp-lane-build-x64
+    # Keep this control job on the owned per-job ephemeral Linux pool. It must
+    # not inherit CI_TRUSTED_RUNNER or a reused owned label: a dead overflow
+    # label would otherwise keep this watcher queued and hold the concurrency
+    # group, and the App key must not outlive the job on a reused host.
+    runs-on: cmux-fleet-linux-x64
     timeout-minutes: 25
     permissions:
       actions: write

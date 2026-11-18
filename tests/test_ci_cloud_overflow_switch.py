@@ -17,7 +17,7 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WATCH_RUNNER = "cmux-gcp-lane-build-x64"
+WATCH_RUNNER = "cmux-fleet-linux-x64"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
@@ -896,7 +896,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_watch_uses_owned_control_runner_and_passes_every_switched_variable(self) -> None:
         # The cancelled runs inherited a stalled Blacksmith selector. Keep the
-        # control job on the owned GCP pool so a dead overflow label cannot queue
+        # control job on the owned per-job ephemeral pool so a dead overflow label cannot queue
         # the watcher that performs the failover.
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         runs_on, _, comment = runs_on.partition(" # ")
@@ -915,7 +915,8 @@ class WorkflowTests(unittest.TestCase):
         # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
         # key on a machine where it outlives the job. This schedule/dispatch-only
         # workflow is the one trusted exception: its control job uses the owned
-        # GCP pool so it remains available during a Blacksmith outage.
+        # per-job ephemeral fleet pool so it remains available during a Blacksmith outage
+        # without putting the App key on a reused host.
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
                 continue

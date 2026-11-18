@@ -86,7 +86,7 @@ avoid GitHub-hosted runners; the small exception set is documented in
 "Guard" and stays explicit because those jobs need hosted provenance,
 attestation, the Blacksmith outage watch, CLA, or Intel capacity. The
 `ci-cloud-overflow-probe.yml` watch is intentionally pinned to the owned
-`cmux-gcp-lane-build-x64` control runner: the observed failure was a Blacksmith
+`cmux-fleet-linux-x64` per-job ephemeral runner: the observed failure was a Blacksmith
 selector queuing and holding the concurrency group, so the control job must not
 inherit that variable while it moves Linux overflow between Blacksmith labels.
 
@@ -1086,14 +1086,14 @@ minutes its `probe` jobs ask for each member of the linux pool
 `blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
 its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each
-stall flipped the whole fleet. The watch runs on the owned
-`cmux-gcp-lane-build-x64` control pool, never on a Blacksmith size the probes
-ask for, so it can put overflow back while every Blacksmith label is stalled.
-That label is literal: the watch holds the `GLAEDA_ROUTE_APP_KEY` token that
-writes repository variables, so no variable (not `CI_CONTROL_RUNNER`) may move
-it to a reused machine, where the key could outlive the job, and it may not
-write its own runner. The watch only checks out workflows and runs Python; it
-needs no Linux build dependencies.
+stall flipped the whole fleet. The watch runs on the owned per-job ephemeral
+`cmux-fleet-linux-x64` pool, never on a Blacksmith size the probes ask for, so
+it can put overflow back while every Blacksmith label is stalled. That label is
+literal: the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
+variables, so no variable (not `CI_CONTROL_RUNNER`) may move it to a reused
+machine, where the key could outlive the job, and it may not write its own
+runner. The watch only checks out workflows and runs Python; it needs no Linux
+build dependencies.
 The group stays one fixed group (two watches must never interleave the
 switch's writes); a watch that starts decides within `CI_CLOUD_PROBE_MINUTES`
 and force-cancels its own run, so it never holds the group for long.
