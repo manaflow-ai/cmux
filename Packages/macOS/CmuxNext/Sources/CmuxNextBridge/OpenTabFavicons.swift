@@ -44,20 +44,40 @@ import Observation
     /// Follows `workspaces` (the list only) and each workspace through `favicons` (its open tab favicons in model order;
     /// the app: ``favicons(of:incognito:faviconKey:)``) from now on. `favicons` runs inside that workspace's
     /// observation, so it must read that workspace's own state only. Once; a second call does nothing.
+    ///
+    /// The first list is read in this call (one pass over the workspaces of now), so ``byOrigin`` and
+    /// ``address(origin:)`` are right directly after it; the task takes each later list. A caller inside an
+    /// observation tracking gets that pass's reads in its own tracking, so the app starts the table from plain code
+    /// where it can (the sidebar's set-up).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel],
                       favicons: @escaping @MainActor @Sendable (WorkspaceModel) -> [Favicon]) {
         guard listTask == nil else { return }
         observed = ObservedItems(item: { workspace in favicons(workspace) }, same: { $0 == $1 },
                                  changedItem: { [weak self] change in self?.itemChanged(change) })
+        let (first, later) = ObservationStream.current({ workspaces() })
+        listed = first
         // task-owner: the app's services (live for the app); event-driven (Observation)
         listTask = Task { [weak self] in
-            for await models in ObservationStream({ workspaces() }) {
+            for await models in later {
                 guard let self else { return }
                 listed = models
                 listChanged()
             }
         }
+        listChanged()
     }
+
+    /// This table, started: `begin` runs only while ``start(workspaces:favicons:)`` did not run, and makes that call.
+    /// For an owner that asks at each read: the closures of the start are made one time, not at each ask.
+    public func started(_ begin: @MainActor (OpenTabFavicons) -> Void) -> OpenTabFavicons {
+        if listTask == nil { begin(self) }
+        return self
+    }
+
+    /// The favicon address that a page of site `origin` draws when the page is not an open tab (a bookmark, a recent
+    /// page, an omnibar row): the one the first open tab of the site shows, else the site's own `/favicon.ico`. One
+    /// read of ``byOrigin``: no workspace is visited, and a reader hears a change of the table only.
+    public func address(origin: String) -> String { byOrigin[origin] ?? origin + "/favicon.ico" }
 
     /// One workspace's open tab favicons, in model order.
     public static func favicons(of workspace: WorkspaceModel, favicon: @MainActor (TabModel) -> Favicon?) -> [Favicon] {

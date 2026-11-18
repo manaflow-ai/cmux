@@ -10,11 +10,11 @@ import Foundation
 /// cmux page draws them (cx-d0d.8).
 extension AppServices {
     /// The favicon URL of the site at `origin` (`https://host[:port]`): the icon an open,
-    /// not incognito, browser tab on that origin shows, else the origin's `/favicon.ico`.
-    func siteFaviconAddress(origin: String) -> String {
-        let open = machines.local.store.workspaces.lazy.flatMap { self.openTabFavicons(of: $0) }
-        return open.first { $0.origin == origin }?.address ?? origin + "/favicon.ico"
-    }
+    /// not incognito, browser tab on that origin shows, else the origin's `/favicon.ico`. One read of the kept table: no
+    /// workspace is visited. After a change of an open tab the table has the new answer some main actor turns later.
+    func siteFaviconAddress(origin: String) -> String { openTabFaviconTable.address(origin: origin) }
+    /// The app's one table of open tab favicons (the sidebar document holds it), started at its first ask: the sidebar's set-up or an icon question.
+    var openTabFaviconTable: OpenTabFavicons { sidebarDoc.openTabFavicons.started { $0.start(workspaces: { [local = self.machines.local] in local.store.workspaces }, favicons: { [weak self] workspace in self?.openTabFavicons(of: workspace) ?? [] }) } }
 
     /// The favicon address an open (not incognito) browser tab shows, by the tab's site origin (`BookmarkURL.faviconKey`),
     /// the first tab per origin as `siteFaviconAddress` picks it; the site's own `/favicon.ico` is left out (a link
