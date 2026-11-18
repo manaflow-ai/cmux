@@ -265,7 +265,10 @@ fn the_relaunch_record_is_saved_before_the_notification_receipt_is_executing() {
     // so the terminal's relaunch record takes the session: one more commit.
     let turn = OpenTurn::no_hook_yet("turn-end-relaunch-save", true);
     turn.sql(NOTE_THE_RECEIPT_AT_A_RELAUNCH_SAVE);
+    // The hook makes each of its commits before it answers.
+    let before = turn.mux.write_path_stats().wal_commits;
     turn.end_turn();
+    let commits = turn.mux.write_path_stats().wal_commits - before;
     let (rows, receipt) = (kinds(turn.rows()), turn.receipt());
     let saves = turn.text(RECEIPT_AT_EACH_RELAUNCH_SAVE);
     turn.close();
@@ -281,6 +284,11 @@ fn the_relaunch_record_is_saved_before_the_notification_receipt_is_executing() {
          record. `none` = one save, before the receipt is there. `executing` = the save is in \
          the span where a daemon stop loses the notification. `no save` = setup: the record \
          did not change"
+    );
+    assert_eq!(
+        commits, 5,
+        "the commits of the registry's file that this hook made before its answer: the 4 of a \
+         turn end (`agent_turn_end_commits.rs`) and the save of the relaunch record"
     );
 }
 
