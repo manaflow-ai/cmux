@@ -637,7 +637,6 @@ fn a_chief_on_a_mini_comes_back_into_the_home_it_left() {
 /// Repro harness (scratch): the round trip as N concurrent copies of this test binary, so the
 /// machine is as busy as a 2 vCPU runner; prints every failure's message.
 #[test]
-#[ignore]
 fn round_trip_stress() {
     let n: usize = std::env::var("ROUND_TRIP_COPIES")
         .ok()
