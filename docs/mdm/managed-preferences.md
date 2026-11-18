@@ -313,6 +313,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.senderIcon.corner` | string | `"bottom-right"` | `bottom-right`, `bottom-left`, `top-right`, `top-left` | Sender Badge Corner. Where the small glyph sits on a sender's icon. |
 | `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
 | `agentPane.display.font.ui` | string | `"system-ui"` | `system-ui`, `system-ui-tight`, `inter-tuned`, `inter`, `verdana`, `roboto`, `plex`, `source-sans`, `geist`, `cmux-sans`, `hanken`, `atkinson` | Chat Interface Font. The font of the whole chat: replies, the composer, cards and menus. |
+| `agentPane.display.font.uiFamily` | string |  |  | Chat Interface Font Family. A font family or a comma list of them. When set, it replaces the Chat Interface Font. |
+| `agentPane.display.font.proseFamily` | string |  |  | Chat Reply Font Family. The font of the agent's replies. When set, it replaces the Chat Font. |
+| `agentPane.display.font.faces` | dictionary |  |  | Chat Font Files. A font file for each family, such as "Lora:italic": "file:~/Fonts/Lora-Italic.woff2". |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. Empty uses the Markdown viewer's code font. |
@@ -598,7 +601,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
 | `home.chiefPanel.seesScreen` | boolean | `true` |  | Chief Sees Your Screen When It Opens. The floating Chief takes one look at your screen when it opens. The eye turns it off. |
-| `home.chiefDock.openBeside` | boolean | `true` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
+| `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Auto uses this Mac's Chief while it runs, else the Hosted Chief. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction on a Chief message can start a turn, such as ? on a question. |
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent that reads reactions, such as claude or codex. Empty uses the Chief's. |

@@ -80,6 +80,14 @@
       "title" : "Play Sound When Work Finishes",
       "type" : "boolean"
     },
+    "agentPane.display.font.faces" : {
+      "description" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+      "properties" : {
+
+      },
+      "title" : "Chat Font Files",
+      "type" : "object"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -98,6 +106,11 @@
         "mono"
       ],
       "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.proseFamily" : {
+      "description" : "The font of the agent's replies. When set, it replaces the Chat Font.",
+      "title" : "Chat Reply Font Family",
       "type" : "string"
     },
     "agentPane.display.font.size" : {
@@ -126,6 +139,11 @@
         "atkinson"
       ],
       "title" : "Chat Interface Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.uiFamily" : {
+      "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+      "title" : "Chat Interface Font Family",
       "type" : "string"
     },
     "agentPane.display.fullWidth" : {
@@ -3401,7 +3419,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"

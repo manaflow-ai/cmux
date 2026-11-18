@@ -1261,7 +1261,10 @@
             "key" : "chat.2",
             "rows" : [
               "agentPane.display.font.ui",
+              "agentPane.display.font.uiFamily",
               "agentPane.display.font.preset",
+              "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
@@ -50981,6 +50984,439 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiFamily.help",
+        "text" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.uiFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "font",
+        "interface",
+        "ui",
+        "family",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "uiFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.uiFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiFamily",
+        "text" : "Chat Interface Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseFamily.help",
+        "text" : "The font of the agent's replies. When set, it replaces the Chat Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "family",
+        "serif",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseFamily",
+        "text" : "Chat Reply Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fontFaces.help",
+        "text" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.faces",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "font",
+        "file",
+        "woff2",
+        "ttf",
+        "otf",
+        "face",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "faces"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.faces"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.fontFaces",
+        "text" : "Chat Font Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         10,
         28,
         19
@@ -92518,7 +92954,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",
