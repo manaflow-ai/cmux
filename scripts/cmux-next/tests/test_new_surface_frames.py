@@ -154,6 +154,48 @@ class OneKeyTests(unittest.TestCase):
         got = nsf.one_key(take(with_strip), "t")
         self.assertEqual((got["tab"]["frame"], got["tab_source"], got["final"]["frame"], got["changes_after_content"]), (3, "the rows' strip numbers", 3, 1))
 
+    def test_a_strip_that_the_rows_do_not_carry_and_that_moved_is_a_change_after_the_first_content(self):
+        # A build whose rows carry no strip numbers. Its reply counts 24 frames after the key in which the strip is at
+        # neither picture, and the page is whole in frame 4. The 3 rows before that frame and that frame itself can be
+        # 4 of the 24: 20 at least come after the first content. Which frames they are is not known.
+        pictures = [(OLD, STILL)] * 3 + [(NEW, STILL)] * 237
+        got = nsf.one_key(take(pictures, strip_intermediate=24.0), "t", asked_hz=120)
+        self.assertEqual((got["invalid"], got["content_first"]["frame"]), ([], 4))
+        self.assertIs(got.get("whole_window"), False)
+        self.assertEqual((got["changes_after_content"], got["first_is_final"], got["content_first_is_last_picture"], got["final"]),
+                         (20, False, None, None))
+        self.assertEqual((got["after_content"][-1]["state"], got["after_content"][-1]["count"], got["after_content"][-1]["frames"]),
+                         ({"strip": "between"}, 20, None))
+        self.assertNotIn(None, got["pictures"].values())
+
+    def test_a_strip_that_moved_for_no_more_frames_than_came_to_the_first_content_leaves_first_is_final_not_known(self):
+        # 2 frames of the strip at neither picture, 3 rows before the first content: each of the 2 can be before it.
+        pictures = [(OLD, STILL)] * 3 + [(NEW, STILL)] * 237
+        got = nsf.one_key(take(pictures, strip_intermediate=2.0), "t", asked_hz=120)
+        self.assertEqual((got.get("whole_window"), got["changes_after_content"], got["first_is_final"], got["final"], got["invalid"]),
+                         (False, 0, None, None, []))
+
+    def test_a_frame_with_the_page_new_and_the_strip_old_is_a_change_with_its_frame(self):
+        # No strip numbers. The reply's rows say `desync` in the first 3 frames: the page is there, the strip is the old one.
+        pictures = [dict(content=NEW, outside=STILL, desync=True)] * 3 + [(NEW, STILL)] * 237
+        got = nsf.one_key(take(pictures), "t", asked_hz=120)
+        self.assertEqual((got.get("whole_window"), got["content_first_is_last_picture"], got["first_is_final"], got["changes_after_content"]),
+                         (False, False, False, 2))
+        self.assertEqual(got["after_content"], [{"frames": [2, 3], "ms": [17, 25], "count": 2, "file": "frame-004.png",
+                                                 "state": {"content": "final", "outside": "final", "strip": "before"}}])
+
+    def test_the_whole_window_is_seen_with_the_strips_numbers_or_when_the_strip_changed_in_one_step_with_the_content(self):
+        with_strip = nsf.one_key(take([dict(content=NEW, outside=STILL, strip=(0.2, 0))] * 240), "t", asked_hz=120)
+        in_one_step = nsf.one_key(take([(NEW, STILL)] * 240), "t", asked_hz=120)
+        self.assertEqual([(got.get("whole_window"), got["first_is_final"]) for got in (with_strip, in_one_step)], [(True, True)] * 2)
+
+    def test_a_case_says_in_how_many_rows_the_whole_window_is_seen(self):
+        seen = nsf.one_key(take([(NEW, STILL)] * 240), "t", asked_hz=120)
+        hidden = nsf.one_key(take([(NEW, STILL)] * 240, strip_intermediate=24.0), "t", asked_hz=120)
+        summary = nsf.summarize([seen, hidden])
+        self.assertEqual((summary.get("whole_window"), summary["first_is_final"]), (1, 1))
+        self.assertIn("whole window seen 1/2", nsf.cell(summary))
+
     def test_a_frame_number_is_the_displays_also_when_frames_were_not_delivered(self):
         pictures = [(OLD, ROW_OLD), None, None, None, None, (NEW, ROW_NEW)] + [(NEW, ROW_NEW)] * 234
         got = nsf.one_key(take(pictures), "n", asked_hz=120)
@@ -284,6 +326,8 @@ class FakeApp:
         # `sent`: a build whose reply says how long before its zero the first key went in (`before_send_ms`), and
         # whose later key is due from that time.
         self.work, self.limit, self.recorded, self.sent = work, None, 0, sent
+        # `slid`: the reply's count of frames in which the strip is at neither picture (its rows carry no strip numbers).
+        self.slid = 0.0
 
     def terminal_tab(self):
         self.tabs += 1
@@ -333,6 +377,7 @@ class FakeApp:
                                                 "ms": 100.0 * n - (self.sent or 0.0) if n else -self.work, "duration_ms": 1.0} for n in range(keys)])
             if self.sent is not None:
                 reply["before_send_ms"] = self.sent
+            reply["strip_intermediate"] = self.slid
             os.makedirs(params["dir"], exist_ok=True)
             for frame in reply["frames"]:
                 Path(params["dir"], frame["file"]).write_bytes(b"png")
@@ -453,6 +498,20 @@ class ScreenTests(unittest.TestCase):
         with contextlib.redirect_stdout(said):
             report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), keys="n", runs=1, keep_keys=0)
         self.assertEqual((report["rows"][0].get("kept_pictures"), "first_is_final=True" in said.getvalue()), (None, True))
+
+    def test_a_rows_line_says_that_the_strip_is_not_seen_and_the_row_keeps_its_pictures(self):
+        # A build whose rows carry no strip numbers; the strip moved for 24 frames and the page is whole in frame 4.
+        app = FakeApp(self.folder, [(OLD, STILL)] * 3 + [(NEW, STILL)] * 237)
+        app.slid = 24.0
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(app, keys="t", runs=1, keep_keys=0, screen_tgz=os.path.join(self.folder, "kept.tgz"))
+        row = report["rows"][0]
+        self.assertEqual((row["invalid"], row.get("whole_window"), row["changes_after_content"], row["first_is_final"]), ([], False, 20, False))
+        line = next(line for line in said.getvalue().splitlines() if "-ROW cmd-t-idle-0" in line)
+        self.assertIn("whole_window=False", line)
+        self.assertIn("whole window seen 0/1", said.getvalue())
+        self.assertEqual(sorted(row["kept_pictures"]), ["before", "content_final", "content_first", "last"])
 
     def test_a_fresh_session_moves_the_tags_saved_state_aside(self):
         root = os.path.join(self.folder, "tags", "screen-test-tag")
