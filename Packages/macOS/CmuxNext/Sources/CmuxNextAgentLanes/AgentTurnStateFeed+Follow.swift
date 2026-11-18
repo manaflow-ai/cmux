@@ -160,9 +160,6 @@ nonisolated extension AgentWatchPage {
         let rows = follow.page
         for row in follow.rows {
             if let peer = row.peer {
-                // The session's state too, as a push of the peer's row writes it (``AgentTurnStateFeed/hold(_:in:)``):
-                // a peer turn that ended while the app reconnected no longer reads as working (keep-awake).
-                states.set(row.session, rows.states[row.session])
                 setPeerRow(row.session, peer: peer, row: rows.peers[row.session]?[peer])
                 // Its lane too, as a whole list keeps it: without it a machine enrolled while the
                 // app ran had no chat here (`open-tab --host` refused it as no peer's, 2026-11-15).
@@ -176,7 +173,6 @@ nonisolated extension AgentWatchPage {
         }
         for row in follow.gone {
             if let peer = row.peer {
-                states.set(row.session, nil)
                 setPeerRow(row.session, peer: peer, row: nil)
                 if lanes[row.session]?.peer == peer { lanes[row.session] = nil }
             } else {
