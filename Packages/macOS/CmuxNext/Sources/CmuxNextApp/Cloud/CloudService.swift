@@ -72,7 +72,7 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.auth.teamID) }
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.carrierTeam) }
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -238,6 +238,12 @@ final class CloudService {
     @ObservationIgnored let installIDs: CloudInstallIDs
 
     var isSignedIn: Bool { auth.isSignedIn }
+    /// The signed-in team as the Cloud service names it (`team_` and 20 hex digits, a machine record's `team`), not the
+    /// sign-in service's id ``CloudAuth/teamID``: what a carrier link's `CMUX_CLOUD_TEAM` must be (carrier `valid_team`
+    /// refuses anything else), so a link made ahead of a machine's record is the one its session takes.
+    var carrierTeam: String? {
+        isSignedIn ? GitHubAppLease.backendTeam(stackProjectID: auth.configuration.stackProjectID, userID: auth.user?.id, stackTeamID: auth.teamID, managed: auth.managedTeamID != nil) : nil
+    }
 
     /// Why Cloud cannot run in this build, or nil.
     var unavailableReason: String? {
