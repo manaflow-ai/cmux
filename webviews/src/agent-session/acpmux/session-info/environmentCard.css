@@ -16,7 +16,7 @@
   width: 220px;
   padding: 6px;
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-env-card-edge, var(--acpmux-env-card-edge-default));
-  border-radius: var(--acpmux-env-card-radius, 12px);
+  border-radius: var(--acpmux-env-card-radius, calc(var(--ds-radius-control, 8px) + 6px));
   background: var(--acpmux-env-card-bg, var(--agent-page-bg));
   color: var(--agent-text);
   font-family: var(--font-ui);
@@ -51,7 +51,7 @@
   min-height: 28px;
   padding: 4px 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control, 8px);
   background: none;
   color: inherit;
   font: inherit;
