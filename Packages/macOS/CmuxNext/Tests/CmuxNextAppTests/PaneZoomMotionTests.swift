@@ -4,8 +4,8 @@ import CmuxNextTestSupport
 import Testing
 
 /// Zoom and unzoom (Cmd-Shift-Enter) have no motion between two layouts: each shows whole in one frame. An unzoom's
-/// is the first display frame after its change. A zoom's is the display frame at which the dim that comes over the
-/// other panes is at its end (`PaneZoomDimTests`): each frame before it shows the layout before the zoom, whole. The
+/// is the first display frame after its change, and so is a zoom's here: this fixture asks for no move of its panes
+/// (`PaneZoomDimTests`). A frame before the one that shows a zoom shows the layout before the zoom, whole. The
 /// zoomed pane fills its screen with its content at that size, and the other panes are hidden with it; an unzoom shows
 /// every pane at its place again. No frame shows the zoomed pane at a size between its slot and its screen, or a pane
 /// beside it that the layout does not have.
@@ -79,8 +79,8 @@ import Testing
         defer { harness.window.closeAfterTest() }
         let screen = try #require(harness.screen)
         let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
-        // The display frame that shows the zoom: the one after the frame at which the dim over the other panes has had its
-        // fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        // The display frame that shows the zoom: the first one. No frame waits for a dim
+        // (`PaneZoomDimTests.showFrame(of:)`; a zoom whose pane moves brings its dim in that frame).
         let first = PaneZoomDimTests.showFrame(of: screen)
         try #require(first <= Commit.frames, "the zoom's dim takes \(first) display frames; this test steps \(Commit.frames)")
 
