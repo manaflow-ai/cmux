@@ -122,10 +122,31 @@ struct SidebarChatHistoryBlock: Equatable {
 ///   that click while VoiceOver runs (`PageAccessibilityPress`), as the native rows' `accessibilityPerformPress()` did.
 ///   `chat` must be a row the host sent, so a page can open or pin only the chats it was shown.
 /// - `ready {revision, height}`: the page drew `revision` at `height` CSS px (the host shows the page then).
+/// - stream `slice`: the part of the block on screen, `{revision, top, height}` in the block's CSS px (``Slice``); the
+///   page draws only the rows in it and its overscan. Sent when it moves by a whole px; a (re)subscribing page gets
+///   the latest.
 @MainActor
 final class SidebarChatHistoryProvider: PageProvider {
     static let prefix = "cmux.sidebarChats."
     static let blockStream = prefix + "block"
+    static let sliceStream = prefix + "slice"
+
+    /// The part of the block on screen: from `top` for `height` CSS px of the block's page (`height` 0: none of it),
+    /// laid out against block `revision`.
+    struct Slice: Equatable {
+        var revision: Int
+        var top: Double
+        var height: Double
+
+        /// Whether `other` shows the same whole px (the page windows by whole rows: a sub-px move changes nothing).
+        func samePixels(_ other: Slice) -> Bool {
+            top.rounded() == other.top.rounded() && height.rounded() == other.height.rounded()
+        }
+
+        var event: JSONValue {
+            .object(["revision": .number(Double(revision)), "top": .number(top), "height": .number(height)])
+        }
+    }
 
     enum Call: Equatable {
         case open(String)
@@ -140,6 +161,9 @@ final class SidebarChatHistoryProvider: PageProvider {
     /// Runs each accepted call (the host: open, fold, Show More, the menu until it closes, the ready report).
     var onCall: (@MainActor (Call) async -> Void)?
     private var listener: (@MainActor (JSONValue) -> Void)?
+    /// The last slice sent (the next subscriber's first event).
+    private(set) var slice: Slice?
+    private var sliceListener: (@MainActor (JSONValue) -> Void)?
     /// The gesture the last call spent (one action per click).
     private var spentGesture: TimeInterval?
 
@@ -150,6 +174,15 @@ final class SidebarChatHistoryProvider: PageProvider {
         self.block = block
         revision += 1
         listener?(block.event(revision: revision))
+        return true
+    }
+
+    /// Sends `slice` unless it shows the same whole px as the last one sent; returns whether it did.
+    @discardableResult
+    func push(_ slice: Slice) -> Bool {
+        if let last = self.slice, last.samePixels(slice) { return false }
+        self.slice = slice
+        sliceListener?(slice.event)
         return true
     }
 
@@ -193,6 +226,11 @@ final class SidebarChatHistoryProvider: PageProvider {
 
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        if stream == Self.sliceStream {
+            sliceListener = onEvent
+            if let slice { onEvent(slice.event) }
+            return PageSubscription { [weak self] in self?.sliceListener = nil }
+        }
         guard stream == Self.blockStream else { throw PageError.unknownOp(stream) }
         listener = onEvent
         // A page subscribes once per load (a reload after a crash too): the latest block, if any.

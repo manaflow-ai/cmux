@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextWakeups
+import CmuxVisibleRows
 import Foundation
 
 /// The session tree's chat history blocks in the list (`SidebarChatHistoryState`): Pinned above the
@@ -60,6 +62,11 @@ final class SidebarChatHistoryViews {
     func shift(by dy: CGFloat) {
         Motion.withoutAnimation { for view in all where !view.isHidden { view.frame.origin.y += dy } }
     }
+
+    /// The list scrolled (`SidebarListView.realizeVisibleRows`): each shown block tells its page what is on screen.
+    func followScroll() {
+        for view in all where !view.isHidden { view.needsSlice() }
+    }
 }
 
 /// One chat history block in the list: the transparent page (``PageDescriptor/sidebarChats``) the block draws in,
@@ -68,6 +75,10 @@ final class SidebarChatHistoryViews {
 /// ran: a click opens (resumes) the chat, Earlier's header folds it, Show More lists the next page, and a right click
 /// shows the registry's Pin or Unpin Chat menu. The page is made the first time the block shows (the session tree on),
 /// never takes the keys, passes scrolls to the list, and shows once it reported drawing a block.
+///
+/// The page is as tall as the block, and the list scrolls it, so all of it is in the page's own viewport. The host
+/// streams the part on screen (`cmux.sidebarChats.slice`, ``SidebarChatHistoryProvider/Slice``) for the page to
+/// draw only those rows: on a scroll, a move or resize, a block push, a `ready`, at most once a display frame.
 final class SidebarChatHistoryHost: NSView {
     enum Part: String { case pinned, earlier }
     typealias MakePage = @MainActor (SidebarChatHistoryProvider) -> PageWebView?
@@ -83,6 +94,13 @@ final class SidebarChatHistoryHost: NSView {
     /// Shows a menu at a page point (tests record it instead).
     var presentMenu: @MainActor (NSMenu, CGPoint, PageWebView) async -> Void = { menu, point, page in
         await page.presentMenu(menu, atPagePoint: point)
+    }
+    /// The block's work for the visible-rows contract: one `configured` per slice sent. Making a slice reads no row.
+    let listWork = ListWorkMeter()
+    /// The next display frame sends the latest slice, then idles until something moves again.
+    private lazy var sliceFrame = FrameClient(owner: "Sidebar.chatHistorySlice", view: self) { [weak self] _ in
+        self?.sendSlice()
+        return false
     }
 
     init(part: Part, makePage: @escaping MakePage = SidebarChatHistoryHost.makePage) {
@@ -104,6 +122,50 @@ final class SidebarChatHistoryHost: NSView {
     /// A press that reaches the host itself (outside the page) starts no press or marquee in the list under it.
     override func mouseDown(with event: NSEvent) {}
 
+    // A move or resize, or showing and hiding, changes the part on screen.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        needsSlice()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsSlice()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsSlice()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        needsSlice()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        needsSlice()
+    }
+
+    /// The part of the block on screen now, in the page's CSS px: from the top of the list's visible rect in the
+    /// block, for its height; height 0 when none of the block shows.
+    var currentSlice: SidebarChatHistoryProvider.Slice {
+        let zoom = max(page?.pageZoom ?? 1, 0.01)
+        let shown = isHiddenOrHasHiddenAncestor ? .zero : visibleRect
+        let top = shown.isEmpty ? 0 : min(max(shown.minY, 0), bounds.height)
+        let height = shown.isEmpty ? 0 : shown.height
+        return .init(revision: provider.revision, top: Double(top) / zoom, height: Double(height) / zoom)
+    }
+
+    /// Sends the slice on the next display frame (the latest wins).
+    func needsSlice() { sliceFrame.activate() }
+
+    /// Sends the slice now when it moved by a whole px (the display frame's work).
+    func sendSlice() {
+        if provider.push(currentSlice) { listWork.configured() }
+    }
+
     /// The page in WebKit (it sits inside the list's scroll view, transparent over the sidebar's backdrop), with the
     /// first click, kept loaded across web updates (the block is always in sight).
     static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true, keepsLoadedWeb: true)
@@ -120,7 +182,7 @@ final class SidebarChatHistoryHost: NSView {
     /// Shows `state`'s block at `metrics` for a block `width` points wide.
     func show(_ state: SidebarChatHistoryState, metrics: SidebarLayoutMetrics, width: CGFloat) {
         let block = performWithTheme { SidebarChatHistoryBlock(part: part, state: state, metrics: metrics, width: width, now: Date()) }
-        provider.push(block)
+        if provider.push(block) { needsSlice() }
         guard page == nil, let made = makePage(provider) else { return }
         page = made
         // Nothing shows until the page drew a block (no empty or unstyled first frame in the gap).
@@ -146,6 +208,7 @@ final class SidebarChatHistoryHost: NSView {
         case let .ready(revision, height):
             drawn = (revision, height)
             page?.alphaValue = 1
+            needsSlice()
         }
     }
 
