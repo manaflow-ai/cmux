@@ -62,8 +62,10 @@ moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each m
 that is not a Blacksmith Linux pool label is left alone.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
-creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
-which then read the pool's new member.
+creates the job. The queue janitor reports dead labels (cmux#27114) but re-runs nothing for a pool
+that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU waited hours.
+The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
+runs once (dead_labels() there), and they then read the pool's new member.
 
 RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
 job reading it can never land on an owned Mac, whoever started it (a fork's pull request
