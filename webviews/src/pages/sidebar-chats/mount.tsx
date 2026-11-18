@@ -10,6 +10,9 @@ import {
   NO_BLOCK,
   parseBlock,
   parseSlice,
+  parseVisibleSlice,
+  SIDEBAR_CHATS_PARTS,
+  sliceSurface,
   SidebarChatsOps,
   type SidebarChatsBlock,
   type SidebarChatsSlice,
@@ -20,9 +23,12 @@ import { SidebarChats } from "./SidebarChats";
 export interface MountedSidebarChats {
   /** Draws one block (the host's stream calls this; tests and the gallery call it directly). */
   show(block: SidebarChatsBlock): void;
-  /** Mounts only the rows near `slice` (the host's slice stream calls this; a slice older than the drawn
-   * block is dropped). */
+  /** Mounts only the rows near `slice` (the host's slice stream calls this). It windows only the block whose
+   * revision it names: an older one is dropped, a newer one waits for exactly that block. */
   showSlice(slice: SidebarChatsSlice): void;
+  /** The same from `cmux.page.visibleSlice` for `surface`: only the drawn block's surface windows it, and once one
+   * arrives for a surface, `showSlice` (the old wire) no longer windows that surface's block. */
+  showVisibleSlice(surface: string, slice: SidebarChatsSlice): void;
   /** The block drawn now (null before the first). */
   readonly block: SidebarChatsBlock | null;
   unmount(): void;
@@ -52,8 +58,17 @@ export function mountSidebarChats(
   const reactRoot = (options.makeRoot ?? createRoot)(root);
   const nextFrame = options.nextFrame ?? animationFrame;
   let block = NO_BLOCK;
-  // The host's last slice; it holds across blocks until the next one (the host sends one after each push).
+  // The slice the drawn rows were windowed by: measured on the drawn block, or on an earlier drawn block
+  // (it holds across blocks until the next one; the host sends one after each push).
   let slice: SidebarChatsSlice | null = null;
+  // A slice naming a block not drawn yet; it windows only a block with exactly its revision, if that comes next,
+  // and (`surface`: null from the old wire) of its surface.
+  let early: { slice: SidebarChatsSlice; surface: string | null } | null = null;
+  // The surfaces a `cmux.page.visibleSlice` slice arrived for: the old wire's slices no longer window their block.
+  const generic = new Set<string>();
+  // Whether a slice from `surface` (null: the old wire, which names none) may window a block of `part`.
+  const windows = (surface: string | null, part: SidebarChatsBlock["part"]) =>
+    surface === null ? !generic.has(sliceSurface(part)) : surface === sliceSurface(part);
   let cancelReady: (() => void) | null = null;
 
   const send = (op: string, params: Record<string, unknown>) => {
@@ -104,16 +119,39 @@ export function mountSidebarChats(
     // A block older than the one drawn (a reordered event) changes nothing.
     if (block && next.revision <= block.revision) return;
     block = next;
+    // A slice sent ahead of this block windows it only if it names this block; any other is dropped.
+    if (early?.slice.revision === next.revision && windows(early.surface, next.part)) slice = early.slice;
+    early = null;
     flushSync(render);
     scheduleReady();
   };
 
-  const showSlice = (next: SidebarChatsSlice) => {
-    if (block && next.revision < block.revision) return;
+  const applySlice = (next: SidebarChatsSlice, surface: string | null) => {
+    // A slice windows only the block it was measured on. One for a block not drawn yet waits for exactly
+    // that block (`show`); one for an older block changes nothing.
+    if (!block || next.revision > block.revision) {
+      early = { slice: next, surface };
+      return;
+    }
+    if (next.revision < block.revision) return;
     if (slice && slice.revision === next.revision && slice.top === next.top && slice.height === next.height) return;
     slice = next;
     // No ready: the slice changes which rows mount, never the block's height.
-    if (block) flushSync(render);
+    flushSync(render);
+  };
+
+  // The old wire (`cmux.sidebarChats.slice`): it goes once the host that sends `cmux.page.visibleSlice` ships.
+  const showSlice = (next: SidebarChatsSlice) => {
+    // Ignored for a surface that has the generic stream; before a block, for any surface that has it.
+    if (block ? generic.has(sliceSurface(block.part)) : generic.size > 0) return;
+    applySlice(next, null);
+  };
+
+  const showVisibleSlice = (surface: string, next: SidebarChatsSlice) => {
+    generic.add(surface);
+    // The other block's surface (each block is its own page) windows nothing here.
+    if (block && surface !== sliceSurface(block.part)) return;
+    applySlice(next, surface);
   };
 
   flushSync(render);
@@ -136,13 +174,34 @@ export function mountSidebarChats(
       })
       .then((stop) => (stopped ? stop() : (unsubscribeSlice = stop)))
       .catch((error: unknown) => {
-        // A host without the slice stream yet: every row stays mounted, as before it.
+        // A host without the slice stream (before it, or one that sends only `cmux.page.visibleSlice`).
         if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
         console.error("sidebar chats: no slice stream", error);
       });
+  // The page does not know its part until its first block, so it hears both surfaces; `showVisibleSlice` keeps
+  // only its own block's.
+  const unsubscribeVisible: Array<() => void> = [];
+  if (client)
+    for (const part of SIDEBAR_CHATS_PARTS)
+      void client
+        .subscribe<unknown>(
+          SidebarChatsOps.visibleSlice,
+          (data) => {
+            const parsed = parseVisibleSlice(data);
+            if (!stopped && parsed) showVisibleSlice(parsed.surface, parsed.slice);
+          },
+          { surface: sliceSurface(part) },
+        )
+        .then((stop) => (stopped ? stop() : unsubscribeVisible.push(stop)))
+        .catch((error: unknown) => {
+          // A host before the generic stream: the old wire windows the rows, or none does.
+          if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
+          console.error("sidebar chats: no visible-slice stream", error);
+        });
   return {
     show,
     showSlice,
+    showVisibleSlice,
     get block() {
       return block;
     },
@@ -150,6 +209,7 @@ export function mountSidebarChats(
       stopped = true;
       unsubscribe?.();
       unsubscribeSlice?.();
+      unsubscribeVisible.splice(0).forEach((stop) => stop());
       cancelReady?.();
       reactRoot.unmount();
     },
