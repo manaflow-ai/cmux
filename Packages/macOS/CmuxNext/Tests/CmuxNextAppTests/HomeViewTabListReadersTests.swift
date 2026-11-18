@@ -97,7 +97,7 @@ struct HomeViewTabListReadersTests {
 
     /// How many agents the session has for the home view's glance, read with no observation.
     private static func glanceCount(_ services: AppServices) -> Int {
-        HomeAgentGlances(services: services).current.count
+        services.machines.allWorkspaces.reduce(0) { $0 + HomeAgentGlances(services: services).glances(in: $1.0).count }
     }
 
     /// Lets the main actor run what is queued: a fixed number of yields, no wait for time to pass.
