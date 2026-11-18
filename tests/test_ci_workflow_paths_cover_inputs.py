@@ -47,7 +47,7 @@ def guard_router():
     a change to `path` every time `event` starts the workflow.
 
     cmux-next-guards runs for feat-cmux-next pull requests and pushes only, so it covers an event only when that
-    event is limited to feat-cmux-next; a push run leaves out release-notary (it runs in nightly-guards)."""
+    event is limited to feat-cmux-next. A push run routes every group, release-notary included."""
     import detect_linux_guard_changes  # noqa: PLC0415 - scripts/ci, the router
     import run_ci_guards  # noqa: PLC0415
 
@@ -72,8 +72,6 @@ def guard_router():
         key = (path, event)
         if key not in cache:
             groups = set(run_ci_guards.FAST_GROUPS) | set(detect_linux_guard_changes.classify_feat([path]))
-            if event == "push":
-                groups.discard("release-notary")
             cache[key] = set().union(*(tests.get(group, set()) for group in groups))
         return test in cache[key]
 

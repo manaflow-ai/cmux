@@ -64,7 +64,7 @@ def fake_tool_environment(root: Path, sha: str) -> dict[str, str]:
         bin_dir / "git",
         f"""#!/bin/bash
 set -eu
-if [[ "${{1:-}}" == "clone" ]]; then
+if [[ "${{1:-}}" == "init" ]]; then
   target="${{@: -1}}"
   mkdir -p "$target/.git" "$target/libs/cmux-cua/rust"
   : > "$target/libs/cmux-cua/rust/Cargo.toml"
@@ -402,8 +402,48 @@ def test_the_build_names_its_rust_toolchain(sha: str) -> None:
             assert used == {want}, f"rustup and cargo ran with toolchains {used}, want {{{want!r}}}"
 
 
+def test_cold_cache_fetches_only_the_pinned_commit_and_retries(sha: str) -> None:
+    # Nightly run 44232805509 (cmux15, cold cache) spent 9.5 min in a full `git clone` of
+    # cmux-cua's whole history before the transfer stalled. A cold cache fetches only the pinned
+    # commit, shallow, and a failed transfer is retried: two failures still reach the compile.
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-cache-cold-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        environment = fake_tool_environment(root, sha)
+        bin_dir = root / "bin"
+        (bin_dir / "git").rename(bin_dir / "git-fake")
+        log = root / "git.log"
+        failures = root / "fetch-failures"
+        write_executable(
+            bin_dir / "git",
+            f"""#!/bin/bash
+printf '%s\\n' "$*" >> "{log}"
+if [[ "${{1:-}}" == "clone" ]]; then exit 1; fi
+if [[ "${{1:-}}" == "-C" && "${{3:-}}" == "fetch" ]]; then
+  count=$(cat "{failures}" 2>/dev/null || echo 0)
+  if (( count < 2 )); then echo $((count + 1)) > "{failures}"; exit 128; fi
+fi
+exec "{bin_dir / 'git-fake'}" "$@"
+""",
+        )
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), "--output", str(root / "output"), "--archs", "arm64", "--cache-dir", str(cache_dir)],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        calls = log.read_text().splitlines()
+        assert not any(call.startswith("clone") for call in calls), calls
+        fetches = [call for call in calls if " fetch " in f" {call} "]
+        assert len(fetches) == 3, (fetches, result.stderr)
+        assert all("--depth 1" in call and call.endswith(f"origin {sha}") for call in fetches), fetches
+        assert (cache_dir / f"src-{sha}").is_dir(), result.stderr
+        assert "could not fetch cmux-cua" not in result.stderr, result.stderr
+
+
 def main() -> int:
     sha = pinned_sha()
+    test_cold_cache_fetches_only_the_pinned_commit_and_retries(sha)
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)

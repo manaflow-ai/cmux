@@ -252,16 +252,23 @@ async fn peer_status_rides_on_the_peer_row_read_after_connect() {
     assert!(b.get("health").is_none() && b.get("healthAt").is_none(), "{status}");
 }
 
-/// `_acpmux/place` names every machine and its numbers: never to a Web caller.
+/// `_acpmux/place` names every machine and its numbers: this machine's socket and the app's own
+/// pane get it; a Web caller or a peer daemon (another person's machine included) never does.
 #[tokio::test]
-async fn place_answers_only_on_the_unix_socket() {
+async fn place_answers_only_this_machines_own_clients() {
     let a = hub().await;
     let mut local = client(a.clone()).await;
     let v = local.call("_acpmux/place", json!({})).await.unwrap();
     assert!(v["hosts"].is_array(), "{v}");
-    let mut web = client_as(a, Some(acpmux::server::Origin::Web)).await;
-    let refused = web.call("_acpmux/place", json!({})).await;
-    assert!(refused.is_err_and(|e| e.contains("unix socket")), "the web gets no placement");
+    assert!(v.get("room").is_some() && v.get("localOver").is_some(), "{v}");
+    let mut pane = client_as(a.clone(), Some(acpmux::server::Origin::LocalApp)).await;
+    let v = pane.call("_acpmux/place", json!({"work": "agent"})).await.unwrap();
+    assert!(v["hosts"].is_array(), "the app's pane gets placement: {v}");
+    for origin in [acpmux::server::Origin::Web, acpmux::server::Origin::Peer] {
+        let mut other = client_as(a.clone(), Some(origin)).await;
+        let refused = other.call("_acpmux/place", json!({})).await;
+        assert!(refused.is_err_and(|e| e.contains("unix socket")), "{origin:?} gets no placement");
+    }
 }
 
 /// RFC 3339 for `secs` since the epoch (UTC), as the health loop writes it.

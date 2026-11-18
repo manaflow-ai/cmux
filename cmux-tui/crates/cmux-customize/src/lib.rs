@@ -18,6 +18,7 @@
 //! cmux quit, and in safe mode.
 
 mod brief;
+pub mod community;
 mod diff;
 mod engine;
 pub mod library;
@@ -25,6 +26,7 @@ mod paths;
 pub mod profile;
 pub mod redact;
 pub mod schema;
+pub mod setup;
 mod store;
 mod tree;
 mod try_on;
@@ -195,6 +197,12 @@ pub enum Error {
     /// A library verb that cannot run (no such entry, a preview is open, a
     /// collection that does not read); nothing was changed.
     Library(String),
+    /// A setup (a whole customization in a git repo, `cmux setup`) that
+    /// cannot be read, installed or removed; nothing was changed.
+    Setup(String),
+    /// A community theme or snippet that does not read or may not install
+    /// (`community`); nothing was changed.
+    Community(String),
 }
 
 impl Error {
@@ -212,6 +220,8 @@ impl Error {
             Error::NothingToTry => "customize.nothing_to_try",
             Error::TryOnTime => "customize.try_on_time",
             Error::Library(_) => "customize.library",
+            Error::Setup(_) => "customize.setup",
+            Error::Community(_) => "customize.community",
         }
     }
 }
@@ -243,7 +253,10 @@ impl std::fmt::Display for Error {
                 f,
                 "a try-on lasts from a second to {MAX_TRY_ON_MINUTES} minutes (--minutes)"
             ),
-            Error::Profile(why) | Error::Library(why) => f.write_str(why),
+            Error::Profile(why)
+            | Error::Library(why)
+            | Error::Community(why)
+            | Error::Setup(why) => f.write_str(why),
             Error::Protected(keys) => write!(
                 f,
                 "nothing was changed: putting that setup back would also change {} that only the person can change ({}). They can run the same `cmux customize` command themselves in a terminal",
