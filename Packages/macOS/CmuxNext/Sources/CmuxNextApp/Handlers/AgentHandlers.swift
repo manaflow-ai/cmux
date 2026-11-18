@@ -138,7 +138,8 @@ enum AgentHandlers {
             return .done
         })
         registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud, carrying a page's `handoff` token
-            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: invocation["handoff"]?.stringValue)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: invocation["handoff"]?.stringValue)) }
+            let handoff = invocation["handoff"]?.stringValue; if invocation.target == nil, invocation.allowsViewChange, openChatWorkspace(invocation, context: context, seed: .picksCloud(after: context.scope(invocation).pane?.agentSeedFromSelectedTab(), handoff: handoff), cloud: true) { return .done } // a person's own: a workspace of its own (cmux#45947)
+            withAgentPane(invocation, context: context, seed: .picksCloud(handoff: handoff)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab(), handoff: handoff)) }
             return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
