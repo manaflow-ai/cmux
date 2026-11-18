@@ -80,8 +80,11 @@ import Testing
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the pills, \(below) pt below")
     }
 
+    /// The omnibar row keeps the chrome's gap below it, and sits 3 pt lower under the tab than that (Lucas
+    /// 2026-11-18: "make the spacing of the tabs the same as helium, this means that the bottom of the tab should have
+    /// an extra 3px"): 6 pt from the active tab to the omnibar at Default and Compact.
     @Test(arguments: ChromeStyle.allCases)
-    func theOmnibarRowHasTheSameGapAboveAndBelow(style: ChromeStyle) throws {
+    func theOmnibarRowSitsThreePointsUnderTheRowsGap(style: ChromeStyle) throws {
         defer { load(nil) }
         load(style)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -103,9 +106,9 @@ import Testing
         let inset = (max(chrome.addressBar.bounds.height, chrome.reloadButton.bounds.height) - chrome.addressBar.bounds.height) / 2
         let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + gap
         let below = page.minY - bar.maxY
-        #expect(abs(above - (gap + inset)) <= 0.5, "\(style): \(above) pt above the omnibar, the gap is \(gap) + \(inset)")
+        let underTab: CGFloat = 3
+        #expect(abs(above - (gap + inset + underTab)) <= 0.5, "\(style): \(above) pt above the omnibar, want the gap \(gap) + \(inset) + \(underTab)")
         #expect(abs(below - (gap + inset)) <= 0.5, "\(style): \(below) pt below the omnibar, the gap is \(gap) + \(inset)")
-        #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
     }
 
     /// The toolbar buttons are the window's one chrome row (a sidebar row and a tab pill tall,
@@ -134,7 +137,7 @@ import Testing
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY
-        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the buttons, the gap is \(gap)")
+        #expect(abs(above - (gap + 3)) <= 0.5, "\(style): \(above) pt above the buttons, want the gap \(gap) + 3 under the tab")
         #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the buttons, the gap is \(gap)")
     }
 }
