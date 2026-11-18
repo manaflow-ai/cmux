@@ -3,7 +3,8 @@ public import CmuxNextCloud
 import Foundation
 
 /// Cloud machine changes an agent or a script asked for (`cmux vm resize`, `fork`, `snapshot-machine`, `restore-machine`,
-/// `promote-template`), which wait for the person's Allow in the ``CloudChangeRequest`` dialog. The dialog stays. A run
+/// `promote-template`). `fork` and `restore-machine` wait for the person's Allow in the ``CloudChangeRequest`` dialog; the
+/// rest (``CloudChangeRequest/unasked``) run at once, and their run below never shows a dialog. A run
 /// answers its caller at once that it waits (`pending`, `waiting_for: person`, the dialog's `dialog_id`, `ask_again_joins`)
 /// instead of 30 s of silence; the same ask again joins that run (``CloudStartRuns``), never a second change or dialog,
 /// and gets its end: the change's own answer, or its failure (Don't Allow included), so no caller reads a declined change
@@ -19,6 +20,12 @@ public final class CloudChangeRuns {
     var asks: [CloudStartRunKey: Fields] = [:]
 
     public init() {}
+
+    /// The ask `action`'s change runs with: `ask`, but a yes at once with no dialog for a ``CloudChangeRequest/unasked`` one.
+    public static func ask(_ action: String, _ ask: @escaping Ask) -> Ask {
+        guard CloudChangeRequest.unasked.contains(action) else { return ask }
+        return { @MainActor _ in { @MainActor in true } }
+    }
 
     // A main-actor class: its isolated deinit crashes the Release optimizer (#23050).
     nonisolated deinit {}
