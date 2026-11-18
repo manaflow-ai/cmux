@@ -51,7 +51,7 @@ public final class AppHealthFeeds {
         self.stateDirectory = stateDirectory
         self.work = work
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
+        popover = AppHealthPopover(health: health)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -255,6 +255,31 @@ final class AppHealthStoppedOwner {
             return Darwin.kill(stopped, SIGCONT) == 0
         default:
             return false
+        }
+    }
+}
+#endif
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension AppHealthFeeds {
+    /// `debug.app_health_card {state, close?}` (DEBUG and bench builds), for captures of app health's card over the
+    /// main window: `state` failed (Agent chat needs a repair, with Repair Now), repairing, or quiet (all clear),
+    /// from a fixture snapshot; the model is not touched. `close` takes the card away.
+    public func debugMethod() -> ControlMethod {
+        .mainActor("debug.app_health_card") { [weak self] call in
+            guard let self else { return .value(.null) }
+            if call.params["close"]?.boolValue == true {
+                popover.close()
+                popover.fixture = nil
+                return .value(["shown": false])
+            }
+            let state = call.params["state"]?.stringValue ?? "failed"
+            popover.fixture = AppHealthCard.fixture(state: state)
+            popover.close()
+            popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
+            // A capture host's app is not active: the card stays up as it would over the person's active window.
+            popover.panel?.hidesWhenInactive = false
+            return .value(["shown": true, "state": .string(state)])
         }
     }
 }
