@@ -75,6 +75,11 @@ export function WorkflowCard({
   const ended = workflow.state === "completed" || workflow.state === "failed" || workflow.state === "cancelled";
   const hold = ended ? undefined : chatHold;
   const running = !hold && workflow.state === "running" && counts.running > 0;
+  const holdText =
+    hold &&
+    (hold.nextAt !== undefined
+      ? t("workflow.limit.paused", { time: clockTime(hold.nextAt, language) })
+      : t("workflow.limit.pausedNoTime"));
   // The card's one clock: the workflow's elapsed time (Leo's screenshot had a second, an agent's,
   // that disagreed with it).
   const now = useNow(running);
@@ -118,12 +123,14 @@ export function WorkflowCard({
           <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
         <span className="acpmux-workflow-card__meta">
+          {/* Held: the selected card says so in "Paused" here and in full on its latest line, which
+              has the width for the time; the shorter cards say it in full here. */}
           {hold ? (
-            <span className="acpmux-workflow-card__hold">
-              {hold.nextAt !== undefined
-                ? t("workflow.limit.paused", { time: clockTime(hold.nextAt, language) })
-                : t("workflow.limit.pausedNoTime")}
-            </span>
+            presentation === "selected" ? (
+              <span>{t("goal.paused")}</span>
+            ) : (
+              <span className="acpmux-workflow-card__hold">{holdText}</span>
+            )
           ) : (
             <span>{localizedState(t, workflow.state)}</span>
           )}
@@ -157,13 +164,16 @@ export function WorkflowCard({
           <>
             <span
               className="acpmux-workflow-card__latest"
-              title={latest ? `${latest.agent}: ${latest.line}` : undefined}
+              data-hold={hold ? "" : undefined}
+              title={hold ? holdText : latest ? `${latest.agent}: ${latest.line}` : undefined}
             >
-              {latest && (
-                <>
-                  <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
-                </>
-              )}
+              {hold
+                ? holdText
+                : latest && (
+                    <>
+                      <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
+                    </>
+                  )}
             </span>
             <span
               className="acpmux-workflow-card__progress"

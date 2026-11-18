@@ -172,3 +172,7 @@
 .acpmux-workflow-card[data-hold] .acpmux-workflow-card__phases > span[data-state="running"] {
   background: var(--agent-muted);
 }
+/* The selected card's latest line while held: the pause and when it continues, at the row's weight. */
+.acpmux-workflow-card__latest[data-hold] {
+  color: var(--agent-text);
+}
