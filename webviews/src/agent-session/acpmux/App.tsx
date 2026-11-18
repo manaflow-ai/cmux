@@ -7712,7 +7712,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const cwd = projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd;
     void placeAutoChat(cwd).then((verdict) => {
       // Another new chat, or the person's own pick meanwhile: this answer starts nothing.
-      if (visit !== newTabGeneration || sandboxModeNow.current !== "auto") {
+      if (visit !== newTabGenerationNow.current || sandboxModeNow.current !== "auto") {
         setAutoPlace((current) => (current?.visit === visit ? undefined : current));
         return;
       }
@@ -7754,12 +7754,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The machine refused or went away: the prompt comes back, and This Mac is the pick to send it again.
         console.warn("agent pane: Auto's machine did not start the chat", error);
         handle.restore(draft.text, draft.attachments);
-        setAutoPlace({ visit: newTabGeneration, placed: { place: "local", fallback: true } });
+        setAutoPlace({ visit: newTabGenerationNow.current, placed: { place: "local", fallback: true } });
         sandbox.setMode("persistent");
       });
   };
+  // What an answer that comes later checks against: the page's new chat and mode now, not at the send.
   const sandboxModeNow = useRef(sandbox.mode);
   sandboxModeNow.current = sandbox.mode;
+  const newTabGenerationNow = useRef(newTabGeneration);
+  newTabGenerationNow.current = newTabGeneration;
   /// The verdict's mode is set: the held prompt goes once, through the send path that mode takes.
   useEffect(() => {
     if (autoSend.current === undefined || sandbox.mode !== autoSend.current) return;
