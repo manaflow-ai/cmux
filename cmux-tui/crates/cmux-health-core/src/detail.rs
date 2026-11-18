@@ -23,6 +23,10 @@ pub enum Cause {
         ms: u64,
     },
     RendererCrashed,
+    /// A liveness part that missed its pings: `ms` since it last answered.
+    RendererHung {
+        ms: u64,
+    },
     AcpmuxDisconnected,
     AcpmuxSilent {
         ms: u64,
@@ -92,6 +96,7 @@ pub fn cause(cause: Cause) -> String {
         }
         Cause::PageCrashed | Cause::RendererCrashed => "Stopped unexpectedly.".into(),
         Cause::RendererUnresponsive { ms } => format!("Not responding for {}.", duration(ms)),
+        Cause::RendererHung { ms } => format!("Not answering for {}.", duration(ms)),
         Cause::AcpmuxDisconnected => "Agent sessions are disconnected.".into(),
         Cause::AcpmuxSilent { ms } => {
             format!("Agent sessions have not answered for {}.", duration(ms))
@@ -137,6 +142,8 @@ fn doing(action: RepairAction) -> &'static str {
         RepairAction::RestartConnection => "Restarting the connection",
         RepairAction::RestartPageHost => "Restarting the page server",
         RepairAction::HoldReplace => "Holding restarts",
+        RepairAction::Ping => "Checking it",
+        RepairAction::EndRenderer => "Restarting its chats",
         RepairAction::None => "Waiting",
     }
 }
@@ -177,7 +184,7 @@ pub fn receipt_result(ok: bool) -> String {
 /// The receipt of a part whose signal came back after repairs.
 pub fn receipt_recovered(kind: Kind) -> String {
     match kind {
-        Kind::Page | Kind::Renderer => "Answering again.".into(),
+        Kind::Page | Kind::Renderer | Kind::Liveness => "Answering again.".into(),
         Kind::Acpmux => "Agent sessions answer again.".into(),
         Kind::PageHost => "Pages load again.".into(),
         Kind::SessionDaemon | Kind::Roster => "Working again.".into(),

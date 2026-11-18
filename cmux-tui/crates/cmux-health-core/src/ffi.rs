@@ -17,7 +17,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_HEALTH_ABI_VERSION: u32 = 2;
+pub const CMUX_HEALTH_ABI_VERSION: u32 = 3;
 pub const CMUX_HEALTH_OK: i32 = 0;
 /// A null pointer where one is required.
 pub const CMUX_HEALTH_ERR_NULL: i32 = -1;
@@ -139,7 +139,9 @@ pub unsafe extern "C" fn cmux_health_call(
             Err(OpError::Unknown) => return CMUX_HEALTH_ERR_UNKNOWN_OP,
             Err(OpError::Invalid) => return CMUX_HEALTH_ERR_INVALID,
         };
-        let Ok(bytes) = serde_json::to_vec(&reply) else { return CMUX_HEALTH_ERR_INVALID };
+        let Ok(bytes) = serde_json::to_vec(&reply) else {
+            return CMUX_HEALTH_ERR_INVALID;
+        };
         // SAFETY: `out` checked non-null and writable.
         unsafe { *out = CmuxHealthBytes::from_vec(bytes) };
         CMUX_HEALTH_OK
