@@ -948,7 +948,9 @@ struct HomePinGrid: View {
         // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
         // foldable) adds columns instead of stretching three tiles.
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
-            ForEach(tiles) { $0 }
+            // Equatable tiles: a change to one pin (its typing dot, its unread bubble) or to
+            // any other Home row draws that tile only.
+            ForEach(tiles) { $0.equatable() }
         }
     }
 }
@@ -957,9 +959,9 @@ struct HomePinGrid: View {
 /// avatar, the name (the unread dot before it, the muted bell after it),
 /// where a Chief runs, and a typing or preview bubble above the avatar. A
 /// button of its own: a tap opens this tile only.
-struct HomeTile: View, Identifiable {
+struct HomeTile: View, Identifiable, Equatable {
     let id: String
-    /// Where a tap goes (`open` goes there).
+    /// Where a tap goes (`open` goes there): compared, so a tile whose route changed redraws.
     let route: HomeConversationRoute
     let avatar: String
     let name: String
@@ -972,6 +974,14 @@ struct HomeTile: View, Identifiable {
     let identifier: String
     let open: () -> Void
     let menu: AnyView?
+
+    /// What the tile draws and where it goes. `open` and `menu` are made from these same
+    /// values (the row's id, route, pin and unread state) and the Home's shared sources.
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.id == b.id && a.route == b.route && a.avatar == b.avatar && a.name == b.name && a.detail == b.detail
+            && a.unread == b.unread && a.working == b.working && a.bubble == b.bubble && a.muted == b.muted
+            && a.identifier == b.identifier
+    }
 
     #if DEBUG
     /// Test hook: how many times a tile's body ran.

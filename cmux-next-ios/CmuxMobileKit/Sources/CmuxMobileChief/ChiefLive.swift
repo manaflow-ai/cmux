@@ -317,6 +317,7 @@ struct ChiefLiveState {
             guard let step = run.steps[id], step.kind == "thought", !step.text.isEmpty else { continue }
             details.append(ChiefLive.Detail(id: id, kind: .thought, text: step.text, isRunning: true))
         }
+        if details.count > Self.detailCap { details.removeFirst(details.count - Self.detailCap) }
         return ChiefLive(
             key: "\(conversation)\u{0}\(key)", step: talkID, text: talk?.text ?? "",
             truncated: (talk?.text.utf16.count ?? 0) >= Self.bufferCap,

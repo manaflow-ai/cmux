@@ -185,8 +185,10 @@ struct ChiefLiveDetails: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
+                // Equatable rows: a new or changed detail draws that row only, not every
+                // detail above it (at most `ChiefLiveState.detailCap`).
                 ForEach(details) { detail in
-                    ChiefLiveDetailRow(detail: detail)
+                    ChiefLiveDetailRow(detail: detail).equatable()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -200,8 +202,10 @@ struct ChiefLiveDetails: View {
 }
 
 /// One detail: a thought's text, or a tool or note step.
-struct ChiefLiveDetailRow: View {
+struct ChiefLiveDetailRow: View, Equatable {
     let detail: ChiefLive.Detail
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.detail == b.detail }
 
     #if DEBUG
     /// Test hook: how many times a detail row's body ran.

@@ -32,7 +32,9 @@ public struct MarkdownView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(document.blocks) { block in
-                MarkdownBlockView(block: block, margin: margin)
+                // Equatable: a streamed token redraws the block it changed (the tail), not
+                // every block of the message above it.
+                MarkdownBlockView(block: block, margin: margin).equatable()
                     .modifier(MarkdownBlockMarker(block: block.id, marks: marks))
                     .transition(animatesBlocks ? .opacity.animation(.easeOut(duration: 0.15).unlessReduceMotion) : .identity)
             }
@@ -84,7 +86,7 @@ struct MarkdownBlockMarker: ViewModifier {
 }
 
 /// One block of a markdown document (a transcript draws a long answer block by block).
-public struct MarkdownBlockView: View {
+public struct MarkdownBlockView: View, Equatable {
     let block: MarkdownBlock
     let margin: CGFloat
 
@@ -92,6 +94,8 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.margin = margin
     }
+
+    public nonisolated static func == (a: Self, b: Self) -> Bool { a.margin == b.margin && a.block == b.block }
 
     #if DEBUG
     /// Test hook: how many times a block's body ran.
