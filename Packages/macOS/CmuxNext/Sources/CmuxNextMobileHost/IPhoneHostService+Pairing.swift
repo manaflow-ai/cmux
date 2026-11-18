@@ -139,10 +139,10 @@ extension IPhoneHostService {
         // A waiting request never keeps a token.
         var request = request
         request.pairToken = nil
-        let outcome = prompts.receive(request, at: Date())
-        let quiet = asksQuietly(request)
-        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)\(quiet ? " (another build's dev iPhone app: quietly, Settings > Mobile only)" : "", privacy: .public)")
-        if outcome == .ask, !quiet { announce(request) }
+        // Another build's dev iPhone app waits quietly, in places of its own (MobileHostPairPrompts.quietLimit).
+        let outcome = prompts.receive(request, at: Date(), quietly: asksQuietly(request))
+        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
+        if outcome == .ask { announce(request) }
         showPairDialog()
     }
 
@@ -163,7 +163,7 @@ extension IPhoneHostService {
             CmuxDialogCenter.shared.dismiss(open.id)
         }
         guard pairDialog == nil, !prompts.isQuiet(at: Date()),
-              let request = prompts.pending.first(where: { !asksQuietly($0) }) else { return }
+              let request = prompts.prompted.first else { return }
         // In the app only, never a floating window: a sheet on the frontmost cmux window. With
         // none on screen it waits (the banner, the Dock and Settings > Mobile still tell the
         // person) and shows when a cmux window next becomes main or the app comes forward.
@@ -264,7 +264,7 @@ extension IPhoneHostService {
     }
 
     /// A waiting request that the prompt, banner and Dock bounce are for.
-    var loudRequestWaits: Bool { prompts.pending.contains { !asksQuietly($0) } }
+    var loudRequestWaits: Bool { !prompts.prompted.isEmpty }
 
     /// Whether the dev auto-approve pairs `request` without the prompt: a tagged dev build's
     /// (`devAutoApprove`, nil otherwise), for a phone of this tag's iPhone app, on the paired list of
