@@ -46,6 +46,12 @@ import Testing
         #expect(marks["layout.last.window"] == 5_000)
     }
 
+    @MainActor @Test func aViewIsNamedInOneWord() {
+        #expect(LaunchLayoutSettle.markName("NSHostingView<ModifiedContent<A, B>>") == "NSHostingView")
+        #expect(LaunchLayoutSettle.markName("TabStripView moved 0,0,10,10 -> 0,0,12,10") == "TabStripView")
+        #expect(LaunchLayoutSettle.markName("") == "view")
+    }
+
     @Test func nothingIsOverBeforeAFirstFrame() {
         let tally = LaunchLayoutSettleTally()
         #expect(!tally.isOver(at: 60_000))

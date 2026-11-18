@@ -62,8 +62,8 @@ final class LaunchLayoutSettle {
                 let change = read.changes(since: previous, limit: 1)
                 if change.total > 0 {
                     // Named by the view that moved farthest, else by the first change (a view that appeared or went away).
-                    let move = read.largestMove(since: previous)
-                    let named = move?.name ?? change.lines.first.map { String($0.prefix { $0 != " " }) } ?? "view"
+                    let move = read.largestMove(since: previous).map { (name: Self.markName($0.name), points: $0.points) }
+                    let named = move?.name ?? change.lines.first.map(Self.markName) ?? "view"
                     tally.note(at: now, change: named, move: move)
                 }
             }
@@ -82,6 +82,13 @@ final class LaunchLayoutSettle {
         sink.write(name: "layout.cost_ms", ms: costMs)
         geometry = nil
         window = nil
+    }
+
+    /// A view's type as one word for a mark's name: up to its first space or generic argument
+    /// (`NSHostingView<ModifiedContent<A, B>>` is `NSHostingView`), so a mark line stays `<name> <value>`.
+    static func markName(_ name: String) -> String {
+        let word = name.prefix { $0 != " " && $0 != "<" }
+        return word.isEmpty ? "view" : String(word)
     }
 
     /// The window a person sees: the key `ShellWindow`, else the frontmost visible one.
