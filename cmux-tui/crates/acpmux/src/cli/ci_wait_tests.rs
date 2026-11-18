@@ -187,18 +187,20 @@ async fn unchanged_reads_are_conditional_and_the_wait_ends_green() {
         wait(&mut reader, "o/r", Kind::Pr, "7", Duration::from_secs(10), schedule).await.unwrap();
     assert!(matches!(state, State::Green { .. }), "{state:?}");
     assert_eq!(sha.as_deref(), Some("abc123"));
-    let log = log.lock().unwrap();
-    // Every path's first read is full; every later read of an unchanged path is a free 304.
-    let pulls: Vec<u16> =
-        log.iter().filter(|(p, _)| p == "/repos/o/r/pulls/7").map(|(_, s)| *s).collect();
-    assert!(pulls.len() >= 3, "{log:?}");
-    assert_eq!(pulls[0], 200);
-    assert!(pulls[1..].iter().all(|s| *s == 304), "{pulls:?}");
-    assert_eq!(reader.counts.requests, log.len() as u64);
-    assert_eq!(reader.counts.not_modified, log.iter().filter(|(_, s)| *s == 304).count() as u64);
+    {
+        let log = log.lock().unwrap();
+        // Every path's first read is full; every later read of an unchanged path is a free 304.
+        let pulls: Vec<u16> =
+            log.iter().filter(|(p, _)| p == "/repos/o/r/pulls/7").map(|(_, s)| *s).collect();
+        assert!(pulls.len() >= 3, "{log:?}");
+        assert_eq!(pulls[0], 200);
+        assert!(pulls[1..].iter().all(|s| *s == 304), "{pulls:?}");
+        assert_eq!(reader.counts.requests, log.len() as u64);
+        let free = log.iter().filter(|(_, s)| *s == 304).count() as u64;
+        assert_eq!(reader.counts.not_modified, free);
+    }
 
     // A second wait on the same machine starts from the shared cache: no full read at all.
-    drop(log);
     let mut second =
         Reader::new(reader.api.clone(), "t".into(), Cache::new(dir.path().into())).unwrap();
     let (state, _) =
