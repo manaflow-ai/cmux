@@ -124,7 +124,11 @@ import Testing
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let second = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let firstCard = FloatingPaneCardView(pane: "f"), secondCard = FloatingPaneCardView(pane: "f")
-        let host = PaneHostView(pane: "f", content: NSView())
+        // The pane's content: a view whose ground is its layer's color (`NSView.paneGroundColor`).
+        let content = NSView()
+        content.layer = CALayer()
+        content.wantsLayer = true
+        let host = PaneHostView(pane: "f", content: content)
         first.addSubview(firstCard)
         first.addSubview(host)
         second.addSubview(secondCard)
@@ -142,7 +146,53 @@ import Testing
                 "the card of the screen that lost the pane took the mark of the pane's card in the other screen away")
         if seeThrough {
             #expect(clip.onContentGroundChange != nil, "the pane's card in the other screen does not hear a change of the pane's ground any more")
+            // Whose callback it is: the pane's content gets a new ground, and the second screen's card must have it.
+            let ground: [Double] = [0.2, 0.4, 0.6, 1]
+            content.layer?.backgroundColor = CGColor(srgbRed: 0.2, green: 0.4, blue: 0.6, alpha: 1)
+            try #require(Ground.near(Ground.rgba(content.paneGroundColor), ground, within: 0.01), "SETUP: the content's ground is \(Ground.rgba(content.paneGroundColor))")
+            clip.contentGroundDidChange()
+            let heard = Ground.rgba(secondCard.contentGround)
+            #expect(Ground.near(heard, ground, within: 0.01),
+                    "the pane's content has the new ground \(ground); the card of the screen that has the pane now paints \(heard)")
         }
+    }
+
+    /// With the solid look (the default) in a window with a background picture, the card's opaque ground is under a
+    /// floating terminal, and the terminal paints its own background opaque. A pane that does not float any more
+    /// has no card under it: its clip does not say so any more, and the terminal paints its background at the
+    /// window's tint again (a tiled terminal's rule). Through the layout, with no paint by hand: when the pane
+    /// becomes a tiled pane of its screen, and when its screen goes and another screen shows the pane.
+    @Test(arguments: [false, true])
+    func aPaneThatDoesNotFloatAnyMoreOverAPictureHasNoSolidGroundUnderIt(itsScreenGoes: Bool) throws {
+        let scene = try Scene(overAPicture: true)
+        defer { scene.finish() }
+        let first = try #require(scene.root.screenViews["s"], "SETUP: the screen has no view")
+        try #require(first.floatState.cards["f"] != nil, "SETUP: the floating pane has no card")
+        try #require(!first.floatState.look.isSeeThrough, "SETUP: the card's look is see-through; the default is not")
+        try #require(TerminalHostView.ground(theme: nil, in: scene.root) == nil, "SETUP: the window is not see-through over the picture")
+        let host = try #require(scene.root.context.hosts["f"], "SETUP: the floating pane has no host")
+        try #require(host.superview === first, "SETUP: the floating pane's host is not in its screen's view")
+        try #require(host.clipView.hasSolidGroundUnder, "SETUP: the solid card put no mark on the pane's clip")
+        let start = scene.terminalGround
+        try #require(Ground.near(start, scene.want, within: 0.02),
+                     "SETUP: under the solid card the terminal's ground is \(start), its own ground is \(scene.want)")
+
+        // The pane does not float any more: it is a tiled pane of its screen, or of the screen that replaces that one.
+        let id: ScreenID = itsScreenGoes ? "t" : "s"
+        scene.model.apply(screens: [LayoutScreen(id: id, name: "s", layout: .splits(Self.three), floating: [])])
+        scene.root.syncWithModel()
+        scene.settle()
+
+        let screen = try #require(scene.root.screenViews[id], "SETUP: the pane's screen has no view")
+        try #require(scene.root.screenViews.count == 1, "SETUP: \(scene.root.screenViews.count) screens have a view")
+        try #require(screen.floatState.cards.isEmpty, "SETUP: a card is left in the pane's screen")
+        try #require(scene.root.context.hosts["f"] === host, "SETUP: the pane has another host")
+        try #require(host.superview === screen, "SETUP: the pane's host is not in its screen's view")
+
+        let tiled = scene.terminalGround
+        #expect(!host.clipView.hasSolidGroundUnder, "the pane's clip still says that a card's opaque ground is under the pane; the pane has no card")
+        #expect(tiled[3] > 0.05 && tiled[3] < 0.99,
+                "with no card under it the terminal's ground is \(tiled); a tiled terminal over a picture has its own ground at the window's tint")
     }
 
     /// With a see-through look (the Debug Settings knob `Background opacity` below 1) the views inside a floating
