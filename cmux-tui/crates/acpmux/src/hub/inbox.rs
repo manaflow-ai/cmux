@@ -1103,7 +1103,7 @@ fn first_work_waits(session: &Session) -> bool {
 /// turn's continuation, the cache compaction), whose turns take notices and steers as before.
 pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) -> bool {
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
-    let auto_resume = matches!(kind, Some("auto_resume" | super::idle::cache_compact::KIND));
+    let auto_resume = kind == Some("auto_resume") || super::idle::cache_compact::is_own(provenance);
     agent.is_none()
         && !auto_resume
         && !is_notice(provenance)

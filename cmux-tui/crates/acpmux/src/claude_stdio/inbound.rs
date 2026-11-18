@@ -155,7 +155,8 @@ impl Translator {
                                 .insert(parent.unwrap_or("").to_owned(), id.to_owned());
                         }
                         if parent.is_none() {
-                            self.call_started(ev.pointer("/message/usage"));
+                            let model = ev.pointer("/message/model").and_then(Value::as_str);
+                            self.call_started(ev.pointer("/message/usage"), model).await;
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -784,7 +785,7 @@ impl Translator {
                         if self.context_from_compaction.load(Ordering::SeqCst) {
                             usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
                         }
-                        out.push(upd(prompt_cache::with_expiry(usage, self.cache.expires_at())));
+                        out.push(upd(self.cache.resend(usage, used)));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code

@@ -657,6 +657,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             supersede,
             class,
             inbox,
+            cache,
             relay,
             attach,
             tag,
@@ -711,6 +712,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 crate::sender_token::of_this_send(sender_token_file.as_deref())?;
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
+            prompt_id.cache_compact = cache.choice();
             let classed = class.is_some();
             // Clap already validated the explicit class. Keep it separate from inferred defaults.
             let relay_class = class.as_deref().and_then(crate::prompt_class::PromptClass::parse);

@@ -84,6 +84,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "argv",
     "author",
     "beforePromptId",
+    "cacheCompact",
     "callerKind",
     "callerProtocol",
     "callerSession",

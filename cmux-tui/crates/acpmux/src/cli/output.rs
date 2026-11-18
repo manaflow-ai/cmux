@@ -190,6 +190,8 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--compact-first` / `--keep-cache` (`_meta.acpmux.cacheCompact`, `hub/return_compact.rs`).
+    pub cache_compact: Option<&'static str>,
 }
 
 impl PromptId {
@@ -212,6 +214,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                cache_compact: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +233,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                cache_compact: None,
             },
         }
     }
@@ -264,6 +268,9 @@ impl PromptId {
         }
         if let Some(key) = &self.supersede {
             mux["supersede"] = json!(key);
+        }
+        if let Some(choice) = self.cache_compact {
+            mux.set("cacheCompact", json!(choice));
         }
         if let Some(class) = &self.class {
             mux.set("class", json!(class));
@@ -1459,6 +1466,15 @@ mod prompt_tests {
         let lines = sent_lines(&json!({"queued": true}), true);
         assert_eq!(lines[0], "queued");
         assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_cache_word_goes_in_the_prompts_meta() {
+        let mut p = PromptId::new(None);
+        assert!(p.params("s", "t", false, None).pointer("/_meta/acpmux/cacheCompact").is_none());
+        p.cache_compact = Some("keep");
+        let params = p.params("s", "t", false, None);
+        assert_eq!(params.pointer("/_meta/acpmux/cacheCompact"), Some(&json!("keep")));
     }
 
     #[test]
