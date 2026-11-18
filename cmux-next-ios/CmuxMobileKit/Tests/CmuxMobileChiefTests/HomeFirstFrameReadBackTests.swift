@@ -40,8 +40,8 @@ import UIKit
         // A relaunch: a new cache (nothing in memory) and a Mac Chief that knows its Mac, no link.
         let cache = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
         let feed = MacHomeFeed(rowsCache: cache, accountID: { "user-a" })
-        let mac = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
-        let cloud = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let mac = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
+        let cloud = ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
         mac.macID = "mac-1"
         mac.macName = "cmux mini"
         let sources = ChiefSources(mac: mac, cloud: cloud, selection: UserDefaults(suiteName: "home-first-frame-\(UUID())")!)
