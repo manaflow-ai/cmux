@@ -12,8 +12,13 @@
 # fold-hosts.py's FOLD-SAMPLE / FOLD-SUMMARY. The whole log also goes to $FAST_CHECKS_OUT/fold-hosts.log.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
-source "$root/scripts/cmux-next/lib/fleet-only.sh"
-cmux_next_require_fleet fold-hosts.sh 'cargo build' 'CMUX-570 folded host size and per-process cost'
+# A `cmux-ci test` job (FAST_CHECKS_OUT set, on an Actions runner or the fleet's Linux pool) or a fleet step; never a
+# developer machine. Linux only: GNU strip, apt-get and /proc/<pid>/smaps_rollup.
+[[ "$(uname -s)" == Linux ]] || { echo "fold-hosts.sh runs only on Linux (GNU strip, /proc smaps_rollup)" >&2; exit 2; }
+if [[ -z "${FAST_CHECKS_OUT:-}" ]]; then
+  source "$root/scripts/cmux-next/lib/fleet-only.sh"
+  cmux_next_require_fleet fold-hosts.sh 'cargo build' 'CMUX-570 folded host size and per-process cost'
+fi
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$FAST_CHECKS_OUT/fold-hosts.log") 2>&1
 base="${1:-}"
 rounds="${FOLD_ROUNDS:-15}"
