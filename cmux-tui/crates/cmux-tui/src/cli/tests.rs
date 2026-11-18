@@ -679,6 +679,16 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
         assert!(PUBLIC_SCOPES.contains(scope));
         assert!(!surface::CMUX_SCOPES.contains(scope));
         for args in [vec![*scope, "list"], vec!["help", scope], vec![*scope, "--help"]] {
+            // A scope with cmux app verbs (`cmux sidebar add-section`) answers help with those.
+            if args[1] != "list" && app_action_help::has_section(scope) {
+                let help = parse(&strings(&args), Surface::Cmux);
+                let topic = format!("{scope} app-actions");
+                assert!(
+                    matches!(help, Ok(ParsedCommand::Help(Some(ref t))) if *t == topic),
+                    "{args:?}"
+                );
+                continue;
+            }
             let Err(failure) = parse(&strings(&args), Surface::Cmux) else {
                 panic!("cmux accepted {args:?}");
             };

@@ -56,11 +56,13 @@ public final class WindowMaterialView: NSView {
     let artView = NSView()
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private(set) var artOpacity: Float = 1
-    private var loadedSelection: BackdropSelection?
+    /// Tests crossfade a view that is in no visible window (a test host may have no screen).
+    var crossfadesOffScreen = false
+    private(set) var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
     /// The appearance the art loaded for: a dynamic Apple picture or shipped video has one of each.
-    private var loadedDark = false
+    private(set) var loadedDark = false
     /// The desktop's ``DesktopWallpaperWatch/generation`` the Desktop Wallpaper art loaded for.
     private var loadedDesktopGeneration = 0
     /// The last `apply`, run again when the appearance flips under art that follows it.
@@ -161,16 +163,6 @@ public final class WindowMaterialView: NSView {
     /// `appearance.inactiveWindowDim`, 0 by default. Its resting alpha: where its fade ends.
     var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
-    /// The wash over a window that is not key: none while it is key or opaque, else `dim`
-    /// (`appearance.inactiveWindowDim`, 0 by default: the same look in front and behind). Glass
-    /// needs no wash of its own: it keeps its key look (``ActiveLookGlassEffectView``), and a wash
-    /// over it was the frost Leo saw on every app switch (2026-10-26: "i didnt want any glass.
-    /// you're frosting the app's background which is pointless?").
-    static func inactiveTintAlpha(material: WindowMaterial, isKeyWindow: Bool, dim: CGFloat) -> CGFloat {
-        guard material != .opaque, !isKeyWindow else { return 0 }
-        return min(max(dim, 0), 1)
-    }
-
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // The app's appearance has flipped by now; macOS's own notice can come before it does.
@@ -192,26 +184,6 @@ public final class WindowMaterialView: NSView {
             keyFamily?.add(self)
         }
         updateInactiveTint()
-    }
-
-    /// Whether `key` (the key window, nil when none) is `window` or a window it owns, through
-    /// `owner` (a window's parent or sheet parent).
-    static func family<W: AnyObject>(of window: W, holds key: W?, owner: (W) -> W?) -> Bool {
-        var next = key
-        // Window chains are a few levels deep; the bound guards a cycle.
-        for _ in 0..<32 {
-            guard let current = next else { return false }
-            if current === window { return true }
-            next = owner(current)
-        }
-        return false
-    }
-
-    /// A window looks inactive only once its family held the keyboard and then lost it to another
-    /// app or another window; its own page windows, popups and sheets never make it look inactive.
-    static func looksInactive(appActive: Bool, familyHoldsKey: Bool, familyHeldKey: Bool) -> Bool {
-        guard familyHeldKey || (appActive && familyHoldsKey) else { return false }
-        return !(appActive && familyHoldsKey)
     }
 
     /// Shows the wash for the window's key state now. `fades` eases it in or out (`scrim`), for a
@@ -282,8 +254,10 @@ public final class WindowMaterialView: NSView {
         hidesArt = backdrop.isOpaque
         applied = (backdrop, tint)
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
-        let flipped = shown?.followsAppearance == true && loadedDark != dark
+        let chosen = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
+        let flipped = chosen?.followsAppearance == true && loadedDark != dark
+        // Light and Dark draws its side for this view's appearance.
+        let shown = chosen?.resolved(dark: dark)
         // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
         let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
@@ -296,17 +270,22 @@ public final class WindowMaterialView: NSView {
             artLoad?.cancel()
             artLoad = nil
             let texture = backdrop.texture
-            // Decoded art shows at once. Otherwise an earlier launch's snapshot shows in this
-            // first frame, and the full image replaces it in place; without one the window shows
-            // the theme's colors until the art, decoded off the main actor, fades in.
+            // A picture already shown stays until the new one decodes, then crossfades into it. With
+            // none shown, decoded art shows at once, else an earlier launch's snapshot shows in this
+            // first frame and the full image replaces it; without one the theme's colors until the
+            // art, decoded off the main actor, fades in.
             let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark) }
-            showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
+            let keeps = shown != nil && artImage != nil && !hidesArt
+            if keeps { if let ready { crossfadeArt(to: ready) } } else {
+                showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
+            }
             if let shown, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
                     let image = await images.image(shown, texture: texture, dark: dark)
-                    guard !Task.isCancelled, let self, let image else { return }
-                    self.showArt(image)
+                    guard !Task.isCancelled, let self else { return }
+                    guard let image else { if keeps { self.showArt(nil) }; return }
+                    self.crossfadeArt(to: image)
                     if fades, let layer = self.artView.layer { Motion.panes.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
                 }
             }
@@ -362,12 +341,12 @@ public final class WindowMaterialView: NSView {
     /// `appearance.wallpaperTint` did: a view that shows the desktop applies its backdrop again.
     func desktopWallpaperDidChange() {
         guard let applied else { return }
-        let shown = applied.backdrop.selection ?? applied.backdrop.art.map(BackdropSelection.art)
+        let shown = (applied.backdrop.selection ?? applied.backdrop.art.map(BackdropSelection.art))?.resolved(dark: loadedDark)
         guard shown == nil || shown == .desktop else { return }
         apply(applied.backdrop, tint: applied.tint)
     }
 
-    private func showArt(_ image: NSImage?) {
+    func showArt(_ image: NSImage?) {
         artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
@@ -393,20 +372,6 @@ public final class WindowMaterialView: NSView {
     public static func backdrop(of window: NSWindow?) -> WindowMaterialView? {
         guard let content = window?.contentView else { return nil }
         return content as? WindowMaterialView ?? content.subviews.lazy.compactMap { $0 as? WindowMaterialView }.first
-    }
-
-    private func tunedTint(_ tint: NSColor, tuning: AppearanceTuning) -> NSColor {
-        guard let rgb = tint.usingColorSpace(.deviceRGB) else { return tint }
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        let shifted = (hue + CGFloat(tuning.hue - 0.5)).truncatingRemainder(dividingBy: 1)
-        return NSColor(deviceHue: shifted < 0 ? shifted + 1 : shifted,
-                       saturation: min(max(saturation * CGFloat(tuning.saturation), 0), 1),
-                       brightness: brightness,
-                       alpha: alpha)
     }
 
     private static func makeMaterialView(_ material: WindowMaterial, activeLook: ActiveLookScope?) -> NSView? {

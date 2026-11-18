@@ -121,6 +121,30 @@
       },
       "workflow": "ci.yml"
     },
+    "ios-e2e-status": {
+      "job": "ios-e2e-status",
+      "under": {
+        "backend": {
+          "exact": [
+            "backend"
+          ],
+          "prefixes": []
+        },
+        "mac-ios-e2e": {
+          "exact": [
+            "mac-ios-e2e"
+          ],
+          "prefixes": []
+        },
+        "route": {
+          "exact": [
+            "route"
+          ],
+          "prefixes": []
+        }
+      },
+      "workflow": "ios-e2e.yml"
+    },
     "web / Web status": {
       "job": "web-status",
       "under": {

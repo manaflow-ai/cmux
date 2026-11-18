@@ -27,6 +27,7 @@ fn empty_state() -> State {
         terminal_catalog_by_host: Default::default(),
         split_screens: HashMap::new(),
         resource_indexes: PublicSlotIndexes::default(),
+        tab_places: Default::default(),
     }
 }
 

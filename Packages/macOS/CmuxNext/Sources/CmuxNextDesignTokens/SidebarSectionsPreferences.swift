@@ -111,10 +111,18 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// On by default.
     public var floatOnHover = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
-    /// people like minimal mode"): workspace rows draw only their icon, name,
-    /// unread mark and attention state (no second line, no counts or badges,
-    /// no tab rows), and section headers become thin lines (the `lines` look).
+    /// people like minimal mode"): the window's chrome hides until hover
+    /// (``hidesControlsUntilHover``). It never changes density (Lawrence
+    /// 2026-11-15: "minimal mode should not change density at all"): rows,
+    /// headers and section looks are as `sidebar.density` makes them.
     public var minimal = false
+    /// Whether the window's hover chrome hides until the pointer is over it: Minimal Mode (user
+    /// 2026-11-15: "only when minimal mode is enabled, we should hide the buttons, spaces, and bottom
+    /// left profile picture, and sidebar buttons and back/forth and plus buttons in sidebar, unless user
+    /// is hovered on sidebar/hovered on tabbar"), or the older sidebar-only Show Sidebar Controls Only on
+    /// Hover. Off (the default), every button shows at rest; only a tab's or a workspace's close X waits
+    /// for hover.
+    public var hidesControlsUntilHover: Bool { minimal || controlsOnHover }
     /// `sidebar.detailedStatusIcons`: a workspace row's badge draws each state apart (working,
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
@@ -152,7 +160,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
     public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
-    /// (`sidebar.density`); minimal mode wins over expanded content.
+    /// (`sidebar.density`); minimal mode does not change them.
     public var density: SidebarDensity = .compact
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
     /// the original size by default; Larger matches the ChatGPT app's sidebar.

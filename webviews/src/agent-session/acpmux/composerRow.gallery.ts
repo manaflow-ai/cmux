@@ -10,6 +10,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
+import { MODEL_PICKER } from "./composerSelectors";
 
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
@@ -90,7 +91,7 @@ function toggleFast(current: "on" | "off"): Play {
         picks.push(message.params.value);
       return original(message);
     };
-    const button = { selector: ".acpmux-model .acpmux-picker-button" } as const;
+    const button = { selector: MODEL_PICKER } as const;
     const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
     try {
       await ctx.waitFor(() => ctx.document.querySelector(button.selector));
@@ -150,11 +151,27 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
   covers: [
+    "agent-session/acpmux/composerLocation.css",
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
   ],
   variants: {
+    "wrap-one-line": {
+      composerLook: "claude",
+      note: "A short prompt keeps the leading and trailing controls on its first line.",
+      ready: { draft: "Check composer wrapping" },
+      snapshot: row(),
+    },
+    "wrap-two-lines": {
+      composerLook: "claude",
+      note: "A soft wrap keeps the first line at its fixed top inset and the controls in place.",
+      ready: {
+        draft:
+          "Check composer wrapping and keep the first line, caret and controls in place as the prompt grows downward.",
+      },
+      snapshot: row(),
+    },
     "claude-auto": {
       composerLook: "claude",
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",

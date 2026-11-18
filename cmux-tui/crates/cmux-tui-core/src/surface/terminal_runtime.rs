@@ -120,6 +120,13 @@ impl PtyTerminalRuntime {
         self.input_port.reconnect_ended();
     }
 
+    /// The terminal closes or its owner lets it go: a reader that waits for the PTY fence of its dead host stops
+    /// the wait and starts no replacement host. The handle's lock is a leaf, so it is safe under the runtime lock.
+    pub(super) fn cancel_host_fence_wait(&self) {
+        #[cfg(unix)]
+        self.host_fence_wait.cancel();
+    }
+
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
     /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
     /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
@@ -146,6 +153,34 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        self.after_observed_output(metadata, bytes)
+    }
+
+    /// [`Self::observe_terminal_output`] that also rewrites the title ops
+    /// ghostty-vt skips (`titles`, the stream's
+    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut)),
+    /// in the same one walk of the bytes. Returns the rewritten bytes, for
+    /// `crate::prompt_mode_reset::write_rewritten_output`, and the
+    /// notifications.
+    pub(super) fn observe_terminal_output_rewriting_titles<'a>(
+        &self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+    ) -> (Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
+        let mut metadata =
+            self.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
+        let rewritten = metadata.observe_output_rewriting_titles(titles, bytes);
+        (rewritten, self.after_observed_output(metadata, bytes))
+    }
+
+    fn after_observed_output(
+        &self,
+        mut metadata: std::sync::MutexGuard<'_, crate::terminal_metadata::TerminalMetadata>,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         if self.tail_pin.feed(bytes)
             && let Some(mux) = self.mux.upgrade()
         {
@@ -372,6 +407,11 @@ pub struct PtyTerminalRuntime {
     /// (`restart-tab` on a `failed` tab): its host was ended, so the
     /// reconnect loop stops its wait and retries at once.
     pub(super) recover_requested: AtomicBool,
+    /// The wait of this terminal's reader for the PTY fence of its dead
+    /// host, before it starts the replacement host. Each place that sets
+    /// `owner_detaching` cancels it ([`Self::cancel_host_fence_wait`]).
+    #[cfg(unix)]
+    pub(super) host_fence_wait: crate::terminal_host_runtime::PtyFenceWait,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,

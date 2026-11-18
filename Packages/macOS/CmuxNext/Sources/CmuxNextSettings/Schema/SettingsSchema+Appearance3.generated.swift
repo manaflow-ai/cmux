@@ -46,7 +46,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.uiScale", "App Zoom"),
-                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."),
+                help: SettingsText.keyed("settings.appearance.uiScale.help", "Zoom for chat, Settings and other app pages."),
                 kind: .number(SettingNumber(UIScaleSetting.range, step: 0.05, unit: .fraction, placeholder: UIScaleSetting.placeholder)),
                 default: .number(UIScaleSetting.fallback),
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller", "interface scale"]
@@ -56,11 +56,25 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
                 keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+            ),
+            SettingDescriptor(
+                FontSmoothingSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.fontSmoothing", "Text Smoothing"),
+                help: SettingsText.keyed("settings.appearance.fontSmoothing.help", "How text draws. Some text changes after cmux restarts; terminals keep their own."),
+                kind: .choice([
+                    SettingChoice(FontSmoothing.auto.rawValue, SettingsText.keyed("settings.choice.fontSmoothingAuto", "Auto")),
+                    SettingChoice(FontSmoothing.antialiased.rawValue, SettingsText.keyed("settings.choice.fontSmoothingThin", "Thin")),
+                    SettingChoice(FontSmoothing.subpixel.rawValue, SettingsText.keyed("settings.choice.fontSmoothingSmooth", "Smooth")),
+                ]),
+                default: .string(FontSmoothingSetting.fallback.rawValue),
+                keywords: ["AppleFontSmoothing", "antialiased", "antialiasing", "auto", "bold", "crisp", "font", "rendering", "smooth", "smoothing", "subpixel", "system", "text", "thin", "weight"]
             ),
             SettingDescriptor(
                 InterfaceScaleSetting.configPath,
@@ -152,7 +166,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
-                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                help: SettingsText.keyed("settings.appearance.focusIndicator.help", "How the focused pane stands out."),
                 summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
                 kind: .choice([
                     SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
@@ -168,7 +182,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
-                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
+                help: SettingsText.keyed("settings.focus.inactiveTabStyle.help", "How other panes' tabs look subtler when Focused Pane marks tabs."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -204,7 +218,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.chromeStyle", "Window Style"),
-                help: SettingsText.keyed("settings.appearance.chromeStyle.help", "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."),
+                help: SettingsText.keyed("settings.appearance.chromeStyle.help", "Whether panes sit in one rounded card, and where lines are drawn."),
                 summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
                 kind: .choice(ChromeStyleSetting.choices),
                 default: .string(ChromeStyleSetting.fallback.rawValue),
@@ -215,7 +229,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
-                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."),
+                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "The title bar, tab bar and sidebar in the content's color, or shaded apart."),
                 summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
                 kind: .choice([
                     SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
@@ -229,7 +243,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
-                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."),
+                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, tab bar and sidebar are. 1 is the default."),
                 summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
                 kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
                 default: .number(TitleAreaContrastSetting.fallback),
@@ -248,7 +262,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place. Off: they change at once."),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help", "Splits, closes, moves, zooms and column scrolls slide into place."),
                 kind: .toggle,
                 default: .bool(PaneAnimationsSetting.fallback),
                 keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
@@ -286,7 +300,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
-                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."),
+                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart."),
                 summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
                 kind: .choice([
                     SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
@@ -313,7 +327,7 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding."),
+                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers and cards."),
                 kind: .number(SettingNumber(PaneChromeConfigParser.paneCornerRadiusRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.paneCornerRadiusPlaceholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),

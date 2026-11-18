@@ -190,8 +190,7 @@ pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
         Value::String(s) if !s.trim().is_empty() => (Some(s.clone()), None),
         Value::Object(_) => (
             text("reason").or_else(|| text("why")).map(str::to_owned),
-            hold.get("until")
-                .map(|u| u.as_str().and_then(crate::server::machine_health::rfc3339_ms)),
+            hold.get("until").map(|u| u.as_str().and_then(crate::clock_text::rfc3339_ms)),
         ),
         _ => return Some(format!("held (its hold {hold} cannot be read)")),
     };
@@ -293,7 +292,8 @@ pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<S
 }
 
 /// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
-/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), else a top-level `reservations` entry naming it
+/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), its lanes'
+/// `accept_new` false (a drain), else a top-level `reservations` entry naming it
 /// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
 /// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
 /// reads them).
@@ -311,7 +311,17 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
     }
-    let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
+    // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
+    // lanes, so this pick skips it too and one field drains a host for every placer.
+    let lanes = machine.get("lanes");
+    if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
+        let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
+        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("draining: {why}"),
+            None => "draining (lanes.accept_new false)".into(),
+        });
+    }
+    let time = |v: &Value| v.as_str().and_then(crate::clock_text::rfc3339_ms);
     // A list, or an entry's hosts, that cannot be read may name any machine: it holds them all.
     const UNREADABLE: &str = "held: the registry's reservations cannot be read";
     let entries = match registry.get("reservations") {
@@ -609,7 +619,8 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 
 /// The pick and every host's verdict, as `_acpmux/place` returns them:
 /// `{"pick": NAME|null, "local": bool, "overloaded": bool (no host had room and the pick
-/// takes it anyway), "why": TEXT, "work": "agent"|"build", "tier": {index, of}|null (the
+/// takes it anyway), "why": TEXT, "room": LANES|null (the pick's), "localOver": TEXT|null (why
+/// this machine is over its budget, room or swap), "work": "agent"|"build", "tier": {index, of}|null (the
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
 /// live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
@@ -694,11 +705,17 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
             .to_owned(),
     };
+    // This machine's own verdict when its load, room or swap turns it away: the composer's "This
+    // Mac is busy" chip (design/remote-spin-up.md 2.3) says it, and offers the pick instead.
+    let local_over = weighed.iter().find(|w| w.local && w.load).and_then(|w| w.refused.clone());
     json!({
         "pick": pick.map(|w| w.name.clone()),
         "local": pick.is_some_and(|w| w.local),
         "overloaded": overloaded && pick.is_some(),
         "why": why,
+        // The pick's room in lanes (null without a reading): the composer's "room for 5".
+        "room": pick.and_then(|w| w.room),
+        "localOver": local_over,
         "work": work.as_str(),
         "tier": pick.and_then(|w| w.tier.as_ref()).map(|(at, of)| json!({"index": at.saturating_add(1), "of": of})),
         "hosts": weighed.iter().map(|w| json!({

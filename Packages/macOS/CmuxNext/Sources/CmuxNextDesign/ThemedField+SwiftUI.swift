@@ -84,9 +84,9 @@ public struct ThemedField: NSViewRepresentable {
         guard let isFocused, let window = host.window else { return }
         let editing = field.currentEditor() != nil
         if isFocused.wrappedValue, !editing {
-            window.makeFirstResponder(field)
+            FocusRoute(.system, "a SwiftUI field's focus binding").moveKeyboard(in: window, to: field)
         } else if !isFocused.wrappedValue, editing {
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "a SwiftUI field's focus binding").moveKeyboard(in: window, to: nil)
         }
     }
 
@@ -155,6 +155,6 @@ public final class ThemedFieldHost: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard focusOnAppear, let window, box.field.currentEditor() == nil else { return }
-        window.makeFirstResponder(box.field)
+        FocusRoute(.system, "a SwiftUI field mounted with focus").moveKeyboard(in: window, to: box.field)
     }
 }

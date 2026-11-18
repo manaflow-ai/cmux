@@ -127,11 +127,10 @@ import Testing
     }
 
     /// One shape: every drag to every slot. Returns how many slots spliced and how many fell back.
-    static func check(_ name: String, _ sections: [SidebarSection], active: WorkspaceID?, minimal: Bool = false) -> (spliced: Int, fellBack: Int) {
+    static func check(_ name: String, _ sections: [SidebarSection], active: WorkspaceID?) -> (spliced: Int, fellBack: Int) {
         var (spliced, fellBack) = (0, 0)
         for ids in drags(sections) {
             var look = lookOptions(active: active)
-            look.minimal = minimal
             var baseOptions = look
             baseOptions.excludedWorkspaces.formUnion(ids)
             // A drag that carries a Done row draws unfolded (`SidebarListView.options`).
@@ -168,12 +167,6 @@ import Testing
             let (spliced, fellBack) = Self.check(name, sections, active: active)
             print("DRAG-LOOK-SPLICE shape=\"\(name)\" spliced=\(spliced) fellBack=\(fellBack)")
             #expect(spliced > 0, "\(name): no slot spliced")
-        }
-    }
-
-    @Test func minimalRowsSpliceAsMakeLaysThemOut() {
-        for (name, sections, active) in Self.shapes() {
-            _ = Self.check(name + " (minimal)", sections, active: active, minimal: true)
         }
     }
 

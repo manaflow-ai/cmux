@@ -5,7 +5,7 @@
 //! is `cmux-tui acp <word>`: cmux-tui runs acpmux only when argv0 is `acpmux`
 //! or the first argument is `acp` (`cmux-tui/src/main.rs`). On Linux
 //! `current_exe` resolves an `acpmux` link to `cmux-tui`, so a process that
-//! starts itself again must put the prefix ([`crate::daemon::daemon_prefix`],
+//! starts itself again must put the prefix ([`crate::daemon_parts::daemon_prefix`],
 //! set once by the entry point) before the word. Every place that starts this
 //! binary with an acpmux subcommand goes through [`SelfCommand`].
 //!
@@ -30,7 +30,7 @@ impl SelfCommand {
     /// replaced the file: a config or argv written for another process names
     /// the installed path, and [`Self::command`] still starts this build.
     pub fn current() -> std::io::Result<Self> {
-        Ok(Self::new(undeleted(std::env::current_exe()?), crate::daemon::daemon_prefix()))
+        Ok(Self::new(undeleted(std::env::current_exe()?), crate::daemon_parts::daemon_prefix()))
     }
 
     pub fn new(exe: PathBuf, prefix: Vec<OsString>) -> Self {

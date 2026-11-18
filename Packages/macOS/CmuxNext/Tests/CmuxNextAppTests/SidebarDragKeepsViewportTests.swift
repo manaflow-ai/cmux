@@ -23,8 +23,20 @@ struct SidebarDragKeepsViewportTests {
 
     @Test func liftingARowNearTheBottomKeepsTheScrolledListWhereItIs() throws {
         _ = NSApplication.shared
+        // A press switches on mouse-down only with side by side off (`SidebarTunables.multiViewOn`), and that switch is
+        // process-wide: a multi-view suite running in parallel holds it on across its awaits, and then this press showed
+        // on release and the drag kept workspace 1. Synchronous, so the pin holds for the whole test.
+        let design = DesignSettings.shared
+        let sideBySide = design.sidebarSections.sideBySide
+        design.sidebarSections.sideBySide = false
+        defer { design.sidebarSections.sideBySide = sideBySide }
+        try SidebarMultiViewPressTests.withMultiView(false) { try Self.liftAndCheck() }
+    }
+
+    private static func liftAndCheck() throws {
+        try #require(!SidebarTunables.multiViewOn, "side by side is still on")
         let all = Array(1...40)
-        let start = Self.sections(all)
+        let start = sections(all)
         let ids = try #require(start.first?.workspaces.map(\.id))
         try #require(ids.count == all.count)
         // The shown workspace is the first row, far above the end of the list.

@@ -98,7 +98,7 @@ public final class BackdropImageStore {
     func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) -> NSImage? {
         let size = min(Self.previewPixelSize, maxPixelSize)
         let image = snapshotURL(selection, texture: texture, dark: dark).flatMap { Self.decode($0, maxPixelSize: size) }
-            ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
+            ?? Self.thumbnail(of: selection.resolved(dark: dark)).flatMap { Self.decode($0, maxPixelSize: size) }
         return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
 
@@ -142,6 +142,8 @@ public final class BackdropImageStore {
 
     /// The decoded, textured image of `selection`, loading it off the main actor once.
     func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, dark: Bool = false) async -> NSImage? {
+        // Light and Dark loads the side the appearance shows, under that side's own key.
+        let selection = selection.resolved(dark: dark)
         let key = Key(id: selection.variantID(dark: dark), texture: texture)
         if let image = images[key] { return image }
         if case .art(let art) = selection, art.imageURL == nil {
@@ -163,9 +165,9 @@ public final class BackdropImageStore {
             load = running
         } else {
             let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
-            let size = maxPixelSize
+            let size = maxPixelSize, pin = selection.pinnedFrame
             load = Task.detached(priority: .userInitiated) {
-                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
+                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: pin?.dark ?? dark, frame: pin?.index)
             }
             loads[key] = load
         }
@@ -198,11 +200,11 @@ public final class BackdropImageStore {
 
     /// The snapshot when there is one, else the source decoded, textured and snapshotted.
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
-                                         texture: BackdropTexture, dark: Bool) -> Decoded? {
+                                         texture: BackdropTexture, dark: Bool, frame: Int? = nil) -> Decoded? {
         if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
             return Decoded(image: image, rendered: false)
         }
-        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
+        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark, frame: frame) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
@@ -211,8 +213,9 @@ public final class BackdropImageStore {
     }
 
     /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;
-    /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
-    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
+    /// a video's first frame, and a dynamic HEIC's `frame` when it has one, else its frame for light
+    /// or `dark` (``BackdropAppearance``).
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false, frame pinned: Int? = nil) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -221,7 +224,8 @@ public final class BackdropImageStore {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
+        let frame = pinned.flatMap { $0 >= 0 && $0 < CGImageSourceGetCount(source) ? $0 : nil }
+            ?? (dark ? BackdropAppearance.dark : .light).frame(in: source)
         return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
     }
 

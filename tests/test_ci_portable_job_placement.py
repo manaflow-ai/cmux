@@ -609,8 +609,9 @@ class Wiring(unittest.TestCase):
         config = bootstrap["steps"][-1]["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
+        # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
         runners = json.loads((ROOT / ".github/runners.json").read_text())
-        self.assertNotIn("allowed_secrets", runners["hosted_light_jobs"]["cmux-next.yml#portable-placement"])
+        self.assertNotIn("cmux-next.yml#portable-placement", runners["hosted_light_jobs"])
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -687,7 +688,9 @@ class Wiring(unittest.TestCase):
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    self.assertEqual(job["needs"], ["portable-placement"])
+                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
+                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
@@ -794,7 +797,8 @@ class Wiring(unittest.TestCase):
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
                     self.assertIn(spec["fallback"], route)
 
-    def test_remaining_light_routers_use_live_placement_before_hosted_or_paid_fallback(self):
+    def test_remaining_light_routers_use_live_placement_before_blacksmith_fallback(self):
+        # No hosted Ubuntu attempt: GitHub-hosted runners left these queued for hours (cmux#45735).
         ci = jobs("ci.yml")
         placement = ci["portable-placement"]
         changes = ci["changes"]
@@ -807,11 +811,10 @@ class Wiring(unittest.TestCase):
         self.assertIn("!cancelled()", changes["if"])
         changes_route = single_runs_on(changes)
         live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
-        hosted = changes_route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", changes_route)
         paid = changes_route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertNotIn("contains(needs.portable-placement.outputs.mini_jobs, ' changes ')", changes_route)
-        self.assertLess(live_linux, hosted)
-        self.assertLess(hosted, paid)
+        self.assertLess(live_linux, paid)
 
         next_jobs = jobs("cmux-next.yml")
         path_route = next_jobs["path_route"]
@@ -824,11 +827,10 @@ class Wiring(unittest.TestCase):
         route = single_runs_on(path_route)
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
-        hosted = route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
         paid = route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live_linux, live_mini)
-        self.assertLess(live_mini, hosted)
-        self.assertLess(hosted, paid)
+        self.assertLess(live_mini, paid)
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
@@ -845,7 +847,8 @@ class Wiring(unittest.TestCase):
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
-                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
+                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)

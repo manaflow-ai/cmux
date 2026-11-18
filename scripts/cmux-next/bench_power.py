@@ -20,7 +20,21 @@ Usage (a fleet mini, never a laptop; launches the app with a scratch HOME):
   bench_power.py --app BUNDLE [--settle 120] [--measure 60]
       [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,neighbors,minimized]
       [--out FILE.json]
-Prints one PERF-POWER line per scenario and kind, plus a total line.
+Prints one PERF-POWER line per scenario and kind, plus a total line, one
+PERF-POWER-RENDERER line per Chromium renderer and a PERF-POWER-FREEZE line (how
+many pages the app froze, from `debug.surfaces` on bench and DEV builds).
+
+`--extension mv3-all-sites` loads a minimal Manifest V3 extension that can script
+every site (host_permissions and a content script on <all_urls>, a service
+worker), as a password manager does (CMUX_NEXT_CEF_LOAD_EXTENSIONS). Hidden pages
+such an extension can script stay awake (CEFExtensionStores.scriptsPage); the
+browser scenarios with and without it give the energy that costs:
+  cmux-ci run --class exclusive --measurement --label measure \
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=tabs20,tabs20-hidden \
+    --arg=config=bench --arg=freeze=5 --arg=extension=mv3-all-sites --artifact artifacts/perf-idle-power.json
+`--tab-page busy` (perf-idle-power.sh pages=busy) opens the tabs on /busy.html (a 250 ms timer and
+an animation loop, as a typical site) instead of the static article, so a hidden page that is not
+frozen has work to do.
 
 `neighbors` (browser.keepNeighborTabsAwake, plans/cmux-next/neighbor-tabs-DESIGN.md)
 times switches among the 20 tabs: to the next tab (a neighbor) and to a tab 10
@@ -199,10 +213,15 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
     pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
     kinds: dict[str, dict] = {}
+    renderers = []
     for pid, (kind, first) in start.items():
         last = counters(pid)
         if first is None or last is None:
             continue
+        if kind == "cef-renderer":
+            renderers.append({"pid": pid, "mw": round((last[0] - first[0]) / 1e6 / elapsed, 3),
+                              "cpu_pct": round(100 * (last[1] - first[1]) / 1e9 / elapsed, 3),
+                              "wakeups_per_s": round((last[2] - first[2]) / elapsed, 2)})
         entry = kinds.setdefault(kind, {"count": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "footprint_mb": 0.0,
                                         "footprint_unread": 0})
         entry["count"] += 1
@@ -218,8 +237,13 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
             entry[key] = round(entry[key], 3)
     total = {key: round(sum(e[key] for e in kinds.values()), 3) for key in ("mw", "cpu_pct", "wakeups_per_s", "footprint_mb")}
     total["footprint_unread"] = sum(e["footprint_unread"] for e in kinds.values())
+    renderers.sort(key=lambda row: -row["mw"])
     result = {"label": label, "seconds": round(elapsed, 1), "total": total,
-              "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["mw"])), "powermetrics": pm_result}
+              "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["mw"])), "powermetrics": pm_result,
+              "renderers": renderers}
+    for row in renderers:
+        print(f"PERF-POWER-RENDERER {label} pid={row['pid']} mw={row['mw']} cpu_pct={row['cpu_pct']} "
+              f"wakeups_per_s={row['wakeups_per_s']}")
     for kind, entry in result["kinds"].items():
         print(f"PERF-POWER {label} kind={kind} n={entry['count']} mw={entry['mw']} cpu_pct={entry['cpu_pct']} "
               f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)} "
@@ -239,6 +263,33 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, 
 
 # App energy (mW) above which an idle scenario samples the app's stacks (msg 2654).
 IDLE_APP_MW_GUARD = 1.0
+
+
+# --extension: minimal unpacked extensions, written to a scratch folder at launch.
+EXTENSIONS = {
+    # All sites, as a password manager asks (Bitwarden, 1Password): a content script in every page
+    # that sends one message to the service worker and listens for more, and nothing else.
+    "mv3-all-sites": {
+        "manifest.json": json.dumps({
+            "manifest_version": 3, "name": "bench mv3 all sites", "version": "1.0",
+            "host_permissions": ["<all_urls>"],
+            "background": {"service_worker": "worker.js"},
+            "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"}]}),
+        "worker.js": "chrome.runtime.onMessage.addListener((message, sender, reply) => { reply({ok: true}); });\n",
+        "content.js": "chrome.runtime.onMessage.addListener(() => {});\n"
+                      "chrome.runtime.sendMessage({hello: location.host}).catch(() => {});\n",
+    },
+}
+
+
+def write_extension(name: str) -> str:
+    """Writes the --extension `name` to a new scratch folder; returns its path."""
+    folder = os.path.join(tempfile.mkdtemp(prefix="bench-power-extension-"), name)
+    os.makedirs(folder)
+    for file, text in EXTENSIONS[name].items():
+        with open(os.path.join(folder, file), "w") as handle:
+            handle.write(text)
+    return folder
 
 
 def wipe_state(bundle: str):
@@ -739,6 +790,7 @@ def main():
     parser.add_argument("--load-closed", type=float, default=0.6, help="loaded: share of them closed")
     parser.add_argument("--load-remote", type=int, help="loaded: open chats on the peer (20; idle-chats 0)")
     parser.add_argument("--load-local", type=int, help="loaded: open chats on this Mac (5; idle-chats 40)")
+    parser.add_argument("--relaunch-rounds", type=int, help="relaunch-reconnect: rounds per mode (3)")
     parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
     parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
     parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
@@ -754,6 +806,10 @@ def main():
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON); a \"debugTunables\" object is taken as --tunable values")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--extension", choices=sorted(EXTENSIONS),
+                        help="load this minimal unpacked extension (CMUX_NEXT_CEF_LOAD_EXTENSIONS)")
+    parser.add_argument("--tab-page", choices=("static", "busy"), default="static",
+                        help="the page the 20 tabs open: the static article or /busy.html (a timer and an animation loop)")
     parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                         help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
@@ -779,6 +835,9 @@ def main():
             json.dump({"version": 1, "values": values}, f)
         args.env.append(f"CMUX_NEXT_DEBUG_TUNABLES_FILE={tunables}")
         print(f"PERF-TUNABLES {json.dumps(values)}", flush=True)
+    if args.extension:
+        args.env.append(f"CMUX_NEXT_CEF_LOAD_EXTENSIONS={write_extension(args.extension)}")
+        print(f"PERF-POWER-EXTENSION {args.extension}", flush=True)
     if args.compare:
         before, after = (loaded_result(path) for path in args.compare)
         print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))
@@ -794,6 +853,7 @@ def main():
         import bench_relaunch_reconnect as relaunch
         argv = ["--app", args.app, "--config", args.config]
         argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
+        argv += ["--rounds", str(args.relaunch_rounds)] if args.relaunch_rounds is not None else []
         argv += ["--out", args.out] if args.out else []
         argv += ["--md", args.md] if args.md else []
         relaunch.main(argv)
@@ -835,7 +895,17 @@ def main():
 
     def settle_measure(label: str, during=None, settle: float | None = None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
-        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle))
+        result = measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle)
+        # Which pages the app froze (debug.surfaces, bench and DEV builds): a page an MV3 extension can
+        # script stays awake.
+        hibernation = (rpc(sock, "debug.surfaces") or {}).get("hibernation") or {}
+        result["freeze"] = {"pages": len(hibernation.get("page_phases") or {}), "frozen": len(hibernation.get("frozen") or []),
+                            "awake_neighbors": len(hibernation.get("awake_neighbors") or []),
+                            "neighbor_radius": hibernation.get("neighbor_radius"), "exemptions": hibernation.get("exemptions")}
+        print(f"PERF-POWER-FREEZE {label} pages={result['freeze']['pages']} frozen={result['freeze']['frozen']} "
+              f"awake_neighbors={result['freeze']['awake_neighbors']} neighbor_radius={result['freeze']['neighbor_radius']} "
+              f"exemptions={json.dumps(result['freeze']['exemptions'])}", flush=True)
+        results.append(result)
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={powermetrics(1) is not None}", flush=True)
@@ -843,7 +913,7 @@ def main():
         run("workspace.selectLast")
         if "terminal" in scenarios:
             settle_measure("terminal")
-        open_tab("/static.html?n=1")
+        open_tab(f"/{args.tab_page}.html?n=1")
         if "tab1" in scenarios:
             settle_measure("tab1")
         if "tab1-hidden" in scenarios:
@@ -852,7 +922,7 @@ def main():
             run("showHideAllWindows")
         while tabs < 20:
             before = tabs
-            open_tab(f"/static.html?n={tabs + 1}")
+            open_tab(f"/{args.tab_page}.html?n={tabs + 1}")
             if tabs == before:
                 break
         # A tab's Chromium page loads when the tab is first shown: show each
