@@ -9,11 +9,14 @@ import {
   parseAnalyticsQuery,
   type SubscriptionAnalyticsLoader,
 } from "../../../../../services/billing/analytics/query";
+import { appleServerApiStatus } from "../../../../../services/billing/apple/config";
 import { captureBillingError } from "../../../../../services/errors";
 
 export type SubscriptionAnalyticsRouteDependencies = {
   readonly load: SubscriptionAnalyticsLoader;
   readonly now?: () => Date;
+  /** Configuration source for `billingHealth`; defaults to `process.env`. */
+  readonly env?: Record<string, string | undefined>;
 };
 
 export function createSubscriptionAnalyticsHandlers(deps: SubscriptionAnalyticsRouteDependencies) {
@@ -22,7 +25,9 @@ export function createSubscriptionAnalyticsHandlers(deps: SubscriptionAnalyticsR
    * (apple|stripe|all), `plan`, `environment` (production|sandbox|all,
    * default production), `from`/`to` (ISO date or timestamp, default the
    * last 180 days), `granularity` (day|week|month). 401/403 before any read
-   * for a caller who is not an admin.
+   * for a caller who is not an admin. `billingHealth.appleServerApi` says
+   * whether the App Store Server API key is configured (`configured` or
+   * `missing`, with the missing env names), checkable without the cron.
    */
   async function GET(request: NextRequest) {
     const gate = await requireAdmin(request);
@@ -31,7 +36,8 @@ export function createSubscriptionAnalyticsHandlers(deps: SubscriptionAnalyticsR
     const query = parseAnalyticsQuery(request.nextUrl.searchParams, now);
     if (!query) return adminJsonResponse({ error: "invalid_query" }, 400);
     try {
-      return adminJsonResponse(await deps.load(query, now));
+      const report = await deps.load(query, now);
+      return adminJsonResponse({ ...report, billingHealth: appleServerApiStatus(deps.env ?? process.env) });
     } catch (error) {
       captureBillingError(error, {
         route: "/api/admin/subscriptions/analytics",

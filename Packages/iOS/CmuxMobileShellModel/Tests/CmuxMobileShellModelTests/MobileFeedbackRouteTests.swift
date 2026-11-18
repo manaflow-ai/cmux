@@ -94,18 +94,26 @@ struct MobileFeedbackRouteTests {
         #expect(MobileBuildType.resolve(isDebugBuild: false, bundleIdentifier: "dev.cmux.app.beta") == .beta)
     }
 
-    @Test func releaseInternalAndDemoBundlesKeepTheirOwnBuildTypes() {
+    @Test func releaseInternalAndClassicBundlesResolveAndDemoIsRetired() {
         #expect(
             MobileBuildType.resolve(
                 isDebugBuild: false,
                 bundleIdentifier: "dev.cmux.app.internal"
             ) == .internal
         )
+        // cmux DEMO is retired: its old bundle is no longer a known channel.
         #expect(
             MobileBuildType.resolve(
                 isDebugBuild: false,
                 bundleIdentifier: "dev.cmux.app.demo"
-            ) == .demo
+            ) == .prod
+        )
+        // cmux CLASSIC is the classic app's internal TestFlight home.
+        #expect(
+            MobileBuildType.resolve(
+                isDebugBuild: false,
+                bundleIdentifier: "dev.cmux.app.classic"
+            ) == .internal
         )
     }
 
