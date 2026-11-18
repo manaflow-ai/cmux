@@ -144,11 +144,22 @@ import Testing
         #expect(hidden.unread == UnreadState.none, "showOnSidebar off hides it like any unread")
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/42210: a Claude Code terminal still running background work
+    /// kept its needs-you ring however often the pane was focused. Under the default `focus` dismissal,
+    /// focusing the pane hides the ring as a click does; the mark itself stays.
+    @Test func focusingTheMarkedPaneHidesItsRingUnderTheDefaultSettings() throws {
+        let (service, workspace, tab) = try Self.marked()
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "focusing the marked pane left its ring")
+        #expect(tab.showsUnread, "focus keeps the mark: only the agent, a navigation or a close clears it")
+    }
+
     @Test func thePaneRingsUntilThePersonGoesInAndANewRequestRingsAgain() throws {
         let (service, workspace, tab) = try Self.marked()
         #expect(service.attentionMarks(for: workspace).count == 1, "the marked tab's pane has no ring")
+        service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
-        #expect(service.attentionMarks(for: workspace).count == 1, "focus alone hid the ring")
+        #expect(service.attentionMarks(for: workspace).count == 1, "focus alone hid the ring under the click dismissal")
         // The pane's ring redraws from an observation of attentionMarks: hiding the ring must wake it.
         let woke = Woke()
         withObservationTracking { _ = service.attentionMarks(for: workspace) } onChange: { woke.value = true }
@@ -313,8 +324,9 @@ import Testing
         invocation.targetMachineID = "disconnected-machine"
         #expect(ActionScope(services: services, invocation: invocation).workspace == nil)
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "the remote marked tab has no ring")
+        notifications.preferences.dismissal = .click
         notifications.interacted(.focus, tabID: remoteTab.id, in: remoteWorkspace, local: false)
-        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring")
+        #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring under the click dismissal")
         notifications.interacted(.click, tabID: remoteTab.id, in: remoteWorkspace, local: false)
         #expect(notifications.attentionMarks(for: remoteWorkspace).isEmpty, "a click into the remote tab left its ring")
         #expect(remoteTab.attention != nil, "going in keeps the mark")
