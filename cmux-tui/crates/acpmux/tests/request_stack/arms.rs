@@ -105,6 +105,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 "an unsigned build refuses (invalid params) before it reads the socket",
             ),
         ),
+        (
+            method::MUX_COMPUTER_USE_ENDPOINT,
+            Run(json!({})), // the caller check refuses (-32001): this connection names no chat
+        ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),
         (method::SESSION_LOAD, Run(json!({"sessionId": "$S"}))),
         (method::SESSION_RESUME, Run(json!({"sessionId": "$S"}))),
@@ -365,6 +369,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TYPING, Run(json!({"sessionId": "$S", "on": true}))),
         (method::MUX_MARK_UNREAD, Run(json!({"sessionId": "$S"}))),
         (method::MUX_MARK_READ, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_SEEN, Run(json!({"sessionId": "$S", "seq": 1}))),
         (
             method::MUX_APP_REPLY,
             Any(
