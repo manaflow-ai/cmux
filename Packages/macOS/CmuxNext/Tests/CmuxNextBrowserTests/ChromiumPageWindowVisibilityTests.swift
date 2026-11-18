@@ -84,12 +84,13 @@ import Testing
         // Not a child window yet (a page before it shows, a detached page).
         #expect(!page.occlusionState.contains(.visible))
         #expect(!page.isOnActiveSpace)
-        _ = Self.parent(of: page)
+        let parent = Self.parent(of: page)
         page.embedded = false
         #expect(!page.occlusionState.contains(.visible))
         #expect(!page.isOnActiveSpace)
         page.embedded = true
         #expect(page.occlusionState.contains(.visible))
+        withExtendedLifetime(parent) {}
     }
 
     @Test func installingAgainIsHarmless() throws {
@@ -106,8 +107,9 @@ import Testing
     @Test func otherWindowsKeepTheirAnswer() throws {
         ChromiumPageWindowMain.installPageRules(on: try Self.pageWindowClass())
         let page = try Self.window(of: StandInPageWindow.self)
-        _ = Self.parent(of: page)
+        let parent = Self.parent(of: page)
         #expect(!page.isOnActiveSpace)
+        withExtendedLifetime(parent) {}
     }
 
     /// Chromium reads a window's state only on that window's own notification: the cmux window's flip is passed on

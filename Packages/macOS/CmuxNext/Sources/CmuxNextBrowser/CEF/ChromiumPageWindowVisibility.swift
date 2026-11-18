@@ -24,8 +24,9 @@ import ObjectiveC
 ///
 /// So an embedded page window answers both from its parent window, and a
 /// parent's own flip is passed on to its embedded page windows, so Chromium
-/// still hides a page whose cmux window is minimized, on another Space or
-/// covered. A page window that is not embedded, or not a child window yet
+/// still hides a page whose cmux window is minimized, hidden or on another
+/// Space. A covered cmux window is still on the active Space, so its pages
+/// stay drawn, as Chromium's own windows' pages do. A page window that is not embedded, or not a child window yet
 /// (a detached page, a page before it shows), keeps Chromium's answer.
 nonisolated enum ChromiumPageWindowVisibility {
     static let occlusionSelector = #selector(getter: NSWindow.occlusionState)
@@ -40,7 +41,8 @@ nonisolated enum ChromiumPageWindowVisibility {
     /// `object`'s own implementation of `sel`, called as `type`. AppKit's getters are read through their
     /// implementations, as Chromium reads them: the swizzled getters run from AppKit and Chromium, not from Swift.
     private static func implementation<T>(of sel: Selector, in object: AnyObject, as type: T.Type) -> T? {
-        class_getMethodImplementation(object_getClass(object), sel).map { unsafeBitCast($0, to: type) }
+        // The method itself, not class_getMethodImplementation, which answers the forwarding stub for a missing one.
+        class_getInstanceMethod(object_getClass(object), sel).map { unsafeBitCast(method_getImplementation($0), to: type) }
     }
 
     /// Overrides `occlusionState` and `isOnActiveSpace` on `pageClass` to
@@ -93,9 +95,11 @@ nonisolated enum ChromiumPageWindowVisibility {
     /// windows answer from it (``followParentWindow(_:)``), and Chromium reads a window's state only on that
     /// window's own notification. Nothing for a page window's own flip.
     /// ``ChromiumWindowGuard``, which watches every window's occlusion, reports each flip here.
-    @MainActor static func parentOcclusionChanged(_ parent: NSWindow, post: (NSWindow) -> Void = postOcclusionChange) {
+    @MainActor static func parentOcclusionChanged(_ parent: NSWindow, post: ((NSWindow) -> Void)? = nil) {
         guard !isEmbeddedPage(parent) else { return }
-        for child in parent.childWindows ?? [] where isEmbeddedPage(child) { post(child) }
+        for child in parent.childWindows ?? [] where isEmbeddedPage(child) {
+            if let post { post(child) } else { postOcclusionChange(of: child) }
+        }
     }
 
     /// AppKit's own notice of `window`'s occlusion change, which Chromium's window delegate observes.
