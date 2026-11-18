@@ -87,10 +87,16 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
   const [closed, setClosed] = useState<string>();
   const carried = surface.pending && surface.pending.requestId !== closed ? surface.pending : null;
   const pending = answer ?? carried;
+  // The committed request for the handlers below, synced after each commit (never written during render).
   const pendingRef = useRef(pending);
-  pendingRef.current = pending;
-  // An MCP App view's post, while its frame is mounted (FrameView).
+  useLayoutEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+  // An MCP App view's post, while its frame is mounted (FrameView hands it over).
   const viewPost = useRef<((message: unknown) => void) | null>(null);
+  const setViewPost = useCallback((post: ((message: unknown) => void) | null) => {
+    viewPost.current = post;
+  }, []);
 
   const cancel = useCallback(() => {
     const current = pendingRef.current;
@@ -240,7 +246,7 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
         <SurfaceActionsContext.Provider value={actions}>
           {/* A page with no render frame (the dev server, the gallery) draws Rust's fallback root instead. */}
           {surface.frame && canRender() ? (
-            <FrameView surface={surface} client={client} post={viewPost} onPending={setAnswer} />
+            <FrameView surface={surface} client={client} onPost={setViewPost} onPending={setAnswer} />
           ) : (
             root && (
               <div className="uis-body">
@@ -292,12 +298,12 @@ export const UiSurfaceCard = memo(function UiSurfaceCard({ surface, client: give
 function FrameView({
   surface,
   client,
-  post,
+  onPost,
   onPending,
 }: {
   surface: UiSurface;
   client: UiSurfaceClient;
-  post: { current: ((message: unknown) => void) | null };
+  onPost: (post: ((message: unknown) => void) | null) => void;
   onPending: (pending: UiSurfacePending) => void;
 }) {
   const t = useT();
@@ -316,7 +322,7 @@ function FrameView({
     frameSpec.height,
     forward,
     host,
-    post,
+    onPost,
   );
   return (
     <div className="uis-frame">

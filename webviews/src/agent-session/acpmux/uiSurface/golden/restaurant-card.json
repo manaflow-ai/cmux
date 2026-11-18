@@ -1,0 +1,113 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "restaurant-card",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "children": [
+          {
+            "axis": "v",
+            "children": [
+              {
+                "alt": "Image",
+                "id": "restaurant_image",
+                "type": "image"
+              },
+              {
+                "axis": "v",
+                "children": [
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "restaurant_name",
+                        "style": "body",
+                        "text": "The Italian Kitchen",
+                        "type": "text"
+                      },
+                      {
+                        "id": "price_range",
+                        "style": "body",
+                        "text": "$$$",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "name_row",
+                    "type": "stack"
+                  },
+                  {
+                    "id": "cuisine",
+                    "style": "caption",
+                    "text": "Italian • Pasta • Wine Bar",
+                    "type": "text"
+                  },
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "star_icon",
+                        "name": "star",
+                        "type": "icon"
+                      },
+                      {
+                        "id": "rating",
+                        "style": "body",
+                        "text": "4.8",
+                        "type": "text"
+                      },
+                      {
+                        "id": "reviews",
+                        "style": "caption",
+                        "text": "(2,847 reviews)",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "rating_row",
+                    "type": "stack"
+                  },
+                  {
+                    "axis": "h",
+                    "children": [
+                      {
+                        "id": "distance",
+                        "style": "caption",
+                        "text": "0.8 mi",
+                        "type": "text"
+                      },
+                      {
+                        "id": "delivery_time",
+                        "style": "caption",
+                        "text": "25-35 min",
+                        "type": "text"
+                      }
+                    ],
+                    "id": "details_row",
+                    "type": "stack"
+                  }
+                ],
+                "id": "content",
+                "type": "stack"
+              }
+            ],
+            "id": "main_column",
+            "type": "stack"
+          }
+        ],
+        "id": "root",
+        "type": "card"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "gallery-restaurant-card"
+    }
+  ]
+}

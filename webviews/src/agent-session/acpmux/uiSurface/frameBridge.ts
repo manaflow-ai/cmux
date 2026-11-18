@@ -7,7 +7,7 @@
 // host sends the view nothing of its own (tool input, tool result) before the view's
 // `ui/notifications/initialized`; until then such notifications wait in order. A reply to the
 // view's own request (its `ui/initialize`) is an answer, not a host message, and goes at once.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { renderFrameCSS } from "../conversation/renderBase";
 import { readUiSurfacePending, type UiSurfacePending } from "./model";
 
@@ -136,18 +136,22 @@ export function useSurfaceFrame(
   initialHeight: number | undefined,
   forward: (message: unknown) => Promise<unknown>,
   host?: FrameHost,
-  /// Set while mounted: posts a message (a confirmed action's `reply`) to the view.
-  post?: { current: ((message: unknown) => void) | null },
+  /// Given a poster (a confirmed action's `reply` to the view) while mounted, null after.
+  onPost?: (post: ((message: unknown) => void) | null) => void,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
+  // The latest host and forward for the bridge the effect below keeps for the frame's life, synced
+  // after each commit, never written during render.
   const hostRef = useRef(host);
-  hostRef.current = host;
   const [height, setHeight] = useState(() =>
     Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, initialHeight ?? FRAME_DEFAULT_HEIGHT)),
   );
   const [blocked, setBlocked] = useState<string>();
   const forwardRef = useRef(forward);
-  forwardRef.current = forward;
+  useLayoutEffect(() => {
+    hostRef.current = host;
+    forwardRef.current = forward;
+  }, [host, forward]);
   useEffect(() => {
     const target = () => frame.current?.contentWindow ?? null;
     const bridge = createFrameBridge({
@@ -163,7 +167,7 @@ export function useSurfaceFrame(
     const postToView = (message: unknown) => {
       if (isJsonRpc(message)) target()?.postMessage(message, "*");
     };
-    if (post) post.current = postToView;
+    onPost?.(postToView);
     const source = framedHtml(html, csp);
     const onMessage = (event: MessageEvent) => {
       const view = target();
@@ -178,9 +182,9 @@ export function useSurfaceFrame(
     addEventListener("message", onMessage);
     return () => {
       bridge.close();
-      if (post?.current === postToView) post.current = null;
+      onPost?.(null);
       removeEventListener("message", onMessage);
     };
-  }, [html, csp, post]);
+  }, [html, csp, onPost]);
   return { frame, height, blocked };
 }

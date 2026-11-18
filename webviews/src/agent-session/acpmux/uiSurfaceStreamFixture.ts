@@ -4,7 +4,8 @@
 // tool call's `_meta.acpmux.uiSurface`, and the live pane's DEBUG `debug.agent_pane` `stream` with `surface`
 // (surfaceStreamDebug.ts, golden.py `ui_surface_stream`) puts it on a tool row. Both read Rust's golden
 // `cmux-catalog-cards` (approval, review, progress, table, charts, field, button) as cmux-ui-surfaces emits it.
-import cmuxCatalogCards from "../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/cmux-catalog-cards.json";
+// A copy of cmux-tui/crates/cmux-ui-surfaces/tests/golden/cmux-catalog-cards.json (see uiSurface/golden/golden.test.ts).
+import cmuxCatalogCards from "./uiSurface/golden/cmux-catalog-cards.json";
 
 /// The golden the stream grows (the `surface` name `debug.agent_pane stream` takes).
 export const UI_SURFACE_STREAM_FIXTURE = "cmux-catalog-cards";

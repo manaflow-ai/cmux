@@ -60,8 +60,6 @@ export default {
         webviewsRoot,
         // Gallery-only licensed candidates; no production import uses this directory.
         path.join(repoRoot, "design/icons/neko-candidates"),
-        // Rust's golden agent UI surfaces, drawn as they are (uiSurface/UiSurfaceGolden.gallery.tsx).
-        path.join(repoRoot, "cmux-tui/crates/cmux-ui-surfaces/tests/golden"),
       ],
     },
     // Behind tailscale serve the page is https://<host>:<public port>/<base>; the socket goes there too.

@@ -1,0 +1,82 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "30-refine-search",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "id": "title",
+            "style": "heading",
+            "text": "Refine",
+            "type": "text"
+          },
+          {
+            "id": "dates",
+            "text": "DateRangePicker (travel catalog)",
+            "type": "fallback"
+          },
+          {
+            "id": "who",
+            "text": "TravelerCounter (travel catalog)",
+            "type": "fallback"
+          },
+          {
+            "bind": "/filters/maxPrice",
+            "id": "budget",
+            "input": "slider",
+            "label": "Max fare",
+            "max": 1500.0,
+            "min": 150.0,
+            "type": "field",
+            "value": 600.0
+          },
+          {
+            "bind": "/filters/stops",
+            "id": "stops",
+            "input": "choice",
+            "label": "Stops",
+            "options": [
+              {
+                "label": "Any",
+                "value": "any"
+              },
+              {
+                "label": "Nonstop only",
+                "value": "nonstop"
+              }
+            ],
+            "type": "field",
+            "value": []
+          },
+          {
+            "action": {
+              "id": "apply",
+              "name": "apply_filters",
+              "privileged": true
+            },
+            "id": "apply",
+            "label": "Apply",
+            "type": "button",
+            "variant": "primary"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "inline-3"
+    }
+  ]
+}

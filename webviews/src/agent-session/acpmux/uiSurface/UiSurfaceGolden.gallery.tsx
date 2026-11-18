@@ -3,16 +3,19 @@
 // samples, read from its golden files as they are, drawn by the Mac card: what this page draws for
 // exactly what Rust emits. One variant per sample; a sample with several surfaces draws them all.
 // The handwritten looks and states are agent-pane.ui-surface (UiSurfaceCard.gallery.tsx).
+// ./golden/*.json are byte-for-byte copies of cmux-tui/crates/cmux-ui-surfaces/tests/golden/*.json: CI's
+// webviews checkout has nothing outside webviews/, so a page cannot import them from there. Copy them
+// again when Rust's goldens change; golden/golden.test.ts checks each still reads as surfaces.
 import { componentEntry } from "../../../gallery/format";
-import cmuxCatalogCards from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/cmux-catalog-cards.json";
-import cmuxPending from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/cmux-pending.json";
-import contactForm from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/contact_form_example.json";
-import openingForm from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/10-opening-form.json";
-import refineSearch from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/30-refine-search.json";
-import homeDashboard from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/60-home-dashboard.json";
-import travelerForm from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/70-traveler-form.json";
-import restaurantCard from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/restaurant-card.json";
-import mcpAppFrame from "../../../../../cmux-tui/crates/cmux-ui-surfaces/tests/golden/mcp-app-frame.json";
+import cmuxCatalogCards from "./golden/cmux-catalog-cards.json";
+import cmuxPending from "./golden/cmux-pending.json";
+import contactForm from "./golden/contact_form_example.json";
+import openingForm from "./golden/10-opening-form.json";
+import refineSearch from "./golden/30-refine-search.json";
+import homeDashboard from "./golden/60-home-dashboard.json";
+import travelerForm from "./golden/70-traveler-form.json";
+import restaurantCard from "./golden/restaurant-card.json";
+import mcpAppFrame from "./golden/mcp-app-frame.json";
 import type { UiSurfaceClient } from "./actions";
 import { pendingFor } from "./fixtures";
 import { readUiSurface, type UiSurface } from "./model";
