@@ -3,7 +3,7 @@
 // handed the composer new functions that do the same thing and drew it again for nothing. Each `on*`
 // function prop is replaced by one function per prop name that calls the latest one passed, so a
 // `memo` around the component sees the same handler until the prop comes or goes.
-import { useRef } from "react";
+import { useCallback, useInsertionEffect, useRef } from "react";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -28,4 +28,17 @@ export function useStableHandlers<P extends object>(props: P): P {
     stable[key] = handler;
   }
   return stable as P;
+}
+
+/// One function, the same on every render, that calls the latest `handler`: for an event prop a
+/// compiled component builds from values a key changes (the draft, its caret), so the element it is
+/// passed to is the same on the next key. `handler` is written as the render commits, never during
+/// it (a write during render keeps the component out of the React Compiler); call the result from
+/// events and effects only, never while rendering.
+export function useLatestHandler<A extends unknown[], R>(handler: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(handler);
+  useInsertionEffect(() => {
+    latest.current = handler;
+  });
+  return useCallback((...args: A) => latest.current(...args), []);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
   filesFrom,
@@ -984,7 +984,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       document.removeEventListener("paste", paste);
     };
   }, [attach, showDrop, refused]);
-  const shown = pending.filter((chip) => chip.scope === scope);
+  // The same array until a chip comes, goes or changes: the hook is left uncompiled (the `try` at
+  // its top), and a new array each render drew the composer's strip on every key.
+  const shown = useMemo(() => pending.filter((chip) => chip.scope === scope), [pending, scope]);
   /// The chips a send waits for. One still reading, one streaming to the session's machine and
   /// one whose upload failed (until its Retry makes it or its x takes it out) all hold the send,
   /// so a prompt never goes without a file the person added. Before, a send made while a pasted

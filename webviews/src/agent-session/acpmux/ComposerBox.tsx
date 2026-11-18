@@ -10,7 +10,7 @@ import { useComposerSettings } from "./composerSettings";
 import { useComposerLook } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
-import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { ContextMenu, type ContextMenuHost, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
@@ -239,6 +239,22 @@ export function ComposerBox({
     [inline, pastedChips.pastes],
   );
   const placed = inline.inText(field.value);
+  // The strip's chips as a key leaves them: the same arrays until a chip moves into or out of the
+  // text, so a key draws no strip (the set above is new on every render, its ids are not).
+  const placedIds = [...placed].join("\n");
+  const inStrip = (chip: { id: string }) => !placedIds.split("\n").includes(chip.id);
+  const stripAttachments = attachmentView === "inline" ? attachments.filter(inStrip) : attachments;
+  const stripPending = pending && attachmentView === "inline" ? pending.filter(inStrip) : pending;
+  const { remove: removeInline } = inline;
+  // Whether a pasted chip can go as a file: the function itself is new whenever the host's is.
+  const keepsFile = Boolean(pastedChips.keepAsFile);
+  const removeChip = (id: string) => {
+    removeInline(id);
+    onRemoveAttachment(id);
+  };
+  // The prompt's menu draws only its popup; the host around the prompt is drawn here, so a key,
+  // which draws the prompt, does not draw the menu.
+  const fieldMenuHost = useRef<ContextMenuHost>(null);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -306,28 +322,26 @@ export function ComposerBox({
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
         <AttachmentStrip
-          attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
-          {...(pending
-            ? {
-                pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
-              }
-            : {})}
+          attachments={stripAttachments}
+          {...(stripPending ? { pending: stripPending } : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
-          onRemove={(id) => {
-            inline.remove(id);
-            onRemoveAttachment(id);
-          }}
+          onRemove={removeChip}
           selected={whole}
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
-          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
+          {...(keepsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
-        <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- The menu's host (ui/ContextMenu): it relays the right-click and Shift-F10 from the prompt inside, which takes the keyboard itself. */}
+        <div
+          className="ui-context-menu-host acpmux-composer-field-menu"
+          onKeyDown={(event) => fieldMenuHost.current?.onKeyDown(event)}
+          onContextMenu={(event) => fieldMenuHost.current?.onContextMenu(event)}
+        >
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={setPrompt}
@@ -416,7 +430,8 @@ export function ComposerBox({
           />
           {inline.chips}
           {fieldOverlay}
-        </ContextMenu>
+          <ContextMenu host={fieldMenuHost} items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen} />
+        </div>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in

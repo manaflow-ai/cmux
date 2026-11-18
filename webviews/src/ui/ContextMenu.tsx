@@ -3,6 +3,7 @@ import {
   isValidElement,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
@@ -10,6 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type ReactNode,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
@@ -39,9 +41,16 @@ export interface ContextMenuItem {
   onSelect(): void;
 }
 
+/** The handlers a host the caller draws takes (ContextMenuProps `host`). */
+export interface ContextMenuHost {
+  onContextMenu(event: ReactMouseEvent<Element>): void;
+  onKeyDown(event: KeyboardEvent<Element>): void;
+}
+
 export interface ContextMenuProps {
   items: readonly ContextMenuItem[];
-  children: ReactNode;
+  /** The host's content; none with `host`. */
+  children?: ReactNode;
   className?: string;
   popupClassName?: string;
   /**
@@ -64,6 +73,12 @@ export interface ContextMenuProps {
    * rules, such as Send before the composer's mic). `className` is unused then.
    */
   asChild?: boolean;
+  /**
+   * The caller draws the host itself and passes its right-click and keys to this handle; the menu
+   * draws only its popup. The host's content then changes without drawing the menu again (the
+   * composer's prompt, which changes on every key). `children` and `className` are unused then.
+   */
+  host?: Ref<ContextMenuHost>;
   /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
   native?: {
     model: NativePopupDescription;
@@ -122,6 +137,7 @@ export function ContextMenu({
   ignore,
   targets,
   asChild,
+  host: hostHandle,
   native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
@@ -440,6 +456,8 @@ export function ContextMenu({
         : null}
     </>
   );
+  useImperativeHandle(hostHandle, () => ({ onContextMenu: hostContextMenu, onKeyDown: hostKeyDown }));
+  if (hostHandle) return rest;
   if (asChild && isValidElement(children)) {
     const child = children as ReactElement<{
       onKeyDown?(event: KeyboardEvent<Element>): void;

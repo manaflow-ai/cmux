@@ -1,6 +1,6 @@
 import { acpmuxPerf } from "./perf";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { useStableHandlers } from "./stableHandlers";
+import { useLatestHandler, useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
@@ -730,7 +730,9 @@ function ComposerFrame({
   /// back with them): where a command shares the name, send still writes the skill's `/$name`
   /// (slashCommands.ts withSkillDollars).
   const pickedSkills = useRef(new Set<string>());
-  const prompts = usePromptHistory(snapshot.rows, (sent) => withoutSkillDollars(sent, commandsNow.current));
+  // The render's own commands, not `commandsNow`: whether the prompt still shows the recalled one
+  // (`recalling`, below) is read during render, and the ref holds the last committed render's list.
+  const prompts = usePromptHistory(snapshot.rows, (sent) => withoutSkillDollars(sent, snapshot.commands));
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -1950,7 +1952,9 @@ function ComposerFrame({
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
-  const escapeStop = useEscapeStop({
+  // Taken apart: the hook's object is new on every render, and a method called on it made every
+  // element that reads `armed` new on every key (Send among them).
+  const { armed: escapeArmed, press: escapePress } = useEscapeStop({
     stoppable: running && !stopping,
     session: sessionId,
     pageEscape: !onOpenInWindow,
@@ -1987,7 +1991,7 @@ function ComposerFrame({
   // once Stop is sent, it says the turn is stopping until it ends.
   const placeholderKey = stopping
     ? COMPOSER_LABELS.stopping
-    : escapeStop.armed
+    : escapeArmed
       ? COMPOSER_LABELS.escapeAgainToStop
       : !queues
         ? COMPOSER_LABELS.placeholder
@@ -2152,45 +2156,50 @@ function ComposerFrame({
     if (command === "pasteAsPlainText") box.current?.plainPaste();
     onEdit?.(command);
   };
+  // The menu's rows run the latest of each: the rows themselves change only with what they show,
+  // never on a key (the prompt's menu then draws nothing as the person types).
+  const fieldCommand = useLatestHandler(runField);
+  const fieldEdit = useLatestHandler(runEdit);
+  const fieldMention = useLatestHandler(() => mention());
   const fieldMenu: ContextMenuItem[] = [
     {
       id: "undo",
       label: t(COMPOSER_LABELS.undo),
       disabled: !fieldHistory.undo,
-      onSelect: () => runField("undo"),
+      onSelect: () => fieldCommand("undo"),
     },
     {
       id: "redo",
       label: t(COMPOSER_LABELS.redo),
       disabled: !fieldHistory.redo,
-      onSelect: () => runField("redo"),
+      onSelect: () => fieldCommand("redo"),
     },
     {
       id: "cut",
       label: t(COMPOSER_LABELS.cut),
       separatorBefore: true,
       disabled: !onEdit || !fieldSelected,
-      onSelect: () => runEdit("cut"),
+      onSelect: () => fieldEdit("cut"),
     },
     {
       id: "copy",
       label: t(COMPOSER_LABELS.copy),
       disabled: !onEdit || !fieldSelected,
-      onSelect: () => runEdit("copy"),
+      onSelect: () => fieldEdit("copy"),
     },
     {
       id: "paste",
       label: t(COMPOSER_LABELS.paste),
       disabled: !onEdit,
-      onSelect: () => runEdit("paste"),
+      onSelect: () => fieldEdit("paste"),
     },
     {
       id: "pasteAsPlainText",
       label: t(COMPOSER_LABELS.pasteAsPlainText),
       disabled: !onEdit,
-      onSelect: () => runEdit("pasteAsPlainText"),
+      onSelect: () => fieldEdit("pasteAsPlainText"),
     },
-    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
+    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => fieldCommand("selectAll") },
     {
       id: "attach",
       label: t(COMPOSER_LABELS.attachFiles),
@@ -2201,7 +2210,7 @@ function ComposerFrame({
       id: "mention",
       label: t(COMPOSER_LABELS.insertMention),
       disabled: shell,
-      onSelect: () => mention(),
+      onSelect: fieldMention,
     },
     {
       id: "scrollToBottomOnSend",
@@ -2287,7 +2296,7 @@ function ComposerFrame({
   // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
   // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
   const stopLabel = t(
-    stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
+    stopping ? COMPOSER_LABELS.stopping : escapeArmed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
   );
   // What the send slot drew last, so Send and Stop morph into each other on a real change, never on
   // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
@@ -2299,7 +2308,7 @@ function ComposerFrame({
       ref={sendButton}
       type="button"
       className="acpmux-send acpmux-cancel"
-      data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
+      data-escape-armed={escapeArmed && !stopping ? "" : undefined}
       data-stopping={stopping ? "" : undefined}
       aria-label={stopLabel}
       // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
@@ -2358,11 +2367,12 @@ function ComposerFrame({
         sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
         side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
       });
-  const chooseSend = (choice: SendChoice) => {
+  // One function for the composer's life, so Send's menu is the same element on the next key.
+  const chooseSend = useLatestHandler((choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
     else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
-  };
+  });
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
   /// Sends the draft; false when there was nothing to send or the host refused it.
@@ -2542,7 +2552,7 @@ function ComposerFrame({
     if (event.key === "Escape" && plain && !open && running && !stopping && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
-      escapeStop.press(event.repeat);
+      escapePress(event.repeat);
       return;
     }
     // Esc with nothing to stop lets go of the keyboard, as Claude desktop's does: the caret goes, and a
@@ -2685,7 +2695,7 @@ function ComposerFrame({
           title={
             shell
               ? t("composer.shellRun")
-              : escapeStop.armed && !stopping
+              : escapeArmed && !stopping
                 ? t(COMPOSER_LABELS.escapeAgainToStop)
                 : authBlock
                   ? authBlock
@@ -2758,6 +2768,38 @@ function ComposerFrame({
       plusSearchesFiles,
     ],
   );
+  // The + menu's and the file chooser's handlers, each one function for the composer's life: the
+  // row before the prompt is then the same element on the next key, and draws nothing.
+  const plusCommand = useLatestHandler((action: string, modeId?: string) => {
+    if (action === "composer.attachFiles") chooser.current?.click();
+    else if (CAPTURE_MODES[action]) {
+      void capture?.(CAPTURE_MODES[action])
+        .then(async (shot) => {
+          // One over the image cap goes as a pasted one does: a preview, and its
+          // original saved to the chat for the agent to read; a send waits for that
+          // original (its preview is a reduced copy). Never refused for size.
+          const over = Boolean(shot && shot.size > MAX_IMAGE_BYTES);
+          if (shot) await attach([shot], over, undefined, over);
+        })
+        .finally(() => {
+          const focused = document.activeElement;
+          if (!focused || focused === document.body || form.current?.contains(focused)) field.current?.focus();
+        });
+    } else if (action === "composer.chooseProject") openPicker("Location");
+    else if (action === "composer.planMode" && modeId) togglePlan(modeId);
+    else if (action === "composer.mention") mention();
+    else if (action === "searchFiles") openFileSearch();
+    else if (action === "composer.commands") openCommands();
+  });
+  const plusSlash = useLatestHandler(pickFromPlus);
+  const chooseFiles = useLatestHandler((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.currentTarget.files ?? [])];
+    // Cleared, choosing the same file again still fires change.
+    event.currentTarget.value = "";
+    // The person chose these files: what the composer can't attach is saved for the chat,
+    // and the host says where each came from (its own metadata: Screenshot, a download).
+    void attach(files, true, "choose");
+  });
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -3014,14 +3056,7 @@ function ComposerFrame({
               multiple
               hidden
               aria-label={t(COMPOSER_LABELS.attach)}
-              onChange={(event) => {
-                const files = [...(event.currentTarget.files ?? [])];
-                // Cleared, choosing the same file again still fires change.
-                event.currentTarget.value = "";
-                // The person chose these files: what the composer can't attach is saved for the chat,
-                // and the host says where each came from (its own metadata: Screenshot, a download).
-                void attach(files, true, "choose");
-              }}
+              onChange={chooseFiles}
             />
             {leading !== undefined ? (
               leading
@@ -3029,30 +3064,9 @@ function ComposerFrame({
               <ComposerPlusMenu
                 planning={planning}
                 entries={plusEntries}
-                onCommand={(action, modeId) => {
-                  if (action === "composer.attachFiles") chooser.current?.click();
-                  else if (CAPTURE_MODES[action]) {
-                    void capture?.(CAPTURE_MODES[action])
-                      .then(async (shot) => {
-                        // One over the image cap goes as a pasted one does: a preview, and its
-                        // original saved to the chat for the agent to read; a send waits for that
-                        // original (its preview is a reduced copy). Never refused for size.
-                        const over = Boolean(shot && shot.size > MAX_IMAGE_BYTES);
-                        if (shot) await attach([shot], over, undefined, over);
-                      })
-                      .finally(() => {
-                        const focused = document.activeElement;
-                        if (!focused || focused === document.body || form.current?.contains(focused))
-                          field.current?.focus();
-                      });
-                  } else if (action === "composer.chooseProject") openPicker("Location");
-                  else if (action === "composer.planMode" && modeId) togglePlan(modeId);
-                  else if (action === "composer.mention") mention();
-                  else if (action === "searchFiles") openFileSearch();
-                  else if (action === "composer.commands") openCommands();
-                }}
+                onCommand={plusCommand}
                 {...(onPlusCommand ? { onExtension: onPlusCommand } : {})}
-                onSlash={pickFromPlus}
+                onSlash={plusSlash}
                 onOpen={() => setRecentCommandNames(loadRecentCommandNames())}
               />
             )}

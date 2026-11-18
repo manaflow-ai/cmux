@@ -381,3 +381,33 @@ test("a list that closes forgets the row the arrows chose: the same word, back, 
   await press(field, "Enter");
   expect(sent).toEqual(["fix it /pr"]);
 });
+
+test("a recalled prompt is read against the commands of the render that draws it", async () => {
+  // Recalled with its skill listed, `/$emil-color` comes back `/emil-color`, and keeps the arrows: no
+  // menu. The skill then goes from the list: the prompt no longer reads as the one recalled (that one
+  // reads `/$emil-color` now), so the word is the person's and lists commands, in that same render.
+  const snapshot = codexChat();
+  const recalled: AcpmuxSnapshot = { ...snapshot, rows: [user("/$emil-color", 2)] };
+  const { field, prompt } = await composer(recalled, "");
+  await act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+  });
+  expect(prompt.plainText()).toBe("/emil-color");
+  expect(menu()).toBeNull();
+  const { Composer } = await import("../src/agent-session/acpmux/Composer");
+  await act(async () =>
+    root!.render(
+      <Composer
+        handle={() => {}}
+        snapshot={{ ...recalled, commands: recalled.commands!.filter((command) => command.name !== "$emil-color") }}
+        sessionId={recalled.sessionId ?? recalled.summary?.sessionId}
+        chips={Chips}
+        onSend={() => true}
+        onStop={() => {}}
+        localName="studio"
+      />,
+    ),
+  );
+  expect(prompt.plainText()).toBe("/emil-color");
+  expect(menu()).not.toBeNull();
+});
