@@ -19,6 +19,20 @@ import Testing
         }
     }
 
+    /// Only an unrouted machine starts on the chat's own connection: one that holds a provider login, or whose
+    /// agent service is down, is refused whatever the chat carries; without a connection an unrouted one is too.
+    @Test func onlyAnUnroutedMachineStartsOnTheChatsOwnConnection() {
+        #expect(CloudMachineRoute.starts(.notEdge, carriesConnection: true))
+        #expect(!CloudMachineRoute.starts(.notEdge, carriesConnection: false))
+        for verdict in [CloudMachineRoute.Verdict.holdsCredential, .noDaemon, .invalid] {
+            #expect(!CloudMachineRoute.starts(verdict, carriesConnection: true))
+        }
+        for carries in [true, false] {
+            #expect(CloudMachineRoute.starts(.ready, carriesConnection: carries))
+            #expect(CloudMachineRoute.starts(.unsupported, carriesConnection: carries))
+        }
+    }
+
     /// A machine that reports and is not routed through the edge is still refused.
     @Test func aMachineThatReportsNoRouteIsRefused() async {
         let report = #"{"ok":false,"holds_credential":false,"daemon":{"running":true},"agents":{}}"#
