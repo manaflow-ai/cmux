@@ -256,3 +256,47 @@ test("a windowed group keeps its height: the boxes and drawn steps add up to eve
   expect(covered + list.querySelectorAll(":scope > .cv-step").length).toBe(1_000);
   expect(height).toBe(covered * STEP);
 });
+
+test("a selection from step 2 past the window copies every step between its ends in order, and the list windows again once cleared", async () => {
+  await fresh();
+  await draw(<Group items={commands(1_000)} />);
+  const list = host.querySelector<HTMLElement>(".cv-steps")!;
+  const step = (n: number) => list.querySelector<HTMLElement>(`[data-step-call="cmd-${n}"]`);
+  /// The text node that draws `echo n` in step n.
+  const words = (n: number) => {
+    const walker = document.createTreeWalker(step(n)!, window.NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode())
+      if (node.textContent?.includes(`echo ${n}`)) return node;
+    throw new Error(`no text for step ${n}`);
+  };
+  const select = async (from: Node, to: Node) => {
+    const range = document.createRange();
+    range.setStart(from, 0);
+    range.setEnd(to, to.textContent!.length);
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    await act(async () => document.dispatchEvent(new window.Event("selectionchange")));
+  };
+  const windowed = list.querySelectorAll(":scope > .cv-step").length;
+  // The reader presses on step 2 and drags down: the box scrolls to step 600, which draws there.
+  await select(words(2), words(3));
+  await scrollBox(600 * STEP);
+  expect(step(2)).not.toBeNull();
+  expect(step(600)).not.toBeNull();
+  await select(words(2), words(600));
+  // Every step between the ends is drawn, so the copy holds each one's text, in order.
+  const copied = document.getSelection()!.toString();
+  let from = 0;
+  for (let n = 2; n <= 600; n++) {
+    const at = copied.indexOf(`echo ${n}`, from);
+    expect({ n, found: at >= 0 }).toEqual({ n, found: true });
+    from = at + 1;
+  }
+  expect(list.querySelectorAll(":scope > .cv-step").length).toBeGreaterThanOrEqual(599);
+  // Cleared: back to the view's window.
+  document.getSelection()!.removeAllRanges();
+  await act(async () => document.dispatchEvent(new window.Event("selectionchange")));
+  expect(list.querySelectorAll(":scope > .cv-step").length).toBeLessThanOrEqual(most(BOX));
+  expect(list.querySelectorAll(":scope > .cv-step").length).toBeGreaterThanOrEqual(windowed - 1);
+});
