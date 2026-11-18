@@ -4652,7 +4652,7 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-          CMUX_AB_ARM: b-7
+          CMUX_AB_ARM: b-8
         run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests --jobs 2 -Xswiftc "-j${CMUX_CI_CPU_BUDGET:-5}"
 
       - name: Upload the test build measurement and log
