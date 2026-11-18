@@ -7,8 +7,9 @@ extension AgentPaneOmnibar {
     ///
     /// The scores are read at the start of the clock's minute. They decay with the clock, and the history is in
     /// the part of a New Tab context that the pages share (``AgentPaneNewTabShared``): scores read at each key's
-    /// own time gave each page of a held New Tab key its own text of that part. A minute is 0.02 % of a score at
-    /// the half-life of 3 days, and each key decays by the same factor, so the order of the keys stays.
+    /// own time gave each page of a held New Tab key its own text of that part. A key picked before the
+    /// minute's start decays by one factor. A key picked inside the minute is read at its pick's score
+    /// (``FrecencyStore/score(for:at:)`` clamps the time at 0). The difference is at most 0.016 % of a score.
     @MainActor public static func uses(of palette: PaletteModel) -> [String: Double] {
         let now = Date(timeIntervalSinceReferenceDate: (palette.now().timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
         let history = palette.frecency
