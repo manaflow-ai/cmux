@@ -258,10 +258,12 @@ impl Hub {
     }
 
     /// The machine's store of MCP connections (cmux-mcp-connect `shared`), the one every Chief
-    /// reads: config `mcpStore`, else `$CMUX_MCP_HOME`, else `~/.cmux/mcp`.
+    /// reads: config `mcpStore`, else `$CMUX_MCP_HOME`, else `<acpmux home>/mcp`.
     pub fn mcp_store_dir(&self) -> std::path::PathBuf {
         let configured = self.config.read().unwrap_or_else(|e| e.into_inner()).mcp_store.clone();
-        configured.unwrap_or_else(|| cmux_mcp_connect::shared::dir(&|k| std::env::var(k).ok()))
+        configured.unwrap_or_else(|| {
+            cmux_mcp_connect::shared::dir(&crate::config::home(), &|k| std::env::var(k).ok())
+        })
     }
 
     /// Keeps an approved remote server in the machine's store, so every Chief and agent of this
