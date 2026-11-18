@@ -32,6 +32,8 @@
 .cmux-app-scene-zstack > * {
   grid-area: 1 / 1;
 }
+/* No box of their own, so a LazyVStack measures these by their children (SceneRenderer.tsx CONTENTS_WRAPPER):
+ * keep the two lists the same. */
 .cmux-app-scene-group,
 .cmux-app-scene-foreach,
 .cmux-app-scene-context {

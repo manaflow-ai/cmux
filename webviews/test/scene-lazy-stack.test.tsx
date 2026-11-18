@@ -101,12 +101,21 @@ const mountedIds = () =>
 // (SceneRow, not memoized, takes a new props object on each SceneNodeView render).
 const renders = () => mountedRowRenders(() => document.querySelectorAll(".cmux-app-scene-row-title"), "SceneRow");
 
-/** The stack's laid-out height as a flex column draws it: each child (a row or a spacer) and the gaps between. */
+/** The stack's laid-out height as a flex column draws it: each flex item (a row or a spacer; a Group's,
+ * ForEach's or context menu's `display: contents` wrapper gives its children) and the gaps between. */
 function stackHeight(spacing: number): number {
   const stack = document.querySelector<HTMLElement>("[data-app-type=LazyVStack]")!;
-  // A hidden element is no flex item (no gap).
-  const children = ([...stack.children] as HTMLElement[]).filter((child) => !child.hidden);
-  return children.reduce((sum, child) => sum + sizes(child), 0) + Math.max(0, children.length - 1) * spacing;
+  const items: HTMLElement[] = [];
+  const walk = (parent: Element) => {
+    for (const child of parent.children as HTMLCollectionOf<HTMLElement>) {
+      // A hidden element is no flex item (no gap).
+      if (child.hidden) continue;
+      if (child.matches(".cmux-app-scene-group, .cmux-app-scene-foreach, .cmux-app-scene-context")) walk(child);
+      else items.push(child);
+    }
+  };
+  walk(stack);
+  return items.reduce((sum, child) => sum + sizes(child), 0) + Math.max(0, items.length - 1) * spacing;
 }
 
 /** The scene in a scroller the page owns, as New Tab's `.nt-app-page`. */
@@ -329,4 +338,75 @@ test("in a panel, a slice that arrives before the first scene windows it only wh
   });
   expect(mountedIds().length).toBe(60);
   expect(mountedIds()[0]).toBe("r80");
+});
+
+test("in a panel, a child focused while the stack draws whole stays mounted and focused when the first slice windows it", async () => {
+  const store = lazyScene(1_000);
+  store.apply([{ op: "update", id: "r5", props: { title: "Focused", onTap: true } }]);
+  const { visibleSlice } = await inPanel(store);
+  expect(mountedIds().length).toBe(1_000);
+  await act(async () => document.querySelector<HTMLElement>("[data-app-node=r5]")!.focus());
+  // The band [3400 - 560, 3400 + 1120] is far below row 5.
+  await act(async () => visibleSlice.show({ revision: 1, top: 3_400, height: VIEW }));
+  expect(mountedIds()[0]).toBe("r5");
+  expect(mountedIds()[1]).toBe("r101");
+  expect(document.activeElement?.getAttribute("data-app-node")).toBe("r5");
+});
+
+test("in a panel, a styled Group's rows keep their places: offsets, height and the slice's band", async () => {
+  // 300 pairs: a Row, then a Group with a background (so not opened inline) of two Rows.
+  const spacing = 4;
+  const store = new SceneStore();
+  const items: string[] = [];
+  const ops: SceneOp[] = [{ op: "create", id: "list", type: "LazyVStack", props: { spacing } }];
+  for (let index = 0; index < 300; index++) {
+    const rows = [`g${index}a`, `g${index}b`];
+    ops.push({ op: "create", id: `r${index}`, type: "Row", props: { title: `Row ${index}` } });
+    for (const id of rows) ops.push({ op: "create", id, type: "Row", props: { title: id } });
+    ops.push(
+      { op: "create", id: `g${index}`, type: "Group", props: { background: "secondary" } },
+      { op: "children", id: `g${index}`, children: rows },
+    );
+    items.push(`r${index}`, `g${index}`);
+  }
+  ops.push({ op: "children", id: "list", children: items }, { op: "root", id: "list" });
+  store.apply(ops, true);
+  const { visibleSlice } = await inPanel(store);
+  const whole = stackHeight(spacing);
+  // A Row is 28 px; a Group's two Rows and the gap between them, 60.
+  expect(whole).toBe(300 * (28 + 60) + 599 * spacing);
+
+  const top = 6_000;
+  await act(async () => visibleSlice.show({ revision: 1, top, height: VIEW }));
+  // Where the column lays each item out, and the Rows of those that meet [top - 560, top + 1120].
+  const expected: string[] = [];
+  let firstStart: number | undefined;
+  let at = 0;
+  for (const id of items) {
+    const height = id.startsWith("g") ? 60 : 28;
+    if (at + height > top - VIEW && at < top + 2 * VIEW) {
+      firstStart ??= at;
+      expected.push(...(id.startsWith("g") ? [`${id}a`, `${id}b`] : [id]));
+    }
+    at += height + spacing;
+  }
+  expect(mountedIds()).toEqual(expected);
+  const lead = document.querySelector<HTMLElement>(".cmux-app-scene-lazy-spacer")!;
+  expect(parseFloat(lead.style.height)).toBe(firstStart! - spacing);
+  expect(stackHeight(spacing)).toBe(whole);
+});
+
+test("in a panel, a slice carried over to a shorter revision mounts the stack's last view, never a blank one", async () => {
+  const store = lazyScene(1_000);
+  const { visibleSlice } = await inPanel(store);
+  await act(async () => visibleSlice.show({ revision: 1, top: 20_000, height: VIEW }));
+  expect(mountedIds()[0]).toBe("r694");
+  // Revision 2 keeps 200 rows (5600 px), all above the slice's top; the slice holds until the host's next.
+  await act(async () => {
+    store.apply([{ op: "children", id: "list", children: store.getNode("list")!.children.slice(0, 200) }]);
+    visibleSlice.setDrawn(2);
+  });
+  // The host shows the end, [5040, 5600]: its band [4480, 6720] is rows 160 to 199.
+  expect(mountedIds()).toEqual(Array.from({ length: 40 }, (_, index) => `r${160 + index}`));
+  expect(stackHeight(0)).toBe(200 * ROW);
 });
