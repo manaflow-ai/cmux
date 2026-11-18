@@ -29,8 +29,7 @@ extension NotificationCenterService {
     /// page window resolves to its cmux window).
     func focusedTab(in window: NSWindow?) -> String? {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window) else { return nil }
-        let controller = services.windows.controllers.first { $0.window === window }
-        return controller.flatMap(viewedTab)
+        return services.windows.controllers.first { $0.window === window }.flatMap(viewedTab)
     }
 
     /// `window`'s focus is a terminal (not a page, address bar, or find bar).
@@ -277,28 +276,23 @@ extension NotificationCenterService {
     /// where a daemon cannot take the read, until a newer notification or mark comes.
     func dismissHighlight(_ workspace: WorkspaceModel) {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        for tab in tabs where tab.showsUnread || agentFinished[tab.id] != nil {
-            if DesignSettings.shared.attention.flashesOnRead { entryReads.insert(tab.id) }
-            guard let daemon = owner(of: tab) ?? services?.daemon else { continue }
-            if tab.hasUnread, daemon.isLocal || daemon.supports(DaemonCapability.notificationAck.rawValue) { acknowledge(tab, owner: daemon) }
-            if tab.markedUnread { try? TabUnreadMark.set(false, tab: tab, daemon: daemon) }
-            if tab.attention != nil { try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon) }
-        }
-        if workspace.markedUnread, let services { WorkspaceUnreadMark.set(false, on: [workspace], machines: services.machines) }
         let newest = tabs.filter(\.hasUnread).map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
         let key = highlightKey(for: workspace)
         // A restarted daemon has new notification IDs; discard only that machine's old session.
         dismissedHighlights = dismissedHighlights.filter { $0.key.machine != key.machine || $0.key.session == key.session }
         dismissedMarks = dismissedMarks.filter { $0.key.machine != key.machine || $0.key.session == key.session }
-        if key.machine == MachineRegistry.localID {
-            for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
+        // Hide first (a refused read must not bring the ring back), then read and blink.
+        for tab in tabs where tab.showsUnread || agentFinished[tab.id] != nil {
+            if key.machine == MachineRegistry.localID, agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
+            if tab.markedUnread { dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration }
+            if tab.attention != nil { hideAttentionRing(of: tab) }
+            if DesignSettings.shared.attention.flashesOnRead { entryReads.insert(tab.id) }
+            readDismissed(tab)
         }
-        for tab in tabs where tab.markedUnread {
-            dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
-        }
-        for tab in tabs where tab.attention != nil { hideAttentionRing(of: tab) }
-        guard newest > (dismissedHighlights[key] ?? 0) else { return }
-        dismissedHighlights[key] = newest
-        note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
+        if workspace.markedUnread, let services { WorkspaceUnreadMark.set(false, on: [workspace], machines: services.machines) }
+        if newest > (dismissedHighlights[key] ?? 0) { dismissedHighlights[key] = newest; note("highlight dismissed workspace=\(workspace.id) through=\(newest)") }
     }
+
+    /// Reads `tab` on its own daemon: its notification (a remote one only with notification-ack-v1), manual mark and agent request.
+    private func readDismissed(_ tab: TabModel) { guard let daemon = owner(of: tab) ?? services?.daemon else { return }; if tab.hasUnread, daemon.isLocal || daemon.supports(DaemonCapability.notificationAck.rawValue) { acknowledge(tab, owner: daemon) }; if tab.markedUnread { try? TabUnreadMark.set(false, tab: tab, daemon: daemon) }; if tab.attention != nil { try? TabUnreadMark.clearAttention(tab: tab, daemon: daemon) } }
 }
