@@ -32,6 +32,13 @@ extension CloudNewWorkspaceSetting {
     /// `cloud.newWorkspaceFolder`: What a new Cloud workspace starts with.
     public nonisolated static let folderPath = ["cloud", "newWorkspaceFolder"]
     public nonisolated static let folderDefault: CloudWorkspaceFolder = .inherit
+    /// `cloud.workspacePins`: Folder to placement: thisMac, cloud or machine:<app machine id>. The deepest pinned folder at or above a new workspace's folder decides, over newWorkspacesInCloud (cmux-cloud-start-core moves/placement.rs).
+    public nonisolated static let pinsPath = ["cloud", "workspacePins"]
+    public nonisolated static let pinsDefault: JSONValue = .object([:])
+    /// `cloud.autoMachineCap`: The most Cloud machines running before a new workspace stops making another; 0 leaves only the plan's limit.
+    public nonisolated static let machineCapPath = ["cloud", "autoMachineCap"]
+    public nonisolated static let machineCapDefault: Double = 0
+    public nonisolated static let machineCapRange: ClosedRange<Double> = 0...100
     /// `cloud.turnCheckpoints`.
     public nonisolated static let turnCheckpointsPath = ["cloud", "turnCheckpoints"]
     public nonisolated static let turnCheckpointsDefault = false
@@ -134,7 +141,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var freeModel: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.freeModel", "AI Models")
         return [
@@ -151,7 +160,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var sshLinks: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
         return [
@@ -168,7 +179,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -196,6 +209,26 @@ nonisolated enum MachineSettingsSchema {
                 keywords: ["cloud", "vm", "folder", "sync", "copy", "inherit", "empty", "snapshot", "working directory"]
             ),
             SettingDescriptor(
+                CloudNewWorkspaceSetting.pinsPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.cloud.workspacePins", "Where Folders Run"),
+                help: SettingsText.keyed("settings.cloud.workspacePins.help", "A folder and where its new workspaces run: \"thisMac\", \"cloud\" or \"machine:<id>\". Overrides Run New Workspaces in Cloud."),
+                kind: .stringMap,
+                default: CloudNewWorkspaceSetting.pinsDefault,
+                keywords: ["cloud", "vm", "machine", "pin", "folder", "new workspace", "local", "remote", "placement"]
+            ),
+            SettingDescriptor(
+                CloudNewWorkspaceSetting.machineCapPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.cloud.autoMachineCap", "Most Cloud Machines Running"),
+                help: SettingsText.keyed("settings.cloud.autoMachineCap.help", "At this many running, new workspaces open on this Mac instead. 0 uses your plan's limit."),
+                kind: .number(SettingNumber(CloudNewWorkspaceSetting.machineCapRange, step: 1, unit: .count)),
+                default: .number(CloudNewWorkspaceSetting.machineCapDefault),
+                keywords: ["cloud", "vm", "machine", "cap", "limit", "cost", "spend", "budget", "autoscale"]
+            ),
+            SettingDescriptor(
                 CloudAgentStartSetting.configPath,
                 section: .machines,
                 group: group,
@@ -217,7 +250,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var mobile: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.mobile", "iPhone")
         return [
@@ -259,7 +294,9 @@ nonisolated enum MachineSettingsSchema {
             ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var macScreen: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
         return [
@@ -276,7 +313,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var macScreenDebug: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
         return [
@@ -293,7 +332,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var remote: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
         return [
@@ -325,7 +366,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var deviceHub: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
         return [
@@ -340,32 +383,6 @@ nonisolated enum MachineSettingsSchema {
                 default: .string(DeviceHubSettings.urlDefault),
                 keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
             ),
-        ]
-    }
-
-    static var imessage: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.section.accounts", "Accounts")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageEnabledPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
-                help: SettingsText.keyed("settings.imessage.enabled.help", "Lets cmux read Messages conversations on this Mac. Sending needs your click."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
-                keywords: ["imessage", "messages", "connector", "privacy"]
-            ).hiddenFromSettingsPage("connect and disconnect from Session Info's iMessage connector"),
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageAutomationSkippedPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
-                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remembers that you skipped the Messages Automation step."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
-                keywords: ["imessage", "messages", "automation", "connector"]
-            ).hiddenFromSettingsPage("permission walkthrough state, set only by the iMessage connector"),
         ]
     }
 }

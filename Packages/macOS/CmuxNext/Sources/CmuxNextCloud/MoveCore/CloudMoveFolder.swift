@@ -147,6 +147,17 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
         case started
         /// New Workspace opens on this Mac; `notice`, when the toggle is on, says why it is not in Cloud.
         case thisMac(notice: String?)
+        /// New Workspace opens on the machine (app machine id) its folder is pinned to (`cloud.workspacePins`).
+        case machine(String)
+
+        /// Nil when a machine's creation started; else New Workspace opens here or on the pinned machine, with any notice.
+        public var opensHere: (notice: String?, machine: String?)? {
+            switch self {
+            case .started: nil
+            case .thisMac(let notice): (notice, nil)
+            case .machine(let id): (nil, id)
+            }
+        }
     }
 
     public static func route(unavailableReason: String?, signedIn: Bool, hasWindow: Bool) -> Route {
@@ -209,6 +220,104 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
             }
         }
         throw CopyFailure.failed("")
+    }
+}
+
+/// Where a person's New Workspace runs under their `cloud.*` options: a pinned folder's place, else the toggle,
+/// and a new Cloud machine only where Cloud can make it, its progress shows, and `cloud.autoMachineCap` allows.
+/// Rust decides (`moves::placement`, op `new_workspace_placement`) from what the app knows now, so Cmd-N waits
+/// on no read.
+public nonisolated struct CloudNewWorkspacePlacement: Sendable, Equatable {
+    /// The options as cmux.json's `cloud` object names them.
+    public struct Options: Sendable, Equatable, Encodable {
+        public var newWorkspacesInCloud: Bool, workspacePins: [String: String], autoMachineCap: Int
+        public init(newWorkspacesInCloud: Bool, workspacePins: [String: String] = [:], autoMachineCap: Int = 0) {
+            (self.newWorkspacesInCloud, self.workspacePins, self.autoMachineCap) = (newWorkspacesInCloud, workspacePins, autoMachineCap)
+        }
+    }
+
+    /// What the app knows on New Workspace's turn.
+    public struct Facts: Sendable, Equatable, Encodable {
+        public var byPerson: Bool, namesMachineOrCommand: Bool, cwd: String?, runningMachines: Int
+        public var unavailableReason: String?, signedIn: Bool, hasWindow: Bool
+        public init(byPerson: Bool, namesMachineOrCommand: Bool, cwd: String?, runningMachines: Int,
+                    unavailableReason: String?, signedIn: Bool, hasWindow: Bool) {
+            (self.byPerson, self.namesMachineOrCommand, self.cwd, self.runningMachines) = (byPerson, namesMachineOrCommand, cwd, max(0, runningMachines))
+            (self.unavailableReason, self.signedIn, self.hasWindow) = (unavailableReason, signedIn, hasWindow)
+        }
+    }
+
+    public enum Target: Sendable, Equatable {
+        case thisMac
+        /// A new Cloud machine of the workspace's own.
+        case newCloudMachine
+        /// A machine already listed, by its app machine id.
+        case machine(String)
+    }
+
+    /// Why a workspace the options sent to Cloud opens on this Mac.
+    public enum Refusal: Sendable, Equatable {
+        case unavailable(String)
+        case signedOut
+        case noWindow
+        /// As many Cloud machines run as the person's `cloud.autoMachineCap` allows.
+        case machineCap
+    }
+
+    public let target: Target
+    public let refusal: Refusal?
+
+    public init(target: Target, refusal: Refusal? = nil) {
+        (self.target, self.refusal) = (target, refusal)
+    }
+
+    public static func decide(_ options: Options, _ facts: Facts) -> Self {
+        struct Request: Encodable {
+            var cloud: Options, facts: Facts
+            func encode(to encoder: any Encoder) throws {
+                try facts.encode(to: encoder)
+                var container = encoder.container(keyedBy: Key.self)
+                try container.encode(cloud, forKey: .cloud)
+            }
+            enum Key: CodingKey { case cloud }
+        }
+        struct Reply: Decodable {
+            struct Place: Decodable { var kind: String, id: String? }
+            struct Why: Decodable { var kind: String, reason: String? }
+            var target: Place, refusal: Why?
+        }
+        // No answer makes no paid machine: the workspace opens here.
+        guard let reply = CloudMoveCore().call("new_workspace_placement", Request(cloud: options, facts: facts), as: Reply.self) else {
+            return Self(target: .thisMac)
+        }
+        let refusal: Refusal? = switch reply.refusal?.kind {
+        case nil: nil
+        case "signedOut": .signedOut
+        case "noWindow": .noWindow
+        case "machineCap": .machineCap
+        default: .unavailable(reply.refusal?.reason ?? facts.unavailableReason ?? "")
+        }
+        switch (reply.target.kind, reply.target.id) {
+        case ("newCloudMachine", _): return Self(target: .newCloudMachine)
+        case ("machine", let id?): return Self(target: .machine(id))
+        default: return Self(target: .thisMac, refusal: refusal)
+        }
+    }
+
+    /// What New Workspace does when it does not start a new machine: open here (with why, worded by
+    /// `openedHere` and the refusal texts) or on the pinned machine while `connected` says it is (a paused
+    /// or unreachable one opens here and says so, never nothing). Nil: start the new machine.
+    public func outcome(signInFirst: String, noWindow: String, atMachineCap: String, pinnedMachineDown: String,
+                        openedHere: (String) -> String, connected: (String) -> Bool) -> CloudNewWorkspacePlan.Outcome? {
+        switch (target, refusal) {
+        case (.newCloudMachine, _): nil
+        case (.machine(let id), _): connected(id) ? .machine(id) : .thisMac(notice: openedHere(pinnedMachineDown))
+        case (.thisMac, nil): .thisMac(notice: nil)
+        case (.thisMac, .unavailable(let reason)?): .thisMac(notice: openedHere(reason))
+        case (.thisMac, .signedOut?): .thisMac(notice: openedHere(signInFirst))
+        case (.thisMac, .noWindow?): .thisMac(notice: openedHere(noWindow))
+        case (.thisMac, .machineCap?): .thisMac(notice: openedHere(atMachineCap))
+        }
     }
 }
 

@@ -263,6 +263,64 @@
           }
         },
         {
+          "key": "cloud.workspacePins",
+          "name": "pins",
+          "note": "Folder to placement: thisMac, cloud or machine:<app machine id>. The deepest pinned folder at or above a new workspace's folder decides, over newWorkspacesInCloud (cmux-cloud-start-core moves/placement.rs).",
+          "title": {
+            "key": "settings.cloud.workspacePins",
+            "text": "Where Folders Run"
+          },
+          "help": {
+            "key": "settings.cloud.workspacePins.help",
+            "text": "A folder and where its new workspaces run: \"thisMac\", \"cloud\" or \"machine:<id>\". Overrides Run New Workspaces in Cloud."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "cloud",
+            "vm",
+            "machine",
+            "pin",
+            "folder",
+            "new workspace",
+            "local",
+            "remote",
+            "placement"
+          ]
+        },
+        {
+          "key": "cloud.autoMachineCap",
+          "name": "machineCap",
+          "note": "The most Cloud machines running before a new workspace stops making another; 0 leaves only the plan's limit.",
+          "title": {
+            "key": "settings.cloud.autoMachineCap",
+            "text": "Most Cloud Machines Running"
+          },
+          "help": {
+            "key": "settings.cloud.autoMachineCap.help",
+            "text": "At this many running, new workspaces open on this Mac instead. 0 uses your plan's limit."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 0,
+          "keywords": [
+            "cloud",
+            "vm",
+            "machine",
+            "cap",
+            "limit",
+            "cost",
+            "spend",
+            "budget",
+            "autoscale"
+          ]
+        },
+        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",

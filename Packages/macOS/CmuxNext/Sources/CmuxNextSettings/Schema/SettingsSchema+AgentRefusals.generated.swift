@@ -9,7 +9,8 @@ extension SettingsSchema {
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
-        "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy, "cloud.workspacePins": .privacy,
+        "cloud.autoMachineCap": .privacy,
         // The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.

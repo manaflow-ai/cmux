@@ -147,7 +147,8 @@ extension AppActions {
         // The Cloud toggle (#26062): a person's new workspace gets its own new Cloud machine.
         // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
         let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
-        guard case .thisMac(let cloudNotice) = cloudRoute else { return }
+        guard case let (cloudNotice, pinnedMachine)? = cloudRoute.opensHere else { return }
+        if pinnedMachine != nil { (spawn.cwd, spawn.inheritedCwd) = (nil, nil) } // a pinned machine (`cloud.workspacePins`) starts in its own folder
 
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -156,8 +157,8 @@ extension AppActions {
         let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? sourceWindow?.state.id) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
-        let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
-        if invocation["machine"] != nil, daemon?.connection == nil {
+        let daemon = (pinnedMachine ?? invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
+        if invocation["machine"] != nil || pinnedMachine != nil, daemon?.connection == nil {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
         }
