@@ -157,6 +157,24 @@ import Testing
         #expect(reaped, "the silent transport must be ended so the reconnect replaces it")
     }
 
+    /// The liveness check belongs to one transport process. A probe sent to a process that is
+    /// then replaced must not carry over to the next one, and neither must its last output time.
+    @Test(.timeLimit(.minutes(1)))
+    func aReplacedTransportStartsWithNoProbeOrOutputFromTheOldOne() async throws {
+        let harness = try await connect(answering: false)
+        defer { finish(harness) }
+        let connection = harness.connection
+
+        harness.clock.advance(.seconds(31))
+        #expect(connection.checkTransportLiveness(now: harness.clock.now) == .probe)
+        connection.beginReconnecting()
+
+        #expect(connection.transportLiveness.policy.probeSentAt == nil,
+                "the probe sent to the old transport outlived it")
+        #expect(connection.transportLiveness.policy.lastStdoutAt == nil,
+                "the old transport's last output time outlived it")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func steadyOutputKeepsAConnectionWithAnOutstandingCommandAlive() async throws {
         let harness = try await connect(answering: false)

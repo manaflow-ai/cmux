@@ -1087,6 +1087,8 @@ final class RemoteTmuxControlConnection {
     /// (reconnect) from a clean slate.
     func teardownProcessHandles() {
         processGeneration &+= 1
+        // The liveness check watched this process; its probe and last output do not carry over.
+        transportLiveness.policy = RemoteTmuxTransportLiveness()
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()
