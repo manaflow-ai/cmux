@@ -5,7 +5,10 @@ name: CI hosted backlog rescue
 # Ubuntu (2026-11-17 21:34Z to 2026-11-18 02:34Z, cmux#45710) stayed there for hours after the routes came back.
 # The minute pass (ci-owned-pool-rescue.yml) only covers declared light jobs under 90 minutes old; this pass covers
 # the rest: a run at its pull request's head is cancelled and re-run on today's routes, a superseded one only
-# cancelled (scripts/ci/hosted_light_rescue.py --backlog). Off: set CI_HOSTED_LIGHT_RESCUE_DISABLED to 1.
+# cancelled (scripts/ci/hosted_light_rescue.py --backlog). A pass never waits for a cancel to settle: it ends its log
+# with a journal of the current-head runs it cancelled, and the next pass reads that log and re-runs them. Each pass
+# makes at most 150 GitHub calls and none when cmux-bot's budget is below that plus 500. Off: set
+# CI_HOSTED_LIGHT_RESCUE_DISABLED to 1.
 on:
   schedule:
     - cron: "3-59/10 * * * *"
@@ -20,6 +23,16 @@ on:
         description: "At most this many cancels in the pass (1-100)"
         required: false
         default: "20"
+        type: string
+      run_ids:
+        description: "Act on exactly these runs (comma-separated ids) under the pass's rules, instead of listing the queue"
+        required: false
+        default: ""
+        type: string
+      recover_since:
+        description: "Re-run what every pass since this UTC time left cancelled (e.g. 2026-11-18T08:50:00Z), not just the newest journal's"
+        required: false
+        default: ""
         type: string
 
 permissions: {}
@@ -80,6 +93,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           BACKLOG_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.actions || '' }}
+          BACKLOG_RUN_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_ids || '' }}
+          BACKLOG_RECOVER_SINCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_since || '' }}
         run: >-
           python3 scripts/ci/hosted_light_rescue.py
           --backlog
