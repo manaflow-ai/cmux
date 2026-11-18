@@ -150,9 +150,18 @@ final class PagedListUITests: XCTestCase {
         XCTAssertGreaterThan(deep.total, 1000, "the flings did not read deep (\(deep.total) rows)")
         XCTAssertLessThanOrEqual(deep.inMemory, 450, "\(deep.inMemory) row values in memory with a window of 300")
         XCTAssertGreaterThan(deep.onDisk, 0, "nothing went to disk")
-        // Back to the newest end: the newer edge (rows read back from disk) ends there. Not row 0: the
-        // load removes and moves rows at the head too.
-        for _ in 0..<80 where lab.reading.newer != "end" { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
+        // Back toward the newest rows: the window reads them back from disk ahead of the reader.
+        for _ in 0..<8 { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
+        lab.settle(lab.list.cells.firstMatch)
+        let partway = lab.reading
+        lab.attach("huge-partway-back")
+        XCTAssertLessThanOrEqual(partway.inMemory, 450, "\(partway.inMemory) row values in memory on the way back")
+        // Ten rows a second arrive at the head, so scrolling never catches up with it: the newest-rows
+        // pill jumps there (the window goes to the head and reads it back). Not row 0: the load
+        // removes and moves rows at the head too.
+        let pill = lab.app.buttons["pagedList.newest"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 5), "no newest-rows pill deep in the list")
+        pill.tap()
         lab.waitFor("the newest rows back from disk", timeout: 10) { lab.reading.newer == "end" }
         lab.settle(lab.list.cells.firstMatch)
         lab.attach("huge-back-at-top")
