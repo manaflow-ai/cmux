@@ -1956,6 +1956,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
+/* Liquid Glass off (appearance.liquidGlass): the pill stays solid when hovered and pressed, as the hat does. */
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:hover::before {
+  background: color-mix(in srgb, var(--agent-text) 6%, var(--glass-surface, Canvas));
+}
+:root[data-glass="off"] .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
+}
 /* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {
   width: 100%;

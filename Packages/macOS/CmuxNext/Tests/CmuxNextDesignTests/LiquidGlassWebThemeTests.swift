@@ -27,14 +27,25 @@ import Testing
         #expect(try glass(WebTheme(.unresolved)) == "off")
     }
 
-    @Test func offDrawsNoLensAndRepaintsOpenPages() {
+    /// The lens chosen in Debug draws (and is fed a wallpaper still) only while Liquid Glass is on.
+    @Test func offDrawsNoLensEvenWhenTheLensIsChosen() {
+        let store = TunableStore()
+        store.register([GlassLensMode.tunable.descriptor])
+        store.activate(file: nil)
+        GlassLensMode.choose(.lens, in: store)
+        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let power = LowPowerMode(enabled: false)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: power, liquidGlass: true) == .lens)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: power, liquidGlass: false) == .plain)
+    }
+
+    @Test func turningItOffRepaintsOpenPages() {
         let design = DesignSettings.shared
         let before = design.liquidGlass
         defer { design.liquidGlass = before }
         design.liquidGlass = true
         let onInputs = WebTheme.pushInputs
         design.liquidGlass = false
-        #expect(GlassLensMode.current == .plain)
         #expect(WebTheme.pushInputs != onInputs, "turning it off must repaint every open page")
     }
 }
