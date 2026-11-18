@@ -116,6 +116,13 @@ final class SwipeProvider {
 /// sits at the bottom.
 final class PagedListCollectionView: UICollectionView {
     var didLayout: (() -> Void)?
+    /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
+    var accessibilityRefresh: (() -> Bool)?
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        if direction == .up, accessibilityRefresh?() == true { return true }
+        return super.accessibilityScroll(direction)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -230,7 +237,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// Shows `newItems` (top to bottom) and the edge's state. Rows whose value changed are drawn
     /// again in place; rows that came or went above the reader leave what they read where it was.
-    func update(items newItems: [Item], edge newEdge: PagedListEdge) {
+    func update(items given: [Item], edge newEdge: PagedListEdge) {
+        // The diffable data source raises on a repeated id: a source that sends one twice shows it
+        // once (the first).
+        var seen = Set<Item.ID>()
+        let newItems = given.filter { seen.insert($0.id).inserted }
         let newOrder = newItems.map(\.id)
         var changed: [CellID] = []
         var next: [Item.ID: Item] = [:]
@@ -392,9 +403,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         refreshAction = action
         if action != nil, direction == .down, pullToRefresh == nil {
             pullToRefresh = ListPullToRefresh(scrollView: collectionView) { [weak self] in await self?.refreshAction?() }
+            collectionView.accessibilityRefresh = { [weak self] in self?.pullToRefresh?.accessibilityRefresh() ?? false }
         } else if action == nil, let pullToRefresh {
             pullToRefresh.detach()
             self.pullToRefresh = nil
+            collectionView.accessibilityRefresh = nil
         }
     }
 
@@ -414,6 +427,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             }
         }
         readAheadIfNear()
+    }
+
+    /// The top inset moves at runtime (a banner, a search drawer): the refresh indicator follows it.
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrolled()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { probe?.scrolling?(true) }

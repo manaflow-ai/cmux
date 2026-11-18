@@ -70,16 +70,29 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
                 .accessibilityIdentifier("\(identifier).failed")
         default:
             if items.isEmpty, edge == .end {
-                empty()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("\(identifier).empty")
+                if let refresh {
+                    // An empty list still refreshes: a row that appears later (a chat archived on
+                    // the Mac) is one pull away, as it was with the old List's `.refreshable`.
+                    ScrollView {
+                        emptyState.containerRelativeFrame([.horizontal, .vertical])
+                    }
+                    .refreshable { await refresh() }
+                } else {
+                    emptyState
+                }
             } else {
                 PagedListRepresentable(direction: direction, items: items, edge: edge, loadMore: loadMore, retry: retry,
                                        row: row, swipeActions: swipeActions, endLabel: endLabel, identifier: identifier,
                                        probe: probe, cachesHeights: cachesHeights, refresh: refresh)
             }
         }
+    }
+
+    private var emptyState: some View {
+        empty()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("\(identifier).empty")
     }
 
     /// Trailing swipe actions per row (UIKit's swipe; the first is the full swipe's).

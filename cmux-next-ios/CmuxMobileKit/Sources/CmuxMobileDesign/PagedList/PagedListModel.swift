@@ -71,6 +71,10 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
         self.loader = loader
     }
 
+    /// Why the last refresh failed while rows were showing (nil after one succeeds); the screen
+    /// shows it, as the rows it keeps are older than the reader asked for.
+    public private(set) var refreshFailure: String?
+
     /// The items in the order they show, top to bottom.
     public var items: [Item] { direction == .down ? newestFirst : newestFirst.reversed() }
 
@@ -93,9 +97,17 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
             cursor = page.nextCursor
             edge = page.nextCursor == nil ? .end : .more
             phase = .loaded
+            refreshFailure = nil
         } catch {
             guard run == generation else { return }
-            if newestFirst.isEmpty { phase = .failed(message(error)) }
+            if newestFirst.isEmpty {
+                phase = .failed(message(error))
+            } else {
+                // The rows stay. A page read this refresh superseded left the edge spinning: it
+                // can read again.
+                refreshFailure = message(error)
+                if edge == .loading { edge = cursor == nil ? .end : .more }
+            }
         }
     }
 
