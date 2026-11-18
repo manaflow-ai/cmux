@@ -143,7 +143,9 @@ extension PaneCommitMotionTests {
 
     /// An unzoom brings the docked column back, and each pane is cut as it was before the zoom: in the frame that
     /// shows the unzoom, and at rest after it. `early`: the unzoom comes in the zoom's move, while the move keeps the
-    /// panes that the zoom covers under the zoomed pane; its own turn still shows the zoomed pane, whole.
+    /// panes that the zoom covers under the zoomed pane. The unzoom waits for its frame, so no pass makes a mask in its
+    /// turn: the zoomed pane keeps the mask of the zoom's pass there, whole. What the rings read in that turn:
+    /// `inTheTurnOfAnUnzoomInTheZoomsMoveTheRingLeavesOutNoPane`.
     @Test(arguments: DockMode.allCases, [false, true])
     func anUnzoomBesideADockCutsEachPaneAsBeforeTheZoom(_ mode: DockMode, early: Bool) throws {
         let harness = Commit.Harness(Self.dockStrip(mode), focused: "p1", holds: false)
@@ -167,7 +169,7 @@ extension PaneCommitMotionTests {
         harness.model.apply(screens: Self.dockStrip(mode))
         harness.root.syncWithModel()
         if early, let host = harness.root.context.hosts["p1"] {
-            #expect(Self.cut(of: host) == nil, "the turn of an unzoom in the zoom's move cuts the zoomed pane: \(Self.cut(of: host) ?? "")")
+            #expect(Self.cut(of: host) == nil, "in the turn of an unzoom in the zoom's move the zoomed pane has a mask that cuts it: \(Self.cut(of: host) ?? "")")
         }
         _ = harness.root.advanceFrame(Self.dt)
         let first = masks()
