@@ -27,15 +27,19 @@ Settings > Apps > Changes > Show:
   every window that shows the section, and it stops when the section is gone.
 - Every GitHub read is a conditional request (`If-None-Match`): a pull request that did not change
   is answered from its ETag and costs your rate limit nothing. The section never sets a timer;
-  the source re-reads every 60 s at most (pushed by GitHub webhooks through cmux Cloud once
-  `github.changed` lands, #44146).
+  GitHub webhooks reach it through cmux Cloud (`github.changed`), so a check or review flips
+  within seconds; until that push is live the source re-reads every 60 s at most.
 - GitHub access is one scope, `integration:github:read`, approved once on the install card. The
   reads go through your GitHub sign-in in cmux (today the `gh` CLI's; private repositories
   included) and the token never reaches this extension's code.
 - Without a sign-in it reads public repositories through GitHub's public API, once you grant
   `net:api.github.com` in Settings > Apps > Changes. That API allows 60 requests an hour, so this
   route shows at most 5 rows with their checks (no review state) and refreshes every 5 to 15
-  minutes. Set the GitHub login setting so "My open pull requests" knows who you are.
+  minutes. Set the GitHub login setting so "My open pull requests" knows who you are. When a
+  network's public limit is used up, the section says so and when it resets.
+- Loaded from a folder (`cmux ext dev`), it installs unverified and sandboxed: no network, so no
+  GitHub reads either way, until you turn off Run sandboxed in the App Store (Installed,
+  Changes, Permissions). The section says this instead of asking you to sign in.
 
 ## Looks
 

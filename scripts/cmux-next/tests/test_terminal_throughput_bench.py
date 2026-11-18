@@ -40,6 +40,17 @@ class Rows(unittest.TestCase):
         self.assertIsNone(tput.summarize([{"error": "no result"}]))
 
 
+class Arms(unittest.TestCase):
+    def test_an_arm_is_a_label_and_app_launch_variables(self):
+        self.assertEqual(tput.parse_arm("base:CMUX_NEXT_TUI_X=0,CMUX_NEXT_Y=a=b"),
+                         ("base", {"CMUX_NEXT_TUI_X": "0", "CMUX_NEXT_Y": "a=b"}))
+
+    def test_only_variables_that_reach_the_app_are_taken(self):
+        for bad in ("base", "base:", ":CMUX_NEXT_X=0", "base:CMUX_TUI_X=0", "base:CMUX_NEXT_X", "a b:CMUX_NEXT_X=1"):
+            with self.assertRaises(ValueError, msg=bad):
+                tput.parse_arm(bad)
+
+
 class Breakdown(unittest.TestCase):
     def test_ps_cpu_time_in_every_form(self):
         procs = tput.ps_cpu_seconds("  12 0:01.50 /A.app/Contents/MacOS/cmux\n"
@@ -82,6 +93,81 @@ class Breakdown(unittest.TestCase):
         self.assertEqual(tput.process_label(8, app + "Resources/bin/cmux-tui __terminal-host --fd 3"),
                          "Resources/bin/cmux-tui __terminal-host [8]")
         self.assertEqual(tput.process_label(9, "/usr/bin/python3 -I /tmp/w.py"), "python3 /tmp/w.py [9]")
+
+
+tspec = importlib.util.spec_from_file_location("tput_trace", os.path.join(HERE, "..", "terminal_throughput_trace.py"))
+trace = importlib.util.module_from_spec(tspec)
+tspec.loader.exec_module(trace)
+
+MS = 1_000_000  # the fixture's times are in ms
+WRITER_T = "Main Thread 0x10 (Python, pid: 50)"
+READER_T = "Thread 0x20 (cmux DEV x, pid: 60)"
+OTHER_T = "Thread 0x30 (Finder, pid: 70)"
+# The shape `xctrace export --xpath ...table[@schema=...]` writes: the schema's columns, then rows whose cells repeat
+# earlier values by ref.
+STATES = f"""<?xml version="1.0"?><trace-query-result><node><schema name="thread-state">
+<col><mnemonic>start</mnemonic><engineering-type>start-time</engineering-type></col>
+<col><mnemonic>duration</mnemonic><engineering-type>duration</engineering-type></col>
+<col><mnemonic>thread</mnemonic><engineering-type>thread</engineering-type></col>
+<col><mnemonic>state</mnemonic><engineering-type>thread-state</engineering-type></col>
+</schema>
+<row><start-time id="1">{1000 * MS}</start-time><duration id="2">{1000 * MS}</duration><thread id="3" fmt="{WRITER_T}"><tid>16</tid></thread><thread-state id="4" fmt="Running">Running</thread-state></row>
+<row><start-time>{2000 * MS}</start-time><duration>{500 * MS}</duration><thread ref="3"/><thread-state id="5" fmt="Blocked">Blocked</thread-state></row>
+<row><start-time>{2500 * MS}</start-time><duration ref="2"/><thread ref="3"/><thread-state ref="4"/></row>
+<row><start-time>{0 * MS}</start-time><duration>{10000 * MS}</duration><thread id="6" fmt="{READER_T}"/><thread-state ref="5"/></row>
+<row><start-time>{0 * MS}</start-time><duration>{3000 * MS}</duration><thread fmt="{OTHER_T}"/><thread-state ref="4"/></row>
+<row><sentinel/><sentinel/><thread ref="6"/><thread-state ref="4"/></row>
+</node></trace-query-result>"""
+CALLS = f"""<?xml version="1.0"?><trace-query-result><node><schema name="syscall">
+<col><mnemonic>start</mnemonic><engineering-type>start-time</engineering-type></col>
+<col><mnemonic>duration</mnemonic><engineering-type>duration</engineering-type></col>
+<col><mnemonic>thread</mnemonic><engineering-type>thread</engineering-type></col>
+<col><mnemonic>syscall</mnemonic><engineering-type>syscall</engineering-type></col>
+<col><mnemonic>return</mnemonic><engineering-type>syscall-return</engineering-type></col>
+</schema>
+<row><start-time>{1000 * MS}</start-time><duration>{400 * MS}</duration><thread id="1" fmt="{WRITER_T}"/><syscall id="2" fmt="write">write</syscall><syscall-return fmt="65536">65536</syscall-return></row>
+<row><start-time>{2600 * MS}</start-time><duration>{900 * MS}</duration><thread ref="1"/><syscall ref="2"/><syscall-return fmt="65536">65536</syscall-return></row>
+<row><start-time>{1500 * MS}</start-time><duration>{1000 * MS}</duration><thread fmt="{READER_T}"/><syscall fmt="read">read</syscall><syscall-return fmt="8192 (0x2000)"/></row>
+</node></trace-query-result>"""
+
+
+class Trace(unittest.TestCase):
+    def summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = {}
+            for schema, text in (("thread-state", STATES), ("syscall", CALLS)):
+                paths[schema] = os.path.join(d, schema + ".xml")
+                with open(paths[schema], "w") as f:
+                    f.write(text)
+            return trace.summarize_exports(paths, lambda name: "cmux" in name or tput.is_python(name), tput.is_python)
+
+    def test_the_window_is_the_writers_first_to_last_run(self):
+        got = self.summary()
+        self.assertEqual(got["writer_pid"], 50)
+        self.assertEqual(got["window_s"], 2.5)  # 1000..3500 ms
+        self.assertEqual(got["rows"], {"thread_state": 4, "syscall": 3, "samples": 0})  # Finder and the sentinel row out
+
+    def test_states_and_calls_are_clipped_to_the_window_per_thread(self):
+        threads = {t["thread"]: t for t in self.summary()["threads"]}
+        self.assertNotIn(OTHER_T, threads, "processes outside the terminal are left out")
+        writer = threads[WRITER_T]
+        self.assertEqual(writer["running_pct"], 80.0)
+        self.assertEqual(writer["calls"]["write"], {"count": 2, "wall_ms": 1300.0, "blocked_pct": 52.0,
+                                                    "bytes": 131072, "mb_s": 0.1, "bytes_per_call": 65536})
+        reader = threads[READER_T]
+        self.assertEqual(reader["states_ms"], {"Blocked": 2500.0})
+        self.assertEqual(reader["calls"]["read"]["bytes_per_call"], 8192, "a return read from its fmt")
+        self.assertEqual(reader["calls"]["read"]["blocked_pct"], 40.0)
+
+    def test_hop_lines_list_each_io_row_with_bytes(self):
+        lines = trace.hop_lines(self.summary())
+        self.assertEqual(len(lines), 2)
+        self.assertIn("| write |", lines[0])
+        self.assertIn("8192 B/call", lines[1])
+
+    def test_thread_names(self):
+        self.assertEqual(trace.thread_process(READER_T), "cmux DEV x")
+        self.assertEqual(trace.thread_pid(READER_T), 60)
 
 
 if __name__ == "__main__":

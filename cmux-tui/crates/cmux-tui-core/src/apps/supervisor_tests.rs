@@ -42,9 +42,16 @@ fn scripted_app_host() {
     };
     let mut next_cb = 1;
     let mut cb_mount: Vec<(u64, String)> = Vec::new();
+    // `renderHang`: the host stops answering anything (a render that never
+    // returns, in a host that does not honor its deadline) until shut down.
+    let mut hung = false;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+        let message = serde_json::from_str::<ToHost>(&line).expect("protocol");
+        if hung && !matches!(message, ToHost::Shutdown) {
+            continue;
+        }
+        match message {
             // A script that names THROW_AT_INIT fails to load, as a syntax error does.
             ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
                 send(FromHost::InitFailed {
@@ -74,6 +81,21 @@ fn scripted_app_host() {
                 }
                 if export == "renderFail" {
                     send(FromHost::Mounted { mount, error: Some("render failed".into()) });
+                    continue;
+                }
+                if export == "renderHang" {
+                    hung = true;
+                    continue;
+                }
+                if export == "renderHuge" {
+                    // A scene of 20,000 nodes with a 100-byte text each (~3 MB).
+                    let text = "x".repeat(100);
+                    let mut ops: Vec<Value> = (0..20_000)
+                        .map(|n| json!({ "op": "create", "id": format!("h{n}"), "type": "Text", "props": { "text": text } }))
+                        .collect();
+                    ops.push(json!({ "op": "root", "id": "h0" }));
+                    send(FromHost::Scene { mount: mount.clone(), ops: Value::Array(ops) });
+                    send(FromHost::Mounted { mount, error: None });
                     continue;
                 }
                 if export == "renderLive" {
@@ -207,7 +229,7 @@ fn run_request(
 
 /// (app, op, params, idempotency key, origin)
 type RoutedCall = (String, String, Value, Option<String>, Origin);
-type Publish = Box<dyn Fn(&str) + Send + Sync>;
+type Publish = super::supervisor::StreamPublish;
 
 #[derive(Default)]
 struct FakeRouter {
@@ -228,8 +250,13 @@ impl OpRouter for Arc<FakeRouter> {
         Ok(json!({ "value": { "routed": op } }))
     }
 
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
+    fn start_events(&self, publish: Publish) {
         *self.publish.lock().unwrap() = Some(publish);
+    }
+
+    /// `github.changed` is pushed from the Cloud; the fake says its channel is live.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        (stream == "github.changed").then_some(true)
     }
 
     fn owns(&self, op: &str) -> bool {
@@ -512,6 +539,38 @@ fn unverified_apps_start_sandboxed_with_read_scopes() {
     assert_eq!(spy["source"], "local");
 }
 
+/// An App Store package (`CMUX_APPS_DIRS`, tier unverified) installed with
+/// one click: the consent card listed its `net:` scope, so the confirmed
+/// install grants it and the app reaches that host at once (base red: the
+/// install granted read scopes only and stayed sandboxed, so a weather
+/// widget fetched nothing until the person changed two settings).
+#[test]
+fn a_store_install_grants_the_scopes_its_consent_card_listed() {
+    let f = fixture();
+    let extra = f.state.parent().unwrap().join("extra");
+    write_app(
+        &extra,
+        "weather",
+        "acme/weather",
+        json!({ "workspace:read": "r", "net:api.example.com": "forecasts" }),
+    );
+    let path = extra.join("weather/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["repository"] = json!("https://github.com/acme/weather");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "acme/weather")["tier"], "unverified");
+    let args = json!({ "app": "acme/weather", "idempotency_key": "one-click" });
+    f.supervisor.store_call(CLIENT, "apps.install", args, Origin::User).unwrap();
+    let weather = app_entry(&f.supervisor.list(), "acme/weather");
+    assert_eq!(weather["grants"], json!(["net:api.example.com", "workspace:read"]), "{weather}");
+    assert_eq!(weather["sandboxed"], false, "{weather}");
+    f.mount("m1", "acme/weather", "cmux.section/1", json!({}));
+    let fetched = f.call("m1", "net.fetch", json!({ "url": "https://api.example.com/x" }), false);
+    assert_eq!(fetched["body"]["value"]["body"], "hi", "{fetched}");
+}
+
 #[test]
 fn default_apps_are_installed_with_required_scopes() {
     let f = fixture_with(&["cmux/demo"], Duration::from_secs(60), temp_dir());
@@ -637,11 +696,40 @@ fn daemon_events_reach_subscribed_apps() {
     // The scripted host subscribes before its first scene, and the reader
     // thread handles lines in order, so the bridge is up by now.
     let publish = f.router.publish.lock().unwrap().take().expect("event bridge started");
-    publish("workspace.changed");
+    publish("workspace.changed", json!({}));
     let log = f.wait_event("apps-log");
     assert_eq!(log["message"], "event 1");
     let lines = f.supervisor.logs(CLIENT, "cmux/demo", false);
     assert!(lines["lines"].as_array().unwrap().iter().any(|l| l["message"] == "event 1"));
+}
+
+/// `github.changed` (the Cloud's GitHub webhooks, events.json `readsParams`) reaches only an app
+/// granted `integration:github:read`: a new subscriber first hears whether the push channel is
+/// live (`{"live": true}` from `OpRouter::stream_live`), then each change.
+#[test]
+fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_github_readers() {
+    let stream = "github.changed";
+    let f = fixture();
+    f.install("cmux/demo");
+    f.install("local/spy");
+    f.supervisor.logs(CLIENT, "cmux/demo", true);
+    f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    f.wait("liveness", |e| {
+        e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
+    });
+    f.supervisor.publish(stream, json!({}));
+    f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
+    let heard = |app: &str| {
+        f.supervisor.logs(CLIENT, app, false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|line| line["message"].as_str().is_some_and(|m| m.starts_with("event-body")))
+            .count()
+    };
+    assert_eq!(heard("cmux/demo"), 2, "liveness, then the change");
+    assert_eq!(heard("local/spy"), 0, "an app without integration:github:read hears nothing");
 }
 
 /// `settings.changed` and `theme.changed` reach an app granted `settings:read` (their declared
@@ -1061,8 +1149,12 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
+#[path = "supervisor_community_tests.rs"]
+mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_github_tests.rs"]
+mod github_gateway;
 #[path = "supervisor_inventory_demand_tests.rs"]
 mod inventory_demand;
 #[path = "supervisor_local_reload_tests.rs"]
@@ -1089,8 +1181,14 @@ mod rollback_tolerance;
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
 
+#[path = "supervisor_page_call_tests.rs"]
+mod page_calls;
+
 #[path = "supervisor_activation_tests.rs"]
 mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_scale_tests.rs"]
+mod at_scale;

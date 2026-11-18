@@ -67,11 +67,16 @@ public final class TabStripView: NSView {
     }
     /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
     public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    /// The Debug looks the cells last drew (`CellLooks`), for change detection.
+    var cellLooks = CellLooks()
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
     /// tab; then 2 px less, so 2 pt at Default).
-    var newTabLeadingGap: CGFloat { Metrics.space1 }
+    /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
+    /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
+    /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
+    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -590,9 +595,10 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let padding = metrics.stripHorizontalPadding
-        // The flush corner (`chrome.cornerFlush`): the first tab starts on the pane's leading edge.
-        let leading = CornerFlush.current.isOn ? 0 : padding
+        // One gap before the first tab and after the last, the pill's top gap on this screen's pixel grid
+        // (`Metrics.tabStripEndGap`, `TabStripMetrics.endGap(scale:)`).
+        let padding = metrics.endGap(scale: window?.backingScaleFactor ?? 2)
+        let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
         let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))

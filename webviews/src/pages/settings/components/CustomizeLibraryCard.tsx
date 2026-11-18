@@ -17,6 +17,7 @@ import { Icon } from "../icons";
 import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
+import { focusRoute } from "../../../ui/focusRoute";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -125,7 +126,11 @@ export function CustomizeLibraryView({
   useLayoutEffect(() => {
     if (!removing) return;
     confirm.current?.scrollIntoView?.({ block: "nearest" });
-    confirm.current?.querySelector<HTMLButtonElement>('[data-library-action="cancel"]')?.focus();
+    focusRoute(
+      confirm.current?.querySelector<HTMLButtonElement>('[data-library-action="cancel"]'),
+      "person",
+      "the person's Remove opened the confirmation: Cancel",
+    );
   }, [removing]);
   return (
     <section

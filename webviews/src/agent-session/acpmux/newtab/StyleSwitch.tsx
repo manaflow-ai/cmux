@@ -3,7 +3,7 @@
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
 // fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
-// composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
+// composer's look dots (LookSwitch.tsx; Leo 2026-10-22) are the same dots
 // (DotSwitch) over other options. The accent dot is the shared sliding indicator (ui/motion,
 // useSlidingIndicator): placed with no motion in its first frame, it slides on transform over the
 // scale's standard step (180 ms) on a pick, from where it is drawn if a pick interrupts a slide, and
@@ -43,7 +43,7 @@ export function StyleSwitch({
   );
 }
 
-/// The dots over any options: the page's styles (StyleSwitch), or its and a chat's composer looks.
+/// The dots over any options: the page's styles (StyleSwitch), or a chat's composer looks.
 export function DotSwitch<Option extends string>({
   options,
   current,

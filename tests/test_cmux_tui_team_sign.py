@@ -206,10 +206,12 @@ class TeamSignedWorkflow(unittest.TestCase):
         self.assertEqual(request["needs"], ["tree-preflight", "publish-tree-tested"])
         self.assertIn("needs.publish-tree-tested.result != 'failure'", request["if"])
         self.assertNotIn("needs.publish-tree.result", request["if"])
-        run = request["steps"][0]["run"]
+        (step,) = [s for s in request["steps"] if s.get("name") == "Dispatch cmux-tui-team-signed.yml on nightly-next"]
+        run = step["run"]
         self.assertIn("--ref nightly-next", run)
         # A push whose key is signed already dispatches nothing; one that does names the key's group.
-        self.assertLess(run.index("team-signed/completion.json"), run.index("gh workflow run"))
+        # The dispatch goes through gh_budget_wait.sh, which moves a rate-limited call to the bot token.
+        self.assertLess(run.index("team-signed/completion.json"), run.index("gh_budget_wait.sh workflow run"))
         self.assertIn('-f key="$KEY"', run)
         self.assertIn("inputs.key", self.doc["concurrency"]["group"])
         for name, job in jobs.items():

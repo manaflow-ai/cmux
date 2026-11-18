@@ -119,6 +119,28 @@ class LiveSchemaTests(unittest.TestCase):
             {"ignored": ("bool", ("default",)), "kept": ("u64", ())},
         )
 
+    def test_struct_fields_leave_out_a_field_that_serde_skips(self) -> None:
+        fields = CHECKER._parse_rust_fields(
+            "    #[serde(default)]\n"
+            "    place: Option<TabPlaceRequest>,\n"
+            "    #[serde(skip)]\n"
+            "    hole: Option<u64>,\n"
+            "    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n"
+            "    kept: Option<u64>,\n",
+            "Rust struct Fixture",
+        )
+        self.assertEqual(sorted(fields), ["kept", "place"])
+
+    def test_the_place_of_a_create_request_maps_to_its_named_type(self) -> None:
+        commands = CHECKER.runtime_command_fields()
+        for command in ("new-tab", "new-conversation-tab", "new-frontend-browser-tab"):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    CHECKER._runtime_type_shape(commands[command]["place"].rust_type),
+                    "ref<TabPlace>",
+                )
+                self.assertNotIn("hole", commands[command])
+
     def test_handler_module_request_uses_its_struct_and_flattened_key(self) -> None:
         fields = CHECKER.runtime_command_fields()["move-bookmark"]
         self.assertEqual(

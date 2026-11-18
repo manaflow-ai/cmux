@@ -202,6 +202,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "selector.not_found",
     "selector.wrong_parent",
     "settings.agent_refused",
+    "settings.file_mismatch",
     "settings.invalid",
     "settings.managed",
     "settings.removed",

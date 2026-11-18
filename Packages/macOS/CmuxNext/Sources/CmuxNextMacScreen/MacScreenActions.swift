@@ -1,5 +1,6 @@
 public import CmuxNextActions
 import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextDevices
 public import CmuxNextPalette
 import Foundation
@@ -12,16 +13,19 @@ public struct MacScreenActions {
     let providerKey: (String, String?) -> String?
     let open: (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void
     let refusal: (any Error) -> Void
+    let worker: MacScreenWorkerSession
 
+    /// - Parameter worker: cmux Remote's worker, the host of this Mac's session in a build that bundles cmux Remote.
     public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
-                refusal: @escaping (any Error) -> Void) {
+                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none) {
         self.pages = pages
         self.selectedTab = selectedTab
         self.providerKey = providerKey
         self.open = open
         self.refusal = refusal
+        self.worker = worker
     }
 
     /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
@@ -39,14 +43,34 @@ public struct MacScreenActions {
             return .done
         })
         ActionTargetVisibility.gate("macScreen.stopViewing", in: registry) { viewer($0) == nil ? Self.noViewer : nil }
-        registry.bindEffect("macScreen.stopSharing", unavailable: { pages.hubHost.noSessionReason }, effect: { _ in
-            _ = pages.hubHost.stopSession()
-            return .done
-        })
+        registry.bindEffect("macScreen.stopSharing", unavailable: { stopSharingUnavailable }, effect: { _ in stopSharing() })
         registry.bindEffect("macScreen.revokeViewer", unavailable: { pages.hubHost.noSessionReason }, effect: { _ in
             _ = pages.hubHost.revokeViewer()
             return .done
         })
+        bindViewerControls(into: registry)
+    }
+
+    /// Stop Sharing This Mac ends this Mac's session wherever it is hosted: in the app's own host while a device
+    /// is connected to it, else in cmux Remote's worker, the host in a build that bundles cmux Remote. Each host
+    /// had its own palette row before (cmux Remote: End Screen Sharing Session was the worker's); Leo,
+    /// 2026-11-16: "you can absolutely just do the reasonable/recommended thing in that case".
+    var stopSharingUnavailable: String? {
+        worker.running() ? nil : pages.hubHost.noSessionReason
+    }
+
+    func stopSharing() -> ActionEffect {
+        if pages.hubHost.noSessionReason == nil {
+            _ = pages.hubHost.stopSession()
+            return .done
+        }
+        guard worker.running() else { return .refused(pages.hubHost.noSessionReason ?? "") }
+        let stop = worker.stop
+        // action-wait-allow: the session runs in cmux Remote's worker, another process; the menu bar item follows the hub.
+        return .waiting(.externalProcess) {
+            do { try await stop() } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
+            return nil
+        }
     }
 
     static func record(_ invocation: ActionInvocation, pages: MacScreenPages) throws -> MacScreenRecord {
@@ -107,7 +131,15 @@ public struct MacScreenActions {
         return String(format: L.t("macScreen.actions.missingDevice", "Pass a device name or id. Your devices: %@."), listed(devices))
     }
 
+    /// The targeted tab's viewer while it asks, waits or streams (Stop Viewing's tab).
     func viewer(_ invocation: ActionInvocation) -> MacScreenPane? {
+        guard let pane = screenTab(invocation), let phase = pane.model.hub?.phase,
+              phase.isPending || phase.streamingScope != nil else { return nil }
+        return pane
+    }
+
+    /// The targeted tab's Screen Sharing screen, else the selected tab's, in any phase.
+    func screenTab(_ invocation: ActionInvocation) -> MacScreenPane? {
         let id: String
         if let target = invocation.target ?? invocation["tab"]?.targetValue {
             guard target.kind == .tab else { return nil }
@@ -116,9 +148,8 @@ public struct MacScreenActions {
             guard let selected = selectedTab() else { return nil }
             id = selected
         }
-        guard let key = providerKey(id, invocation.targetMachineID), let pane = pages.tab(key)?.pane,
-              let phase = pane.model.hub?.phase, phase.isPending || phase.streamingScope != nil else { return nil }
-        return pane
+        guard let key = providerKey(id, invocation.targetMachineID) else { return nil }
+        return pages.tab(key)?.pane
     }
 
     private static func isPerson(_ invocation: ActionInvocation) -> Bool {
@@ -126,4 +157,18 @@ public struct MacScreenActions {
     }
     private static var noPane: String { L.t("macScreen.actions.noPane", "Choose a pane or tab to open Screen Sharing.") }
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }
+}
+
+/// cmux Remote's worker as Stop Sharing This Mac sees it: whether it runs, and how to end the session it hosts.
+public struct MacScreenWorkerSession {
+    let running: @MainActor () -> Bool
+    let stop: @MainActor () async throws -> Void
+
+    public init(running: @escaping @MainActor () -> Bool, stop: @escaping @MainActor () async throws -> Void) {
+        self.running = running
+        self.stop = stop
+    }
+
+    /// No worker: a build without cmux Remote, and tests.
+    public static var none: MacScreenWorkerSession { MacScreenWorkerSession(running: { false }, stop: {}) }
 }

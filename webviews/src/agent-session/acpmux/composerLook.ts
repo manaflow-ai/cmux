@@ -9,18 +9,19 @@
 // agent chat doesn't do anything right now"), Codex's folder and computer tray tucked under the box's
 // top edge, and the accent on Full access (composerLook.css). Replaced: Codex's own row in the box
 // under the prompt with + in it (cmux #28901, last good commit 8b44a8a1dc2), kept in gallery
-// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Dots pick it: on New Tab the page's three
-// (newtab/tabDots.ts: Claude Minimal, Claude Minimal with the quick actions, Codex Minimal), in a chat
-// two on hover in the composer's bottom area (LookSwitch.tsx). The choice is the viewer's, kept in
-// cmux-next.json as `agentPane.display.composerLook` (Settings > Agent Chat > Composer Style), which
-// the host sends every agent page with the chat's keys (chatDisplay.ts) and writes when a dot is
-// picked (`pane.setDisplay`). The page's localStorage is only the launch's copy: the agent pages'
-// store is not persistent (AgentPaneView.sharedDataStore, Chromium's off-the-record profile), so a
-// pick kept only there came back as Codex after every restart (Leo, 2026-11-14: "if i picked the
-// claude style composer it should remember it after restart instead of always only going to the
-// codex mode"). Until the host's value comes, the launch's copy shows (a page opened after a pick in
-// this launch draws it from its first frame); once it came, the host's value wins.
-import { useSyncExternalStore } from "react";
+// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Chat dots pick the look on hover in the
+// composer's bottom area (LookSwitch.tsx); New Tab always uses Claude's look, including its shared
+// controls. The choice is the viewer's, one user-level setting in cmux-next.json,
+// `agentPane.display.composerLook` (Settings > Agent Chat > Composer Style), which the host sends
+// every agent page with the chat's keys (chatDisplay.ts) and writes when a dot is picked
+// (`pane.setDisplay`). Nothing derives it from the chat's harness, workspace or page. The page's
+// localStorage is only the launch's copy: the agent pages' store is not persistent
+// (AgentPaneView.sharedDataStore, Chromium's off-the-record profile), so a pick kept only there came
+// back as the default after every restart (Leo, 2026-11-14: "if i picked the claude style composer it
+// should remember it after restart instead of always only going to the codex mode"). Until the host's
+// value comes, the launch's copy shows (a page opened after a pick in this launch draws it from its
+// first frame); once it came, the host's value wins.
+import { useContext, useSyncExternalStore } from "react";
 import {
   changeChatDisplay,
   COMPOSER_LOOK_KEY,
@@ -28,6 +29,7 @@ import {
   pickedDisplayValue,
   subscribeChatDisplay,
 } from "./chatDisplay";
+import { OnNewTab } from "./newTabComposer";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -40,8 +42,11 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   codex: "Codex",
 };
 
-/// New viewers use Codex's look across agent families; explicit choices remain saved.
-export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
+/// A viewer who never picked gets Claude's look, in every chat on every harness; an explicit pick
+/// (Codex included) is written to the file and stays (Leo, 2026-11-18: "plus, we wanted to have the
+/// claude style by default..."). Keep in step with the row's default in
+/// schemas/settings/source/agent-pane-display.json.
+export const DEFAULT_COMPOSER_LOOK: ComposerLook = "claude";
 /// The launch's copy in storage (the host keeps the choice; see above).
 const KEY = "cmux.composer.look";
 
@@ -118,5 +123,7 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
 
 /// The composer's look; re-renders the caller when it changes, here or in another pane.
 export function useComposerLook(): ComposerLook {
-  return useSyncExternalStore(subscribe, current, current);
+  const onNewTab = useContext(OnNewTab);
+  const look = useSyncExternalStore(subscribe, current, current);
+  return onNewTab ? "claude" : look;
 }

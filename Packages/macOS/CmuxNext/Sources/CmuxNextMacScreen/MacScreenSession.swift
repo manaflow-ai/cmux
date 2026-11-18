@@ -282,7 +282,9 @@ public final class MacScreenSession {
         guard transport == nil, let socketPath else { return }
         let carrier = RemoteRdStreamCarrier(open: { try await MacScreenUnixStream.open(path: socketPath) })
         // The hub's identity is the viewer; the host does not read these claims.
-        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil)
+        // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
+        let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
+                                  caps: [RemoteRdHello.cursorCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))

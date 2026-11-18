@@ -55,7 +55,7 @@ pub fn agent_dir(home: &Path, session: &str, agent: &str) -> Option<PathBuf> {
 /// A plain word (`cli::sender::subagent_word`) that is one file name of its own: not `.`, `..`
 /// or hidden.
 pub(crate) fn name_word(word: &str) -> bool {
-    crate::cli::sender::subagent_word(word) && !word.starts_with('.')
+    crate::sender_env::subagent_word(word) && !word.starts_with('.')
 }
 
 /// Leaves `notice` as `<id>.json` in `dir` (an [`agent_dir`]); `id` is a plain word.

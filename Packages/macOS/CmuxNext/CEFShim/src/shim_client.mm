@@ -314,7 +314,7 @@ class Client : public CefClient,
 
   // MARK: Chrome Web Store, local file scope
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
@@ -331,7 +331,10 @@ class Client : public CefClient,
       static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
       return refusal;
     }
-    return WebStoreRequestHandler(url);
+    // The page that asks: its top document (the Google bar's promo API gets the store's
+    // headers only from a store page, webstore_headers.h).
+    CefRefPtr<CefFrame> top = browser ? browser->GetMainFrame() : nullptr;
+    return WebStoreRequestHandler(url, top ? top->GetURL().ToString() : (frame ? frame->GetURL().ToString() : std::string()));
   }
 
   // MARK: Certificate errors

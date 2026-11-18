@@ -103,7 +103,7 @@ pub(super) async fn forward(
         return Some(Err(refused()));
     }
     let Some((peer, id, _)) = hub.resolve_remote(key) else {
-        return hub.peer_down_for(key).map(Err);
+        return hub.peer_down_for(key).or_else(|| hub.peer_unlisted_for(key)).map(Err);
     };
     if !peer.ready() {
         peer.want();

@@ -3,8 +3,11 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` and credential files,
-//! which are shared only on purpose), plus the repository itself as
+//! and untracked ones that are not ignored, minus untracked secrets
+//! ([`skips::secret_at`]: `.env*`, private keys, certificate stores,
+//! `.netrc`, registry files with a token; the git seed's rule) and
+//! credential files ([`skips::credential`]), which are shared only on
+//! purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
 //! ([`GIT_TOP`]); hooks never go at any level (they would run on the
@@ -23,13 +26,13 @@
 //!
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
-//! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`];
-//! credential folders and files at any depth: [`skips::credential`]).
+//! machine ([`skips::heavy`]) and secrets ([`skips::secret_at`]; credential
+//! folders and files at any depth: [`skips::credential`]).
 //! A symlink whose target stays inside the folder goes as a symlink
 //! ([`super::links`]); other symlinks, special files and names the machine
 //! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
-//! named with why ([`Skips`]), except the git path's untracked `.env*` and
-//! non-UTF-8 paths, which are counted.
+//! named with why ([`Skips`]), except the git path's non-UTF-8 paths,
+//! which are counted.
 
 use cmux_process::Command;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -89,6 +92,9 @@ pub(super) struct LocalSet {
     pub git: bool,
     /// The copy's limits, counted as files are added ([`super::size_cap`]); none for a share.
     pub cap: Option<super::size_cap::Cap>,
+    /// What a first pass ([`first_pass`]) left on this Mac, for the note on the machine
+    /// ([`super::left_note`]); none for a copy sent whole.
+    pub left: Option<super::left_note::LeftOnMac>,
 }
 
 impl LocalSet {
@@ -100,6 +106,7 @@ impl LocalSet {
             skips,
             git: false,
             cap: None,
+            left: None,
         }
     }
 
@@ -215,6 +222,20 @@ pub(super) fn collect(
     rules: Rules,
     cap: Option<super::size_cap::Cap>,
 ) -> anyhow::Result<LocalSet> {
+    let (mut set, stopped) = listed(folder, rules, cap)?;
+    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past) {
+        first_pass(&mut set, stopped);
+    }
+    Ok(set)
+}
+
+/// [`collect`]'s listing alone, counted against `cap`, with no first pass taken from it, and
+/// whether it stopped at the cap's file limit or time bound ([`super::estimate`] reads both).
+pub(super) fn listed(
+    folder: &Path,
+    rules: Rules,
+    cap: Option<super::size_cap::Cap>,
+) -> anyhow::Result<(LocalSet, bool)> {
     let mut set = LocalSet::new(Skips::new(folder));
     set.cap = cap;
     let stopped = match list_into(&mut set, folder, rules) {
@@ -222,14 +243,11 @@ pub(super) fn collect(
         Err(error) if error.is::<super::size_cap::FileLimit>() => true,
         Err(error) => return Err(error),
     };
-    if stopped || set.cap.as_ref().is_some_and(super::size_cap::Cap::past_bytes) {
-        first_pass(&mut set, stopped);
-    }
-    Ok(set)
+    Ok((set, stopped))
 }
 
 /// Whether `relative` is a repository's own state (`.git` or inside one, at any depth).
-fn in_history(relative: &str) -> bool {
+pub(super) fn in_history(relative: &str) -> bool {
     relative == ".git"
         || relative.starts_with(".git/")
         || relative.ends_with("/.git")
@@ -247,9 +265,11 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
     let (max_bytes, max_files) = super::size_cap::first_limits();
     let mut order: Vec<(u64, String)> = Vec::with_capacity(set.files.len());
     let mut left = u64::from(stopped);
+    let mut note = super::left_note::LeftOnMac::new(stopped);
     for relative in set.files.keys() {
         if in_history(relative) {
             left += 1;
+            note.left(relative, cap.size_of(relative));
         } else {
             order.push((cap.size_of(relative), relative.clone()));
         }
@@ -261,15 +281,18 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
         if files < max_files && bytes.saturating_add(size) <= max_bytes {
             bytes = bytes.saturating_add(size);
             files += 1;
+            note.sent(size);
             kept.insert(relative);
         } else {
             left += 1;
+            note.left(&relative, size);
         }
     }
     set.files.retain(|relative, _| kept.contains(relative));
     set.links.retain(|relative, _| !in_history(relative));
     set.git = false;
     set.skips.left_on_mac(left);
+    set.left = Some(note);
 }
 
 /// [`collect`]'s listing into `set`, ended by the first error (a cap's
@@ -279,16 +302,28 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
         return walk_plain(set, rules, &|_| true, folder, folder);
     };
     set.git = true;
+    // Each untracked heavy folder is named once, as the folder.
+    let mut heavy_named: BTreeSet<String> = BTreeSet::new();
     let top = place::Dir::open(folder)?;
     // Each file is counted as git lists it: past the copy's limit the listing stops there.
     let mut skipped = 0;
     working_files(folder, &mut skipped, &mut |path, untracked| {
-        // An untracked credential file never goes either (tracked ones were committed on purpose).
         if untracked
-            && (path.rsplit('/').next().is_some_and(|name| name.starts_with(".env"))
-                || skips::credential(&path, false).is_some())
+            && rules == Rules::Copy
+            && let Some(heavy) = heavy_folder(folder, &path)
         {
-            set.skipped += 1;
+            if heavy_named.insert(heavy.to_owned()) {
+                set.skips.note(&format!("{heavy}/"), Why::Heavy);
+            }
+            return Ok(());
+        }
+        // Untracked secrets and credential files never go (tracked ones were
+        // committed on purpose).
+        if untracked
+            && let Some(why) =
+                skips::secret_at(folder, &path).or_else(|| skips::credential(&path, false))
+        {
+            set.skips.note(&path, why);
             return Ok(());
         }
         add_working(set, &top, folder, &path)
@@ -338,6 +373,22 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
         })?;
     }
     Ok(())
+}
+
+/// The heavy folder ([`skips::heavy`]) `relative` (a file git names in
+/// `top`) is in, as a path in `top`, or `None`. The outermost one wins, as
+/// [`walk_plain`] never enters a heavy folder.
+pub(super) fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str> {
+    let (folders, _file) = relative.rsplit_once('/')?;
+    let mut end: usize = 0;
+    for name in folders.split('/') {
+        let parent = relative.get(..end.saturating_sub(1)).unwrap_or_default();
+        end = end.saturating_add(name.len()).saturating_add(1);
+        if skips::heavy(&top.join(parent), name) {
+            return relative.get(..end.saturating_sub(1));
+        }
+    }
+    None
 }
 
 /// A dropped folder's own files for a one-off upload: git's ignore rules

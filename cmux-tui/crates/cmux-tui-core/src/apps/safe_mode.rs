@@ -286,7 +286,8 @@ impl Supervisor {
     fn stop_all_hosts_locked(&self, inner: &mut Inner) -> Vec<Out> {
         let mut apps: BTreeSet<String> = inner.hosts.keys().map(|key| key.app.clone()).collect();
         apps.extend(inner.mounts.values().map(|mount| mount.host.app.clone()));
-        let mut outs = Vec::new();
+        // Every web pane's calls end too, of apps with no host or mount as well.
+        let mut outs = self.cancel_page_calls_locked(inner, None, OFF);
         for app in apps {
             outs.extend(self.stop_app_locked(inner, &app, OFF));
             // A preview host (the store's) stops too.
