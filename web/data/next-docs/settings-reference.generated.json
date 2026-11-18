@@ -1381,10 +1381,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]

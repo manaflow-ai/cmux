@@ -176,7 +176,6 @@ async function renderPage(cell: Cell, calls: Call[]) {
     chatCwd: SCRATCH,
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   const projects = Object.values(FOLDERS).filter((folder) => folder !== undefined);
@@ -202,15 +201,12 @@ async function renderPage(cell: Cell, calls: Call[]) {
           lastAgent={cell.harness}
           projects={[...projects]}
           knownProjects={[SCRATCH, ...projects.map((project) => project.cwd)]}
-          template="default"
           chips={NewTabComposerChips}
           onAsk={actions.onAsk}
           onOpen={() => {}}
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
-          onOpenSession={() => {}}
-          onShowAll={() => {}}
           environments
           runMode={{
             mode: cell.where === "cloud" ? "cloud" : "persistent",
@@ -226,7 +222,7 @@ async function renderPage(cell: Cell, calls: Call[]) {
 
 /// The folder chooser on the page: picks the cell's folder, or No folder.
 async function pickFolder(folder: FolderPick) {
-  const button = host.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button");
+  const button = host.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button");
   expect(button, "no folder chooser on the page").toBeTruthy();
   await act(async () => button!.click());
   await settle();

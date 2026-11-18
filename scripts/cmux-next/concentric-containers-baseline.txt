@@ -46,12 +46,7 @@ webviews/src/agent-session/acpmux/conversation/conversation.css: .acpmux-render-
 webviews/src/agent-session/acpmux/conversation/conversation.css: .cv-tool-error-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/harnessStatus.css: .acpmux-harness-status__close { border-radius: 6px }
 webviews/src/agent-session/acpmux/harnesses/harnesses.css: .acpmux-harnesses-close { border-radius: 6px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-card { border-radius: 16px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-popup) }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-row-action kbd { border-radius: 4px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-stage-card { border-radius: 14px }
 webviews/src/agent-session/acpmux/quickModelColumns.css: .acpmux-cols-card { border-radius: var(--ui-popup-radius, var(--ds-radius-popup)) }
 webviews/src/agent-session/acpmux/repoTour/tourOfferDesigns.css: .tour-designs-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/run-board/variants/compare/styles.css: .compare-replay-banner { border-radius: 9px }

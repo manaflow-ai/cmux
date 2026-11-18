@@ -126,8 +126,6 @@ async function mountScreen(options: { startCwd?: string; seen: string[]; command
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -178,8 +176,6 @@ test("the classic New Tab page's chips never start the chat in the inherited ~ e
         knownProjects={[]}
         chips={recordingChips(seen)}
         onSubmit={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

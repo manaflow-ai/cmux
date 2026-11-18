@@ -28,16 +28,11 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
   pane: true,
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx",
-    "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/newtab/FirstRunStarters.tsx",
   ],
   load: () => import("./NewTabScreen").then((module) => module.NewTabScreen),
   styles: () => Promise.all([import("../styles.css"), import("./screen.css")]),
   variants: {
-    "project-card": {
-      note: "Recommended for the existing project-card layout: Browse and No project are direct actions, above the composer.",
-      props: { ...props, template: "default" },
-    },
     minimal: {
       note: "The default minimal layout keeps its existing folder control beside the composer.",
       props: { ...props, template: "minimal" },
@@ -55,10 +50,6 @@ export default componentEntry<ComponentProps<typeof NewTabScreen>>({
     "starters-card": {
       note: "The rows inside the stage card's surface. Reads as a second composer-weight object on an otherwise empty page.",
       props: { ...props, snapshot: noChat([]), template: "minimal", starterLook: "card" },
-    },
-    "starters-project-card": {
-      note: "The Default layout with the project card above and the shipped rows under the composer.",
-      props: { ...props, snapshot: noChat([]), template: "default" },
     },
   },
 });

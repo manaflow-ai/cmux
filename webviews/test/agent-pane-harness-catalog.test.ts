@@ -215,7 +215,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     await page.addInitScript(
       ({ endpoint, project }) => {
         const home = "/Users/you";
-        const newTab = { kind: "agent", template: "default", cwd: home, home, projects: [] };
+        const newTab = { kind: "agent", template: "minimal", cwd: home, home, projects: [] };
         Object.assign(window, {
           __cmuxNewTabContext: newTab,
           webkit: {
@@ -287,16 +287,22 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     await page.locator(".nt-field").waitFor();
     // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
     await page.locator(".acpmux-add-harness").waitFor();
-    // An inherited home folder is not a saved project: the clean card must still offer Browse.
-    expect(await page.locator('[data-action="browse-project"]').isVisible()).toBe(true);
     return page;
   }
 
-  async function prepareDraft(page: Page, noProject: boolean, pendingImage = false) {
+  /** Picks No folder, or browses to PROJECT, from the location strip's folder menu. An inherited
+      home folder is not a saved project, so the menu offers Add folder… on a clean install. */
+  async function chooseFolder(page: Page, noProject: boolean) {
+    await page.locator(".nt-location .acpmux-location-button").first().click();
     await page
-      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
+      .locator(noProject ? '[role="option"]:has-text("No folder")' : '[role="option"][data-choose]')
+      .first()
       .click();
-    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    await page.locator(`.nt-location:has-text("${noProject ? "No folder" : path.basename(PROJECT)}")`).waitFor();
+  }
+
+  async function prepareDraft(page: Page, noProject: boolean, pendingImage = false) {
+    await chooseFolder(page, noProject);
     const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate(async (target, pendingImage) => {
@@ -325,10 +331,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   }
 
   async function preparePendingVideo(page: Page, noProject: boolean) {
-    await page
-      .locator(noProject ? '.nt-env .nt-stage-row[aria-pressed="false"]' : '[data-action="browse-project"]')
-      .click();
-    await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').waitFor();
+    await chooseFolder(page, noProject);
     const field = page.locator(".nt-field .acpmux-md");
     await field.fill(DRAFT);
     await field.evaluate((target) => {
@@ -385,8 +388,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       ).toBe(originalDraft);
       expect(await image.isVisible()).toBe(true);
       expect(await image.getAttribute("src")).toBe(source);
-      expect(await page.locator('.nt-env .nt-stage-row[aria-pressed="true"]').count()).toBe(1);
-      expect(await page.locator('[data-action="browse-project"]').count()).toBe(0);
+      expect(await page.locator(".nt-location").first().textContent()).toContain("No folder");
     } finally {
       await page.close();
     }

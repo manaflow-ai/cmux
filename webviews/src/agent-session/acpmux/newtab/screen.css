@@ -63,32 +63,17 @@
 .nt-fix-actions{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);margin-top:var(--ds-space-1);padding-top:var(--ds-space-1);border-top:1px solid var(--ds-color-separator);overflow:hidden}
 .nt-fix-chip{display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:var(--ds-space-2);min-width:0;min-height:var(--acpmux-composer-control);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-fix-error{flex-basis:100%;margin:0;color:var(--agent-status-error,var(--agent-muted));font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
-.nt-chats{margin-top:var(--ds-space-5)}
 .nt-chats-head{display:flex;align-items:center;gap:var(--ds-space-3);height:28px;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:var(--weight-emphasis)}
-.nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail)}
-.nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
 .nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
 .nt-chats-retry:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
-.nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
-@container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
-.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-space-1);min-width:0;min-height:84px;padding:var(--ds-space-3) var(--ds-space-4);box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left}
-.nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
-.nt-card-meta{display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--text-caption)}
-.nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:var(--text-body);font-weight:var(--weight-emphasis)}
-.nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
-.nt-card-age{font-variant-numeric:tabular-nums}
-/* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
-.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
-.nt-cards[data-variant="list"] .nt-card-badge{order:-1}
-.nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
+@container (max-width:520px){.nt-hint{display:none}}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
-@media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
+@media (prefers-reduced-motion:no-preference){.nt-row,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
    monospace command, inside the same box. */
 .nt-field-slot {
@@ -113,19 +98,16 @@
 .nt-shell-glyph {
   color: var(--agent-ansi-5, #d670d6);
 }
-/* A template with a prompt glyph (the Console's `>`) reserves its text column before the first key:
-   changing only the textarea's inner inset still shifts its anonymous text box. The shared icon size
-   is independent of the mode's font. With no prompt glyph the text starts one lead gap after +
-   (Leo 2026-10-31: "composer still looks like shit with the + spacing indent to the text"), and
-   shell mode's `!` stands in that gap, right before the command, so entering it moves no text. The
-   row without chips has no + and no gap before the field, so it keeps the reserved
-   column for `!` there too: `!pwd` never draws `!` over the `p`. */
-.nt-field-slot[data-glyph-column] .nt-field,
+/* The text starts one lead gap after + (Leo 2026-10-31: "composer still looks like shit with the +
+   spacing indent to the text"), and shell mode's `!` stands in that gap, right before the command,
+   so entering it moves no text. The row without chips has no + and no gap before the field, so it
+   reserves a column for `!` there: `!pwd` never draws `!` over the `p`. The shared icon size is
+   independent of the mode's font. */
 .nt-input:not([data-split]) .nt-field-slot .nt-field {
   --nt-field-pad-inline-start: var(--ds-control-icon);
   padding-inline-start: var(--nt-field-pad-inline-start);
 }
-.nt-input[data-split] .nt-field-slot:not([data-glyph-column]) .nt-input-glyph {
+.nt-input[data-split] .nt-field-slot .nt-input-glyph {
   inset-inline-start: calc(-1 * var(--acpmux-composer-lead-gap));
   width: var(--acpmux-composer-lead-gap);
   justify-content: center;
@@ -230,100 +212,14 @@
 }
 /* The card never clips: the model picker opens in the card, above or below its chip (a clipping
    card cut it to its search field, Lawrence 2026-10-13). The location row is the strip above it. */
-/* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
-   type. The theme's own tones only; no accent color. */
-.nt-prompt-glyph {
-  /* Keep the prompt prefix on the same monospace metrics as the reserved shell slot. */
-  font: var(--weight-emphasis) var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--agent-soft);
-}
-.nt-screen[data-template="console"] .nt-box {
-  border-radius: var(--ds-radius-popup);
-}
-.nt-screen[data-template="console"] .nt-composer {
-  --acpmux-strip-radius: var(--ds-radius-popup);
-}
-.nt-screen[data-template="console"],
-.nt-screen[data-template="console"] .nt-field {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-/* The composer template's card sits about the window's middle, at a fixed place: centering the
-   page's content moved it up with every row under it (Now Playing, a notice), every pasted image
-   and every line of a long draft (Leo 2026-10-19: the composer kept "going to places"). 102px puts
-   it where centering put the resting page (the composer and the create row, 212px between 32px
-   and 24px insets). */
-.nt-screen[data-template="composer"] {
-  padding-top: max(32px, calc(50vh - 102px));
-}
-.nt-screen[data-template="composer"] .nt-box {
-  border-radius: 24px;
-}
-.nt-screen[data-template="composer"] .nt-composer {
-  --acpmux-strip-radius: 24px;
-}
-.nt-screen[data-template="composer"] .nt-input {
-  min-height: 96px;
-  padding-top: 2px;
-}
-.nt-cards[data-variant="list"] {
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--grid-half-step);
-  /* The rows' text on the title's and the composer's edges, their hover fill past them (Leo 2026-10-13). */
-  margin-inline: calc(-1 * var(--ds-space-2));
-}
-.nt-cards[data-variant="list"] .nt-card {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--ds-space-2);
-  /* One line: the card's own 84px floor drew each row three lines tall. */
-  min-height: 0;
-  height: 30px;
-  padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
-  background: none;
-  box-shadow: none;
-}
-.nt-cards[data-variant="list"] .nt-card:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-}
-.nt-cards[data-variant="list"] .nt-card-title {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-/* Capped only to leave a preview its room: a title alone runs to the time column (Leo 2026-10-13). */
-.nt-cards[data-variant="list"] .nt-card-title:not(:last-child) {
-  flex: none;
-  max-width: 45%;
-}
-.nt-cards[data-variant="list"] .nt-card-message {
-  flex: 1;
-  min-width: 0;
-  -webkit-line-clamp: 1;
-}
-.nt-cards[data-variant="list"] .nt-card-meta {
-  order: 3;
-  margin-left: auto;
-}
-/* A fixed, right-aligned age column: "now", "9m" and "10m" keep the harness icon still (Leo 2026-10-13). */
-.nt-cards[data-variant="list"] .nt-card-age {
-  flex: none;
-  width: 3.2em;
-  text-align: right;
-  white-space: nowrap;
-}
-.nt-screen[data-template="console"] .nt-card-title,
-.nt-screen[data-template="console"] .nt-card-message {
-  font-family: inherit;
-  font-weight: var(--weight-regular);
-}
 /* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
 .nt-open-tabs{margin-top:var(--ds-space-3);display:flex;flex-direction:column}
-/* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
+/* The page's list (Open tabs) shares the leading column of History's lists: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
 .nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab{width:100%;height:28px;border:0;border-radius:var(--ds-radius-popup);background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
-.nt-card-host,.nt-row-host{display:contents}
+.nt-row-host{display:contents}
 /* The create actions' buttons. Geometry and type: the shared ghost button (ui/ghost.css, cx-s6zvc). */
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit}
 .nt-tool:hover,.nt-tool:focus-visible{background:var(--ds-color-hover);color:var(--agent-text)}
@@ -389,7 +285,6 @@
 .nt-all-group-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
 
-.nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
 
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
@@ -658,7 +553,7 @@
 .nt-input {
   cursor: text;
 }
-.nt-input :is(.nt-shell-glyph, .nt-prompt-glyph) {
+.nt-input .nt-shell-glyph {
   cursor: default;
 }
 .nt-box {
@@ -672,49 +567,6 @@
    the field's own bottom inset is the gap above them, a short one below. */
 .nt-box > .acpmux-attachments {
   padding: 0 var(--acpmux-attach-inset) var(--ds-space-2);
-}
-/* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
-   opens them before the row's harness icon, and when open the children indented below it. The
-   title keeps clear of the count; the icon and age columns stay where every other row has them. */
-.nt-card-family {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.nt-cards[data-variant="list"] .nt-card-family > .nt-card .nt-card-title {
-  margin-right: 34px;
-}
-.nt-card-children-toggle {
-  position: absolute;
-  top: 5px;
-  /* Row padding 10 + age column 3.2em of 11.5px + gap 6 + the harness icon + 8 of air. */
-  right: 78px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 var(--ds-space-1);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: var(--ds-color-hover);
-  color: var(--agent-soft);
-  font: inherit;
-  font-size: var(--text-caption);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-.nt-card-children-toggle:hover,
-.nt-card-children-toggle[aria-expanded="true"] {
-  background: var(--ds-color-pressed);
-  color: var(--agent-text);
-}
-.nt-card-children {
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-half-step);
-  margin-top: var(--grid-half-step);
-}
-.nt-cards[data-variant="list"] .nt-card-children > .nt-card {
-  padding-left: var(--ds-space-6);
 }
 /* Now Playing (NowPlayingPlayer.tsx): the sidebar card's track under the create actions, laid out
    like Apple's Now Playing widget and Control Center's media module. One soft card in the New Tab
@@ -853,304 +705,6 @@
    capped by the pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
-/* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
-   the composer at the foot of the page, full width of the column. The stage centers its cards
-   while they fit. When content grows, the whole page scrolls together. */
-.nt-screen[data-layout="stage"] {
-  /* The band under the composer: the page's bottom padding, and where the composer sticks (below). */
-  --nt-stage-foot: var(--ds-space-4);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-x: none;
-  gap: 0;
-  padding-top: 0;
-  padding-bottom: var(--nt-stage-foot);
-}
-/* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
-   pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
-   dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
-   tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
-.nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
-/* The optional template switch keeps room under the stage footer. */
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) {
-  --nt-stage-foot: 22px;
-}
-.nt-screen[data-layout="stage"] .nt-stage {
-  flex: 1 0 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ds-space-3);
-  padding: var(--ds-space-5) 0 var(--ds-space-4);
-  box-sizing: border-box;
-}
-.nt-stage > * {
-  width: 100%;
-}
-/* Centered while it fits; once it does not, the auto margins are zero and the stage scrolls from
-   its top (never a cut first card). */
-.nt-stage > :first-child {
-  margin-top: auto;
-}
-.nt-stage > :last-child {
-  margin-bottom: auto;
-}
-.nt-stage-cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-3);
-  width: min(440px, 100%);
-}
-/* A floating card: the composer's surface and rim, its shadow, a small radius. */
-.nt-stage-card {
-  --nt-card-inset: 6px;
-  display: flex;
-  flex-direction: column;
-  padding: var(--nt-card-inset);
-  box-sizing: border-box;
-  border-radius: 14px;
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
-    var(--acpmux-composer-shadow, var(--elevation-1));
-}
-:root[data-borders="none"] .nt-stage-card {
-  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
-}
-/* Rows are text with an icon: no fill or ring at rest, a wash on hover or keyboard focus only. */
-.nt-stage-row,
-.nt-env-choose .acpmux-project-button {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  max-width: none;
-  padding: 0 var(--ds-space-2);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: none;
-  box-shadow: none;
-  color: var(--agent-soft);
-  font: inherit;
-  font-size: var(--text-control);
-  text-align: left;
-  letter-spacing: var(--text-control--letter-spacing);
-}
-.nt-stage-row:hover,
-.nt-stage-row:focus-visible,
-.nt-env-choose .acpmux-project-button:hover,
-.nt-env-choose .acpmux-project-button[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-.nt-stage-row:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
-  outline-offset: -1px;
-}
-.nt-env-choose {
-  display: flex;
-}
-.nt-env-choose .acpmux-project-inline {
-  display: flex;
-  width: 100%;
-}
-.nt-env-choose .acpmux-project-button > span {
-  text-decoration: none;
-}
-.nt-stage-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--acpmux-composer-dim);
-}
-.nt-stage-row:hover .nt-stage-icon {
-  color: var(--agent-text);
-}
-.nt-stage-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nt-stage-detail {
-  flex: none;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.nt-stage-check {
-  flex: none;
-  width: 14px;
-  color: var(--agent-text);
-  text-align: center;
-}
-.nt-stage-divider {
-  height: 0;
-  margin: 4px calc(-1 * var(--nt-card-inset));
-  border: 0;
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
-}
-.nt-suggest-chat[data-state="input"] .nt-suggest-state {
-  color: var(--agent-warning, var(--agent-text));
-}
-.nt-suggest-chat:is([data-state="error"], [data-state="failed"]) .nt-suggest-state {
-  color: var(--agent-danger);
-}
-/* The create actions are rows of the suggestions card here: no pill, as the rows above. */
-.nt-screen .nt-suggest .nt-create {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin: 0;
-}
-.nt-screen .nt-suggest .nt-create .nt-tool {
-  height: 32px;
-  padding: 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
-  box-shadow: none;
-}
-/* The composer at the foot, the full width of the column: Default's own composer (the strip over
-   the box, the chips, the mic and Send in it), only placed under the stage. */
-.nt-screen[data-layout="stage"] .nt-composer {
-  flex: none;
-  /* The page scrolls as one (above), but the composer keeps its place at the foot: content that
-     grows over it (a chat landing, a long list, a long draft, a live resize) scrolls under it,
-     never pushes it below the fold (new-tab-composer-still, new-tab-live-resize). */
-  position: sticky;
-  bottom: var(--nt-stage-foot, 0px);
-  z-index: var(--layer-raised);
-}
-/* A chat row's hover card (Leo 2026-10-19): a floating glass hover card (desktop.css
-   .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
-   drawn at once on the New Tab (noEntry.css); it fades only as it goes. */
-.nt-hovercard {
-  max-width: min(320px, calc(100vw - var(--ds-space-5)));
-  padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--ds-radius-popup);
-}
-.nt-hovercard-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.nt-hovercard-title {
-  color: var(--agent-text, var(--cmux-text));
-}
-.nt-hovercard-detail {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  color: var(--acpmux-composer-dim, var(--cmux-text-secondary));
-}
-/* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
-   rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
-   and the mic on the right, no Send disc (Return sends).
-   Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
-   grid that show more of each chat's last reply. Its column is every template's, the chat's
-   (--cv-column, Leo 2026-10-21: no extra left and right padding), so its composer is as wide as the
-   chat composer in the same pane. */
-.nt-screen[data-template="cards"] {
-  gap: var(--ds-space-3);
-  padding-top: clamp(24px, 8vh, 96px);
-}
-.nt-screen[data-template="cards"][data-pill] .nt-box {
-  border-radius: 999px;
-  --acpmux-attach-inset: 22px;
-}
-/* With attachments under the field the pill is taller than a line: its ends would cut into the
-   tiles, so it rounds as the composer template's card does. */
-.nt-screen[data-template="cards"] .nt-box:has(> .acpmux-attachments) {
-  border-radius: 28px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-input {
-  align-items: center;
-  min-height: 56px;
-  padding: 0 8px 0 22px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-field {
-  --nt-input-pad-block: 18px;
-  padding-block: var(--nt-input-pad-block);
-}
-.nt-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-3);
-  min-width: 0;
-  margin-top: var(--ds-space-3);
-  padding: 0 var(--ds-space-4);
-}
-/* The strip is size-contained (its controls answer to its own width), so it takes the row's spare
-   room as a basis-0 item; the chips keep their own width at the right end. */
-.nt-toolbar .acpmux-composer-strip {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.nt-toolbar .acpmux-chrome-area {
-  flex: none;
-  min-width: 0;
-}
-.nt-toolbar .nt-pickers {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
-  min-height: 0;
-  padding: 0;
-  background: none;
-  box-shadow: none;
-}
-.nt-screen[data-template="cards"] .nt-chats {
-  margin-top: 36px;
-}
-.nt-screen[data-template="cards"] .nt-chats-head {
-  height: 34px;
-}
-.nt-screen[data-template="cards"] .nt-chats-tab.is-selected {
-  padding: var(--ds-space-1) var(--ds-space-4);
-  border-radius: 999px;
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--agent-text) 7%, transparent),
-    var(--elevation-1);
-}
-.nt-screen[data-template="cards"] .nt-cards {
-  gap: var(--ds-space-4);
-  margin-top: var(--ds-space-4);
-}
-.nt-screen[data-template="cards"] .nt-card {
-  gap: var(--ds-space-1);
-  /* Sized to its content (the card's own 84px floor): a fixed 260px card held ~70px of text. */
-  padding: var(--ds-space-4) var(--ds-space-4);
-  border-radius: 14px;
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
-    var(--acpmux-composer-shadow, var(--elevation-1));
-}
-.nt-screen[data-template="cards"] .nt-card-title {
-  font-size: var(--text-title);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: var(--text-title--letter-spacing);
-}
-.nt-screen[data-template="cards"] .nt-card-message {
-  -webkit-line-clamp: 9;
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  letter-spacing: var(--text-body--letter-spacing);
-}
-:root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
-  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
-}
 /* Minimal keeps the composer and create buttons, with no greeting or widgets.
    The composer sits about the window's middle at a fixed place (a
    pasted image or a long draft grows it downward, never moves it). */
@@ -1174,15 +728,8 @@
   height: calc(var(--text-heading--line-height) + 6px);
 }
 
-/* New Tab owns one page scroll, including the virtualized All chats rows. History keeps its
-   own list scroller. VirtualList observes the page viewport and keeps offscreen rows virtual. */
-.nt-screen .nt-all,
-.nt-screen .nt-all-host,
-.nt-screen .nt-all-scroll,
-.nt-screen .nt-all-list { flex: none; }
-.nt-screen .nt-all-list { mask-image: none; }
 /* First-run starters (FirstRunStarters.tsx): under the composer while this Mac has no chats. Quiet
-   text rows with an icon, a wash only on hover or keyboard focus (the stage card's rule), never a
+   text rows with an icon, a wash only on hover or keyboard focus (the suggestion rows' rule), never a
    resting pill. No entry animation: the page draws them in its first frame (Leo, no entry
    animations on New Tab, #24383). */
 .nt-starters {

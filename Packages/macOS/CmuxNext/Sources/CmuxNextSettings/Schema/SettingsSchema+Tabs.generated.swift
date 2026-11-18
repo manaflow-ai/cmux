@@ -4,7 +4,7 @@
 public import CmuxNextDesign
 
 extension NewTabTemplate {
-    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.
+    /// `tabs.newTabTemplate`: Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: a saved retired id (composer, and cards, default, threads and console, which moved to looks) loads as Minimal.
     public nonisolated static let configPath = ["tabs", "newTabTemplate"]
     public nonisolated static let fallback: NewTabTemplate = .minimal
 }

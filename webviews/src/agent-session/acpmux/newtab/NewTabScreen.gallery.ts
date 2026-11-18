@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample chats), not shipped UI.
-// The New Tab page (NewTabScreen.tsx, ChatCards.tsx, variant B): the tab opens as the page when
-// the `ready` answer carries `newTab`, as the app's new tab does.
+// The New Tab page (NewTabScreen.tsx, Minimal, variant B): the tab opens as the page when the
+// `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { MarkdownFieldElement } from "../MarkdownField";
@@ -105,8 +105,7 @@ const nowPlayingTrack = (playing: boolean) => ({
   labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
 });
 
-// The variants were drawn on Cards, the page an unset template showed before Minimal (Leo
-// 2026-10-20) became the default; they keep it unless they name another (the minimal-* ones do).
+// An unset template is Minimal, the page's one layout; `template-classic` and `style-switch` name Classic.
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -114,7 +113,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    template: "cards",
     ...fields,
   },
   newSession: true,
@@ -149,40 +147,8 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
-/// The stage's fixtures: projects as the host sends them, and chats where three need the user.
+/// Projects as the host sends them.
 const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
-const widgetSessions = () => [
-  session({
-    sessionId: "widget-failed",
-    title: "Composer + picker polish: no Tonka toys",
-    indicator: "failed",
-    preview: "Hit an error while running the gallery checks.",
-    cwd: "/Users/you/src/cmux",
-    updatedAt: minutesAgo(2),
-  }),
-  session({
-    sessionId: "widget-input",
-    title: "Ship the release notes for 0.64",
-    status: "waiting",
-    pendingPermissions: 1,
-    indicator: "input",
-    cwd: "/Users/you/src/cmux-web",
-    updatedAt: minutesAgo(12),
-  }),
-  session({
-    sessionId: "widget-lost",
-    title: "Index the docs site",
-    indicator: "lost",
-    cwd: "/Users/you/src/manaflow",
-    updatedAt: minutesAgo(40),
-  }),
-  ...manySessions(6).map((entry) => ({
-    ...entry,
-    indicator: "done" as const,
-    status: "idle" as const,
-    pendingPermissions: 0,
-  })),
-];
 
 type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
 
@@ -198,7 +164,7 @@ function galleryNativeCalls(document: Document): GalleryNativeCall[] {
 
 async function waitForTabJump(
   ctx: PlayContext,
-  target: "tab" | "here" | "closed" | "workspace",
+  target: "tab" | "here" | "workspace",
   id: string,
 ): Promise<void> {
   await ctx.waitFor(() =>
@@ -380,7 +346,7 @@ export default agentPaneEntry({
     layoutShiftMax: {
       value: 0.4,
       reason:
-        "Typing an address or an open tab's name shows the rows between the field and the recent chats, which move down.",
+        "Typing an address or an open tab's name shows the rows under the field, which move what is below it down.",
     },
     settleMaxMs: {
       value: 250,
@@ -399,18 +365,13 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/newtab/screen.css",
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
-    "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
-    "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
-    "agent-session/acpmux/newtab/ChatFilterMenu.tsx#ChatFilterMenu",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
-    "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
-    "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/newtab/NewProjectName.tsx#NewProjectName",
@@ -521,21 +482,11 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
-    "chats-loading": {
-      note: "The first session list is pending: recent chats use placeholders until it settles.",
-      ready: newTab(),
-      snapshot: noChat(),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
-      },
-    },
-    // New Project (Leo, 2026-11-08): the folder menu's New project row makes a new folder with an
-    // empty git repository for the chat; the strip names it, from the prompt until the person types one.
     "new-project-chosen": {
       note: "New project just chosen, prompt empty: the strip reads New project / project (the placeholder name until a prompt names one).",
       ready: newTab({ template: "minimal" }),
@@ -683,13 +634,6 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
-    "reasoning-chip-stage": {
-      note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
-      ready: newTab({ template: "default" }),
-      snapshot: reasoningChat(),
-    },
-    // Minimal opens with the composer, without fixed creation buttons, a greeting or widgets.
-    // `minimal-default` is a host that sends no template (the app's unset key).
     "wrap-one-line": {
       note: "One character before wrapping, with the typing caret at the end and suggestions below the box.",
       ready: newTab({ template: "minimal", location: "Check composer wrapping" }),
@@ -708,11 +652,9 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        if (ctx.document.querySelector('.nt-screen[data-template="default"]'))
-          throw new Error("an unset NewTabScreen template still renders the Default stage");
         if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
           throw new Error("an unset NewTabScreen template did not render Minimal");
-        const extra = ctx.document.querySelector(".nt-greeting, .nt-stage, .nt-cards");
+        const extra = ctx.document.querySelector(".nt-greeting");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
         if (ctx.document.querySelector(".nt-style")) throw new Error("the minimal page shows a look switcher");
         if (ctx.document.querySelector(".nt-composer[data-composer-look]"))
@@ -752,18 +694,6 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
       },
     },
-    "fix-from-link-stage": {
-      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
-      ready: newTab({
-        template: "default",
-        location: "https://github.com/manaflow-ai/cmux/issues/38426",
-        projects: [CWD],
-      }),
-      snapshot: noChat(manySessions(3), { listedSessions: true }),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
-      },
-    },
     "fix-from-link-error": {
       note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
       ready: newTab({
@@ -794,7 +724,7 @@ export default agentPaneEntry({
     "layout-claude-chips-below": {
       composerLook: "claude",
       note: "Claude-style comparison: the composer stays spacious while project, machine, permission and model controls sit in the quiet row below it; paid Fast remains in the model menu.",
-      ready: newTab({ template: "default" }),
+      ready: newTab(),
       snapshot: noChat(manySessions(12)),
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
@@ -807,7 +737,7 @@ export default agentPaneEntry({
     ),
     // The mic never leaves the box (Leo 2026-10-19, as Claude Code's): the prompt shrinks instead.
     // The box holds the prompt, the mic and Send; the model, effort and permission mode sit in the
-    // quiet row under it. `composer-mic` at the stage's width, `composer-mic-narrow` with the page
+    // quiet row under it. `composer-mic` at the page's width, `composer-mic-narrow` with the page
     // squeezed to 300 px (a narrow split pane).
     ...Object.fromEntries(
       (
@@ -822,9 +752,7 @@ export default agentPaneEntry({
           note: width
             ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
             : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
-          // Cards, the page an unset template shows (the first dot), draws Claude Code's split; the
-          // Default template (the second dot) keeps the chips in its box.
-          ready: newTab({ template: "cards" }),
+          ready: newTab(),
           snapshot: reasoningChat(),
           play: async (ctx: PlayContext) => {
             await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
@@ -843,32 +771,12 @@ export default agentPaneEntry({
         },
       ]),
     ),
-    "chats-unavailable": {
-      note: "The chat index did not answer: All chats says it could not load and offers Try again.",
-      ready: newTab(),
-      snapshot: noChat([], { listedSessions: true }),
-      native: {},
-    },
-    "calm-default": {
-      note: "The default page is calm (Leo 2026-10-11): the composer with its arrow-up Send, then the five newest chats as quiet rows and All Chats for the rest. No tools row, no Recently Closed, no All chats table.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(14)),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
-        // Quiet rows, one line each (the fleet capture drew them 86px tall).
-        const tall = [...ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card")].filter(
-          (row) => row.getBoundingClientRect().height > 32,
-        );
-        if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
-      },
-    },
     "current-composer": {
-      note: "Current composer visual reference: the latest New Tab surface with folder/computer, model, effort, dictation, Send, create actions, and quiet chat rows. This variant is visual-only; workspace switching is covered by the separate behavior journey.",
+      note: "Current composer visual reference: the latest New Tab surface with folder/computer, model, effort, dictation and Send. This variant is visual-only; workspace switching is covered by the separate behavior journey.",
       ready: newTab(),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
       },
@@ -908,39 +816,6 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="history.search"]'));
       },
     },
-    "stage-layout": {
-      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you); the recent chats under them.",
-      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
-        const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
-        const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
-        if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
-      },
-    },
-    "stage-hover": {
-      note: "A pointer over a chat that needs you: its hover card floats over the page, offset from the row, solid, never over the row's own text.",
-      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
-      snapshot: noChat(widgetSessions()),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
-        await ctx.hover({ selector: ".nt-suggest-chat" });
-        // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
-        await ctx.waitFor(() => {
-          const card = ctx.document.querySelector<HTMLElement>(".nt-hovercard");
-          return (
-            !!card &&
-            !card.hasAttribute("data-starting-style") &&
-            ctx.document.defaultView?.getComputedStyle(card).opacity === "1"
-          );
-        });
-        const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
-        const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
-        if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
-      },
-    },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
@@ -977,60 +852,6 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
       },
     },
-    "chats-filter-open": {
-      note: "Threads template with the All chats Filter open (cx-htpk0): All, Working, Needs input, Done, in the pane's own menu style, over the list.",
-      ready: newTab({ template: "threads" }),
-      snapshot: noChat(manySessions(14)),
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Filter" });
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
-        );
-      },
-    },
-    "many-chats": {
-      note: "Threads template: every chat in All chats below the field, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
-      ready: newTab({ template: "threads" }),
-      snapshot: noChat(manySessions(14)),
-      play: async (ctx) => {
-        await ctx.waitFor(() => {
-          const list = ctx.document.querySelector(".nt-all-scroll")?.getBoundingClientRect();
-          const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
-          const row = ctx.document.querySelector(".nt-all-item:not(.is-loader)")?.getBoundingClientRect();
-          return !!list && !!box && !!row && row.top >= list.top - 1 && row.top >= box.bottom;
-        });
-        // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
-        // within the scroller, below the field. The scroll is a measured step, so the play reports.
-        await ctx.scroll({ selector: ".nt-screen" }, "bottom");
-        if ((ctx.document.querySelector(".nt-screen")?.scrollTop ?? 0) === 0) throw new Error("New Tab did not scroll");
-        const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
-        const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
-        if (rows.length === 0) throw new Error("All chats drew no rows");
-        // A row outside the scroller's box must be clipped: the point at its center shows
-        // something else (the field, a card), never a row.
-        const outside = rows.filter((row) => {
-          const rect = row.getBoundingClientRect();
-          const x = rect.left + rect.width / 2;
-          const y = rect.top + rect.height / 2;
-          const within = y >= list.top && y <= list.bottom && x >= list.left && x <= list.right;
-          return !within && !!ctx.document.elementFromPoint(x, y)?.closest(".nt-all-item");
-        });
-        if (outside.length) throw new Error(`${outside.length} All chats rows draw outside the list`);
-      },
-    },
-    "long-title": {
-      note: "A chat title far longer than its card.",
-      ready: newTab(),
-      snapshot: noChat([
-        session({
-          sessionId: "long",
-          title:
-            "Investigate why the transcript virtualizer drops rows when a streaming reply grows past the viewport while the user scrolls up through older history on a slow machine",
-          updatedAt: minutesAgo(2),
-        }),
-        ...manySessions(2),
-      ]),
-    },
     "from-location": {
       note: "Opened from a web tab: the field holds its address.",
       ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
@@ -1065,65 +886,6 @@ export default agentPaneEntry({
         await ctx.contextMenu({ role: "button", name: /PR #17516/ });
         await ctx.click({ role: "menuitem", name: "Move Here" });
         await waitForTabJump(ctx, "here", "t2");
-      },
-    },
-    "recently-closed": {
-      note: "Threads template, Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
-      ready: newTab({ template: "threads" }),
-      snapshot: noChat(manySessions(2)),
-      play: async (ctx) => {
-        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
-          {
-            id: "closed:1",
-            kind: "browser",
-            title: "PR #17516",
-            detail: "https://github.com/manaflow-ai/cmux/pull/17516",
-            closedAt: minutesAgo(1),
-            icon: SITE_ICON,
-            available: true,
-          },
-          {
-            id: "closed:2",
-            kind: "terminal",
-            title: "zsh",
-            detail: "~/src/cmux",
-            closedAt: minutesAgo(4),
-            available: true,
-          },
-          {
-            id: "closed:3",
-            kind: "browser",
-            title: "Docs",
-            detail: "https://developer.apple.com/documentation",
-            closedAt: minutesAgo(9),
-            icon: OTHER_SITE_ICON,
-            available: true,
-          },
-          {
-            id: "closed:4",
-            kind: "workspace",
-            title: "cmux-web",
-            detail: "~/src/cmux-web",
-            closedAt: minutesAgo(30),
-            available: true,
-          },
-          {
-            id: "closed:5",
-            kind: "terminal",
-            title: "build",
-            detail: "~/src/relay",
-            closedAt: minutesAgo(60),
-            available: false,
-          },
-        ]);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
-        await ctx.click({ role: "button", name: /PR #17516/ });
-        await waitForTabJump(ctx, "closed", "closed:1");
-        await ctx.contextMenu({ role: "button", name: /zsh/ });
-        await ctx.click({ role: "menuitem", name: "Reopen" });
-        await waitForTabJump(ctx, "closed", "closed:2");
-        const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
-        if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
       },
     },
     "now-playing": {
@@ -1289,11 +1051,6 @@ export default agentPaneEntry({
         await typePrompt(ctx, "why does the upload test flake?");
         await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
-    },
-    "typed-tab-match-stage": {
-      note: "The Default template's stage layout with text that matches open tabs: the composer at the foot, so the rows open above it (popup-escape).",
-      ready: newTab({ template: "default", omnibar: RELEASE_OMNIBAR }),
-      snapshot: noChat(manySessions(3)),
     },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: the Release workspace first (its exact name, Return's), Ask, then those rows (with their favicons, a glyph while one loads) and the web search in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
@@ -1474,14 +1231,6 @@ export default agentPaneEntry({
     "suggestions-spacing": {
       note: "The chip text has equal space above and below it between the box and suggestions.",
       ready: newTab({ template: "minimal", omnibar: FF_OMNIBAR }),
-      snapshot: reasoningChat(),
-      play: async (ctx) => {
-        await typedSuggestions(ctx, "ff", ffProblem);
-      },
-    },
-    "suggestions-spacing-stage": {
-      note: "The stage suggestions still open above the whole composer.",
-      ready: newTab({ template: "default", omnibar: FF_OMNIBAR }),
       snapshot: reasoningChat(),
       play: async (ctx) => {
         await typedSuggestions(ctx, "ff", ffProblem);
@@ -1712,83 +1461,53 @@ export default agentPaneEntry({
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
-    "template-cards": {
-      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
-      ready: newTab({ template: "cards" }),
-      snapshot: noChat(manySessions(6)),
-    },
-    "template-cards-typed": {
-      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (Ask first) open under the quiet row, never over its chips.",
-      ready: newTab({ template: "cards" }),
-      snapshot: noChat(manySessions(6)),
-      play: async (ctx) => {
-        await typePrompt(ctx, "rust serde");
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"]'));
-      },
-    },
-    "template-composer": {
-      note: "Legacy Composer template id: saved input is migrated to Minimal, whose shared composer remains the one visible style.",
-      ready: newTab({ template: "composer" }),
-      snapshot: noChat(manySessions(4)),
-      play: async (ctx: PlayContext) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
-        if (ctx.document.querySelector('.nt-screen[data-template="composer"]'))
-          throw new Error("legacy Composer id still renders the retired template");
-        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
-          throw new Error("legacy Composer id did not migrate to Minimal");
-        if (ctx.document.querySelector('[data-style="composer"]'))
-          throw new Error("legacy Composer id is still selectable");
-      },
-    },
+    // A saved retired template loads as Minimal: the legacy Composer, and Cards, Default, Threads and
+    // Console, which moved to looks (plans/cmux-next/new-tab-templates.md; Leo 2026-11-18: "The
+    // templates should be like the customixastikms api you can build them i don't think they should
+    // ship as is").
+    ...Object.fromEntries(
+      (["composer", "cards", "default", "threads", "console"] as const).map((id) => [
+        `template-retired-${id}`,
+        {
+          note: `A saved \`${id}\` template, which no longer ships, loads as Minimal; no dot or menu row offers it.`,
+          ready: newTab({ template: id }),
+          snapshot: noChat(manySessions(4)),
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+            if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+              throw new Error(`a saved ${id} template did not load as Minimal`);
+            if (ctx.document.querySelector(`[data-style="${id}"], .nt-style input[value="${id}"]`))
+              throw new Error(`the retired ${id} template is still selectable`);
+          },
+        },
+      ]),
+    ),
     "composer-holds-its-place": {
       note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: holdsItsPlace,
     },
-    "composer-template-holds-its-place": {
-      note: "Legacy Composer input after typing, a pasted image and Now Playing: migration keeps the shared Minimal composer in place.",
-      ready: newTab({ template: "composer", projects: [CWD] }),
-      snapshot: noChat(manySessions(4)),
-      play: holdsItsPlace,
-    },
-    "template-threads": {
-      note: "Threads template: the field and the recent chats as a list.",
-      ready: newTab({ template: "threads" }),
-      snapshot: noChat(manySessions(6)),
-    },
-    "template-console": {
-      note: "Console template: a monospace field with a > prompt, chats as lines.",
-      ready: newTab({ template: "console" }),
-      snapshot: noChat(manySessions(6)),
-    },
     "template-classic": {
       note: "Classic template: the Terminal | Browser | Agent page.",
       ready: newTab({ template: "classic" }),
       snapshot: noChat(manySessions(4)),
     },
-    projects: {
-      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats. The calm default lists recent chats only, so this is the Threads template, which lists them all.",
-      ready: newTab({ template: "threads" }),
-      snapshot: noChat(manySessions(4)),
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Projects" });
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
-      },
-    },
     "style-switch": {
-      note: "The New Tab style dots (Leo 2026-10-14): one small round dot per style under the page, the current one in the accent and the accent dot sliding to a pick. A pointer over a dot shows its name; a pick shows the picked name for a moment, then fades it, and is saved as tabs.newTabTemplate.",
-      ready: newTab({ template: "default" }),
+      note: "The New Tab style dots (Leo 2026-10-14) on Classic: one small round dot per style, Minimal and Classic, the current one in the accent. A pointer over a dot shows its name; picking Minimal saves it as tabs.newTabTemplate and draws Minimal.",
+      ready: newTab({ template: "classic" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
-        await ctx.click({ role: "radio", name: "Threads" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=classic]:checked"));
+        const dots = [...ctx.document.querySelectorAll<HTMLInputElement>(".nt-style input")].map((dot) => dot.value);
+        if (dots.join(",") !== "minimal,classic") throw new Error(`the style dots are ${dots.join(",")}`);
+        await ctx.click({ role: "radio", name: "Minimal" });
         await ctx.waitFor(() =>
           galleryNativeCalls(ctx.document).some(
-            (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
+            (call) => call.method === "newTab.setTemplate" && call.params?.template === "minimal",
           ),
         );
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="minimal"]'));
       },
     },
     "no-template-dots": {

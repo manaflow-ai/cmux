@@ -1,6 +1,5 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
@@ -25,7 +24,6 @@ export function newTabScreenActions(deps: {
   /// The page leaves the new tab screen (it becomes a chat).
   leave(): void;
   selectSession(sessionId: string): void;
-  showAllChats(): void;
   /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
   runShell(command: string, cwd?: string): void;
   inputReady?(token: string): void;
@@ -184,22 +182,12 @@ export function newTabScreenActions(deps: {
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onAction: (id) => ignore(callNative("app.action", { id })),
-    onOpenSession(sessionId) {
-      deps.selectSession(sessionId);
-    },
-    // A chat opens in a new workspace (the host's Open Chat path), so this page stays the New
-    // Tab page instead of turning into an empty chat.
-    onOpenChat: (key) => callNative("chats.open", { key }).then(() => undefined),
-    onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
-    onViewChat: (key) => ignore(callNative("chats.watch", { key })),
-    loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     // A typed path's subfolders (launchRows.ts): names only; the host refuses protected folders.
     completeFolder: (path) =>
       callNative("folder.complete", { path }).then((reply) => {
         const folders = (reply as { folders?: unknown } | undefined)?.folders;
         return Array.isArray(folders) ? folders.filter((name): name is string => typeof name === "string") : undefined;
       }),
-    onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.

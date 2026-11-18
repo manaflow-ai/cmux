@@ -13,7 +13,6 @@ test("fix-from-link selects the created chat while New Tab stays mounted", async
     cwd: "/tmp/widget",
     leave: () => calls.push("leave"),
     selectSession: (sessionId) => calls.push(`select:${sessionId}`),
-    showAllChats: () => {},
     runShell: () => {},
   });
 
@@ -33,7 +32,6 @@ test("fix-from-link sends the project picked on the page", async () => {
     cwd: "/tmp/inherited",
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
 
@@ -52,7 +50,6 @@ test("fix-from-link carries the selected harness and model", async () => {
     cwd: "/tmp/widget",
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
 
@@ -77,7 +74,6 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
     cwd: "/tmp/widget",
     leave: () => void left++,
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   actions.onShell("git status");

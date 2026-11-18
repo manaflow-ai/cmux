@@ -103,9 +103,6 @@ export type NewTabHost = {
   /// The page lists only its own connection's chats, not the store every page shares (another
   /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
-  /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
-  /// only, never All chats. Unset lists All chats where the template does.
-  allChats?: false;
   /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
   /// Where the page's new chat starts as the app already knows it (AgentPaneNewTabStart): drawn on
@@ -186,7 +183,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
-    ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
     ...(start ? { start } : {}),
   };

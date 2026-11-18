@@ -1,5 +1,5 @@
 // cmux-web-test-timeout: 420
-// A New Tab page draws its final Chats list and project on its first frame, however it opens (Leo
+// A New Tab page draws its final project on its first frame, however it opens (Leo
 // 2026-10-19: "there's still a split second flicker upon opening up new workspaces wrt the semi
 // dynamic content on the recent chats and the recent project... it sometimes doesnt load fast
 // enough"; "likewise with opening up new tabs like it cant decide what default is vs what recently
@@ -9,8 +9,9 @@
 //
 // The real agent pane (the dev entry) in Chromium and WebKit, with a stand-in host that keeps the
 // posted snapshot as AgentPaneNewTab.warmed does, and a stand-in acpmux daemon whose chat list comes
-// late. A script from the document's start records what the Chats list and the location strip
-// show on every DOM change and every frame; a warm open must paint one state only. The host's
+// late. A script from the document's start records what the location strip shows on every DOM
+// change and every frame; a warm open must paint one state only. The page lists no chats (Minimal,
+// plans/cmux-next/new-tab-templates.md); the warm snapshot still names its recent project. The host's
 // handshake and the daemon's chat list are held until the page has painted without them.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-warm-first-frame.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -44,8 +45,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
   const HOME = "/Users/you";
   const ATLAS = `${HOME}/src/atlas`;
   const BILLING = `${HOME}/src/billing`;
-  // Hours old, so no age label turns over while a test runs. Two sessions and one device chat fill
-  // the three cards of the Cards template (templates.ts), so the device chat is on the page.
+  // Hours old, so the newest chat stays the newest while a test runs; the page posts the device
+  // chat with the sessions.
   const now = Date.now();
   const hours = (count: number) => now - count * 3_600_000 - 600_000;
   const sessions = [
@@ -189,13 +190,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         const read = () => {
           const screen = document.querySelector(".nt-screen");
           if (!screen) return;
-          const chats = document.querySelector<HTMLElement>(".nt-chats");
-          const cards = [...document.querySelectorAll(".nt-card")].map(
-            (card) =>
-              `${(card as HTMLElement).innerText.replace(/\s+/g, " ").trim()}|${card.querySelectorAll("svg").length}`,
-          );
-          const location = (document.querySelector<HTMLElement>(".nt-location")?.innerText ?? "").replace(/\s+/g, " ");
-          const text = `${location.trim()} :: ${chats ? (cards.length ? cards.join(" / ") : "(empty)") : "(no list)"}`;
+          const text = (document.querySelector<HTMLElement>(".nt-location")?.innerText ?? "").replace(/\s+/g, " ").trim();
           if (painted.at(-1) !== text) painted.push(text);
         };
         new MutationObserver(read).observe(document, {
@@ -234,20 +229,18 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       null,
       { timeout: 30_000 },
     );
-    await page.locator(".nt-card", { hasText: "Fix the atlas build" }).waitFor({ timeout: 30_000 });
+    await page.locator(".nt-location", { hasText: "atlas" }).waitFor({ timeout: 30_000 });
     await twoFrames(page);
     const painted = await page.evaluate(() => (window as unknown as { __painted: string[] }).__painted);
     return painted;
   }
 
-  // Cards, the template these frames were drawn on (an unset one is Minimal, which has no cards).
   const base = {
     kind: "agent",
     hotkeys: {},
     home: HOME,
     projects: [ATLAS, BILLING],
     host: "cosmic-gray",
-    template: "cards",
   };
   /// Each way a New Tab opens, as NewTabPage.page() makes its context.
   const entries: [string, Context][] = [
@@ -266,7 +259,11 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
     warmed = undefined;
     holdList().open();
     const source = await load(browserContext, { ...base }, false);
-    await source.locator(".nt-card", { hasText: "Fix the atlas build" }).waitFor({ timeout: 30_000 });
+    await source.waitForFunction(
+      () => (window as unknown as { __posts: string[] }).__posts.some((post) => post.includes("s-atlas")),
+      null,
+      { timeout: 30_000 },
+    );
     // The post after the host's device chats push carries them too.
     const posted = () =>
       (window as unknown as { __posts: string[] }).__posts.filter((post) => post.includes("d-old")).at(-1);
@@ -279,7 +276,7 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
 
   for (const [entry, context] of entries) {
     test.each(engines.map(([name]) => name))(
-      `%s: ${entry} paints its final chats and project on its first frame`,
+      `%s: ${entry} paints its final project on its first frame`,
       async (name) => {
         const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
         await warmUp(browserContext);
@@ -292,18 +289,16 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         console.info(`${name} ${entry} warm: ${painted.length} state(s) ${JSON.stringify(painted)}`);
         counts[`${name} ${entry} warm`] = painted.length - 1;
         expect(warmed).toBeDefined();
-        // One state from the first frame on: the final list and the recent project, never empty first.
+        // One state from the first frame on: the recent project, never a placeholder first.
         expect(painted).toHaveLength(1);
-        expect(painted[0]).toContain("Fix the atlas build");
-        expect(painted[0]).toContain("Older device chat");
         // The bar names the folder and the machine (this Mac reads "This Mac", #28999); New Worktree is in the folder menu only.
-        expect(painted[0]).toStartWith("atlas This Mac ::");
+        expect(painted[0]).toStartWith("atlas This Mac");
       },
     );
   }
 
   test.each(engines.map(([name]) => name))(
-    "%s: an adopted spare paints its final chats from the adoption on",
+    "%s: an adopted spare paints its final project from the adoption on",
     async (name) => {
       const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
       await warmUp(browserContext);
@@ -329,14 +324,13 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       counts[`${name} adopted spare warm`] = painted.length - 1;
       expect(warmed).toBeDefined();
       expect(painted).toHaveLength(1);
-      expect(painted[0]).toContain("Fix the atlas build");
       // The adopting tab's project, not the spare's "Choose folder"; this Mac reads "This Mac" (#28999).
-      expect(painted[0]).toStartWith("atlas This Mac ::");
+      expect(painted[0]).toStartWith("atlas This Mac");
     },
   );
 
   test.each(engines.map(([name]) => name))(
-    "%s: a cold launch with nothing listed yet fills the list once",
+    "%s: a cold launch with nothing listed yet names its project once",
     async (name) => {
       const browserContext = await browsers.get(name)!.newContext({ viewport: { width: 1000, height: 900 } });
       const chats = holdList();
@@ -346,9 +340,9 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       await browserContext.close();
       console.info(`${name} cold: ${painted.length} state(s) ${JSON.stringify(painted)}`);
       counts[`${name} cold`] = painted.length - 1;
-      // The empty state once, then the final list.
+      // The placeholder once, then the recent project.
       expect(painted.length).toBeLessThanOrEqual(2);
-      expect(painted.at(-1)).toContain("Fix the atlas build");
+      expect(painted.at(-1)).toStartWith("atlas");
     },
   );
 

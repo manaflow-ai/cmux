@@ -5,7 +5,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useChatOpenFeedback } from "./allChatsListModel";
-import { newTabScreenActions } from "./screenActions";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -122,16 +121,4 @@ test("a bulk History open reports a rejected host action without repeating succe
   await act(async () => button("[data-bring]").click());
   expect(result().textContent).toContain("Could not open B");
   expect(result().dataset.failed).toBe("");
-});
-
-test("the New Tab host propagates chat-open refusal to the presenting page", async () => {
-  const actions = newTabScreenActions({
-    callNative: (method) =>
-      method === "chats.open" ? Promise.reject(new Error("Machine unavailable")) : Promise.resolve(undefined),
-    leave: () => {},
-    selectSession: () => {},
-    showAllChats: () => {},
-    runShell: () => {},
-  });
-  await expect(actions.onOpenChat?.("claude:test")).rejects.toThrow("Machine unavailable");
 });

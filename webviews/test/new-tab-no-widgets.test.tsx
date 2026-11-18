@@ -1,7 +1,6 @@
 // New Tab has no widgets (Lawrence 2026-11-09: "remove widgets completely"). Minimal keeps the composer
 // and create buttons, whatever an old host or an old cmux-next.json (`tabs.newTabWidgets.*`, now retired) still
 // sends: no headline, clock, stopwatch, warm greeting, quote, weather, machines, cards or edit mode.
-// The other layouts draw their own parts, with no widget toggles.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -9,7 +8,6 @@ import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import type { ScreenTemplate } from "../src/agent-session/acpmux/newtab/templates";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -92,7 +90,7 @@ const legacyWidgetProps = (): Record<string, unknown> => ({
   onEditWidgets: noop,
 });
 
-async function render(template: ScreenTemplate) {
+async function render() {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -100,21 +98,16 @@ async function render(template: ScreenTemplate) {
     root.render(
       <NewTabScreen
         {...(legacyWidgetProps() as object)}
-        template={template}
-        now={MORNING}
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
         cwd="/Users/you/src/atlas"
         projects={[{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
-        onOpenChat={noop}
         onCreate={noop}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -145,7 +138,7 @@ test("the handshake carries no widget fields, whatever an older host sends", () 
 });
 
 test("Minimal shows the composer without fixed create buttons, with no widget and no edit mode", async () => {
-  const root = await render("minimal");
+  const root = await render();
   try {
     const screen = host.querySelector<HTMLElement>(".nt-screen")!;
     expect(screen.hasAttribute("data-minimal")).toBe(true);
@@ -163,18 +156,6 @@ test("Minimal shows the composer without fixed create buttons, with no widget an
     );
     const items = [...window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
     expect(items.map((item) => item.textContent)).not.toContain("Edit New Tab");
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
-
-test("the other layouts draw their own parts and no widget", async () => {
-  const root = await render("default");
-  try {
-    expect(host.querySelectorAll(".nt-stage").length).toBe(1);
-    expect(host.querySelectorAll(".nt-env").length).toBe(1);
-    expect(host.querySelectorAll(".nt-cards, .nt-all, .nt-closed").length).toBeGreaterThan(0);
-    expect(host.querySelectorAll(WIDGET_UI).length).toBe(0);
   } finally {
     await act(async () => root.unmount());
   }

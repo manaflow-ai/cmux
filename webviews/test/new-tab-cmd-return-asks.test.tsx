@@ -90,8 +90,6 @@ async function render(calls: unknown[][], history: { url: string }[] = []) {
         onSearch={(text) => calls.push(["search", text])}
         onShell={noop}
         onJump={(target, id) => calls.push(["jump", target, id])}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

@@ -87,7 +87,6 @@ async function render(
   await act(async () =>
     root!.render(
       <NewTabScreen
-        template="default"
         snapshot={noChat(SESSIONS)}
         omnibar={{
           ...EMPTY_OMNIBAR,
@@ -106,8 +105,6 @@ async function render(
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={(id) => calls.push(["session", id])}
-        onShowAll={noop}
         {...(completeFolder ? { completeFolder } : {})}
         {...(takeDraft ? { takeDraft } : {})}
       />,

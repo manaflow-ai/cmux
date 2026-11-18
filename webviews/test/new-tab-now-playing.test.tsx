@@ -103,7 +103,6 @@ test("the player shows what plays, and its controls reach the host", async () =>
     cwd: "/Users/you/src/app",
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   // Pushed before the screen mounts: the page keeps it.
@@ -114,7 +113,6 @@ test("the player shows what plays, and its controls reach the host", async () =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
           <NewTabScreen
-            template="default"
             snapshot={noChat()}
             lastAgent="claude"
             cwd="/Users/you/src/app"
@@ -136,9 +134,6 @@ test("the player shows what plays, and its controls reach the host", async () =>
     expect(scale).toBeGreaterThanOrEqual(0.125);
     expect(scale).toBeLessThan(0.14);
     expect(played?.style.width ?? "").toBe("");
-    // Under the stage cards, before the lists and the composer at the foot.
-    const cards = host.querySelector(".nt-stage-cards")!;
-    expect(cards.compareDocumentPosition(player!) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const button = (command: string) =>
       host.querySelector<HTMLButtonElement>(`.nt-player [data-command="${command}"]`)!;
@@ -175,14 +170,13 @@ async function mount(calls: { method: string; params?: Record<string, unknown> }
     cwd: "/Users/you/src/app",
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const root: Root = createRoot(host);
   await act(async () =>
     root.render(
       <QueryClientProvider client={new QueryClient()}>
-        <NewTabScreen template="default" snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+        <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
       </QueryClientProvider>,
     ),
   );

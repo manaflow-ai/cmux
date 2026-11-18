@@ -81,8 +81,6 @@ async function mount(cwd: string, startCwd?: string, startPending = false) {
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

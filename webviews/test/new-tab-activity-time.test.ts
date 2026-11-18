@@ -1,13 +1,13 @@
 // l10n-allow-file: test fixtures.
-// The New Tab's Chats list sorts and labels chats by when the person or the agent last did
-// something in them, never by acpmux's `updatedAt`. `updatedAt` moves on every logged record: a
-// pane that shows a chat warms or resumes its agent (host_started, initialize, the replayed
-// transcript, status ready), the idle pool stops it five minutes later (exited, status idle), a
-// draft or a tag is saved. Leo's list (2026-10-19, nightly fc1d07a) swapped two old, idle chats on
+// The recent chats (newTabModel recentSessions, with ageLabel over activityTime) sort and label
+// chats by when the person or the agent last did something in them, never by acpmux's `updatedAt`.
+// `updatedAt` moves on every logged record: a pane that shows a chat warms or resumes its agent
+// (host_started, initialize, the replayed transcript, status ready), the idle pool stops it five
+// minutes later (exited, status idle), a draft or a tag is saved. Leo's list (2026-10-19, nightly fc1d07a) swapped two old, idle chats on
 // every workspace switch and labelled both "now" while their last turns were an hour or two old.
 import { expect, test } from "bun:test";
-import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
-import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { ageLabel, recentSessions } from "../src/agent-session/acpmux/newTabModel";
+import { activityTime, sessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const MINUTE = 60_000;
 const T0 = Math.floor(Date.UTC(2026, 9, 20, 2, 40) / MINUTE) * MINUTE;
@@ -55,8 +55,10 @@ function snapshot(warmed: Record<string, number>) {
   ].map(sessionEntry);
 }
 
-const rows = (sessions: ReturnType<typeof snapshot>) =>
-  recentChatCards(sessions, T0, undefined, [], 10).map((card) => `${card.title} ${card.age}`);
+/// Each recent chat as its row reads: its title and its age.
+const recent = (sessions: ReturnType<typeof snapshot>) =>
+  recentSessions(sessions, 10).map((entry) => ({ title: entry.displayTitle, age: ageLabel(activityTime(entry), T0) }));
+const rows = (sessions: ReturnType<typeof snapshot>) => recent(sessions).map((row) => `${row.title} ${row.age}`);
 
 test("a workspace switch that warms or stops old chats leaves the Chats order and ages alone", () => {
   const before = rows(snapshot({}));
@@ -96,8 +98,7 @@ test("a chat paused on a permission inside its turn dates from the pause, not a 
         turn: { startedAt: ago(25), prompt: "go", promptId: "p", turnId: "t", turnSeq: 9, client: "c" },
       }),
     );
-  const age = (entry: ReturnType<typeof waiting>) =>
-    recentChatCards([entry], T0, undefined, [], 10).map((card) => card.age);
+  const age = (entry: ReturnType<typeof waiting>) => recent([entry]).map((row) => row.age);
   expect(age(waiting(ago(0)))).toEqual(age(waiting(ago(20))));
   expect(age(waiting(ago(0)))).toEqual(["20m"]);
 });

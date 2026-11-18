@@ -2,7 +2,6 @@
 // WE HAVE GLASS, SO JUST USE GLASS."). The cards a pointer opens by resting on something:
 //   - a link's or a pull request's hover card (chips/LinkHoverCard.tsx, also the PR dock bars);
 //   - a session reference's hover card (started/useSessionHover.tsx);
-//   - a New Tab suggestion row's hover card (newtab/StageCards.tsx);
 //   - the thread minimap's mark preview (threadMinimap/PreviewCard.tsx).
 // Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css) or, for the minimap card, the
 // tooltip glass (the tooltip tint over the shared blur). No stylesheet may lay a solid fill on one
@@ -24,7 +23,6 @@ const CARDS = [
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "cv-link-preview", glass: "ui-glass" },
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "acpmux-pr-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/started/useSessionHover.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
-  { file: "agent-session/acpmux/newtab/StageCards.tsx", root: "nt-hovercard", glass: "ui-glass" },
   // Not .ui-glass: the tooltip tint over the shared blur (thread-minimap-card-glass.test.ts).
   { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: null },
 ] as const;
@@ -97,7 +95,7 @@ function declarations(body: string): Map<string, string> {
 }
 
 /// The hover card a selector styles: the root class in its subject (last) compound, as a whole
-/// class name (`.cv-link-preview`, not `.cv-link-preview__open` or `.nt-hovercard-body`).
+/// class name (`.cv-link-preview`, not `.cv-link-preview__open`).
 function cardOf(selector: string, roots: readonly string[]): string | null {
   const subject =
     selector
@@ -164,7 +162,7 @@ test("no stylesheet paints a hover card solid or takes its blur away", () => {
   expect(findings).toEqual([]);
   // Not vacuous: the scan reads the rules that style each card (the PR card has none of its own:
   // it is the link card with a pull request's body).
-  for (const root of ["cv-link-preview", "acpmux-session-hover-card", "nt-hovercard", "acpmux-minimap__card"]) {
+  for (const root of ["cv-link-preview", "acpmux-session-hover-card", "acpmux-minimap__card"]) {
     expect(styled.has(root)).toBe(true);
   }
 });

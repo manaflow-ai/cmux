@@ -201,10 +201,6 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>minimal</string>
-				<string>cards</string>
-				<string>default</string>
-				<string>threads</string>
-				<string>console</string>
 				<string>classic</string>
 				<string>terminal</string>
 			</array>

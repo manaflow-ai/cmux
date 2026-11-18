@@ -70,8 +70,8 @@ const connected = (sessions: AcpmuxSessionEntry[]) => ({
 });
 
 async function titles(sessions: AcpmuxSessionEntry[]): Promise<string[]> {
-  const { recentChatCards } = await import("../src/agent-session/acpmux/newtab/screenModel");
-  return recentChatCards(sessions, T0 + 60_000, undefined, [], 6, true).map((card) => card.title);
+  const { recentSessions } = await import("../src/agent-session/acpmux/newTabModel");
+  return recentSessions(sessions, 6, true).map((entry) => entry.displayTitle ?? entry.sessionId);
 }
 
 /// One page of one window: its own daemon connection's last list (empty before it answered).

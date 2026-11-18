@@ -2,7 +2,8 @@
 // bottom, why's there text"). One dot per page style: native radios (arrow keys move between them),
 // named for screen readers; a pointer over a dot shows its name, a pick shows the picked name for a
 // moment and then fades it; a pick is saved as `tabs.newTabTemplate` (`newTab.setTemplate`) and
-// shown in place. Terminal is not offered: New Tab never opens a terminal by itself.
+// shown in place. Terminal is not offered: New Tab never opens a terminal by itself. The styles are
+// Minimal and Classic: Cards, Default, Threads and Console moved to looks (Leo 2026-11-18).
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -46,39 +47,32 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-test("the New Tab page offers its six styles as named dots, the current one checked", async () => {
+test("the New Tab page offers its two styles as named dots, the current one checked", async () => {
   const host = window.document.getElementById("root")!;
   const root = createRoot(host);
   const picks: string[] = [];
   await act(async () => {
     root.render(
-      createElement(StyleSwitch, { current: "threads", onPick: (style) => picks.push(style), onCancel() {} }),
+      createElement(StyleSwitch, { current: "minimal", onPick: (style) => picks.push(style), onCancel() {} }),
     );
   });
   const group = host.querySelector("fieldset")!;
   expect(group.getAttribute("aria-label")).toBe("New Tab templates");
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
-  expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
-    "Minimal",
-    "Cards",
-    "Default",
-    "Threads",
-    "Console",
-    "Classic",
-  ]);
-  expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["threads"]);
+  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "classic"]);
+  expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual(["Minimal", "Classic"]);
+  expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["minimal"]);
   // Dots: no name shows at rest.
   const name = () => host.querySelector<HTMLElement>(".nt-style-name")!;
   expect(name().hasAttribute("data-shown")).toBe(false);
   // A pointer over a dot shows its name, over that dot; leaving the row hides it.
   await act(async () => {
-    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    radios[0]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
   });
-  expect(name().textContent).toBe("Console");
+  expect(name().textContent).toBe("Minimal");
   expect(name().hasAttribute("data-shown")).toBe(true);
   await act(async () => {
-    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
+    radios[0]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
   });
   expect(name().hasAttribute("data-shown")).toBe(false);
 
@@ -91,8 +85,8 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   jest.useFakeTimers();
   try {
     await act(async () => {
-      radios[5]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-      radios[5]!.click();
+      radios[1]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      radios[1]!.click();
     });
     expect(picks).toEqual(["classic"]);
     expect(fieldAsked).toBe(0);
@@ -121,10 +115,10 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
   const host = window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
+    root.render(createElement(StyleSwitch, { current: "classic", onPick() {}, onCancel() {} }));
   });
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios).toHaveLength(6);
+  expect(radios).toHaveLength(2);
   for (const radio of radios) {
     const drawn = window.getComputedStyle(radio);
     expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([
@@ -142,10 +136,10 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
 test("a style picked on the page is saved as tabs.newTabTemplate and shown in place", () => {
   const sent: [string, unknown][] = [];
   const shown: string[] = [];
-  pickNewTabStyle("console", {
+  pickNewTabStyle("minimal", {
     callNative: async (method, params) => void sent.push([method, params]),
     show: (style) => shown.push(style),
   });
-  expect(sent).toEqual([["newTab.setTemplate", { template: "console" }]]);
-  expect(shown).toEqual(["console"]);
+  expect(sent).toEqual([["newTab.setTemplate", { template: "minimal" }]]);
+  expect(shown).toEqual(["minimal"]);
 });

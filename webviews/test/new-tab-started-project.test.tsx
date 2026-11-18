@@ -111,7 +111,6 @@ async function startChat(
     cwd: HOME,
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
     ...(options.startsHere === false ? { startsHere: () => false } : {}),
   });
@@ -147,8 +146,6 @@ async function newTab(
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -255,8 +252,6 @@ async function classicTab(fields: {
         initialKind="agent"
         {...fields}
         onSubmit={(...args) => void asked.push(args)}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );
@@ -329,8 +324,6 @@ test("classic New Tab: a second Add folder… while the host's panel is open ask
         projects={[{ cwd: PICKED, label: "atlas" }]}
         onBrowseProject={browse}
         onSubmit={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

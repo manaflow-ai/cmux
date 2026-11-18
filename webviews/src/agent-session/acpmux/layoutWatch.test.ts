@@ -102,19 +102,10 @@ function newTabPage() {
 /// box, the card and the field aside: `card()` and `field()` place them (the composer mounts after the root).
 function defaultPage() {
   doc.body.innerHTML = `
-    <div class="nt-screen" data-layout="stage">
-      <div class="nt-stage">
-        <div class="nt-stage-cards">
-          <section class="nt-stage-card nt-env">Environment</section>
-          <section class="nt-stage-card nt-suggest">Suggested</section>
-        </div>
-        <div class="nt-player-host"><div class="nt-player">Song</div></div>
-        <div class="nt-open-tabs"><div class="nt-open-tabs-head">Open tabs</div></div>
-        <section class="nt-chats"><div class="nt-cards">
-          <div class="nt-card-host"><button class="nt-card">One</button></div>
-          <div class="nt-card-host"><button class="nt-card">Two</button></div>
-        </div></section>
-      </div>
+    <div class="nt-screen" data-minimal>
+      <div class="nt-composer-room"></div>
+      <div class="nt-player-host"><div class="nt-player">Song</div></div>
+      <div class="nt-open-tabs"><div class="nt-open-tabs-head">Open tabs</div></div>
       <div class="nt-composer">
         <div class="nt-above"><div class="nt-location">cmux</div></div>
         <div class="ui-glass nt-composer-surface nt-box">
@@ -127,14 +118,9 @@ function defaultPage() {
     </div>`;
   const part = (selector: string, index = 0) => doc.querySelectorAll(selector)[index]!;
   place(part(".nt-screen"), 0, 0, 800, 600);
-  place(part(".nt-stage"), 100, 20, 600, 300);
-  place(part(".nt-stage-cards"), 100, 20, 600, 120);
-  for (const index of [0, 1]) place(part(".nt-stage-card", index), 100 + index * 304, 20, 296, 120);
+  place(part(".nt-composer-room"), 100, 20, 600, 30);
   place(part(".nt-player"), 100, 150, 600, 40);
   place(part(".nt-open-tabs"), 100, 200, 600, 30);
-  place(part(".nt-chats"), 100, 240, 600, 80);
-  place(part(".nt-cards"), 100, 250, 600, 60);
-  for (const index of [0, 1]) place(part(".nt-card", index), 100 + index * 304, 250, 296, 60);
   place(part(".nt-composer"), 100, 400, 600, 140);
   place(part(".nt-above"), 100, 400, 600, 24);
   place(part(".nt-location"), 100, 400, 200, 24);
@@ -282,18 +268,15 @@ test("the default New Tab page drawn at the first frame is its first paint, with
   const report = await watch();
   expect(report.first_content_ms).toBe(0);
   expect(report.new_tab_page).toBe("default");
-  // The root, the stage with its 2 cards, the player, the open tabs, the chats with 2 cards, the composer with
-  // its strip, its card, its input, the field's slot, the field and the pickers, the foot with 1 chip, the starters.
-  expect(report.elements).toBe(22);
+  // The root, the composer's room, the player, the open tabs, the composer with its strip, its card, its input,
+  // the field's slot, the field and the pickers, the foot with 1 chip, the starters.
+  expect(report.elements).toBe(15);
   expect(Object.keys(report.new_tab ?? {}).sort()).toEqual([
     "chip:Model",
     "nt-above",
     "nt-box",
-    "nt-card",
-    "nt-card:1",
-    "nt-cards",
-    "nt-chats",
     "nt-composer",
+    "nt-composer-room",
     "nt-field",
     "nt-field-slot",
     "nt-foot",
@@ -303,10 +286,6 @@ test("the default New Tab page drawn at the first frame is its first paint, with
     "nt-pickers",
     "nt-player",
     "nt-screen",
-    "nt-stage",
-    "nt-stage-card",
-    "nt-stage-card:1",
-    "nt-stage-cards",
     "nt-starters",
   ]);
   expect(report.new_tab?.["nt-box"]).toEqual({ x: 100, y: 428, w: 600, h: 80 });
@@ -351,9 +330,9 @@ test("a part of the default page that moves after the first paint is a shift, by
   page.card();
   page.field();
   before = (index) => {
-    // The foot goes 4 px down in frame 4, and the second card of the stage grows 6 px in frame 6.
+    // The foot goes 4 px down in frame 4, and the player grows 6 px in frame 6.
     if (index === 4) place(page.part(".nt-foot"), 100, 516, 600, 28);
-    if (index === 6) place(page.part(".nt-stage-card", 1), 404, 20, 296, 126);
+    if (index === 6) place(page.part(".nt-player"), 100, 150, 600, 46);
   };
   const report = await watch();
   expect(report.first_content_ms).toBe(0);
@@ -365,10 +344,10 @@ test("a part of the default page that moves after the first paint is a shift, by
       to: { x: 100, y: 516, w: 600, h: 28 },
     },
     {
-      element: "nt-stage-card:1",
+      element: "nt-player",
       at_ms: 60,
-      from: { x: 404, y: 20, w: 296, h: 120 },
-      to: { x: 404, y: 20, w: 296, h: 126 },
+      from: { x: 100, y: 150, w: 600, h: 40 },
+      to: { x: 100, y: 150, w: 600, h: 46 },
     },
   ]);
 });
@@ -419,16 +398,16 @@ test("each part that the watch reads on the default page is a class in that page
   const parts = ((watcher as Record<string, unknown>).NEW_TAB_SCREEN_PARTS as string[] | undefined) ?? [];
   expect(parts).toContain("nt-box");
   expect(parts).toContain("nt-field");
-  const blocks = ["NewTabScreen", "StageCards", "FirstRunStarters", "NowPlayingPlayer", "OpenTabsList", "ChatCards"];
-  const markup = [...blocks, "AllChatsList"]
+  const blocks = ["NewTabScreen", "FirstRunStarters", "NowPlayingPlayer", "OpenTabsList"];
+  const markup = blocks
     .map((file) => readFileSync(new URL(`./newtab/${file}.tsx`, import.meta.url), "utf8"))
     .join("\n");
-  // The whole name: `nt-card` is not found in `nt-card-host`.
+  // The whole name: `nt-player` is not found in `nt-player-host`.
   for (const name of ["nt-screen", ...parts]) expect(markup).toMatch(new RegExp(`(?<![\\w-])${name}(?![\\w-])`));
   // Each `nt-` part of this test's page that has a box is a part of the watch's list.
   defaultPage();
-  const placed = ["nt-stage", "nt-stage-cards", "nt-stage-card", "nt-player", "nt-open-tabs", "nt-chats", "nt-cards"];
-  const composer = ["nt-card", "nt-composer", "nt-above", "nt-location", "nt-input", "nt-field-slot", "nt-pickers"];
+  const placed = ["nt-composer-room", "nt-player", "nt-open-tabs"];
+  const composer = ["nt-composer", "nt-above", "nt-location", "nt-input", "nt-field-slot", "nt-pickers"];
   for (const name of [...placed, ...composer, "nt-foot", "nt-starters", "nt-rows"]) expect(parts).toContain(name);
 });
 

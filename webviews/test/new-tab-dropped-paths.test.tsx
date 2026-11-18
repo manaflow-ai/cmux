@@ -101,8 +101,6 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     ),
   );

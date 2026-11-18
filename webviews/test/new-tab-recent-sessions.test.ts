@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { recentSessions } from "../src/agent-session/acpmux/newTabModel";
-import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import { normalizedSessionEntry, type AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const entry = (id: string, updatedAt: number): AcpmuxSessionEntry => ({
@@ -31,21 +30,6 @@ test("folded recent sessions reuse urgency order while keeping the count cut", (
   expect(recentSessions(sessions, 2, true).map((session) => session.sessionId)).toEqual(["waiting", "parent"]);
 });
 
-test("a device chat child is rendered once when its parent key names both card ids", () => {
-  const cards = recentChatCards(
-    [],
-    0,
-    undefined,
-    [
-      { key: "codex:parent", harness: "codex", title: "Parent", updatedAt: 2 },
-      { key: "codex:child", harness: "codex", title: "Child", updatedAt: 1, parent: "codex:parent" },
-    ],
-    1,
-    true,
-  );
-  expect(cards[0]?.children?.map((child) => child.chatKey)).toEqual(["codex:child"]);
-});
-
 // Leo 2026-10-18: picking a model on a New Tab starts its chat's session at once (deferred), and
 // the New Tab's Chats list gained an empty "New chat" row on top, pushing every chat down. A chat
 // nothing was sent in yet (acpmux: no last prompt, no turn) is not a recent chat.
@@ -61,7 +45,6 @@ test("a chat nothing was sent in yet stays off the recent chats", () => {
   };
   const unsent = { sessionId: "unsent", lastPrompt: null, turnCount: 0, updatedAt: 3 };
   expect(recentSessions([sent, running, unsent]).map((session) => session.sessionId)).toEqual(["running", "sent"]);
-  expect(recentChatCards([sent, running, unsent], 0).map((card) => card.sessionId)).toEqual(["running", "sent"]);
 });
 
 // Review of #21733: a first prompt that has not reached the agent yet (queued, or the chat waits on
@@ -84,4 +67,16 @@ test("an unsent chat whose agent went away stays off the recent chats too", () =
     { ...base, sessionId: "closed", status: "closed" },
   ];
   expect(recentSessions(gone, 10, false)).toEqual([]);
+});
+
+test("same-time chats keep a deterministic order when the snapshot order changes", () => {
+  const sessions = [
+    { ...entry("chat-b", 5), name: "Second chat" },
+    { ...entry("chat-a", 5), name: "First chat" },
+  ];
+  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual(["chat-a", "chat-b"]);
+  expect(recentSessions([...sessions].reverse(), 2, false).map((session) => session.sessionId)).toEqual([
+    "chat-a",
+    "chat-b",
+  ]);
 });

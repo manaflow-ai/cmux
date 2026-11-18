@@ -171,8 +171,6 @@ test("a prefilled New Tab location is selected only after the editor is ready", 
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />,
     );
   try {
@@ -206,8 +204,6 @@ test("the New Tab screen keeps the caret where it is across updates and a click 
         onSearch={noop}
         onShell={noop}
         onJump={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />
     ),
     ".nt-field",
@@ -224,8 +220,6 @@ test("the classic New Tab page keeps the caret where it is across updates and a 
         inputToken="token-1"
         onInputReady={onInputReady}
         onSubmit={noop}
-        onOpenSession={noop}
-        onShowAll={noop}
       />
     ),
     ".acpmux-newtab-field",

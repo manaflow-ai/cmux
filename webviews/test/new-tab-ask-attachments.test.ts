@@ -25,7 +25,6 @@ function actions() {
     chatCwd: "/Users/you/src/app",
     leave: noop,
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   return { screen, sent };
@@ -70,7 +69,6 @@ test("keeps the New Tab visible until its folder is accepted, then becomes the c
       acceptFolder = start;
     },
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
 
@@ -95,7 +93,6 @@ test("a refused folder start settles instead of leaving the submit pending", asy
     },
     leave: () => {},
     selectSession: () => {},
-    showAllChats: () => {},
     runShell: () => {},
   });
   await expect(Promise.resolve(screen.onAsk("claude", "keep me", "/invalid/project"))).rejects.toThrow();
@@ -132,7 +129,6 @@ test("a start that takes two minutes opens the chat at once with the prompt queu
         leaves += 1;
       },
       selectSession: noop,
-      showAllChats: noop,
       runShell: noop,
     });
     let settled = false;
@@ -165,7 +161,6 @@ test("an empty New chat becomes the chat once its start answers", async () => {
       leaves += 1;
     },
     selectSession: noop,
-    showAllChats: noop,
     runShell: noop,
   });
   const started = Promise.resolve(screen.onAsk("claude", ""));

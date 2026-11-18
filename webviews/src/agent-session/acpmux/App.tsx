@@ -136,7 +136,7 @@ import { goalHatPlace } from "./goalHat.experiment";
 import { githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
+import { shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
@@ -13803,8 +13803,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   startNotice={trustQuestion}
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
-                  template={screenTemplate(shownTemplate(newTab))}
-                  {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
                   snapshot={
                     commandSession
@@ -13875,8 +13873,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         holdComposerPlace();
                         setNewTab(undefined);
                       },
-                      selectSession,
-                      showAllChats,
                       runShell: (command, cwd) => {
                         if (cwd) setProjectDraft(cwd);
                         shellRuns.start(command, cwd ? { cwd } : {});
@@ -13888,15 +13884,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       },
                     }),
                   )}
-                  // A chat card's Compress Chat or Decompress Chat: acpmux's cold archive, on this page's
-                  // connection. acpmux answers it to this Mac's own app only, never a remote one.
-                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
-                    ? {
-                        onColdArchive: (sessionId: string, archived: boolean) =>
-                          directClient.current?.coldArchive(sessionId, archived) ??
-                          Promise.reject(new Error(translate("error.notOpen"))),
-                      }
-                    : {})}
                 />
               </Activity>
               {harnessesOpen && harnessesPage}

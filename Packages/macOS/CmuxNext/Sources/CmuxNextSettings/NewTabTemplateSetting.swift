@@ -4,21 +4,21 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
     /// The composer alone (Leo 2026-10-20: "only do the composer for the default"), with no
     /// greeting and no widgets (Lawrence 2026-11-09: "remove widgets completely"). What an unset key shows.
     case minimal
-    /// One rounded field with the Search | Ask switch, the project and agent chips under it, and
-    /// three tall chat cards (u2851).
-    case cards
-    /// The one-field screen with agent rows, chat cards and Tools.
-    case `default`
-    /// One large prompt field, centered; no cards, no Tools.
-    case composer
-    /// The field and the recent chats as a list.
-    case threads
-    /// A monospace field with a `>` glyph and the recent chats as lines.
-    case console
     /// The Terminal | Browser | Agent page.
     case classic
     /// No page: New Tab opens a terminal.
     case terminal
+
+    /// Templates that no longer ship. The legacy Composer, and Cards, Default, Threads and Console,
+    /// which moved to looks built on the customization API (Leo 2026-11-18: "The templates should be
+    /// like the customixastikms api you can build them i don't think they should ship as is"). A
+    /// saved one reads as Minimal with no diagnostic, so an existing cmux.json keeps working.
+    static let retired: Set<String> = ["composer", "cards", "default", "threads", "console"]
+
+    /// `text` as a template: a shipped one, Minimal for a retired one, nil for anything else.
+    static func reading(_ text: String) -> NewTabTemplate? {
+        retired.contains(text) ? .minimal : NewTabTemplate(rawValue: text)
+    }
 }
 
 /// `tabs.newTabTemplate` in cmux.json. Unset is nil (the page then shows ``fallback``, Minimal, unless
@@ -26,13 +26,11 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
 nonisolated extension NewTabTemplate {
     static func parse(_ root: JSONValue) -> (NewTabTemplate?, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (nil, nil) }
-        guard let text = value.stringValue, let template = NewTabTemplate(rawValue: text) else {
+        guard let text = value.stringValue, let template = reading(text) else {
             let choices = NewTabTemplate.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
             return (nil, SettingsDiagnostic(kind: .invalidValue, path: "tabs.newTabTemplate", message: "expected one of \(choices)"))
         }
-        // Composer was a separate legacy layout. Keep decoding it so existing configs remain
-        // readable, but expose the shared Minimal layout as its replacement.
-        return (template == .composer ? .minimal : template, nil)
+        return (template, nil)
     }
 }
 

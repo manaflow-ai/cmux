@@ -5,12 +5,11 @@ extension SettingsController {
     /// Settings window writes it. Terminal and unknown values are ignored: New Tab never opens a
     /// terminal by itself.
     public func saveNewTabTemplate(_ value: String) async {
-        guard let template = NewTabTemplate(rawValue: value), template != .terminal,
+        // A retired template (NewTabTemplate.retired) is saved as Minimal, so a stale caller cannot
+        // put one back into cmux.json.
+        guard let template = NewTabTemplate.reading(value), template != .terminal,
               let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        // The old Composer page is no longer selectable. Normalize page writes too, so a stale
-        // caller cannot put the retired value back into cmux.json.
-        let savedTemplate: NewTabTemplate = template == .composer ? .minimal : template
-        do { try await setSetting(descriptor, to: .string(savedTemplate.rawValue), by: .caller("page")) } catch {
+        do { try await setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                 .error("new tab template write failed: \(String(describing: error), privacy: .public)")
         }

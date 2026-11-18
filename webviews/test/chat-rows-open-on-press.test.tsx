@@ -163,26 +163,6 @@ test("a press on a row of a multi-selection waits for the release, so the select
   expect(opened).toEqual(["b"]);
 });
 
-test("a Recently Closed row reopens on the press, once", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { ClosedList } = await import("../src/agent-session/acpmux/newtab/ClosedList");
-  const reopened: string[] = [];
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <ClosedList
-        items={[{ id: "closed-1", title: "Old tab", kind: "terminal", closedAt: 1, available: true }]}
-        onReopen={(id) => reopened.push(id)}
-      />,
-    ),
-  );
-  const row = host.querySelector(".nt-row")!;
-  await press(row);
-  expect(reopened).toEqual(["closed-1"]);
-  await release(row);
-  expect(reopened).toEqual(["closed-1"]);
-});
-
 test("Enter on a failed history-page retry keeps the selection shortcut out of the way", async () => {
   const { createRoot } = await import("react-dom/client");
   const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");

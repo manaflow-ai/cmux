@@ -36,14 +36,14 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   const HOME = "/Users/you";
-  // Cards: its chat cards and All Chats button are what the field takes the keyboard back from.
+  // Minimal: its location strip's folder button is a control the field takes the keyboard back from.
   const context = {
     kind: "agent",
     hotkeys: {},
     home: HOME,
     projects: [`${HOME}/src/atlas`],
     host: "cosmic-gray",
-    template: "cards",
+    template: "minimal",
   };
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
@@ -121,7 +121,8 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
 
       test("taking the keyboard back keeps where the page was scrolled", async () => {
         const page = await newTab(browsers.get(name)!);
-        await page.setViewportSize({ width: 900, height: 300 });
+        // Short enough that Minimal's composer and location strip overflow the page.
+        await page.setViewportSize({ width: 900, height: 160 });
         const scrolled = await page.evaluate(() => {
           const screen = document.querySelector<HTMLElement>(".nt-screen")!;
           screen.scrollTop = screen.scrollHeight;
@@ -138,9 +139,9 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
       test("a control that has focus keeps it when the page gets the keyboard back", async () => {
         const page = await newTab(browsers.get(name)!);
         await page.keyboard.type("fix");
-        await page.locator(".nt-screen button.nt-chats-all").focus();
+        await page.locator(".nt-screen .nt-location button.acpmux-location-button").first().focus();
         await switchAwayAndBack(page);
-        expect(await focused(page)).toBe("nt-chats-all");
+        expect(await focused(page)).toBe("acpmux-location-button");
         expect(await fieldText(page)).toBe("fix");
         await page.close();
       });

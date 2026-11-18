@@ -30,7 +30,7 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/test/browser/new-tab-picker.html?template=composer");
+    await warmViteServer(vite, "/test/browser/new-tab-picker.html");
     browser = await chromium.launch({ headless: true });
   });
 
@@ -39,27 +39,13 @@ await requireBrowserLane("new-tab-shell-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(template = "composer"): Promise<Page> {
+  async function open(): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 650 } });
-    await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html?template=${template}`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
     await page.locator(".nt-field").waitFor();
     return page;
   }
-
-  test("the Console prompt keeps a separate prefix column before the text", async () => {
-    const page = await open("console");
-    const geometry = await page.evaluate(() => {
-      const field = document.querySelector<HTMLElement>(".nt-field")!;
-      const glyph = document.querySelector<HTMLElement>(".nt-prompt-glyph")!;
-      return {
-        textStart: field.getBoundingClientRect().left + parseFloat(getComputedStyle(field).paddingInlineStart),
-        glyphEnd: glyph.getBoundingClientRect().right,
-      };
-    });
-    expect(geometry.textStart - geometry.glyphEnd).toBeGreaterThan(8);
-    await page.close();
-  });
 
   test("reserves the shell prefix so !pwd does not shift the field", async () => {
     const page = await open();

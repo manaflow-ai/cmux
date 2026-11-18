@@ -363,9 +363,9 @@ export default agentPaneEntry({
       play: check,
     },
     "new-tab": {
-      note: "The New Tab page with its composer and recent chats.",
+      note: "The New Tab page with its composer.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -380,7 +380,7 @@ export default agentPaneEntry({
     "new-tab-wide-type": {
       note: "The New Tab page with its letters spaced half a pixel wider, as Linux's fonts set them.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -395,10 +395,11 @@ export default agentPaneEntry({
         await check(ctx);
       },
     },
-    // Both templates keep the model and mode in the shared footer; this variant checks the
-    // Default template with Linux's wider type, and the next checks a chat with plain styling off.
+    // A saved Default template (retired) loads as Minimal, which keeps the model and mode in the
+    // shared footer; this variant checks it with Linux's wider type, and the next checks a chat with
+    // plain styling off. The variant id stays stable.
     "new-tab-default": {
-      note: "New Tab's Default template: model and mode in the shared footer, mic and Send in the box, with Linux's wider letter spacing.",
+      note: "A saved Default template draws Minimal: model and mode in the shared footer, mic and Send in the box, with Linux's wider letter spacing.",
       ready: {
         newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "default" },
         newSession: true,
@@ -411,7 +412,7 @@ export default agentPaneEntry({
           !ctx.document.querySelector(".nt-foot .acpmux-model") ||
           ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model")
         )
-          throw new Error("the Default template's model is not in the shared footer");
+          throw new Error("the retired Default template's model is not in the shared footer");
         const style = ctx.document.createElement("style");
         style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
         ctx.document.head.append(style);
