@@ -250,6 +250,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension CornerFlushSetting {
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    public nonisolated static let configPath = ["appearance", "cornerFlush"]
+    public nonisolated static let fallback: CornerFlush = .flush
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]

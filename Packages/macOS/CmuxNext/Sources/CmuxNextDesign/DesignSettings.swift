@@ -322,6 +322,12 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

@@ -288,6 +288,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
