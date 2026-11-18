@@ -721,7 +721,7 @@ extension NotificationCenterService: AttentionBannerHost {
     func isViewed(_ tabID: String, onMachine machine: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
         return services.windows.controllers.contains { controller in
-            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
+            (controller.focus.state.windowKey || controller.window?.holdsKeyboard(key: services.keyWindowSource()) == true) && Self.contentTab(controller.focus.state.resolved) == tabID
                 && controller.content?.daemon.machineID == machine
         }
     }

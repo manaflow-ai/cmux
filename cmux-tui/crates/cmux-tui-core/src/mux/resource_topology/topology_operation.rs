@@ -88,8 +88,9 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
-        // Read before the state lock: `surface_notifications` locks state.
-        let mut notifications = self.tree_decorations();
+        // Read before the state lock (it locks state). The delta serializes the new empty
+        // workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
         let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
