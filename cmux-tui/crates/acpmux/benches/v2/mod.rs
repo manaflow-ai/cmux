@@ -647,6 +647,7 @@ mod tests {
 
     /// The repository's root, where the nightly's gate script and its lines are.
     fn repository() -> PathBuf {
+        // affected-reads: scripts/cmux-next cmux-tui
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
     }
 
@@ -1392,6 +1393,7 @@ mod gate_failed_tests {
     #[cfg(unix)]
     #[test]
     fn the_gate_script_marks_a_failed_filters_rows_red() {
+        // affected-reads: scripts/cmux-next cmux-tui
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let measures = tempfile::NamedTempFile::new().unwrap();
         let status = std::process::Command::new("bash")

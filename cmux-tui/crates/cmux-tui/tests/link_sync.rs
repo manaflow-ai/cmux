@@ -1326,6 +1326,7 @@ fn an_inside_symlink_round_trips_and_an_outside_one_is_skipped_and_named() {
     std::os::unix::fs::symlink("src/b.txt", remote.join("lib")).unwrap();
     std::os::unix::fs::symlink("deep", remote.join("src/near")).unwrap();
     std::os::unix::fs::symlink("/etc/passwd", remote.join("evil")).unwrap();
+    // affected-reads: none
     std::os::unix::fs::symlink("../../../..", remote.join("src/climb")).unwrap();
     std::os::unix::fs::symlink(".git/hooks", remote.join("hooks")).unwrap();
 
