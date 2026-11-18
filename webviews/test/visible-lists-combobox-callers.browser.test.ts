@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import type { Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { startVisibleLists, type VisibleListsServer } from "./support/visibleLists";
+import { frames, startVisibleLists, type VisibleListsServer } from "./support/visibleLists";
 
 await requireBrowserLane("visible-lists-combobox-callers.browser.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -116,8 +116,15 @@ await requireBrowserLane("visible-lists-combobox-callers.browser.test.ts", async
     await page.evaluate(() =>
       (window as unknown as { __environmentCase: { remove(id: string): void } }).__environmentCase.remove("id-2"),
     );
-    // The row shrinks out (--agent-motion-move), then goes.
-    await page.waitForTimeout(600);
+    // The row shrinks out (--agent-motion-move), then goes: wait until it and any leaving row are
+    // gone, then for the window to measure the rows that moved up.
+    await page.waitForFunction(
+      (label) =>
+        !document.querySelector('[data-row-motion="leave"]') &&
+        ![...document.querySelectorAll('[role="option"]')].some((row) => row.textContent?.includes(label)),
+      "item 00002 charlie",
+    );
+    await frames(page);
     expect(await misplaced(page)).toEqual([]);
     await open.close();
   });
@@ -130,9 +137,23 @@ await requireBrowserLane("visible-lists-combobox-callers.browser.test.ts", async
         window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
       ).__visibleListControls.scroller().scrollTop = 0;
     });
+    // Star or unstar a theme, then wait until its row under Starred has come or gone and the window
+    // has measured the rows that moved.
     const star = async (name: string) => {
-      await page.evaluate((name) => document.querySelector<HTMLElement>(`[data-theme-star="${name}"]`)!.click(), name);
-      await page.waitForTimeout(120);
+      const starring = await page.evaluate((name) => {
+        const button = document.querySelector<HTMLElement>(`[data-theme-star="${name}"]`)!;
+        const starring = button.getAttribute("aria-pressed") !== "true";
+        button.click();
+        return starring;
+      }, name);
+      await page.waitForFunction(
+        ([name, starring]) =>
+          [...document.querySelectorAll(`[data-theme-star="${name}"]`)].every(
+            (button) => (button.getAttribute("aria-pressed") === "true") === starring,
+          ) && !!document.querySelector(`[data-theme-option="${name}"][data-starred-row]`) === starring,
+        [name, starring] as const,
+      );
+      await frames(page);
     };
     // The case stars 10, 20 and 45: unstar them all (the headings go, every row moves up), then star one.
     for (const name of ["item 00045 foxtrot", "item 00020 echo", "item 00010 charlie"]) await star(name);
