@@ -345,7 +345,7 @@ enum TabMoves {
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab), to: workspace.id) {
+        if services.refusesIncognitoEntry(tab, toWorkspace: workspace.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return completion(false)
         }
@@ -387,8 +387,9 @@ enum TabMoves {
         completion(false)
     }
 
-    /// True (and refused with a message) when `tab` would move between an
-    /// incognito window and a normal one.
+    /// True (and refused with a message) when `tab` is not private and would
+    /// move into an incognito window (`AppServices.crossesIncognito`): a
+    /// private tab may sit in any window (Leo, 2026-11-18).
     static func refusesIncognitoCrossing(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
         guard services.crossesIncognito(tab, to: pane) else { return false }
         services.registry.refuse(RefusalStrings.incognitoMismatch)

@@ -42,10 +42,13 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// `frontend-browser-tab-split-v1`, with `pane`: the tab opens in a new pane split from it, in
     /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
     public var split: ConversationTabSplit?
+    /// `private-tabs-v1`: `true` makes a private (incognito) tab in any pane (`extra.private` on its
+    /// record); nil (omitted) for every other tab.
+    public var `private`: Bool?
 
     public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, workspace: WorkspaceHandle? = nil, title: String? = nil, faviconURL: String? = nil,
                 profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
-                split: ConversationTabSplit? = nil) {
+                split: ConversationTabSplit? = nil, private isPrivate: Bool? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
@@ -58,6 +61,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         self.activate = activate
         self.after = after
         self.split = split
+        self.private = isPrivate
     }
 }
 

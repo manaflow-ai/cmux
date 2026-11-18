@@ -30,7 +30,9 @@ import Foundation
 /// tear-offs across kinds are refused, a tear-off from an incognito window
 /// is incognito, orphans and a closed window's workspaces go to a window of
 /// their kind only), closing one discards its workspaces instead of handing
-/// them over, and they are never saved.
+/// them over, and they are never saved. Single tabs are not workspaces:
+/// private tabs may now sit in any window (Leo, 2026-11-18; the App's
+/// `TabMoves`).
 ///
 /// Pure value type: every transition is a mutating method returning the
 /// `Changes` the App animates. `WindowManager` applies them to controllers.

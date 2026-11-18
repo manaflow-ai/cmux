@@ -144,6 +144,8 @@ final class WindowManager {
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
     var incognitoHistoryReset: (() -> Void)?
+    /// Follows the tab lists while private tabs alone keep the incognito session (`watchPrivateTabs`).
+    var privateTabsWatch: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services

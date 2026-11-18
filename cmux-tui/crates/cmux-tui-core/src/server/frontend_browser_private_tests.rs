@@ -1,6 +1,6 @@
 //! `private-tabs-v1` on the wire the app sends: `new-frontend-browser-tab
 //! {private: true}` opens a private tab in a normal workspace, between normal
-//! tabs (Leo, 2026-11-18: "what if in chrome you could simply have an
+//! tabs (Leo, 2026-11-18: "what if in [a browser] you could simply have an
 //! incognito tab?"). The raw tree and the v2 tab read mark only that tab, and
 //! the workspace stays normal.
 

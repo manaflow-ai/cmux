@@ -37,7 +37,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     /// Actions that must always work, even in a text field. In browser
     /// focus mode only the exit chord and Quit keep their keys.
     static let systemActions: Set<ActionID> = [
-        "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "newIncognitoWindow", "commandPalette",
+        "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "newIncognitoWindow", "newPrivateTab", "commandPalette",
         "toggleBrowserFocusMode", "openSettings", "showHideAllWindows", "toggleFullScreen",
     ]
 

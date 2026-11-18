@@ -7,7 +7,9 @@
 
 use serde_json::json;
 
-use super::tests::{Session, mutate, pane_id, read, send, snapshot, tab_id, terminal_tabs};
+use super::tests::{
+    Session, changes_after, mutate, pane_id, read, revision, send, snapshot, tab_id, terminal_tabs,
+};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -99,8 +101,20 @@ fn restore_of_a_mix_keeps_the_normal_tabs_in_order_without_the_private_ones() {
     let tabs = terminal_tabs(&mux, 5);
     let pane = pane_id(&mux, tabs[0]);
     let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let before = revision(&mux);
     mux.mark_tab_private(tabs[1]).unwrap();
     mux.mark_tab_private(tabs[3]).unwrap();
+    // `session.events` carries each mark on the tab's upsert (the app's mirror reads it there).
+    let changes = changes_after(&mux, before);
+    for id in [&ids[1], &ids[3]] {
+        assert!(
+            changes.iter().any(|change| change["kind"] == "upsert"
+                && change["resource"] == "tab"
+                && change["id"] == id.as_str()
+                && change["value"]["extra"]["private"] == true),
+            "no private upsert for {id}: {changes:?}"
+        );
+    }
     assert!(private_flag(&mux, &ids[1]) && private_flag(&mux, &ids[3]));
     assert!(!private_flag(&mux, &ids[0]) && !private_flag(&mux, &ids[2]));
     drop(mux);

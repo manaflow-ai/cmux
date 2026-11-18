@@ -249,14 +249,15 @@ extension DaemonConnection {
     @discardableResult
     /// `split` opens it in a new pane split from `pane` instead (`frontend-browser-tab-split-v1`); a daemon
     /// without that capability gets `missingCapabilities` and no request, never a tab in `pane`.
+    /// `private` (`private-tabs-v1`): a private tab; the caller sends it only to a daemon that serves it.
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
                                       activate: Bool? = nil, after: SurfaceID? = nil,
-                                      split: ConversationTabSplit? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+                                      split: ConversationTabSplit? = nil, private isPrivate: Bool? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
         if split != nil, identity?.supports(DaemonCapability.frontendBrowserTabSplit.rawValue) != true {
             throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabSplit.rawValue])
         }
         return try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID,
-                                                      activate: activate, after: after, split: split).send(on: self)
+                                                      activate: activate, after: after, split: split, private: isPrivate).send(on: self)
     }
 
     /// App-rendered browser tab in workspace `workspace` itself (`frontend-browser-tab-workspace-v1`): in its pane, or in a

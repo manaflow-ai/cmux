@@ -202,6 +202,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
     case frontendBrowserInsertAfter = "frontend-browser-insert-after-v1"
+    /// `private` on `new-frontend-browser-tab`: a private (incognito) tab in any pane, marked
+    /// `extra.private` on its record; the daemon closes every one left by an earlier run at start and
+    /// never records one in closed history (Leo, 2026-11-18: private tabs anywhere).
+    case privateTabs = "private-tabs-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     case loopbackForward = "loopback-forward-v1"
@@ -656,7 +660,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch, .privateTabs:
             return .optional
         }
     }

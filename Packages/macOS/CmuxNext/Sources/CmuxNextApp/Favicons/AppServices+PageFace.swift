@@ -36,7 +36,7 @@ extension AppServices {
     /// a page's favicon loads or without one (the row then shows ``WorkspaceIcon/pagePlaceholder``).
     func sidebarPageFavicon(_ workspace: WorkspaceModel, tab: TabModel) -> SidebarFavicon? {
         guard tab.kind == .browser else { return nil }
-        let incognito = windows.isIncognito(workspace: workspace)
+        let incognito = windows.isIncognito(workspace: workspace) || cache.browserTabs.isPrivate(tab)
         return browserFavicon(key: tab.id, recordFavicon: incognito ? nil : SidebarMapping.favicon(tab.faviconURL, page: tab.url),
                               known: (tab, incognito)).map { SidebarFavicon($0.cgImage) }
     }

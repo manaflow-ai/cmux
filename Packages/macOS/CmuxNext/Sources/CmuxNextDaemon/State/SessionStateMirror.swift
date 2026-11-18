@@ -37,9 +37,11 @@ public struct SessionStateMirror: Sendable, Hashable {
         public var markedUnread: Bool
         /// An agent needs the person to act in this tab (`extra.attention`, tab-attention-v1), or nil.
         public var attention: TabAttention?
+        /// A private (incognito) tab, in any window (`extra.private`, private-tabs-v1).
+        public var isPrivate: Bool
 
         public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
-                    emulation: JSONValue? = nil, markedUnread: Bool = false, attention: TabAttention? = nil) {
+                    emulation: JSONValue? = nil, markedUnread: Bool = false, attention: TabAttention? = nil, isPrivate: Bool = false) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
@@ -47,10 +49,11 @@ public struct SessionStateMirror: Sendable, Hashable {
             self.emulation = emulation
             self.markedUnread = markedUnread
             self.attention = attention
+            self.isPrivate = isPrivate
         }
 
         var isEmpty: Bool {
-            zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread && attention == nil
+            zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread && attention == nil && !isPrivate
         }
     }
 

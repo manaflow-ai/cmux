@@ -22,9 +22,12 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::json;
 
+use crate::Actor;
 use crate::mux::*;
+use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::store::StateChanges;
+use crate::state::values::fresh_upserts;
 
 /// Advertised by `identify` once `new-frontend-browser-tab` takes `private`
 /// and a tab's `extra.private` names a private tab.
@@ -116,7 +119,10 @@ impl Mux {
                 if !mark_private(transaction, &tab)? {
                     return Ok(StateChanges::unchanged(json!({"tab": tab})));
                 }
-                Ok(StateChanges::new(json!({"tab": tab}), Vec::new()))
+                // The tab's upsert carries `extra.private`: `session.events`
+                // followers (the app's state mirror) learn the mark from it.
+                let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab))?;
+                Ok(StateChanges::new(json!({"tab": tab}), changes))
             },
         )?;
         let decorations = self.tab_tree_decorations(&[surface]);
