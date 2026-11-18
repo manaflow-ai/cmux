@@ -271,8 +271,9 @@ final class TerminalDemoDriver {
         // terminal shows it; the key hides it), `system` (shown by the key,
         // hidden from outside our code: the terminal resigns, as a swipe or
         // the system does, so only will-hide claims the rows), `reverse`
-        // (shown, then hidden 80 ms later, before the Mac answers) and
-        // `double` (shown, hidden and shown again 100 ms apart).
+        // (shown, then hidden 80 ms later, before the Mac answers),
+        // `double` (shown, hidden and shown again 100 ms apart) and `send`
+        // (the composer shows it, a message is sent from it, the key hides it).
         let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
         for round in 0..<5 {
             switch mode {
@@ -280,6 +281,18 @@ final class TerminalDemoDriver {
                 note("show\(round)")
                 model.controller?.debugTapTerminal()
                 await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "send":
+                // Leo's flow (ask-b8451d6e4b): the composer takes the keyboard,
+                // a message goes from it to the app, and the keyboard key
+                // then puts the keyboard away.
+                note("show\(round)")
+                model.focusComposer()
+                await wait(1.5)
+                await type("jj")
+                model.send()
+                await wait(0.6)
                 note("hide\(round)")
                 model.toggleKeyboard()
             case "system":
