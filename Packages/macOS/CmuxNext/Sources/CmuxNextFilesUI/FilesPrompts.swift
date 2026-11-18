@@ -20,7 +20,7 @@ struct FilesPrompts {
 
     /// Asks what to do with a taken name (Keep Both, Stop, Replace, Skip, Apply to All).
     func conflict(_ conflict: FileConflict) async -> ConflictAnswer {
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: FilesStrings.conflict(conflict.existing.lastPathComponent),
             fields: [.check(id: "applyToAll", title: FilesStrings.applyToAll, on: false)],
             buttons: [
@@ -56,7 +56,7 @@ struct FilesPrompts {
 
     /// Delete Immediately asks first: it cannot be undone.
     func confirmDelete(_ count: Int) async -> Bool {
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: FilesStrings.deleteConfirm(count),
             lines: [FilesStrings.deleteCannotUndo],
             buttons: [
@@ -69,7 +69,7 @@ struct FilesPrompts {
     }
 
     private func textSheet(title: String, initial: String, button: String) async -> String? {
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: title,
             fields: [.text("text", initial: initial)],
             buttons: [.cancel(FilesStrings.cancel), .ok(button)],
