@@ -113,6 +113,35 @@ extension PaneContentRidesTests {
         #expect(rest.isShown(by: Commit.shown(screen)), "after the close the screen does not show the two panes that stay: \(Commit.shown(screen).panes)")
     }
 
+    /// A split, and three frames later a zoom of another pane: the zoom covers the pane whose content is held and
+    /// keeps it for the unzoom. Its content takes its pane's size one time, at the end of the hold, so the unzoom
+    /// brings the pane back with its content at the pane's size and with no other resize.
+    @Test func aZoomThatCoversAHeldPaneGivesItsContentItsPanesSizeOneTime() throws {
+        let begun = try Self.begin(Motion.split, focused: Commit.right)
+        defer { begun.harness.window.closeAfterTest() }
+        let harness = begun.harness, screen = begun.screen
+        let host = try #require(Motion.hosts(of: screen)[Commit.left], "the split's old pane does not show")
+        try #require(Motion.inFlight(screen) && begun.took(Commit.left) == 0, "SETUP: the split's old pane is not held")
+        for _ in 0..<3 { _ = harness.root.advanceFrame(Motion.dt) }
+
+        harness.model.apply(screens: Commit.screen(.leaf(Commit.right), zoomed: true))
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Motion.dt)
+        _ = Motion.toTheEnd(harness, screen)
+        Commit.rest(harness)
+        #expect(begun.took(Commit.left) == 1, "a zoom covered a held pane and its content took \(begun.took(Commit.left)) sizes")
+        #expect(host.content.frame == host.clipView.bounds, "under the zoom the covered pane's content is \(host.content.frame) in a clip of \(host.clipView.bounds)")
+
+        harness.model.apply(screens: Self.layouts(of: Motion.split).after)
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Motion.dt)
+        _ = Motion.toTheEnd(harness, screen)
+        Commit.rest(harness)
+        let back = try #require(Motion.hosts(of: screen)[Commit.left], "after the unzoom the pane does not show")
+        #expect(begun.took(Commit.left) == 1, "after the unzoom the pane's content took \(begun.took(Commit.left)) sizes from the split on")
+        #expect(back.content.frame == back.clipView.bounds, "after the unzoom the pane's content is \(back.content.frame) in a clip of \(back.clipView.bounds)")
+    }
+
     /// A pane that grows holds nothing: its content has its final size in the frame that shows the act, as with no
     /// move, and the clip inside the pane cuts.
     @Test func theContentOfAPaneThatGrowsHasItsFinalSizeInTheFrameThatShowsTheAct() throws {

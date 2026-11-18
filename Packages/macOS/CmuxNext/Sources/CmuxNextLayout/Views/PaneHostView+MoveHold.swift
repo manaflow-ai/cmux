@@ -32,8 +32,9 @@ extension PaneHostView: PaneCommitMotionContentHost {
     func releasePaneContentAfterMove() {
         guard let held = clipView.moveHeldSize else { return }
         clipView.moveHeldSize = nil
-        // A pane that left the layout (its close ended the hold) takes no size: it goes with the picture it had.
-        guard let screen = superview as? ScreenContentView, screen.paneFrames[pane] != nil else { return }
+        // A pane that a close took out takes no size: it goes with the picture it had. A pane that a zoom covers
+        // comes back with the unzoom, so it takes its size here, in the frame that hides it.
+        guard let screen = superview as? ScreenContentView, !screen.context.isClosing(pane) else { return }
         let rest = clipView.bounds.size
         guard rest != held else { return }
         content.notifyPaneMotionWillRest(sizeChange: CGSize(width: rest.width - held.width, height: rest.height - held.height))
