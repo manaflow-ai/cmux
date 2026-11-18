@@ -74,7 +74,8 @@ pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
 // A commit's counts are at `writer as usize` in an array of this length: the
 // last writer's index is the table's last row. A writer that goes in before
 // the last one, or a row that goes out, does not compile without the other.
-// A writer that goes in after the last one moves this line to its name.
+// A writer that goes in after the last one compiles with no row here: this
+// assert does not catch it, so its author moves this line to the new name.
 const _: () = assert!(CommitWriter::JournalMaintenance as usize + 1 == COMMIT_WRITERS.len());
 
 thread_local! {
