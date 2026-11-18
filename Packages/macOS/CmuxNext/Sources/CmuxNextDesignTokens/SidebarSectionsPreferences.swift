@@ -131,6 +131,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.relativeTimestamps`: with `showTimestamps` on, a change today reads as its age (`5m`,
+    /// `2h`, as the Codex app and T3 Code label chats), not its time. Off by default: today's changes
+    /// show their time, as before.
+    public var relativeTimestamps = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

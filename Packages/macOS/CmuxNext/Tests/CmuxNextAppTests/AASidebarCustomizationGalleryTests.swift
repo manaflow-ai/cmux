@@ -9,17 +9,22 @@ import Testing
 
 /// CMUX-383's first two projection slices rendered through the real sidebar.
 /// The three variants exercise the default, section visibility/order, and
-/// workspace grouping surfaces. Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
+/// workspace grouping surfaces; `threads` is the chats-under-projects look (`sidebar.groupBy` folder,
+/// `sidebar.showTimestamps` with `sidebar.relativeTimestamps`, `sidebar.workspaceRow.branch`).
+/// Set CMUX_TEST_REQUIRE_GUI=1 to write PNGs.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarCustomizationGalleryTests {
     struct Variant: Sendable {
         let name: String
         let settings: SidebarProjectionCustomization
+        /// Chats under their project folders, each with its age and its branch (`SidebarThreadsLookTests`).
+        var threads = false
     }
 
     static let variants = [
         Variant(name: "default", settings: .defaults),
         Variant(name: "sections", settings: .init(hiddenSections: ["recents"], sectionOrder: ["projects"])),
         Variant(name: "workspace", settings: .init(workspaces: ["ws-2": .init(group: "grp", order: 0)])),
+        Variant(name: "threads", settings: .defaults, threads: true),
     ]
 
     private static func workspace(_ id: String, _ title: String? = nil) -> SidebarWorkspace {
@@ -57,9 +62,11 @@ import Testing
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
 
-        let model = SidebarModel(sections: sections())
+        let sections = variant.threads ? SidebarThreadsLookTests.sections(now: Date()) : sections()
+        let model = SidebarModel(sections: sections)
+        if variant.threads { SidebarThreadsLookTests.applyLook(model) }
         model.sectionCustomization = variant.settings
-        model.setSections(sections())
+        model.setSections(sections)
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = root.bounds
         root.addSubview(sidebar)

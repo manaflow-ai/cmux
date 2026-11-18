@@ -95,6 +95,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.showTimestamps`.
     public nonisolated static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public nonisolated static let showTimestampsDefault = false
+    /// `sidebar.relativeTimestamps`.
+    public nonisolated static let relativeTimestampsPath = ["sidebar", "relativeTimestamps"]
+    public nonisolated static let relativeTimestampsDefault = false
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true
