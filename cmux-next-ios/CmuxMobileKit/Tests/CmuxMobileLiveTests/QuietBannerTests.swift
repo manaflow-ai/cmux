@@ -86,6 +86,43 @@ import Testing
         #expect(live.banner == nil, "no \"Connected\" for a banner that never showed")
     }
 
+    /// Battery and perf: a down link holds one sleeping task for its wait, a repeated phase
+    /// change adds none, and none is left once the link is back.
+    @Test func aDownLinkHoldsOneTimerAndNoneOnceBack() async throws {
+        let store = rig.emptyStore()
+        let live = await connected(store, PerMacDialer())
+        defer { live.stop() }
+        let session = try #require(live.sessions["m1"])
+        #expect(session.quietTask == nil, "no timer while connected")
+        _ = try drop(live)
+        let timer = try #require(session.quietTask, "one timer while the link is down")
+        live.phaseChanged(session)
+        live.phaseChanged(session)
+        #expect(session.quietTask.map { $0 == timer } == true, "a repeated phase change starts no second timer")
+        live.retryConnection()
+        live.phaseChanged(session)
+        await rig.settle { store.macConnection["m1"] == .connected }
+        live.phaseChanged(session)
+        #expect(session.quietTask == nil, "no timer once the link is back")
+        #expect(timer.isCancelled, "the wait's task is cancelled, not left sleeping")
+    }
+
+    /// Home's toast gate: another Mac's outage waits its own bound, never the time a previous
+    /// Mac's outage already ran (switching from one down Mac to another).
+    @Test func anotherMacsOutageWaitsItsOwnBound() async {
+        let gate = QuietStatusGate(delay: .milliseconds(200))
+        gate.update(outage: "m1")
+        #expect(!gate.isShown, "under the bound")
+        await rig.settle { gate.isShown }
+        gate.update(outage: "m1")
+        #expect(gate.isShown, "the same outage keeps speaking")
+        gate.update(outage: "m2")
+        #expect(!gate.isShown, "a second Mac's outage starts its own wait")
+        await rig.settle { gate.isShown }
+        gate.update(outage: nil)
+        #expect(!gate.isShown, "back: nothing")
+    }
+
     /// A link whose wait ran out while the app was away gets a fresh wait on foreground: coming
     /// back shows the cached screen, not "Can't connect" or a banner (`restartQuiet`).
     @Test func foregroundStartsTheWaitAgain() async throws {
@@ -113,6 +150,11 @@ import Testing
         await rig.settle { live.networkOfflineShows }
         live.networkPathChanged(.changed("wifi"))
         #expect(!live.networkOfflineShows)
+        #expect(live.networkBannerTask == nil, "no timer is left once the network is back")
+        live.networkPathChanged(.lost)
+        #expect(live.networkBannerTask != nil, "one sleeping task while the network is gone")
+        live.stop()
+        #expect(live.networkBannerTask == nil, "stop ends it")
     }
 }
 #endif

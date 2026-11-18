@@ -104,6 +104,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
+    /// The Mac whose list is not live while kept rows show (nil: Home is live or shows no rows):
+    /// the outage Home's toast waits out, one wait per Mac.
+    private var homeOutage: String? { connectionStatus != nil && keptRowsShow ? (homeMacID ?? "") : nil }
+
     /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
     private var homeBanner: ConnectionBannerState? {
         // An unreachable Mac is already past the coordinator's quiet wait (`macConnection` turns
@@ -431,8 +435,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
-        .onChange(of: connectionStatus != nil && keptRowsShow, initial: true) { _, down in
-            bannerGate.update(down: down)
+        // Keyed by the Mac: switching to another Mac that is also down starts its own wait.
+        .onChange(of: homeOutage, initial: true) { _, outage in
+            bannerGate.update(outage: outage)
         }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving

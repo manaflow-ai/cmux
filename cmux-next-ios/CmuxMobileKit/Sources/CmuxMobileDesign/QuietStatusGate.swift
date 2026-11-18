@@ -26,6 +26,18 @@ public final class QuietStatusGate {
         self.clock = clock
     }
 
+    /// The outage going on, named by `key` (the Mac it is about), or nil for none. A different
+    /// key starts the wait again: one Mac's elapsed outage never carries over to another's.
+    public func update(outage key: String?) {
+        if key != outageKey {
+            outageKey = key
+            update(down: false)
+        }
+        if key != nil { update(down: true) }
+    }
+
+    @ObservationIgnored private var outageKey: String?
+
     /// The connection is down (true) or back (false). Repeating `true` keeps
     /// the first instant: a reattach that retries does not restart the wait.
     public func update(down: Bool) {
