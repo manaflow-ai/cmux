@@ -69,6 +69,15 @@ struct ChoiceListPaletteOptionTests {
         #expect(Self.strings(ports.value) == ["branch", "directory", "ports"])
     }
 
+    @Test func theRowSummaryNamesWhatTheListHolds() throws {
+        let row = try #require(SettingsSchema.descriptor(for: BrowserToolbarButtonsSetting.configPath))
+        let held = row.paletteOptions(current: .array(["zoom", "media"].map(JSONValue.string)), themeColors: [])
+        #expect(row.paletteSummary(held) == "Media Controls, Zoom Level")
+        #expect(row.paletteSummary(row.paletteOptions(current: .array([]), themeColors: [])) == "None")
+        let unset = try #require(SettingsSchema.descriptor(for: WorkspaceRowSetting.orderPath(kind: .agent)))
+        #expect(unset.paletteSummary(unset.paletteOptions(current: nil, themeColors: [])) == nil)
+    }
+
     @Test func aRowWithNoDefaultOffersUnsetFirst() throws {
         let row = try #require(SettingsSchema.descriptor(for: WorkspaceRowSetting.orderPath(kind: .terminal)))
         #expect(row.defaultValue == nil)

@@ -105,7 +105,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             settings.paletteOptions(descriptor, current: current, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
-        let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
+        let label = descriptor.paletteSummary(options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
         if descriptor.kind == .toggle {
             kind = .toggle(isOn: current?.boolValue ?? false)

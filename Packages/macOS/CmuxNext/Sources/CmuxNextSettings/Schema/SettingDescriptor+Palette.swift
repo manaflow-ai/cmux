@@ -43,8 +43,9 @@ extension SettingDescriptor {
     /// The values the palette lists for this setting, the current one marked:
     /// a toggle's on and off, a choice's values, a number's steps (the
     /// default first), a color's theme colors as swatches (the theme default
-    /// first). Kinds with free text (fonts, sounds, addresses, hosts, times)
-    /// list nothing; the palette types them.
+    /// first), a list of choices' choices as rows that toggle
+    /// (`choiceListOptions`). Kinds with free text (fonts, sounds, addresses,
+    /// hosts, times) list nothing; the palette types them.
     public func paletteOptions(current: JSONValue?, themeColors: [ThemeRGB]) -> [SettingOption] {
         let current = current ?? defaultValue
         switch kind {
@@ -86,8 +87,58 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet:
+        case .choiceSet(let choices):
+            return choiceListOptions(choices, current: current, ordered: false)
+        case .orderedChoices(let choices):
+            return choiceListOptions(choices, current: current, ordered: true)
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList:
             return []
+        }
+    }
+
+    /// A list of choices' rows (`choiceSet`, `orderedChoices`): one per choice, checked while the
+    /// list holds it, whose value is the list with that choice toggled. A choice set keeps the
+    /// choices' order (the Settings page's switches write it the same way). An ordered list shows
+    /// its stored order, then the choices it leaves out; a choice turned on joins the end and one
+    /// turned off leaves its place, so the order set in Settings stays. A row with no default
+    /// offers unset first (a per-kind override: the same as all workspaces).
+    func choiceListOptions(_ choices: [SettingChoice], current: JSONValue?, ordered: Bool) -> [SettingOption] {
+        var stored: [String] = []
+        if case .array(let items)? = current {
+            for case .string(let item) in items where choices.contains(where: { $0.value == item }) && !stored.contains(item) {
+                stored.append(item)
+            }
+        }
+        let rows = ordered
+            ? stored.compactMap { item in choices.first { $0.value == item } } + choices.filter { !stored.contains($0.value) }
+            : choices
+        var options: [SettingOption] = []
+        if defaultValue == nil {
+            options.append(SettingOption(value: nil, title: defaultLabel ?? SettingsText.text("settings.choice.default", "Default"),
+                                         isCurrent: current == nil))
+        }
+        options += rows.map { choice in
+            let isOn = stored.contains(choice.value)
+            let next: [String] = if ordered {
+                isOn ? stored.filter { $0 != choice.value } : stored + [choice.value]
+            } else {
+                choices.map(\.value).filter { $0 == choice.value ? !isOn : stored.contains($0) }
+            }
+            return SettingOption(value: .array(next.map(JSONValue.string)), title: choice.title, isCurrent: isOn)
+        }
+        return options
+    }
+
+    /// The palette row's value text for a list of choices: the titles it holds, in its order, or
+    /// None; nil for any other kind, and for a list left unset (the unset row's title says it).
+    public func paletteSummary(_ options: [SettingOption]) -> String? {
+        switch kind {
+        case .choiceSet, .orderedChoices:
+            guard !options.contains(where: { $0.value == nil && $0.isCurrent }) else { return nil }
+            let titles = options.filter { $0.value != nil && $0.isCurrent }.map(\.title)
+            return titles.isEmpty ? SettingsText.text("settings.choice.none", "None") : titles.joined(separator: ", ")
+        default:
+            return nil
         }
     }
 
