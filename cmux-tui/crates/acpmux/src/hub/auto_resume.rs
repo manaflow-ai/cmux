@@ -372,13 +372,17 @@ pub(super) fn stopped() -> RpcError {
 }
 
 /// `Err(superseded)` for a continuation (`after`) whose chat moved on, or that would wait.
+/// While the account's rate limit holds the chat, what the hold queued does not supersede it:
+/// a held chat's compaction runs ahead of that queue (`rate_hold.rs`).
 pub(super) fn check_cut(
     session: &Session,
     after: Option<&str>,
     waiting: bool,
 ) -> Result<(), RpcError> {
     match after {
-        Some(cut) if waiting || !still_cut(session, cut) => Err(superseded()),
+        Some(cut) if waiting || !still_cut_by(session, cut, Hub::rate_held(session)) => {
+            Err(superseded())
+        }
         _ => Ok(()),
     }
 }

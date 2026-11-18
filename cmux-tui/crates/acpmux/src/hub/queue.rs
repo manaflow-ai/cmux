@@ -282,6 +282,16 @@ pub(super) fn queue_waits(session: &Session) -> bool {
     queue.iter().any(|q| !q.aside())
 }
 
+/// [`queue_waits`] for a prompt with `provenance`: acpmux's own continuation of a chat the rate
+/// limit holds goes ahead of what the hold keeps (`rate_hold.rs`), so those do not count.
+fn queue_waits_for(session: &Session, provenance: Option<&Value>) -> bool {
+    if !Hub::rate_held(session) || Hub::rate_holds(session, provenance) {
+        return queue_waits(session);
+    }
+    let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    queue.iter().any(|q| !q.aside() && !Hub::rate_holds(session, q.run.provenance.as_ref()))
+}
+
 impl Hub {
     /// Gets a prompt its turn: at once when nothing runs or waits, else after it joins the queue
     /// (and `accept` hears `queued`) and reaches its head. A family prompt to a sub-session whose
@@ -369,7 +379,19 @@ impl Hub {
                     // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do
                     // not hold up a new one. A prompt that waits for the owner (its provenance's
                     // `approval`, `author.rs`) always queues.
-                    let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                    // Nor do what a rate limit's hold keeps, for acpmux's own continuation of the
+                    // held chat, which goes ahead of them (`rate_hold.rs`).
+                    let ahead_of_hold =
+                        Self::rate_held(session) && !Self::rate_holds(session, p.provenance);
+                    let held = session
+                        .queue()
+                        .iter()
+                        .filter(|q| {
+                            q.aside()
+                                || (ahead_of_hold
+                                    && Self::rate_holds(session, q.run.provenance.as_ref()))
+                        })
+                        .count() as u64;
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
@@ -448,7 +470,9 @@ impl Hub {
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues.
-                    if queue_waits(session) || Self::rate_holds(session, p.provenance) {
+                    if queue_waits_for(session, p.provenance)
+                        || Self::rate_holds(session, p.provenance)
+                    {
                         drop(guard);
                         // Its `queued` reservation is still counted.
                         let (waits, position) =
