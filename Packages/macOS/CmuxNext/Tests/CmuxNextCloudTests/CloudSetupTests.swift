@@ -59,6 +59,8 @@ struct CloudSetupTests {
         rule.organizationUnrouted("claude")
         #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .setup(family: "claude", model: nil))
         let wait = Task { await rule.waitUntilServed(family: "claude") }
+        while connections.reads < 3 { await Task.yield() } // the wait read the team's key alone and parked
+        await Task.yield()
         connections.snapshot = .init(personal: [.init(id: "claude-token:1", families: ["claude"])], organization: ["claude"])
         rule.connectionsChanged()
         #expect(await wait.value)
