@@ -29,7 +29,7 @@ fn health(ram_gb: f64, cores: u64, load: f64, disk_gb: f64, live: u64) -> Value 
 }
 
 fn c(name: &str, health: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health, health_at: None }
+    Candidate { name: name.into(), local: false, health, health_at: None, via_hub: false }
 }
 
 fn host<'a>(v: &'a Value, name: &str) -> &'a Value {
@@ -596,4 +596,62 @@ fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
     let v = place(&[here], None, Work::Agent);
     assert!(v["localOver"].is_null(), "{v:#}");
     assert_eq!(v["local"], true, "{v:#}");
+}
+
+#[test]
+fn a_host_with_no_reading_never_goes_ahead_of_one_under_its_lane_cap() {
+    // laptop is out of RAM (no room) but under its cap of 3 lanes; big has no reading.
+    let short = c("laptop", health(12.5, 8, 1.0, 300.0, 0));
+    let v = place(&[c("big", Value::Null), short.clone()], Some(&registry()), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(true)), "{v:#}");
+    assert_eq!(host(&v, "big")["ok"], true, "{v:#}");
+    // An old build is no different, and neither is the order the hosts come in.
+    let old = c("big", json!({"unsupported": true}));
+    let v = place(&[short, old.clone()], Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], "laptop", "{v:#}");
+    // A host at its cap is no reason to pass the unread one over: it takes the work, no overload.
+    let full = c("light", health(40.0, 12, 1.0, 300.0, 3));
+    let v = place(&[full, old], Some(&registry()), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(false)), "{v:#}");
+}
+
+#[test]
+fn an_unknown_hosts_line_says_why_and_what_to_do() {
+    let why = |cand: Candidate| {
+        let v = place(&[cand], Some(&registry()), Work::Agent);
+        host(&v, "big")["why"].as_str().unwrap().to_owned()
+    };
+    let old = why(c("big", json!({"unsupported": true})));
+    assert!(old.contains("`acpmux machine update big`"), "{old}");
+    let hub = why(Candidate { via_hub: true, ..c("big", Value::Null) });
+    assert!(hub.contains("only the mesh hub reaches it"), "{hub}");
+    assert!(!hub.contains("build"), "a hub machine's build is not the reason: {hub}");
+    let fresh = why(c("big", Value::Null));
+    assert!(fresh.contains("no health reading yet"), "{fresh}");
+    // A hub row says so; a linked peer's does not.
+    let row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub"});
+    assert!(Candidate::peer(&row).unwrap().via_hub);
+    assert!(!Candidate::peer(&json!({"name": "big"})).unwrap().via_hub);
+}
+
+#[test]
+fn the_lane_cap_is_lane_places_headroom_max_lanes_else_max_lanes() {
+    // leo-workspace lane_admission.py admits up to headroom_max_lanes while RAM holds a lane, and
+    // lane_cap_watch.py reads `headroom_max_lanes`, else `max_lanes`, as the cap: so does this.
+    let mut reg = registry();
+    reg["machines"]["light"]["lanes"]["headroom_max_lanes"] = json!(5);
+    let at_max = [c("light", health(40.0, 12, 1.0, 300.0, 3))];
+    let v = place(&at_max, Some(&reg), Work::Agent);
+    // RAM (40 - 6) / 3 = 11, CPU 11, disk 18, lanes 5 - 3 = 2: room for 2.
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(false)), "{v:#}");
+    assert_eq!(host(&v, "light")["room"], 2.0, "{v:#}");
+    assert!(host(&v, "light")["why"].as_str().unwrap().contains("3/5 lanes"), "{v:#}");
+    // Without it, max_lanes is the cap: 3 of 3 is full.
+    let v = place(&at_max, Some(&registry()), Work::Agent);
+    assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{v:#}");
+    // Past max_lanes and under headroom_max_lanes is still under the cap: it goes ahead of a
+    // host with no reading even when its RAM is short.
+    let short = c("light", health(8.0, 12, 1.0, 300.0, 4));
+    let v = place(&[c("big", Value::Null), short], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "light", "{v:#}");
 }
