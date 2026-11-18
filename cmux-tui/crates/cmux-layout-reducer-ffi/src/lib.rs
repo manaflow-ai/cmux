@@ -8,7 +8,8 @@
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
 //! row or dock shows, what a hidden pane leaves, where a moved tab or
-//! workspace lands),
+//! workspace lands; a split, dock or removal sends found nodes and facts
+//! and answers a patch, never a whole screen),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
