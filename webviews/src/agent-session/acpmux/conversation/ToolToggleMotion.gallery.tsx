@@ -76,6 +76,9 @@ function ToolToggleMotionGallery({ look }: { look: FoldLook }) {
 
 /// Plays the turn and waits until its summary row is drawn and every motion rests.
 const playTurn: Play = async (ctx) => {
+  // The scripted send clears the card to one line: the composer's own growth, which the reader's
+  // Enter declares in the pane. Declared on the card alone; the rows' moves are the transcript's own.
+  ctx.declare("composer-growth", { targets: [{ selector: ".acpmux-composer-box" }] });
   await ctx.click({ testId: "tool-toggle-play" });
   await ctx.waitFor(() => ctx.find({ testId: "tool-toggle-state" }).textContent === "Turn settled", {
     capMs: 10_000,
