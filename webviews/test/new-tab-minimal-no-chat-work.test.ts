@@ -14,14 +14,18 @@ const entry = (id: string, updatedAt: number, spawnedBy?: string): AcpmuxSession
   ...(spawnedBy ? { spawnedBy } : {}),
 });
 
-// Every read of a chat counts, so a page that only skips the output still fails.
-function counted(sessions: AcpmuxSessionEntry[]): { sessions: AcpmuxSessionEntry[]; reads: () => number } {
+// Every read of a chat (or of one field, `only`) counts, so a page that only skips the output
+// still fails.
+function counted(
+  sessions: AcpmuxSessionEntry[],
+  only?: string,
+): { sessions: AcpmuxSessionEntry[]; reads: () => number } {
   let reads = 0;
   const wrapped = sessions.map(
     (session) =>
       new Proxy(session, {
         get(target, key, receiver) {
-          reads += 1;
+          if (only === undefined || key === only) reads += 1;
           return Reflect.get(target, key, receiver);
         },
       }),
@@ -40,15 +44,20 @@ test("Minimal, the default page, lists no chats and reads none", () => {
 test("only the shown parents' children get a card", () => {
   // 5 shown parents, and 2,500 children under one parent past the cut.
   const parents = Array.from({ length: 6 }, (_, index) => entry(`p${index}`, 100 - index));
-  const hidden = Array.from({ length: 2500 }, (_, index) => entry(`c${index}`, 1, "p5"));
+  // A card reads its chat's `preview`; nothing else on the page does.
+  const hidden = counted(
+    Array.from({ length: 2500 }, (_, index) => entry(`c${index}`, 1, "p5")),
+    "preview",
+  );
   const shownChild = entry("shown-child", 50, "p0");
   const cards = screenModel.pageChatCards(
     screenSections("default"),
-    [...parents, ...hidden, shownChild],
+    [...parents, ...hidden.sessions, shownChild],
     1000,
     (key) => key,
     [],
   );
+  expect(hidden.reads()).toBe(0);
   expect(cards.map((card) => card.sessionId)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
   expect(cards[0]?.children?.map((card) => card.sessionId)).toEqual(["shown-child"]);
   expect(cards.slice(1).every((card) => card.children === undefined)).toBe(true);
