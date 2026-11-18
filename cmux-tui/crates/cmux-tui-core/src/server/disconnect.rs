@@ -143,6 +143,7 @@ fn disconnect_client_with_notice(
     mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
     mux.feed_connection_closed(client);
+    mux.forget_tab_creations(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.

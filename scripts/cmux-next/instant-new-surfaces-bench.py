@@ -69,6 +69,12 @@ import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, 
 if "--bench=new-pane-start-state" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+# `--bench=cmd-n-paint`: scripts/cmux-next/cmd-n-paint-e2e.py on the same tagged app (a display worker: `cmux-ci run
+# --display`), Cmd-N and Cmd-T judged from the window server's own frames, each opening's blank and intermediate frames
+# in its warm, quick and cold arms.
+if "--bench=cmd-n-paint" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmd-n-paint-e2e.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmd-n-paint"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
@@ -132,7 +138,7 @@ open(KEYS_PAGE, "w").write("<!doctype html><title>keys</title><input id=i autofo
                            "addEventListener('focus',()=>i.focus())</script>\n")
 GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
 DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 10)}  # files, changed lines per file
-READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
+READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) and shown_ms (its empty state on screen, its pixels or its picture, nothing kept over it) for these
 NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
 PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
 # What a command's row opens, for the engine rule (bench_page_engine.judge_created); a command not here opens no page.
@@ -399,7 +405,7 @@ def timed(command, phase, index, arm=None):
         lambda: "native" if opts.native_new_tab else bench_page_engine.page_engine(rpc("debug.agent_pane", {"action": "engine"}, timeout=20)))
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} shown={result.get('shown_ms')} shown_frame={frame_of(result, 'shown_ms')} "
           f"engine={result.get('page_engine')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
           + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
@@ -788,7 +794,7 @@ def main():
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
                                 for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())
-                                + (("ready_ms",) if command in READY_COMMANDS else ())}
+                                + (("ready_ms", "shown_ms") if command in READY_COMMANDS else ())}
                       for command in COMMANDS}
     result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
                           for command, arms in result["arms"].items()}

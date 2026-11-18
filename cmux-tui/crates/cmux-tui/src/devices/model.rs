@@ -148,6 +148,10 @@ pub(crate) struct Available {
     /// a host the person's own ssh config names.
     pub mine: bool,
     pub found: Found,
+    /// Whether ssh answers on it from here (`reach.rs`): set before `cmux device list` prints,
+    /// and with `--json --probe`; absent when nothing probed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<super::reach::SshReach>,
 }
 
 /// Hosts a person reaches with ssh that are never a computer to add: git
@@ -201,7 +205,7 @@ pub(crate) struct Listing {
 /// The pool stem of a machine name that ends in a generated id: a last part of 6 or more hex
 /// characters with both a digit and a letter (`3fa17bde`), with any all-digit parts before it
 /// (a timestamp) dropped too. `swarm-01` and `release-20261114` have no generated id.
-fn pool_stem(name: &str) -> Option<&str> {
+pub(crate) fn pool_stem(name: &str) -> Option<&str> {
     let (rest, last) = name.rsplit_once('-')?;
     let generated = last.len() >= 6
         && last.chars().all(|c| c.is_ascii_hexdigit())
@@ -462,6 +466,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                     os: n.os.clone(),
                     mine: n.mine,
                     found: Found::Network,
+                    ssh: None,
                 },
             )
         })
@@ -497,6 +502,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             os: String::new(),
             mine: true,
             found: Found::SshConfig,
+            ssh: None,
         })
         .collect();
     ssh.sort_by_key(|a| a.name.to_ascii_lowercase());

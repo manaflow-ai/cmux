@@ -1,6 +1,11 @@
 {
   "caption": "Open a browser tab's profile button for a new tab, window or workspace with that profile, its extensions and Clear Browsing Data.",
   "frameInterval": 0.25,
+  "settings": {
+    "browser": {
+      "toolbarButtons": ["media", "zoom", "downloads", "profile"]
+    }
+  },
   "steps": [
     {
       "title": "Launch",
@@ -30,9 +35,9 @@
     {
       "title": "Open the profile button's menu",
       "rpc": {
-        "method": "debug.object_menu",
+        "method": "action.run",
         "params": {
-          "menu": "browserProfile"
+          "action": "browser.profile.choose"
         }
       },
       "wait": 2,

@@ -15,23 +15,9 @@ const block = (source: string, selector: string) => {
   expect(at, `${selector} has a rule`).toBeGreaterThanOrEqual(0);
   return source.slice(source.indexOf("{", at) + 1, source.indexOf("}", at));
 };
-const token = (body: string, name: string) => body.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim();
 
 describe("composer trailing glyphs", () => {
-  test("the composer root declares one 16 px glyph on the density and a 1.5 px line", () => {
-    const root = block(
-      css("composerLocation.css"),
-      ".acpmux-dock,\n:is(.acpmux-composer, .nt-composer, .nt-popover) {",
-    );
-    expect(token(root, "--acpmux-composer-glyph")).toBe("calc(16px * var(--acpmux-density))");
-    expect(token(root, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
-    expect(Number(token(root, "--acpmux-composer-trail-stroke"))).toBeCloseTo(1.5, 1);
-    const newTab = block(css("newtab/screen.css"), ".nt-screen .nt-composer {\n  --acpmux-composer-control");
-    expect(token(newTab, "--acpmux-composer-glyph")).toBe("calc(16px * var(--nt-density))");
-    expect(token(newTab, "--acpmux-composer-trail-glyph")).toBe("var(--acpmux-composer-glyph)");
-    expect(token(newTab, "--acpmux-composer-trail-stroke")).toBe(token(root, "--acpmux-composer-trail-stroke"));
-  });
-
+  // The rendered root sizes are covered by new-tab-density-scaling.test.ts.
   test("Send, Stop and the mic take the tokens in the chat (both looks) and on New Tab", () => {
     for (const [file, selector] of [
       ["composerLocation.css", ":is(.acpmux-composer, .nt-composer) :is(.acpmux-send, .acpmux-mic) > .acpmux-icon"],
