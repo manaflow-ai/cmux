@@ -48,6 +48,21 @@ touch -d '5 days ago' "$target/release"
 [[ -d "$target" ]] || fail "the target dir (a mount point) was removed"
 [[ -z "$(ls -A "$target")" ]] || fail "the target dir is not empty under a tiny bound"
 
+# A kept top-level entry (the triple a build just made) survives step 3, even when it is
+# the oldest; the others still go (2026-11-18: the warm-target record removed
+# aarch64-unknown-linux-musl, the leg's own binaries, and "Stage binary" failed).
+fill "$target/aarch64-unknown-linux-musl/release/cmux-tui" 300000
+touch -d '9 days ago' "$target/aarch64-unknown-linux-musl"
+fill "$target/groups/2/aarch64-unknown-linux-musl/release/dep.rlib" 300000
+touch -d '1 day ago' "$target/groups"
+CMUX_TARGET_PRUNE_KEEP="aarch64-unknown-linux-musl" "$prune" "$target" 400000 3 >/dev/null
+[[ -f "$target/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept triple was removed"
+[[ ! -e "$target/groups" ]] || fail "an unkept entry survived over the bound"
+# Only kept entries left and still over the bound: the prune stops instead of spinning.
+CMUX_TARGET_PRUNE_KEEP="aarch64-unknown-linux-musl" "$prune" "$target" 1 3 >/dev/null
+[[ -f "$target/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept triple was removed under a tiny bound"
+rm -rf "${target:?}"/*
+
 # An absent dir is not an error.
 "$prune" "$work/absent" >/dev/null
 echo "PASS: target prune keeps the warm disk bounded"

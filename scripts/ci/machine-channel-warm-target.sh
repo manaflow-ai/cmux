@@ -103,7 +103,9 @@ record() {
     echo "warm target: $link is not linked to the sticky disk; nothing to record"
     return 0
   fi
-  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" \
+  # Keep the triple this leg just built: its release binaries are staged after this step.
+  CMUX_TARGET_PRUNE_KEEP="$triple" \
+    bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" \
     || echo "warning: prune failed; recording as is" >&2
   rm -f "$source_record"
   python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"

@@ -60,8 +60,17 @@ if (( size > max_bytes )); then
   printf 'prune: over the bound; removed all incremental dirs, %s bytes now\n' "$size"
 fi
 
+# CMUX_TARGET_PRUNE_KEEP (space-separated top-level names) are never removed in step 3: a
+# caller that prunes right after its build keeps the triple it just built, whose release
+# binaries the next step stages. machine-channel-warm-target.sh record removed
+# aarch64-unknown-linux-musl, binaries included, on every leg once the disk passed its bound,
+# so "Stage binary" failed (cp: cannot stat .../release/cmux-tui) and no cmux-tui tree
+# published (runs 44240874997 and 44243309941, 2026-11-18): every NEXT nightly waited for it.
+keep=" ${CMUX_TARGET_PRUNE_KEEP:-} "
 while (( size > max_bytes )); do
-  oldest="$(find "$target" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d ' ' -f 2-)"
+  oldest="$(find "$target" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' | sort -n | while read -r _ path; do
+    [[ "$keep" == *" ${path##*/} "* ]] || { printf '%s\n' "$path"; break; }
+  done || true)"
   [[ -n "$oldest" ]] || break
   rm -rf -- "$oldest"
   size="$(size_of "$target")"
