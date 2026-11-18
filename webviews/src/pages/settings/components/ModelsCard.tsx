@@ -69,7 +69,7 @@ export function connectionAuthText(connection: ModelConnection): string {
 /** A ChatGPT sign-in's failure code in plain words. */
 export function chatgptErrorText(code: string): string {
   if (code === "access_denied") return t("settingsWindow.models.chatgpt.errorDenied");
-  if (code === "no_plan_scope") return t("settingsWindow.models.chatgpt.errorNoPlan");
+  if (code === "no_chatgpt_account") return t("settingsWindow.models.chatgpt.errorNoPlan");
   return t("settingsWindow.models.chatgpt.errorOther");
 }
 
