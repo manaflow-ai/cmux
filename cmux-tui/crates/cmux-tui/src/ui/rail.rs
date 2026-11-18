@@ -48,8 +48,23 @@ pub struct Viewport {
     pub footer_offset: usize,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Body rows a draw asked about on this thread (`Viewport::body_y`
+    /// calls): a frame that walks every item asks once per item.
+    static BODY_ROW_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Body-row probes on this thread since the last call, then reset.
+#[cfg(test)]
+pub(crate) fn take_body_row_probes() -> usize {
+    BODY_ROW_PROBES.with(|probes| probes.replace(0))
+}
+
 impl Viewport {
     pub fn body_y(self, span: RowSpan) -> Option<u16> {
+        #[cfg(test)]
+        BODY_ROW_PROBES.with(|probes| probes.set(probes.get() + 1));
         visible_y(self.body, self.body_offset, span)
     }
 

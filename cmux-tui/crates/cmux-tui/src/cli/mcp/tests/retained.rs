@@ -2,53 +2,10 @@
 //! server, so what the catalog leaves allocated is paid once per agent: parsed into one
 //! tree, the ~1 MB catalog held ~17 MB of heap in each (about 160 servers on one Mac held
 //! ~2.7 GB). The probe runs in a fresh copy of this test binary, so no other test has
-//! filled the catalog first, and counts only its own thread's allocations.
+//! filled the catalog first, and counts only its own thread's allocations
+//! (`crate::test_alloc` counts per thread).
 
 use super::*;
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::cell::Cell;
-
-thread_local! {
-    /// Bytes this thread holds while counting is on (`Some`).
-    static LIVE: Cell<Option<isize>> = const { Cell::new(None) };
-}
-
-struct LiveBytes;
-
-fn count(delta: isize) {
-    let _ = LIVE.try_with(|live| {
-        if let Some(value) = live.get() {
-            live.set(Some(value.saturating_add(delta)));
-        }
-    });
-}
-
-// Test-only allocator: counting is on per thread, so other tests running meanwhile do
-// not change the probe's count.
-unsafe impl GlobalAlloc for LiveBytes {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        count(layout.size() as isize);
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        count(layout.size() as isize);
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        count(-(layout.size() as isize));
-        unsafe { System.dealloc(ptr, layout) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        count(size as isize - layout.size() as isize);
-        unsafe { System.realloc(ptr, layout, size) }
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: LiveBytes = LiveBytes;
 
 const PROBE_ENV: &str = "CMUX_TEST_MCP_RETAINED_PROBE";
 const PROBE_LINE: &str = "retained bytes: ";
@@ -61,12 +18,12 @@ fn retained_probe() {
     if std::env::var_os(PROBE_ENV).is_none() {
         return;
     }
-    LIVE.with(|live| live.set(Some(0)));
+    crate::test_alloc::start_live_bytes();
     let listed: Vec<Value> = v2_tools::tools().iter().map(|tool| tool.descriptor_json()).collect();
     let schemas: Vec<Value> = v2_tools::tools().iter().map(|tool| tool.input_schema()).collect();
     assert!(!listed.is_empty() && listed.len() == schemas.len());
     drop((listed, schemas));
-    let retained = LIVE.with(|live| live.replace(None)).unwrap_or_default();
+    let retained = crate::test_alloc::take_live_bytes();
     println!("{PROBE_LINE}{retained}");
 }
 

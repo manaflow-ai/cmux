@@ -143,6 +143,8 @@ mod staged_update {
     }
 }
 mod startup_env;
+#[cfg(test)]
+mod test_alloc;
 #[cfg(all(test, unix))]
 mod test_exec;
 #[cfg(test)]

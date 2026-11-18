@@ -11,6 +11,8 @@ pub mod omnibar;
 mod overlay;
 pub(crate) mod pane;
 mod rail;
+#[cfg(test)]
+pub(crate) use rail::take_body_row_probes;
 mod scrollbar;
 mod sidebar;
 pub(crate) mod sizing;
