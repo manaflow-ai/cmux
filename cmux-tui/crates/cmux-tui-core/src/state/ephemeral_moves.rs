@@ -114,11 +114,12 @@ pub(crate) fn carry_ephemeral(
     // leaves an ephemeral workspace for a normal one stays private by its own
     // mark. A normal tab still never enters an ephemeral workspace (its page
     // would close with the incognito window and leave no record).
+    let ephemeral = |id: &String| flags.get(id).copied().unwrap_or(false);
     for (tab, (from, to)) in &tab_moves {
-        let into_ephemeral = flags[to] || marked.contains(to);
-        if flags[from] && !into_ephemeral {
+        let into_ephemeral = ephemeral(to) || marked.contains(to);
+        if ephemeral(from) && !into_ephemeral {
             super::private_tabs::mark_private(transaction, tab)?;
-        } else if !flags[from] && into_ephemeral {
+        } else if !ephemeral(from) && into_ephemeral {
             anyhow::ensure!(super::private_tabs::is_marked(transaction, tab)?, MIXED_MOVE_ERROR);
         }
     }

@@ -29161,6 +29161,11 @@ Result<Json> Codec<NewFrontendBrowserTabRequest>::encode(const NewFrontendBrowse
         if (!encoded) return std::move(encoded).error();
         object.emplace("place", std::move(encoded).value());
     }
+    if (value.private_) {
+        auto encoded = encode_value(*value.private_);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("private", std::move(encoded).value());
+    }
     if (!value.profile_id.is_absent()) {
         auto encoded = encode_value(value.profile_id);
         if (!encoded) return std::move(encoded).error();
@@ -29285,6 +29290,12 @@ Result<NewFrontendBrowserTabRequest> Codec<NewFrontendBrowserTabRequest>::decode
             if (!decoded) return std::move(decoded).error();
             result.place = Field<TabPlace>(std::move(decoded).value());
         }
+    }
+    const Json* field_private_ = value.find("private");
+    if (field_private_) {
+        auto decoded = decode_value<bool>(*field_private_);
+        if (!decoded) return std::move(decoded).error();
+        result.private_ = std::move(decoded).value();
     }
     const Json* field_profile_id = value.find("profile_id");
     if (field_profile_id) {
@@ -47320,8 +47331,9 @@ constexpr std::array<CommandFieldRequirement, 6> kCommand172FieldRequirements{{
     {"split", 0U, "conversation-tab-split-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand173FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand173FieldRequirements{{
     {"place", 0U, "tab-create-place-v1"},
+    {"private", 0U, "private-tabs-v1"},
     {"split", 0U, "frontend-browser-tab-split-v1"},
     {"transaction", 0U, "tab-create-place-v1"},
     {"workspace", 0U, "frontend-browser-tab-workspace-v1"},

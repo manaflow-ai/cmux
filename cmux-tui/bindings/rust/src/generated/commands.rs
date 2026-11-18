@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
+// cmux-tui mux protocol 12, IR f5d0a6b5e090b55ade56d750400aa9f29b79d28cd196d96543b828d4a12b9f22.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2617,6 +2617,9 @@ pub struct NewFrontendBrowserTabRequest {
     /// Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub place: Optional<T::TabPlace>,
+    /// The tab is private in any workspace: it keeps no closed history, remote devices never see it, and the next daemon start closes it. Its tab's extra.private is true.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub private: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub profile_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5337,6 +5340,9 @@ impl CmuxClient {
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
         if !request.place.is_missing() {
             self.require_capability_field("new-frontend-browser-tab", "tab-create-place-v1")?;
+        }
+        if request.private.is_some() {
+            self.require_capability_field("new-frontend-browser-tab", "private-tabs-v1")?;
         }
         if !request.split.is_missing() {
             self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;

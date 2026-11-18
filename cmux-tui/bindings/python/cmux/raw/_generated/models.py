@@ -4370,6 +4370,7 @@ class NewFrontendBrowserTabRequest:
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     place: Union[TabPlace, None, MissingType] = field(default=MISSING)
+    private: Union[bool, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
