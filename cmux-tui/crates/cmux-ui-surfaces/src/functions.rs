@@ -269,21 +269,21 @@ pub fn format_number(n: f64, decimals: Option<usize>, grouping: bool) -> String 
 pub fn interpolate(s: &str, ctx: Ctx<'_>, depth: usize) -> String {
     let mut out = String::new();
     let mut i = 0;
-    while i < s.len() {
-        if s[i..].starts_with("\\${") {
+    while let Some(rest) = s.get(i..).filter(|r| !r.is_empty()) {
+        if rest.starts_with("\\${") {
             out.push_str("${");
             i += 3;
             continue;
         }
-        if s[i..].starts_with("${")
+        if rest.starts_with("${")
             && let Some(end) = matching_close(s, i + 2)
         {
-            let v = expr(&s[i + 2..end], ctx, depth + 1);
+            let v = expr(s.get(i + 2..end).unwrap_or(""), ctx, depth + 1);
             out.push_str(&text::display(&v));
             i = end + 1;
             continue;
         }
-        let ch = s[i..].chars().next().unwrap_or(' ');
+        let ch = rest.chars().next().unwrap_or(' ');
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -294,19 +294,19 @@ pub fn interpolate(s: &str, ctx: Ctx<'_>, depth: usize) -> String {
 fn matching_close(s: &str, from: usize) -> Option<usize> {
     let mut depth = 1usize;
     let mut i = from;
-    while i < s.len() {
-        if s[i..].starts_with("${") {
+    while let Some(rest) = s.get(i..).filter(|r| !r.is_empty()) {
+        if rest.starts_with("${") {
             depth += 1;
             i += 2;
             continue;
         }
-        if s[i..].starts_with('}') {
+        if rest.starts_with('}') {
             depth -= 1;
             if depth == 0 {
                 return Some(i);
             }
         }
-        i += s[i..].chars().next().map_or(1, char::len_utf8);
+        i += rest.chars().next().map_or(1, char::len_utf8);
     }
     None
 }
@@ -317,13 +317,13 @@ fn expr(inner: &str, ctx: Ctx<'_>, depth: usize) -> Value {
     }
     let inner = inner.trim();
     if let Some(open) = inner.find('(') {
-        let name = &inner[..open];
+        let name = inner.get(..open).unwrap_or("");
         if inner.ends_with(')')
             && !name.is_empty()
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
             let mut args = Map::new();
-            for part in split_args(&inner[open + 1..inner.len() - 1]) {
+            for part in split_args(inner.get(open + 1..inner.len() - 1).unwrap_or("")) {
                 if let Some((k, v)) = part.split_once(':') {
                     args.insert(k.trim().to_string(), arg(v, ctx, depth + 1));
                 }
@@ -337,11 +337,11 @@ fn expr(inner: &str, ctx: Ctx<'_>, depth: usize) -> Value {
 fn arg(raw: &str, ctx: Ctx<'_>, depth: usize) -> Value {
     let a = raw.trim();
     if a.starts_with("${") && matching_close(a, 2) == Some(a.len() - 1) {
-        return expr(&a[2..a.len() - 1], ctx, depth);
+        return expr(a.get(2..a.len() - 1).unwrap_or(""), ctx, depth);
     }
     for q in ['\'', '"'] {
         if a.len() >= 2 && a.starts_with(q) && a.ends_with(q) {
-            return Value::String(a[1..a.len() - 1].to_string());
+            return Value::String(a.get(1..a.len() - 1).unwrap_or("").to_string());
         }
     }
     if let Ok(n) = a.parse::<f64>() {
@@ -368,14 +368,14 @@ fn split_args(s: &str) -> Vec<&str> {
             (None, '{' | '(') => depth += 1,
             (None, '}' | ')') => depth -= 1,
             (None, ',') if depth == 0 => {
-                out.push(&s[start..i]);
+                out.push(s.get(start..i).unwrap_or(""));
                 start = i + 1;
             }
             _ => {}
         }
     }
-    if !s[start..].trim().is_empty() {
-        out.push(&s[start..]);
+    if let Some(tail) = s.get(start..).filter(|t| !t.trim().is_empty()) {
+        out.push(tail);
     }
     out
 }

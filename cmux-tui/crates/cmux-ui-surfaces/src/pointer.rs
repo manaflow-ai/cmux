@@ -73,10 +73,13 @@ pub fn set(root: &mut Value, pointer: &str, value: Value) -> bool {
             true
         }
         Value::Array(a) => match last.parse::<usize>() {
-            Ok(i) if i < a.len() => {
-                a[i] = value;
-                true
-            }
+            Ok(i) if i < a.len() => match a.get_mut(i) {
+                Some(slot) => {
+                    *slot = value;
+                    true
+                }
+                None => false,
+            },
             Ok(i) if i == a.len() && !value.is_null() => {
                 a.push(value);
                 true
