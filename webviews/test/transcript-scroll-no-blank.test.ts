@@ -16,9 +16,16 @@
 // and a commit that was not the scroll pacer's left a jump past the rows it mounted (VirtualTranscript
 // `armFrameGuard`). Chromium (the engine of the bench); run it yourself or on the browser lane:
 // CMUX_BROWSER_TESTS=1 bun test test/transcript-scroll-no-blank.test.ts
+// The last test is the case behind Leo's 2026-11-17 21:49Z report (a big gap under an expanded group, the
+// rows shifting as he scrolled): in the bench's ordinary chat (tool runs, edits, long replies) a finished
+// turn's "Worked for" and a tool run in it are opened by hand, then scrolled past both ways, at reading
+// speed and at a fling's, a few times, and once more after the pane narrows while the run is out of view
+// (its drawn height gone, so it is placed at its estimate: 22 px, its closed line, before). No row on screen moves but by the scroll (drift under 1 px) and no
+// frame shows a gap no spacing token explains, a missing row or an edge gap.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser } from "playwright";
-import { papercutPane } from "./support/papercutChat";
+import { godLog } from "../bench/godFixture";
+import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { traceUpwardAnchors } from "./support/upwardAnchorTrace";
 
@@ -103,4 +110,82 @@ await requireBrowserLane("transcript-scroll-no-blank.test.ts", async () => {
         await page.close();
       }
     });
+
+  test("chromium: an opened tool run scrolled past both ways keeps every row in place", async () => {
+    const log = godLog("small", { turns: 600, imageEvery: 25, chainEvery: 150 });
+    const lead: PapercutStep[] = log.events.map((event) => [
+      event.dir,
+      event.kind,
+      event.msg as Record<string, unknown>,
+      event.at,
+    ]);
+    const prompts = log.events.filter((event) => event.kind === "user_message").length + 1;
+    const ordinary = await papercutPane(() => browser, {
+      turns: 1,
+      running: false,
+      lead,
+      attachPage: 160,
+      session: { turnCount: prompts },
+      daemonIndexes: true,
+      askedPageSize: true,
+      production: {},
+    });
+    try {
+      const page = await ordinary.open({ width: 1100, height: 800 });
+      // The last finished turn's "Worked for", then the first of its tool runs with steps, opened by hand.
+      const worked = page.locator('.acpmux-row .cv-worked[aria-expanded="false"]').last();
+      await worked.click();
+      const toggles = ".acpmux-row .cv-tools > .cv-tool.is-toggle";
+      const run = page.locator(`${toggles}[aria-expanded="false"]`, { hasText: /^(Read|Ran) / }).first();
+      await run.waitFor();
+      const runText = (await run.textContent()) ?? "";
+      const openBefore = await page.locator(`${toggles}[aria-expanded="true"]`).count();
+      await run.click();
+      await page.waitForFunction(
+        ({ selector, before }) => document.querySelectorAll(`${selector}[aria-expanded="true"]`).length > before,
+        { selector: toggles, before: openBefore },
+      );
+      for (let frame = 0; frame < 20; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+      const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+      await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+      const misses: string[] = [];
+      const rounds = [
+        Array.from({ length: 30 }, () => -60),
+        Array.from({ length: 60 }, () => 60),
+        Array.from({ length: 30 }, () => -60),
+        Array.from({ length: 5 }, () => -1500),
+        Array.from({ length: 10 }, () => 1500),
+        Array.from({ length: 5 }, () => -1500),
+        Array.from({ length: 30 }, () => -60),
+        Array.from({ length: 30 }, () => 60),
+      ];
+      for (const [round, steps] of rounds.entries()) {
+        // Away from the opened run (a fling up), the pane narrows: its drawn height is gone, and on the way
+        // back down it is placed at its estimate until it mounts (model.ts `foldedRunSteps`).
+        if (round === 4) {
+          await page.setViewportSize({ width: 1000, height: 800 });
+          for (let frame = 0; frame < 20; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+        }
+        const trace = await page.evaluate(traceUpwardAnchors, { steps, restFrames: 0 });
+        for (const sample of trace.samples) {
+          const blank =
+            sample.topRowId === null ||
+            sample.missingRow ||
+            sample.unexpectedRowBoxGap > 1 / 64 ||
+            Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8;
+          const drift = sample.drift === null ? 0 : Math.abs(sample.drift);
+          if (blank || drift >= 1)
+            misses.push(
+              `round ${round} frame ${sample.frame}: drift ${drift.toFixed(1)} (${sample.anchorId}) gap ${sample.unexpectedRowBoxGap.toFixed(1)} ${sample.unexpectedPair ?? ""} edge ${Math.round(sample.topEdgeGap)}/${Math.round(sample.bottomEdgeGap)} row ${sample.topRowId}`,
+            );
+        }
+      }
+      console.log(`transcript-scroll-no-blank opened run "${runText}": ${misses.length} frames off`);
+      for (const line of misses) console.log(`transcript-scroll-no-blank opened run ${line}`);
+      expect(misses).toEqual([]);
+      await page.close();
+    } finally {
+      await ordinary.close();
+    }
+  });
 });
