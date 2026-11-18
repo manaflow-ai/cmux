@@ -264,7 +264,6 @@ final class PaneCommitMotion {
             finish()
             return nil
         }
-        MotionTrace.note("layout.commit: \(act) moves \(changes.count) panes for \(time) s")
         serial += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -278,6 +277,8 @@ final class PaneCommitMotion {
         let seen = changes.filter { change in
             change.host.layer.map { moving.contains(ObjectIdentifier($0)) } == true || sight.meets(change.old.union(change.new))
         }
+        // A probe's note: its first count is of the panes that get a move, its last of each pane that changes.
+        MotionTrace.note("layout.commit: \(act) moves \(seen.count) panes for \(time) s (panes that change: \(changes.count))")
         for change in seen {
             guard let layer = change.host.layer else { continue }
             move(layer, spring, origin: change.origin, size: change.size)
