@@ -278,6 +278,13 @@ impl Fetch for Link {
         self.demand_idle();
         self.batch_now(entries)
     }
+
+    fn relist(&self, entry: u32) -> Result<(u64, i64), FetchError> {
+        let _demand = self.demand();
+        let parts = self.ask(&|ask| Ask::Relist { ask, entry })?;
+        let bytes = part_result(parts.into_iter().next())?;
+        wire::stat_of(&bytes).ok_or(FetchError::Failed)
+    }
 }
 
 /// The Mac's end: answers every ask read from `reader` with `source`, until the stream ends.
@@ -295,6 +302,7 @@ pub fn answer_asks(
                 entries.iter().map(|entry| source.whole(*entry)).collect()
             }
             Ask::Ping { .. } => Vec::new(),
+            Ask::Relist { entry, .. } => vec![source.relist(*entry)],
         };
         wire::write_answer(&mut writer, ask.number(), &parts)?;
         writer.flush()?;
@@ -308,6 +316,12 @@ pub trait Source {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Part;
     /// All of file `entry` (a batch asks only for small files).
     fn whole(&self, entry: u32) -> Part;
+    /// File `entry` listed again after it changed ([`crate::Fetch::relist`]): its size and
+    /// modification time now ([`wire::stat_bytes`]), served from then on in place of the
+    /// manifest's.
+    fn relist(&self, _entry: u32) -> Part {
+        Part::status(wire::REFUSED)
+    }
 }
 
 #[cfg(test)]

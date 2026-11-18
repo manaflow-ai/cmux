@@ -52,6 +52,7 @@ impl Drop for Mounted {
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    Overlay::start_readahead(&overlay);
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {

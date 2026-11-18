@@ -189,6 +189,28 @@ fn add_in(
         set.skips.note(&relative, skips::unholdable(&relative));
         return Ok(());
     }
+    // A projection's listing: identity, size and time from one `stat` through `handle`.
+    if set.stats.is_some() {
+        let stat = handle.stat(name).with_context(|| format!("cannot read {}", path.display()))?;
+        match stat {
+            Some(place::Stat { entry: place::Entry::File { mode }, id, size, mtime_ns }) => {
+                let source = Source::File(path.to_path_buf());
+                let file = LocalFile { source, permissions: permissions_of(mode), id: Some(id) };
+                if let Some(stats) = set.stats.as_mut() {
+                    stats.insert(relative.clone(), (size, mtime_ns));
+                }
+                set.add(relative, file, size)?;
+            }
+            Some(place::Stat { entry: place::Entry::Link, .. }) => {
+                link_in(set, &relative, path, handle, name)?;
+            }
+            Some(place::Stat { entry: place::Entry::Missing | place::Entry::Dir, .. }) | None => {}
+            Some(place::Stat { entry: place::Entry::Other, .. }) => {
+                set.skips.note(&relative, Why::Special);
+            }
+        }
+        return Ok(());
+    }
     match handle.open_file(name) {
         Ok(file) => {
             let meta = file.metadata()?;

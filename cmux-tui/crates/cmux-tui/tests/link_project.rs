@@ -348,6 +348,45 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     stop(&state, folder);
 }
 
+/// A second chat on the same folder sends what changed since the first one's manifest, not the
+/// whole manifest again: the machine kept the first, applies the delta, and checks it came to the
+/// Mac's new manifest. The second chat's folder has the Mac's edits made in between.
+#[test]
+fn a_second_chat_on_the_same_folder_sends_a_delta_of_the_manifest() {
+    if !fuse_here() {
+        eprintln!("skipping: no FUSE here");
+        return;
+    }
+    let w = world(500);
+    let state = w.home.parent().unwrap().join("state");
+    let work = w.home.join("work");
+    let first = start_chat(&state, &w.socket, &w.local, &work, true, &[]);
+    assert_eq!(first.answer["mode"], "projected", "{}", first.answer);
+    assert_eq!(first.answer["projected"]["delta"], false, "{}", first.answer);
+    let whole = first.answer["projected"]["manifest_bytes"].as_u64().unwrap();
+
+    // The Mac's folder changes between the two chats.
+    write(&w.local.join("cmux/src/added_between.rs"), "// new on the Mac\n");
+    write(&w.local.join("cmux-matrix-word.txt"), "heron\n");
+    let second = start_chat(&state, &w.socket, &w.local, &work, true, &[]);
+    assert_eq!(second.answer["mode"], "projected", "{}", second.answer);
+    let projected = &second.answer["projected"];
+    assert_eq!(projected["delta"], true, "{}", second.answer);
+    let sent = projected["manifest_bytes"].as_u64().unwrap();
+    assert!(sent * 10 < whole, "a delta of {sent} bytes against {whole} whole");
+    assert_eq!(
+        std::fs::read_to_string(second.folder.join("cmux/src/added_between.rs")).unwrap(),
+        "// new on the Mac\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(second.folder.join("cmux-matrix-word.txt")).unwrap(),
+        "heron\n"
+    );
+    assert_eq!(std::fs::read_dir(second.folder.join("notes")).unwrap().count(), 200);
+    stop(&state, &first.folder);
+    stop(&state, &second.folder);
+}
+
 /// The App's first copy asks (`--on-seed-refusal ask`) and ends a start whose folder its
 /// machine's disk cannot hold, so that copy has to project too, before any seed or copy.
 #[test]

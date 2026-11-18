@@ -4,7 +4,8 @@
 //!
 //! - ask:    `op u8, ask u32`, then for [`OP_READ`] `entry u32, offset u64, len u32`; for
 //!   [`OP_BATCH`] `count u32, entry u32 * count` (whole files, answered in that order); for
-//!   [`OP_PING`] nothing.
+//!   [`OP_PING`] nothing; for [`OP_RELIST`] `entry u32` (the file's size `u64` and modification time
+//!   `i64` now, answered as one part: the Mac lists it again after it changed).
 //! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
 //!
 //! Asks carry their own number, so several are in flight at once and answers may come in any
@@ -15,6 +16,7 @@ use std::io::{self, Read, Write};
 pub const OP_READ: u8 = 1;
 pub const OP_BATCH: u8 = 2;
 pub const OP_PING: u8 = 3;
+pub const OP_RELIST: u8 = 4;
 
 /// The bytes asked for.
 pub const OK: u8 = 0;
@@ -38,13 +40,17 @@ pub enum Ask {
     Read { ask: u32, entry: u32, offset: u64, len: u32 },
     Batch { ask: u32, entries: Vec<u32> },
     Ping { ask: u32 },
+    Relist { ask: u32, entry: u32 },
 }
 
 impl Ask {
     #[must_use]
     pub fn number(&self) -> u32 {
         match self {
-            Self::Read { ask, .. } | Self::Batch { ask, .. } | Self::Ping { ask } => *ask,
+            Self::Read { ask, .. }
+            | Self::Batch { ask, .. }
+            | Self::Ping { ask }
+            | Self::Relist { ask, .. } => *ask,
         }
     }
 
@@ -70,6 +76,11 @@ impl Ask {
             Self::Ping { ask } => {
                 bytes.push(OP_PING);
                 bytes.extend_from_slice(&ask.to_le_bytes());
+            }
+            Self::Relist { ask, entry } => {
+                bytes.push(OP_RELIST);
+                bytes.extend_from_slice(&ask.to_le_bytes());
+                bytes.extend_from_slice(&entry.to_le_bytes());
             }
         }
         out.write_all(&bytes)
@@ -103,6 +114,7 @@ impl Ask {
                 Self::Batch { ask, entries }
             }
             OP_PING => Self::Ping { ask },
+            OP_RELIST => Self::Relist { ask, entry: u32_of(input)? },
             _ => return Err(bad("unknown ask")),
         }))
     }
@@ -125,6 +137,23 @@ impl Part {
     pub fn status(status: u8) -> Self {
         Self { status, bytes: Vec::new() }
     }
+}
+
+/// A file's size and modification time, as an [`OP_RELIST`] answer carries them.
+#[must_use]
+pub fn stat_bytes(size: u64, mtime_ns: i64) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(16);
+    bytes.extend_from_slice(&size.to_le_bytes());
+    bytes.extend_from_slice(&mtime_ns.to_le_bytes());
+    bytes
+}
+
+/// [`stat_bytes`] read back.
+#[must_use]
+pub fn stat_of(bytes: &[u8]) -> Option<(u64, i64)> {
+    let size = u64::from_le_bytes(bytes.get(..8)?.try_into().ok()?);
+    let mtime_ns = i64::from_le_bytes(bytes.get(8..16)?.try_into().ok()?);
+    Some((size, mtime_ns))
 }
 
 /// Writes the answer to ask `ask`.
@@ -199,6 +228,7 @@ mod tests {
             Ask::Read { ask: 1, entry: 9, offset: 1 << 33, len: 4096 },
             Ask::Batch { ask: 2, entries: vec![3, 4, 5] },
             Ask::Ping { ask: 3 },
+            Ask::Relist { ask: 4, entry: 12 },
         ];
         let mut bytes = Vec::new();
         for ask in &asks {

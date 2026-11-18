@@ -124,3 +124,56 @@ fn a_bench_of_a_one_and_a_half_million_file_manifest() {
         before.unwrap_or(0),
     );
 }
+
+/// A second chat on a folder of 1.5 M files after a day's edits (100 files changed, 20 added, 10
+/// removed): what the Mac sends as a delta against the whole manifest, and how long the delta
+/// takes to make and the machine to apply.
+#[test]
+#[ignore = "a bench: cargo test -p cmux-projection --release -- --ignored a_bench_of_a_delta --nocapture"]
+fn a_bench_of_a_delta_of_a_one_and_a_half_million_file_manifest() {
+    let files = std::env::var("CMUX_PROJECTION_BENCH_FILES")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(1_500_000);
+    let mut listed = items(files);
+    let base = Manifest::build(1, listed.clone()).unwrap();
+    for (at, item) in listed.iter_mut().enumerate().step_by(files / 100) {
+        item.size += 1;
+        item.mtime_ns += at as i64;
+    }
+    let removed: Vec<usize> = (0..10).map(|n| n * (files / 10) + 7).collect();
+    let mut kept: Vec<Item> = listed
+        .into_iter()
+        .enumerate()
+        .filter(|(at, _)| !removed.contains(at))
+        .map(|(_, item)| item)
+        .collect();
+    kept.extend((0..20).map(|n| Item {
+        path: format!("pkg000/new_{n:02}.rs"),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 10,
+        mtime_ns: 5,
+        link: None,
+    }));
+    let new = Manifest::build(1, kept).unwrap();
+    let whole = new.encode().unwrap().len();
+    let started = Instant::now();
+    let delta = Manifest::delta(&base, &new);
+    let encoded = delta.encode().unwrap();
+    let made = started.elapsed();
+    let started = Instant::now();
+    let applied = base.apply(&crate::manifest::Delta::decode(&encoded).unwrap()).unwrap();
+    let apply = started.elapsed();
+    assert_eq!(applied.id().unwrap(), new.id().unwrap());
+    println!("| files | paths changed | whole manifest | delta | make delta | apply + check |");
+    println!("|---|---|---|---|---|---|");
+    println!(
+        "| {files} | {} | {:.1} MB | {} bytes | {} ms | {} ms |",
+        delta.len(),
+        whole as f64 / 1e6,
+        encoded.len(),
+        made.as_millis(),
+        apply.as_millis(),
+    );
+}

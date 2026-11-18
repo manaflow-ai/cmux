@@ -53,6 +53,12 @@ pub trait Fetch: Send + Sync {
     fn prefetch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
         self.batch(entries)
     }
+    /// File `entry`'s size and modification time as the Mac lists it now, after a read found it
+    /// changed (RFD 0007 hard case 7: a repository's `.git/index` is rewritten while it runs).
+    /// A source that cannot list it again answers [`FetchError::Changed`].
+    fn relist(&self, _entry: u32) -> Result<(u64, i64), FetchError> {
+        Err(FetchError::Changed)
+    }
 }
 
 #[cfg(test)]
@@ -70,3 +76,7 @@ mod edge_tests;
 #[cfg(test)]
 #[path = "scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "relist_tests.rs"]
+mod relist_tests;
