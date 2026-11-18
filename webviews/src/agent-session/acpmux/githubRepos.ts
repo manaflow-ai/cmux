@@ -33,9 +33,9 @@ export type GitHubStatus = {
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected` or
-/// `unavailable`: one Connect to GitHub row whose click connects (the host opens the install page, or
-/// sign-in), its failure on that row.
+/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected`, or
+/// `unavailable` because signed out: one Connect to GitHub row whose click connects (the host opens the
+/// install page, or sign-in), its failure on that row. Any other `unavailable` shows no row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -45,7 +45,8 @@ export type GitHubPickerState = {
   loading: boolean;
   /// `github.repos.list` failed with anything but `github.not_connected`: one line with Retry.
   error?: string;
-  /// Connect to GitHub opened GitHub: the row waits until the status says ready.
+  /// Connect to GitHub opened GitHub: the status is read again each time the page is back, until it
+  /// says ready. Not drawn: GitHub's own page is the one wait (#46018).
   waiting: boolean;
   /// `github.connect` was refused: the host's words, the Connect to GitHub row's second line.
   connectError?: string;

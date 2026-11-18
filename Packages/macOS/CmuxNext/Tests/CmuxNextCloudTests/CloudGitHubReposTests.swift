@@ -83,6 +83,20 @@ struct CloudGitHubReposTests {
         }
     }
 
+    /// Settings' Reconfigure (#46018): the installation settings when the status names them, else the App's own
+    /// installation chooser on GitHub for a well-formed slug; nothing for a connection that is not ready.
+    @Test func reconfigureOpensTheInstallationSettingsOrTheAppsChooser() {
+        func status(_ slug: String, _ connection: String) -> Data { Self.body(#"{"configured":true,"app_slug":"\#(slug)","connection":\#(connection)}"#) }
+        let settings = status("cmux", #"{"status":"active","configure_url":"https://github.com/settings/installations/42"}"#)
+        #expect(CloudGitHubApp.reconfigureURL(status: 200, body: settings) == URL(string: "https://github.com/settings/installations/42"))
+        let noPage = status("cmux", #"{"status":"active","configure_url":null}"#)
+        #expect(CloudGitHubApp.reconfigureURL(status: 200, body: noPage) == URL(string: "https://github.com/apps/cmux/installations/new"))
+        for (slug, connection) in [("cmux", #"{"status":"pending","configure_url":null}"#), ("cmux", "null"),
+                                   ("a/installations/new?x=", #"{"status":"active"}"#), ("../x", #"{"status":"active"}"#)] {
+            #expect(CloudGitHubApp.reconfigureURL(status: 200, body: status(slug, connection)) == nil, "\(slug) \(connection)")
+        }
+    }
+
     /// A connected team never reaches `integration.connect` (it would add a second connection for the same installation):
     /// it opens its installation settings, or nothing when the status names none; only a team with no connection asks.
     @Test func aConnectedTeamNeverAsksForAnotherConnection() {

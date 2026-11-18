@@ -46,7 +46,7 @@ extension GitHubConnections {
             return .object([:])
         }
         if gesture.hasPrefix("github") {
-            guard ["githubConnect", "githubDisconnect", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
+            guard ["githubConnect", "githubDisconnect", "githubReconfigure", "githubRefresh"].contains(gesture) else { throw PageError.invalidParams("unknown GitHub action") }
             if gesture == "githubConnect" { await connect() }
             else { await perform(gesture, connection: params["account"]?.stringValue) }
             return .object([:])

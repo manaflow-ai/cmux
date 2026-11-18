@@ -17,6 +17,9 @@ public final class GitHubConnections {
     @ObservationIgnored private let scope: () -> Scope?
     @ObservationIgnored private let call: Call
     @ObservationIgnored private let open: (URL) -> Void
+    /// Where Reconfigure opens for the scope's connected installation (its installation settings on GitHub), nil when
+    /// none is known. The live model sets it (``live(auth:ownerAPI:preview:)``); unset, Reconfigure reports a failure.
+    @ObservationIgnored public var reconfigurePage: (@MainActor (Scope) async -> URL?)?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
     private var loadedScope: Scope?
@@ -46,6 +49,12 @@ public final class GitHubConnections {
     /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
     /// connect whose response was lost (replaying it returns the same pending connection's URL).
     private func resumable(_ bound: Scope) -> Bool { authorizations[bound] != nil || connectKeys[bound] != nil }
+
+    /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
+    /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
+    public func canReconfigure(_ row: JSONValue) -> Bool {
+        scope() != nil && row["status"]?.stringValue == "active"
+    }
 
     public func canDisconnect(_ row: JSONValue) -> Bool {
         scope() != nil && row["created_by"]?.stringValue == scope()?.user
@@ -88,6 +97,11 @@ public final class GitHubConnections {
                     authorizations[bound] = (id, url, Self.authorizationExpiration(url) ?? now())
                     open(url)
                 }
+            case "githubReconfigure":
+                guard let connection, currentConnections.contains(where: { $0["id"]?.stringValue == connection && canReconfigure($0) }) else { return }
+                guard let page = await reconfigurePage?(bound) else { throw GitHubFailure.invalidReply }
+                guard scope() == bound, generation == ticket else { return }
+                open(page)
             case "githubDisconnect":
                 guard let connection, currentConnections.contains(where: { $0["id"]?.stringValue == connection && canDisconnect($0) }) else { return }
                 _ = try await call(bound, "integration.revoke", ["connection": .string(connection)], UUID().uuidString)
@@ -129,6 +143,12 @@ public final class GitHubConnections {
         guard let stackTeam else { return nil }
         let team = UUID(uuidString: stackTeam) == nil ? stackTeam : stackTeam.lowercased()
         let digest = SHA256.hash(data: Data("stack-team:\(project):\(team)".utf8))
+        return "team_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The person's personal team (`domains/user.ts::personalTeamIdFor`): a scope with no Stack team acts in it.
+    public nonisolated static func personalTeam(user: String) -> String {
+        let digest = SHA256.hash(data: Data("personal:\(user)".utf8))
         return "team_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
     }
 

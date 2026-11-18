@@ -96,6 +96,53 @@ import Testing
         #expect(model.currentConnections.first?["id"] == "shared")
     }
 
+    /// #46018: Settings' Reconfigure opens an active connection's installation page on GitHub (any active one the
+    /// person sees, shared ones too), never a pending one, and shows on the page for active rows only.
+    @Test func reconfigureOpensTheActiveConnectionsInstallationPage() async {
+        var operations: [String] = []
+        var opened: [URL] = []
+        var asked: [GitHubConnections.Scope] = []
+        let page = URL(string: "https://github.com/settings/installations/42")!
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            operations.append(op)
+            return ["connections": [
+                ["id": "shared", "provider": "github", "created_by": "another-user", "status": "active"],
+                ["id": "waiting", "provider": "github", "created_by": "user", "status": "pending"],
+            ], "providers": [["provider": "github", "configured": true]]]
+        }, open: { opened.append($0) })
+        model.reconfigurePage = { scope in asked.append(scope); return page }
+        await model.perform("githubRefresh")
+        let rows = model.pageState["connections"]?.arrayValue ?? []
+        #expect(rows.map { $0["canReconfigure"] } == [.bool(true), .bool(false)])
+        #expect(model.pageState["reconfigure"]?.stringValue == "Reconfigure")
+        await model.perform("githubReconfigure", connection: "waiting")
+        #expect(opened.isEmpty)
+        await model.perform("githubReconfigure", connection: "shared")
+        #expect(opened == [page])
+        #expect(asked == [self.scope])
+        #expect(operations == ["integration.list", "integration.list"])
+        #expect(!model.error)
+    }
+
+    /// The API's `personalTeamIdFor` (sha256 "personal:<user>", 20 hex): Reconfigure with no Stack team asks the
+    /// status route in this team, the one `integration.list` with no `x-cmux-team` reads.
+    @Test func personalTeamMatchesTheAPIsId() {
+        #expect(GitHubConnections.personalTeam(user: "user_0123456789abcdef0123") == "team_f06c7d72f5d3594f25d7")
+    }
+
+    @Test func reconfigureWithNoKnownPageSaysItFailed() async {
+        var opened: [URL] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in
+            ["connections": [["id": "mine", "provider": "github", "created_by": "user", "status": "active"]],
+             "providers": [["provider": "github", "configured": true]]]
+        }, open: { opened.append($0) })
+        model.reconfigurePage = { _ in nil }
+        await model.perform("githubRefresh")
+        await model.perform("githubReconfigure", connection: "mine")
+        #expect(opened.isEmpty)
+        #expect(model.error)
+    }
+
     @Test func failedRefreshHasRecoveryAndDoesNotEraseKnownConnections() async {
         var fail = false
         var current = self.scope

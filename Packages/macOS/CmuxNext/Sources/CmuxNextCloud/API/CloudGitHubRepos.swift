@@ -94,6 +94,13 @@ extension CloudOwnerAPIClient {
         return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body))
     }
 
+    /// Where Settings' Reconfigure opens for `team`'s ready GitHub connection (``CloudGitHubApp/reconfigureURL(status:body:)``);
+    /// nil when it is not ready or the status route did not answer.
+    public func gitHubReconfigureURL(team: String) async -> URL? {
+        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return nil }
+        return CloudGitHubApp.reconfigureURL(status: answer.status, body: answer.body)
+    }
+
     /// `GET /v1/integrations/github/repos?team=&query=` with the person's own session.
     public func gitHubRepos(team: String, query: String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure> {
         guard let path = CloudGitHubRepos.path(team: team, query: query), let answer = await person(path) else { return .failure(.unavailable) }
