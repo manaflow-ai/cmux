@@ -378,7 +378,7 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Republish deltas and revised appcasts": {"nightly_only": "republishes deltas to GitHub release"},
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
-        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
+        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next deltas and appcasts to R2, then fails if the live feed offers no delta (tests/test_nightly_next_delta_check.py)"}},
       "dispatch-published-in": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Record the published build": {"nightly_only": "records a publication's job outputs (scripts/ci/nightly_published_build.py pack; tests/test_nightly_next_tail_off_push_group.py)"},
