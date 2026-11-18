@@ -3,10 +3,15 @@
 //! that is the current join's. Every sign-in goes through [`join`] or [`person`]:
 //!
 //! - Before a sign-in for any other identity, and when a sign-in fails, the previous identity
-//!   is torn down ([`tear_down`]), in this order: the host unit stopped, the hub asked to sign
-//!   the old device out (an offline hub is asked again later, [`PENDING_FILE`]), its local
-//!   records deleted. Only then does the new identity sign in, and the caller starts the unit.
+//!   is torn down ([`tear_down`]), in this order: the hub asked to sign the old device out (an
+//!   offline hub is asked again later, [`PENDING_FILE`]), the host unit stopped and its process
+//!   verified gone, its local records deleted (only once one of the two worked). Only then does
+//!   the new identity sign in, and the caller starts the unit.
 //! - A sign-in that fails leaves the host off, never on the old account.
+//! - The running host keeps it itself: it checks its records and its join every [`WATCH_EVERY`]
+//!   and exits the moment they are not what it started as ([`Serving::changed`]), so no
+//!   caller's failure (a `systemctl` that failed, a unit started by hand) leaves it serving.
+//! - Every writer of the records holds [`Lock`], so two sign-ins never interleave.
 //! - A joined machine's identity is its join ([`machine::Joined::is`]: the acpmux home, machine
 //!   id and credential generation), checked here before the host is installed and by `run`
 //!   before it serves, so a host started for an earlier join never serves.
@@ -18,7 +23,8 @@ use crate::Res;
 use cmux_hub_host::hub::{Hub, HubError};
 use cmux_hub_host::identity::{self, Account, Device};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Stops the host unit before an identity changes.
 pub(super) trait Unit {
@@ -78,13 +84,18 @@ impl Previous {
 }
 
 /// The account a live join signed this desktop in as: Some while the join's credential is still
-/// there (from [`machine::JOINED_FILE`], or `ACPMUX_HOME` when the join has not signed it in yet).
+/// there (from [`machine::JOINED_FILE`]; or [`JOINING_FILE`], kept when a join's sign-in failed
+/// or has not finished; or `ACPMUX_HOME` when the join has not begun).
 pub(super) fn join_owner(dir: &Path) -> Res<Option<String>> {
     let recorded = match machine::Joined::load(dir)? {
         Some(joined) => machine::load(&joined.acpmux_home)?.is_some(),
         None => false,
     };
-    if !recorded && machine::current()?.is_none() {
+    let joining = match joining_home(dir)? {
+        Some(home) => machine::load(&home)?.is_some(),
+        None => false,
+    };
+    if !recorded && !joining && machine::current()?.is_none() {
         return Ok(None);
     }
     let account = match (recorded, Account::load(dir)?) {
@@ -104,6 +115,7 @@ pub(super) fn join(
     credential: machine::MachineCredential,
     unit: &dyn Unit,
 ) -> Res<Device> {
+    save_joining(dir, home)?;
     retry_pending(dir);
     let previous = Previous::load(dir)?;
     if let Some(Previous { account: Some(account), device: Some(device), joined: Some(joined) }) =
@@ -243,29 +255,43 @@ pub(super) fn current_join(
     Ok(credential)
 }
 
-/// Takes `previous` off this desktop: the unit stopped first, then the hub asked to sign its
-/// device out, then its records deleted. A hub that cannot be reached is asked again later;
-/// the local part never waits on it. Nothing previous: the unit is still stopped.
+/// Takes `previous` off this desktop, in this order (review F1 of #45369, third round): the hub
+/// asked to sign its device out, which ends its sessions there even if its process never hears;
+/// the unit stopped and its process verified gone; then its records deleted. The records go
+/// only once the hub signed the device out or its process is gone, never when both failed (a
+/// hub that cannot be reached is asked again later). A host process that is still running
+/// stops itself once its records change ([`Serving::changed`]). An error unless the host
+/// process is verified gone.
 fn tear_down(dir: &Path, previous: Option<Previous>, unit: &dyn Unit) -> Res<()> {
+    let revoked = match &previous {
+        Some(previous) => sign_out(dir, previous),
+        None => true,
+    };
     let stopped = unit.stop();
-    if let Some(previous) = previous {
-        sign_out(dir, &previous);
+    if revoked || stopped.is_ok() {
+        super::forget_sign_in(dir)?;
     }
-    super::forget_sign_in(dir)?;
-    if let Err(e) = stopped {
-        return Err(
-            format!("the earlier sign-in is deleted, but its host unit did not stop: {e}").into()
-        );
+    match stopped {
+        Ok(()) => Ok(()),
+        Err(e) if revoked => Err(format!(
+            "the earlier sign-in is signed out and deleted, but its host may still be running ({e}); it stops by itself within {} s now that its records are gone",
+            WATCH_EVERY.as_secs()
+        )
+        .into()),
+        Err(e) => Err(format!(
+            "nothing was deleted: the hub did not sign the earlier device out and its host may still be running ({e})"
+        )
+        .into()),
     }
-    Ok(())
 }
 
 /// Asks the hub to sign `previous`'s device out: ends its sessions and drops its anchor. A
 /// person's device signs out with its own key; a join's with its credential when that is still
 /// the one it signed in with (once the join is replaced its credential is gone, and no session
-/// can be made for its device again).
-fn sign_out(dir: &Path, previous: &Previous) {
-    let (Some(account), Some(device)) = (&previous.account, &previous.device) else { return };
+/// can be made for its device again). Whether the hub no longer takes that device: it signed it
+/// out, or answered that it does not know it or let it in; or there was none.
+fn sign_out(dir: &Path, previous: &Previous) -> bool {
+    let (Some(account), Some(device)) = (&previous.account, &previous.device) else { return true };
     let hub = match &previous.joined {
         None => Hub::new(&account.hub, device.clone(), Some(account.user_id.clone())),
         Some(joined) => match machine::load(&joined.acpmux_home) {
@@ -274,33 +300,158 @@ fn sign_out(dir: &Path, previous: &Previous) {
             }
             _ => {
                 eprintln!(
-                    "cmux-rd linux-host: the earlier join's credential is gone, so its device ({}) cannot sign in again; its records are deleted",
+                    "cmux-rd linux-host: the earlier join's credential is gone, so its device ({}) cannot be signed out from here",
                     device.id
                 );
-                return;
+                return false;
             }
         },
     };
     match hub.and_then(|hub| hub_sign_out(&hub)) {
-        Ok(()) => {}
-        Err(e) if e.is::<HubError>() => eprintln!(
-            "cmux-rd linux-host: the hub refused to sign the earlier device ({}) out ({e}); it cannot sign in with its deleted key",
-            device.id
-        ),
-        Err(e) if previous.joined.is_none() => {
-            eprintln!(
-                "cmux-rd linux-host: the hub did not answer the earlier device's sign-out ({e}); asked again later"
-            );
-            let pending =
-                Pending { hub: account.hub.clone(), user_id: account.user_id.clone(), device: device.clone() };
-            if let Err(e) = add_pending(dir, pending) {
-                eprintln!("cmux-rd linux-host: {}: {e}", dir.join(PENDING_FILE).display());
+        Ok(()) => true,
+        Err(e) => match e.downcast_ref::<HubError>() {
+            Some(refused) if matches!(refused.status, 401 | 403 | 404) => {
+                eprintln!(
+                    "cmux-rd linux-host: the hub does not take the earlier device ({}) any more ({e})",
+                    device.id
+                );
+                true
             }
-        }
-        Err(e) => eprintln!(
-            "cmux-rd linux-host: the hub did not answer the earlier join's sign-out ({e}); its credential signs nothing in here again"
-        ),
+            Some(_) => {
+                eprintln!(
+                    "cmux-rd linux-host: the hub refused to sign the earlier device ({}) out ({e})",
+                    device.id
+                );
+                false
+            }
+            None if previous.joined.is_none() => {
+                eprintln!(
+                    "cmux-rd linux-host: the hub did not answer the earlier device's sign-out ({e}); asked again later"
+                );
+                let pending = Pending {
+                    hub: account.hub.clone(),
+                    user_id: account.user_id.clone(),
+                    device: device.clone(),
+                };
+                if let Err(e) = add_pending(dir, pending) {
+                    eprintln!("cmux-rd linux-host: {}: {e}", dir.join(PENDING_FILE).display());
+                }
+                false
+            }
+            None => {
+                eprintln!(
+                    "cmux-rd linux-host: the hub did not answer the earlier join's sign-out ({e})"
+                );
+                false
+            }
+        },
     }
+}
+
+/// How often the running host checks that it still is the identity it started as.
+pub(super) const WATCH_EVERY: Duration = Duration::from_secs(2);
+
+/// The identity `run` serves as: what any change of identity rewrites or deletes.
+#[derive(PartialEq, Debug)]
+pub(super) struct Serving {
+    device: String,
+    hub: String,
+    user_id: String,
+    joined: Option<machine::Joined>,
+}
+
+impl Serving {
+    /// What this desktop's records sign it in as now; an error when it is not signed in.
+    pub(super) fn now(dir: &Path) -> Res<Self> {
+        let device = Device::load(dir)?.ok_or("no device record")?;
+        let account = Account::load(dir)?.ok_or("no account record")?;
+        Ok(Self {
+            device: device.id,
+            hub: account.hub,
+            user_id: account.user_id,
+            joined: machine::Joined::load(dir)?,
+        })
+    }
+
+    /// Why a host serving as this must stop now, if it must: its records changed, went away or
+    /// cannot be read, or (a join) the join's credential is gone or replaced. This is what makes
+    /// the host itself keep the invariant, whatever failed in whoever tore it down.
+    pub(super) fn changed(&self, dir: &Path) -> Option<String> {
+        match Self::now(dir) {
+            Ok(now) if now == *self => {}
+            Ok(_) => return Some("this desktop's sign-in changed".into()),
+            Err(e) => return Some(format!("this desktop's sign-in is gone ({e})")),
+        }
+        let joined = self.joined.as_ref()?;
+        match machine::load(&joined.acpmux_home) {
+            Ok(Some(credential)) if joined.is(&joined.acpmux_home, &credential) => None,
+            Ok(Some(_)) => Some("this machine was joined again".into()),
+            Ok(None) => Some("this machine's join was removed".into()),
+            Err(e) => Some(format!("this machine's join cannot be read ({e})")),
+        }
+    }
+}
+
+/// Checks every `every`, on a thread of its own, that the host still is `serving`; the first
+/// time it is not, calls `stop` with why.
+pub(super) fn watch(
+    dir: PathBuf,
+    serving: Serving,
+    every: Duration,
+    stop: impl FnOnce(String) + Send + 'static,
+) -> Res<()> {
+    std::thread::Builder::new().name("linux-host-identity".into()).spawn(move || loop {
+        std::thread::sleep(every);
+        if let Some(why) = serving.changed(&dir) {
+            stop(why);
+            return;
+        }
+    })?;
+    Ok(())
+}
+
+/// Next to the records: what every writer of them holds.
+const LOCK_FILE: &str = "identity.lock";
+
+/// This desktop's identity, held for one sign-in, enable or teardown: every writer of its
+/// records takes it, so a person's `enable` and a join's never interleave. Released when
+/// dropped, and by the kernel when the process ends.
+pub(super) struct Lock {
+    _file: std::fs::File,
+}
+
+/// Takes [`Lock`], waiting for whoever holds it.
+pub(super) fn lock(dir: &Path) -> Res<Lock> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+    identity::private_dir(dir)?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(dir.join(LOCK_FILE))?;
+    // SAFETY: the descriptor is the open `file`'s, valid while it lives.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(Lock { _file: file })
+}
+
+/// Names the acpmux home of the last join that began signing this desktop in. It outlives a
+/// failed join's teardown, so a person's `enable` stays refused while that home is joined
+/// ([`join_owner`]), wherever it runs from.
+pub(super) const JOINING_FILE: &str = "joining.json";
+
+fn save_joining(dir: &Path, home: &Path) -> Res<()> {
+    let record = machine::Joined { acpmux_home: home.to_owned(), ..Default::default() };
+    identity::write_private(&dir.join(JOINING_FILE), &serde_json::to_vec_pretty(&record)?)
+}
+
+fn joining_home(dir: &Path) -> Res<Option<PathBuf>> {
+    let Some(bytes) = identity::read_private(&dir.join(JOINING_FILE))? else { return Ok(None) };
+    Ok(Some(serde_json::from_slice::<machine::Joined>(&bytes)?.acpmux_home))
 }
 
 fn hub_sign_out(hub: &Hub) -> Res<()> {

@@ -894,3 +894,34 @@ fn the_linux_status_says_whether_cmux_rds_host_is_set_up() {
     // A Linux daemon is a share host's system: a host it did not start is not "unsupported".
     assert_eq!(super::state::not_running_json(None, true)["state"], "not_started");
 }
+
+/// A host unit that runs is left alone at the daemon's start only when cmux-rd's own record
+/// says it signed in for this join: a person's sign-in that replaced it is set up over.
+#[test]
+fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
+    use super::linux::rd_signed_in_for;
+    let dir = std::env::temp_dir().join(format!("share-host-rd-joined-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    cmux_hub_host::identity::private_dir(&dir).unwrap();
+    let mark = json!({"machineId": "m-b", "credentialGeneration": 2});
+    let write = |machine_id: &str, generation: u64| {
+        let record = json!({
+            "acpmux_home": "/acpmux-home",
+            "machine_id": machine_id,
+            "credential_generation": generation,
+        });
+        cmux_hub_host::identity::write_private(
+            &dir.join("joined.json"),
+            record.to_string().as_bytes(),
+        )
+        .unwrap();
+    };
+    assert!(!rd_signed_in_for(&dir, &mark), "no record: a person's sign-in, or none");
+    write("m-b", 2);
+    assert!(rd_signed_in_for(&dir, &mark));
+    write("m-b", 1);
+    assert!(!rd_signed_in_for(&dir, &mark));
+    write("m-a", 2);
+    assert!(!rd_signed_in_for(&dir, &mark));
+    let _ = std::fs::remove_dir_all(&dir);
+}

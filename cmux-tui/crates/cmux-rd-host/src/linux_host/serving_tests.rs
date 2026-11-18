@@ -10,16 +10,27 @@ use cmux_hub_host::identity::{self, Account, Device};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// A unit that records how many hub calls had been made when it was stopped.
+/// A unit that records how many hub calls had been made when it was stopped, and whose stop
+/// fails (a `systemctl` that failed, a process that would not die) when `fails`.
 struct Recorded {
     seen: Arc<Mutex<Vec<Seen>>>,
     stops: Mutex<Vec<usize>>,
+    fails: bool,
+}
+
+impl Recorded {
+    fn new(seen: Arc<Mutex<Vec<Seen>>>, fails: bool) -> Self {
+        Self { seen, stops: Mutex::new(Vec::new()), fails }
+    }
 }
 
 impl Unit for Recorded {
     fn stop(&self) -> Res<()> {
         let calls = self.seen.lock().unwrap().len();
         self.stops.lock().unwrap().push(calls);
+        if self.fails {
+            return Err("the screen host is still running (pid 4242)".into());
+        }
         Ok(())
     }
 }
@@ -35,8 +46,6 @@ enum Before {
     OtherJoin,
 }
 
-const HOME: &str = "/acpmux-home";
-
 fn credential(machine_id: &str) -> machine::MachineCredential {
     let record = format!(
         r#"{{"credential":"cmm_{machine_id}","name":"lane-vm","machine_id":"{machine_id}","credential_generation":1}}"#
@@ -49,6 +58,17 @@ fn dir(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     identity::private_dir(&dir).unwrap();
     dir
+}
+
+/// The acpmux home of the joins in `dir`'s cells; it holds the current join's credential, m-b.
+fn home(dir: &Path) -> PathBuf {
+    let home = dir.join("acpmux-home");
+    if !home.join(machine::CREDENTIAL_FILE).exists() {
+        identity::private_dir(&home).unwrap();
+        let record = br#"{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1}"#;
+        identity::write_private(&home.join(machine::CREDENTIAL_FILE), record).unwrap();
+    }
+    home
 }
 
 /// Writes `before`'s records; the device it leaves, if any.
@@ -69,15 +89,17 @@ fn hold(dir: &Path, origin: &str, before: Before) -> Option<Device> {
     device.save(dir).unwrap();
     account.save(dir).unwrap();
     if let Some(credential) = joined {
-        machine::Joined::of(Path::new(HOME), &credential).save(dir).unwrap();
+        machine::Joined::of(&home(dir), &credential).save(dir).unwrap();
     }
     Some(device)
 }
 
 /// One cell: `before`, then the join of account p:b (credential m-b) whose machine sign-in
-/// works or not.
-fn cell(before: Before, sign_in_works: bool) {
-    let tag = format!("{before:?}-{sign_in_works}");
+/// works or not, with a unit whose stop works or not. Afterwards no host serves the earlier
+/// identity: the records say otherwise, and a host process that started as it stops itself
+/// at its next check ([`super::Serving::changed`]).
+fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
+    let tag = format!("{before:?}-signin-{sign_in_works}-stop-{stop_works}");
     let (origin, seen) = stub(move |_, request| match request.path.as_str() {
         "/v1/auth/machine" if !sign_in_works => {
             (503, serde_json::json!({ "error": { "code": "unavailable", "message": "down" } }))
@@ -92,10 +114,12 @@ fn cell(before: Before, sign_in_works: bool) {
         _ => (200, serde_json::json!({ "ok": true })),
     });
     let dir = dir(&tag);
+    let home = home(&dir);
     let old = hold(&dir, &origin, before);
-    let unit = Recorded { seen: seen.clone(), stops: Mutex::new(Vec::new()) };
-    let joined = Some((PathBuf::from(HOME), credential("m-b")));
-    let got = super::super::join_device(&dir, &origin, joined, &unit);
+    // What a host process started before this join serves as.
+    let was = super::Serving::now(&dir).ok();
+    let unit = Recorded::new(seen.clone(), !stop_works);
+    let got = super::super::join_device(&dir, &origin, Some((home, credential("m-b"))), &unit);
     let calls: Vec<(String, String)> =
         seen.lock().unwrap().iter().map(|s| (s.method.clone(), s.path.clone())).collect();
     let stops = unit.stops.lock().unwrap().clone();
@@ -103,39 +127,54 @@ fn cell(before: Before, sign_in_works: bool) {
     let device = Device::load(&dir).unwrap();
     let old_id = old.as_ref().map(|d| d.id.clone());
     let served = |user: &str| account.as_ref().is_some_and(|a| a.user_id == user);
-    // Never the earlier account, whatever happened.
-    assert!(!served("p:a"), "{tag}: still serves p:a: {calls:?}");
-    let first_new_sign_in = calls.iter().rposition(|c| c.1 == "/v1/auth/machine");
-    if sign_in_works {
-        assert!(got.is_ok(), "{tag}: {:?}", got.as_ref().err());
-        assert!(served("p:b"), "{tag}: serves {account:?}");
-        let device = device.unwrap_or_else(|| panic!("{tag}: no device"));
-        match before {
-            // The same join keeps its device: nothing is torn down.
-            Before::SameJoin => assert_eq!(Some(device.id), old_id, "{tag}"),
-            _ => {
-                assert_ne!(Some(device.id), old_id, "{tag}: the earlier device serves B");
-                // The unit stopped before the new identity signed in.
-                assert!(
-                    stops.first().is_some_and(|&at| Some(at) <= first_new_sign_in),
-                    "{tag}: stops {stops:?}, calls {calls:?}"
-                );
-            }
-        }
-    } else {
-        assert!(got.is_err(), "{tag}: a failed sign-in reads as set up");
-        assert!(account.is_none() && device.is_none(), "{tag}: the host is not off: {account:?}");
-        assert_eq!(machine::Joined::load(&dir).unwrap(), None, "{tag}");
-        if !matches!(before, Before::Nothing) {
-            assert!(!stops.is_empty(), "{tag}: the unit was not stopped");
-        }
+    let earlier_stops_itself = was.as_ref().is_none_or(|was| was.changed(&dir).is_some());
+    let kept = matches!(before, Before::SameJoin) && sign_in_works;
+    // Never the earlier account, whatever happened: not in a process started as it, and not in
+    // one started from the records. They still name it only when nothing could be deleted (the
+    // hub did not sign it out and its host may still run), and then no host starts from them.
+    if served("p:a") {
+        assert!(!stop_works, "{tag}: the records still name p:a: {calls:?}");
+        let joined = machine::Joined::load(&dir).unwrap();
+        let joined = joined.unwrap_or_else(|| panic!("{tag}: a person's p:a kept"));
+        assert!(super::current_join(&dir, &joined).is_err(), "{tag}: a host starts as p:a");
     }
-    // A person's earlier device is signed out at the hub, after the unit stopped.
+    if !kept {
+        assert!(earlier_stops_itself, "{tag}: a host started as the earlier identity serves on");
+    }
+    // The hub signs a person's earlier device out before the unit is stopped: its sessions end
+    // there even when its process never hears.
     if let (Before::PersonAnchored | Before::PersonUnanchored, Some(old_id)) = (before, &old_id) {
         let sign_out = ("POST".to_owned(), format!("/v1/devices/{old_id}/sign-out"));
         let at = calls.iter().position(|c| *c == sign_out);
         assert!(at.is_some(), "{tag}: no sign-out of the earlier device: {calls:?}");
-        assert!(stops.first().is_some_and(|&s| Some(s) <= at), "{tag}: stops {stops:?}");
+        assert!(stops.first().is_some_and(|&s| Some(s) > at), "{tag}: stops {stops:?}");
+    }
+    if kept {
+        // The same join keeps its device: nothing is torn down.
+        assert!(got.is_ok(), "{tag}: {:?}", got.as_ref().err());
+        assert_eq!(device.map(|d| d.id), old_id, "{tag}");
+        assert!(stops.is_empty(), "{tag}: the same identity stops nothing");
+    } else if !stop_works {
+        // A host that may still run: the join does not go on, and says so.
+        assert!(got.is_err(), "{tag}: an unverified stop reads as set up");
+        let signed_in_after_stop = calls.iter().skip(stops[0]).any(|c| c.1 == "/v1/auth/machine");
+        assert!(!signed_in_after_stop, "{tag}: signed in over a host that may run: {calls:?}");
+    } else if sign_in_works {
+        assert!(got.is_ok(), "{tag}: {:?}", got.as_ref().err());
+        assert!(served("p:b"), "{tag}: serves {account:?}");
+        let device = device.unwrap_or_else(|| panic!("{tag}: no device"));
+        assert_ne!(Some(device.id), old_id, "{tag}: the earlier device serves B");
+        // The unit stopped before the new identity signed in.
+        let first_new_sign_in = calls.iter().rposition(|c| c.1 == "/v1/auth/machine");
+        assert!(
+            stops.first().is_some_and(|&at| Some(at) <= first_new_sign_in),
+            "{tag}: stops {stops:?}, calls {calls:?}"
+        );
+    } else {
+        assert!(got.is_err(), "{tag}: a failed sign-in reads as set up");
+        assert!(account.is_none() && device.is_none(), "{tag}: the host is not off: {account:?}");
+        assert_eq!(machine::Joined::load(&dir).unwrap(), None, "{tag}");
+        assert!(!stops.is_empty(), "{tag}: the unit was not stopped");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -149,8 +188,10 @@ fn the_host_serves_only_the_current_join() {
         Before::SameJoin,
         Before::OtherJoin,
     ] {
-        for works in [true, false] {
-            cell(before, works);
+        for sign_in_works in [true, false] {
+            for stop_works in [true, false] {
+                cell(before, sign_in_works, stop_works);
+            }
         }
     }
 }
@@ -189,7 +230,7 @@ fn person_cell(token: &str) -> PersonCell {
     let (origin, seen) = person_hub();
     let dir = dir(&format!("person-{token}"));
     let old = hold(&dir, &origin, Before::PersonAnchored).unwrap();
-    let unit = Recorded { seen: seen.clone(), stops: Mutex::new(Vec::new()) };
+    let unit = Recorded::new(seen.clone(), false);
     let got = super::person(&dir, &origin, token, None, &|| "encoder".to_owned(), &unit);
     let calls = seen.lock().unwrap().iter().map(|s| (s.method.clone(), s.path.clone())).collect();
     let stops = unit.stops.lock().unwrap().clone();
@@ -214,7 +255,8 @@ fn another_person_takes_this_desktop_only_after_the_first_is_torn_down() {
     let sign_out = ("POST".to_owned(), format!("/v1/devices/{}/sign-out", old.id));
     let at = calls.iter().position(|c| *c == sign_out).expect("the earlier device signed out");
     let registered = calls.iter().position(|c| c.1 == "/v1/devices").expect("registered");
-    assert!(stops.first().is_some_and(|&s| s <= at) && at < registered, "{stops:?} {calls:?}");
+    // Signed out at the hub, then the unit stopped, then the new device registered.
+    assert!(stops.first().is_some_and(|&s| at < s && s <= registered), "{stops:?} {calls:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -233,7 +275,7 @@ fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
     let dir = dir("pending");
     // The earlier person's hub does not answer.
     let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
-    let unit = Recorded { seen: Arc::new(Mutex::new(Vec::new())), stops: Mutex::new(Vec::new()) };
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
     super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
     assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
     let pending = super::load_pending(&dir).unwrap();
@@ -273,5 +315,77 @@ fn a_host_started_for_an_earlier_join_serves_nothing() {
     // Left: no credential at all.
     std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
     assert!(super::current_join(&dir, &joined).unwrap_err().is::<super::Fatal>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review F1 of #45369, third round: the teardown's stop fails (the host process may still
+/// run), but the hub signs its device out and its records go, so the host stops itself at its
+/// next check.
+#[test]
+fn a_host_whose_stop_failed_stops_itself_at_its_next_check() {
+    let dir = dir("watch");
+    let (origin, seen) = person_hub();
+    let old = hold(&dir, &origin, Before::PersonAnchored).unwrap();
+    let serving = super::Serving::now(&dir).unwrap();
+    let (stopped, stops) = std::sync::mpsc::channel();
+    let every = std::time::Duration::from_millis(50);
+    super::watch(dir.clone(), serving, every, move |why| stopped.send(why).unwrap()).unwrap();
+    // Still what it started as: it serves on.
+    assert!(stops.recv_timeout(every * 4).is_err());
+    let unit = Recorded::new(seen.clone(), true);
+    let e = super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap_err();
+    assert!(e.to_string().contains("may still be running"), "{e}");
+    let sign_out = format!("/v1/devices/{}/sign-out", old.id);
+    assert!(seen.lock().unwrap().iter().any(|s| s.path == sign_out), "not signed out at the hub");
+    assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
+    let why = stops.recv_timeout(every * 4).expect("the host did not stop itself");
+    assert!(why.contains("sign-in is gone"), "{why}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A person's `enable` and a join's never interleave: the second writer waits for the first.
+#[test]
+fn a_second_writer_waits_for_the_first() {
+    let dir = dir("lock");
+    let first = super::lock(&dir).unwrap();
+    let (took, taken) = std::sync::mpsc::channel();
+    let other = dir.clone();
+    let waiter = std::thread::spawn(move || {
+        let _second = super::lock(&other).unwrap();
+        took.send(()).unwrap();
+    });
+    assert!(taken.recv_timeout(std::time::Duration::from_millis(200)).is_err(), "not held");
+    drop(first);
+    taken.recv_timeout(std::time::Duration::from_secs(2)).expect("never taken after release");
+    waiter.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A join whose sign-in failed leaves no sign-in, but the machine stays the join's: a person's
+/// `enable` is refused there, from any shell (no `ACPMUX_HOME` needed), until the join leaves.
+#[test]
+fn after_a_failed_join_a_person_is_still_refused() {
+    let dir = dir("joining");
+    let home = home(&dir);
+    let (origin, seen) = stub(|_, request| match request.path.as_str() {
+        "/v1/auth/machine" => {
+            (503, serde_json::json!({ "error": { "code": "unavailable", "message": "down" } }))
+        }
+        _ => (200, serde_json::json!({ "ok": true })),
+    });
+    let unit = Recorded::new(seen, false);
+    assert!(super::join(&dir, &origin, &home, credential("m-b"), &unit).is_err());
+    assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
+    assert_eq!(machine::Joined::load(&dir).unwrap(), None);
+    if std::env::var_os("ACPMUX_HOME").is_none() {
+        assert!(super::join_owner(&dir).unwrap().is_some(), "a person may enable over the join");
+        let refused = super::person(&dir, &origin, "tok-a", None, &|| "encoder".to_owned(), &unit);
+        assert!(refused.unwrap_err().to_string().contains("acpmux machine leave"));
+    }
+    // Left: the join's credential is gone, and a person may enable again.
+    std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
+    if std::env::var_os("ACPMUX_HOME").is_none() {
+        assert_eq!(super::join_owner(&dir).unwrap(), None);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

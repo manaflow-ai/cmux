@@ -356,18 +356,31 @@ pub fn set_up_virtual_display() -> Res<u32> {
     Ok(display)
 }
 
-/// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
-/// of its graphical session; on a virtual display, from the user manager itself. Turns on
-/// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
 /// Stops the host unit (`systemctl --user stop`) before this desktop's identity changes; a unit
-/// that was never installed is already stopped.
+/// that was never installed is already stopped. Ok only once none of this user's host processes
+/// runs (the unit's, or one started by hand): each is checked gone, and killed with its process
+/// group when `systemctl` did not stop it in time (review F1 of #45369).
 pub fn stop_host() -> Res<()> {
-    match systemctl(&["stop", HOST_UNIT]) {
+    use cmux_hub_host::host_process;
+    let pids = host_process::running();
+    let stopped = match systemctl(&["stop", HOST_UNIT]) {
         Err(e) if e.to_string().contains("not loaded") => Ok(()),
         other => other,
+    };
+    match host_process::ensure_gone(&pids, host_process::STOP_WAIT) {
+        Ok(()) => Ok(()),
+        Err(left) => Err(format!(
+            "the screen host is still running (pid {left:?}{}); stop it with: kill -KILL {}",
+            stopped.err().map(|e| format!("; {e}")).unwrap_or_default(),
+            left.iter().map(u32::to_string).collect::<Vec<_>>().join(" ")
+        )
+        .into()),
     }
 }
 
+/// Installs the host's user unit (when missing or older) and starts it: with a desktop, as part
+/// of its graphical session; on a virtual display, from the user manager itself. Turns on
+/// lingering for a virtual display, so the host outlives the ssh session (warns if it cannot).
 pub fn install_host(virtual_display: bool) -> Res<()> {
     let dir = user_unit_dir()?;
     let text = if virtual_display { headless_host_unit() } else { HOST_UNIT_TEXT.to_owned() };

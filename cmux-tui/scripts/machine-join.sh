@@ -548,6 +548,9 @@ elif has_capability "$acpmux"; then
 fi
 if [ "$os" != Linux ]; then
   printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+elif [ "$is_joined" != 1 ]; then
+  # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
+  printf '%s\n' "This machine is not joined, so its screen is not shared."
 elif [ -x "$bin_dir/cmux-rd" ]; then
   # The daemon runs cmux-rd's enable at its start (acpmux share_host/linux.rs).
   printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."

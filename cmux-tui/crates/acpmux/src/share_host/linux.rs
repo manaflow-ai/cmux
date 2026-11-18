@@ -261,12 +261,14 @@ pub(crate) fn save_mark(folder: &Path, mark: &Value) -> cmux_hub_host::Res<()> {
     identity::write_private(&folder.join(MARK), mark.to_string().as_bytes())
 }
 
-/// `acpmux machine leave`: stops and disables the screen host the join set up
-/// (`systemctl --user disable --now`, blocking, 10 s at most), so it stops serving at once
-/// instead of at its next hub call. cmux-rd itself refuses to start again with the join's
-/// credential gone, and a join leaves no earlier person's sign-in for it to fall back to.
-/// Whether the unit is stopped; false also when this user has no user manager to ask.
-pub(crate) fn stop_host() -> bool {
+/// `acpmux machine leave` and a superseded enable: stops and disables the screen host the join
+/// set up (`systemctl --user disable --now`, blocking, 10 s at most), then checks that none of
+/// this user's host processes runs, the unit's or one started by hand, killing any that did not
+/// stop with its process group (review F1 of #45369). cmux-rd itself refuses to start again
+/// with the join's credential gone, and a running one exits once it is. Ok only once no host
+/// process runs; else what still runs and how to stop it.
+pub(crate) fn stop_host() -> Result<(), String> {
+    use cmux_hub_host::host_process;
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     let env = user_manager_env(
@@ -275,6 +277,7 @@ pub(crate) fn stop_host() -> bool {
         std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
         |p| p.exists(),
     );
+    let pids = host_process::running();
     let spawned = cmux_process::Command::new("systemctl")
         .args(["--user", "disable", "--now", HOST_UNIT])
         .envs(env.iter().map(|(k, v)| (*k, v)))
@@ -282,9 +285,33 @@ pub(crate) fn stop_host() -> bool {
         .stdout(cmux_process::Stdio::null())
         .stderr(cmux_process::Stdio::null())
         .spawn();
-    spawned.is_ok_and(|mut child| {
+    let disabled = spawned.is_ok_and(|mut child| {
         matches!(child.wait_timeout(Duration::from_secs(10)), Ok(Some(s)) if s.success())
-    })
+    });
+    host_process::ensure_gone(&pids, host_process::STOP_WAIT)
+        .map_err(|left| still_running(&left, disabled))
+}
+
+/// What [`stop_host`] says when host processes `left` still run.
+pub(crate) fn still_running(left: &[u32], disabled: bool) -> String {
+    let pids = left.iter().map(u32::to_string).collect::<Vec<_>>().join(" ");
+    format!(
+        "the screen host may still be running (pid {pids}){}; stop it with: kill -KILL {pids}",
+        if disabled { "" } else { "; systemctl --user disable --now did not finish" }
+    )
+}
+
+/// Whether cmux-rd's own record says it signed in for the join `mark` (its `joined.json`):
+/// a unit that runs is that join's only when it says so too.
+pub(crate) fn rd_signed_in_for(rd_config: &Path, mark: &Value) -> bool {
+    identity::read_private(&rd_config.join("joined.json"))
+        .ok()
+        .flatten()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|joined| {
+            joined.get("machine_id") == mark.get("machineId")
+                && joined.get("credential_generation") == mark.get("credentialGeneration")
+        })
 }
 
 /// Whether the host unit runs (`systemctl --user is-active`), asked with `env` (blocking, 10 s
@@ -395,7 +422,10 @@ fn set_up(
     env: &[(&'static str, OsString)],
     cancel: &AtomicBool,
 ) {
-    if marked(folder, mark) && host_active(env) {
+    // A unit that runs is left alone only when cmux-rd's own record says it is this join's: a
+    // person's sign-in that replaced it is set up over.
+    let rd_signed_in = identity::config_dir().is_ok_and(|c| rd_signed_in_for(&c, mark));
+    if marked(folder, mark) && rd_signed_in && host_active(env) {
         tracing::info!("{}: cmux-rd's host already runs for this join", super::LOG);
         let detail = format!("{HOST_UNIT} runs for this join");
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
@@ -411,11 +441,16 @@ fn set_up(
         tracing::warn!("{}: {}: {e}", super::LOG, folder.join(MARK).display());
     }
     if after.stop_host {
-        let stopped = stop_host();
-        tracing::info!(
-            "{}: the enable's join is gone or it was cancelled; host unit stopped: {stopped}",
-            super::LOG
-        );
+        match stop_host() {
+            Ok(()) => tracing::info!(
+                "{}: the enable's join is gone or it was cancelled; the host is stopped",
+                super::LOG
+            ),
+            Err(e) => tracing::warn!(
+                "{}: the enable's join is gone or it was cancelled, but {e}",
+                super::LOG
+            ),
+        }
     }
     match &outcome {
         Outcome::SetUp(line) => tracing::info!("{}: cmux-rd's host is set up: {line}", super::LOG),

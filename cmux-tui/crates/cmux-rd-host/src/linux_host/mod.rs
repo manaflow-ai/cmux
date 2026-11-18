@@ -270,8 +270,15 @@ fn stack_token(args: &Args) -> Res<String> {
 /// A desktop never enabled and never joined signs in first; a joined machine signs itself in
 /// with its machine credential, so the host needs no step on it (machine.rs).
 fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
+    let (dir, hub, account, _) = load_locked()?;
+    Ok((dir, hub, account))
+}
+
+/// [`load`], with the identity's [`serving::Lock`] still held for a caller that writes.
+fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
     let dir = identity::config_dir()?;
+    let lock = serving::lock(&dir)?;
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
         identity::private_dir(&dir)?;
@@ -280,7 +287,7 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
             serving::join(&dir, DEFAULT_HUB, &home, credential.clone(), &serving::ThisProcess)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
         let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
-        return Ok((dir, hub, account));
+        return Ok((dir, hub, account, lock));
     };
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
     let hub = match machine::Joined::load(&dir)? {
@@ -289,9 +296,18 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
             let credential = serving::current_join(&dir, &joined)?;
             Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
         }
+        // A person's sign-in is always anchored; an unanchored one with no join record is a join
+        // whose sign-in did not finish, and serves nobody.
+        None if account.anchored_until == 0 => {
+            return Err(Fatal::needs(
+                "This desktop's sign-in is incomplete: it has no join and no anchor",
+                Fatal::ENABLE,
+            )
+            .into());
+        }
         None => Hub::new(&account.hub, device, Some(account.user_id.clone()))?,
     };
-    Ok((dir, hub, account))
+    Ok((dir, hub, account, lock))
 }
 
 /// Signs a joined machine in with its credential (`POST /v1/auth/machine`), registers this
@@ -304,6 +320,9 @@ fn sign_in_machine(
     acpmux_home: &std::path::Path,
     credential: machine::MachineCredential,
 ) -> Res<(Hub, Account)> {
+    // The join record first: records that a crash leaves half written are never read as a
+    // person's (`load`).
+    machine::Joined::of(acpmux_home, &credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -322,7 +341,6 @@ fn sign_in_machine(
     let user_id = hub.user_id().ok_or("no userId in the hub's answer")?;
     let account = Account { hub: hub_url.to_owned(), user_id, anchored_until: 0 };
     account.save(dir)?;
-    machine::Joined::of(acpmux_home, &credential).save(dir)?;
     Ok((hub, account))
 }
 
@@ -379,6 +397,17 @@ fn enable_for_join(args: &Args) -> Res<()> {
 fn set_up_for_join(args: &Args) -> Res<()> {
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
+    // Held until the host is installed: a person's `enable` waits, then sees the join.
+    let _lock = serving::lock(&dir)?;
+    // The identity first, before any step that can fail: a person's host that was here is torn
+    // down now, not left running when a later step fails.
+    let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
+    let joined = machine::current()?;
+    let from_join = joined.is_some();
+    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
+        println!("{NOT_INSTALLED}");
+        return Ok(());
+    };
     let consent = enable_consent(args);
     consent.save(&dir)?;
     let desktop = setup::detect_desktop();
@@ -388,13 +417,6 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         let display = setup::set_up_virtual_display()?;
         println!("{}", setup::virtual_display_line(display));
     }
-    let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
-    let joined = machine::current()?;
-    let from_join = joined.is_some();
-    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
-        println!("{NOT_INSTALLED}");
-        return Ok(());
-    };
     // The host this installs serves sessions at once, so its encoder is there first.
     let encoder = openh264_line();
     if from_join {
@@ -440,20 +462,27 @@ impl serving::Unit for NoUnit {
     }
 }
 
-/// Deletes this desktop's sign-in: its device key, account and join records.
+/// Deletes this desktop's sign-in: its device key, account and join records. Every one is tried
+/// even when one fails; the first failure is returned.
 fn forget_sign_in(dir: &std::path::Path) -> Res<()> {
+    let mut first = None;
     for file in ["device.json", "account.json", machine::JOINED_FILE] {
         match std::fs::remove_file(dir.join(file)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                first.get_or_insert(e);
+            }
             _ => {}
         }
     }
-    Ok(())
+    first.map_or(Ok(()), |e| Err(e.into()))
 }
 
 /// A person's own `enable`: signs in, registers this desktop, anchors it, installs the encoder
 /// and turns sharing on ([`serving::person`]); the device and the encoder's line.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, String)> {
+    // Held through the sign-in, so a join's enable cannot begin between the check and the
+    // writes; one already under way finishes first and is seen.
+    let _lock = serving::lock(dir)?;
     // A joined machine's host is the joiner's (#45369): refused before any token is read.
     if let Some(account) = serving::join_owner(dir)? {
         return Err(format!(
@@ -612,7 +641,7 @@ pub(crate) fn with_fresh_identity<T>(
 }
 
 fn share_on(args: &Args) -> Res<()> {
-    let (dir, hub, mut account) = load()?;
+    let (dir, hub, mut account, _lock) = load_locked()?;
     if machine::Joined::load(&dir)?.is_some() {
         // A joined machine's session may turn its own sharing on (PROTOCOL.md, Machine sign-in).
         hub.set_shared(true)?;
@@ -840,6 +869,8 @@ fn withdraw_unconsented(
 
 fn run(args: &Args) -> Res<()> {
     let (dir, hub, account) = load()?;
+    // What this process serves as, read now; it exits once the records say otherwise.
+    let serving_as = serving::Serving::now(&dir)?;
     let runtime = identity::runtime_dir()?;
     identity::private_dir(&runtime)?;
     // Read at start so a bad file fails now; read again for every ticket and every second.
@@ -870,6 +901,15 @@ fn run(args: &Args) -> Res<()> {
     }
     let hub = Arc::new(hub);
     let current: Current = Arc::new(Mutex::new(None));
+    // The host keeps the identity invariant itself (serving.rs): a sign-in that changed or went
+    // away, or a join that was replaced or left, stops the session and this process at once.
+    // Its session helper ends with it (its input closes).
+    let watched = current.clone();
+    serving::watch(dir.clone(), serving_as, serving::WATCH_EVERY, move |why| {
+        eprintln!("linux-host: {why}; the session stops and the host exits");
+        stop_current(&watched);
+        std::process::exit(EXIT_NEEDS_SETUP);
+    })?;
     if let Some(display) = setup::virtual_display() {
         stop_idle_display(display, current.clone());
     }
