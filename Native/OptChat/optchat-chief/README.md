@@ -470,6 +470,9 @@ optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or 
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
                                                            --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note
+                                                           lines name (failed: every "no description" note), rewrites
+                                                           each note in the change book and rebuilds the summaries above it
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
                                                            long-term memory shared by Codex and Claude Code sessions
 ```

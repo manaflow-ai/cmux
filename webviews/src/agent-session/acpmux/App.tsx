@@ -22,8 +22,17 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
+import { holdComposerPlace } from "./composer/composerHandover";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
+import {
+  CONNECT_ACTIONS,
+  type ConnectKind,
+  type OffloadKind,
+  offloadReasonsOf,
+  thisMacName,
+  environmentReady,
+} from "./environments";
+import { machineHarnessVerdict, useMachineHarnessCheck, withMachineHarnesses } from "./machineHarnesses";
 import { sayActionRefusal } from "./actionRefusal";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -39,7 +48,13 @@ import {
   SINCE_DIVIDER,
   type AcpmuxPlanEntry,
 } from "./model";
-import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import {
+  lacksImageBytes,
+  ownQueue,
+  queuedAttachments,
+  queuedMessageRows,
+  useShownQueue,
+} from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
 import {
@@ -93,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -103,7 +119,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -117,6 +133,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
+import { githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -154,6 +171,7 @@ import {
   useHarnessCatalog,
   useHarnessesListed,
   type HarnessCatalogSource,
+  useMachineHarnesses,
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
@@ -241,12 +259,15 @@ import {
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
+import { isStartSuperseded, startFailureNotice } from "./startFailure";
 import { translate, usePaneLanguage, useT } from "./i18n";
 import { LINK_DOWN_SAID_MS } from "./afterDelay";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
+  currentCloudPlan,
+  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
@@ -558,20 +579,32 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
   cloudSendAfterCheck,
   heldPromptShown,
+  cloudPickExtras,
+  composerCloudStartFolder,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import {
+  lastNewChatPlace,
+  pickedRunLocation,
+  pickedStartMachine,
+  placeOfRunMode,
+  rememberNewChatPlace,
+} from "./lastNewChatPlace";
 import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
+  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
@@ -579,7 +612,11 @@ import {
   type CloudStartProgress,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
+import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
+import { cloudPlanHoldsSend } from "./cloudPlans";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
+import { retryWithSetUpPick, waitForCloudSetUp, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
   registerChatDisplayHost,
@@ -820,7 +857,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
+import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -1814,7 +1851,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
   );
   const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
-  const cloudComposeEligible = useRef(false);
+  /// Whether this compose reserves a machine ahead, and then the empty local chat its reserve names as the one
+  /// its Send would replace (`emptyLocalChat`); `replaces` undefined: a compose with no chat.
+  const cloudComposeEligible = useRef<false | { replaces: string | undefined }>(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
     const gone = () => {
@@ -1854,10 +1893,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [blockedHarness, setBlockedHarness] = useState<HarnessBlock | undefined>();
   // The chat's folder on this Mac, whose own harness profiles the catalog then lists too; while a
   // folder harness waits for Enable or Trust (a new chat without a session), that harness's folder.
-  const catalogCwd =
+  // A GitHub repository picked for a Cloud chat (githubRepos.ts) is no folder of this Mac's.
+  const catalogFolder =
     clientSnapshot.summary?.hostKind !== "cloud" && !clientSnapshot.summary?.host
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
+  const catalogCwd = githubFolderRepo(catalogFolder) ? undefined : catalogFolder;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
   // A Cmd-T adoption reads the folder's harnesses again (the parked spare's read had no tab's roots); the
   // catalog keeps drawing until the new answer lands.
@@ -1952,8 +1993,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     offlinePeer && snapshot.peerKinds?.[offlinePeer] !== "ssh" ? offlinePeer : undefined,
   );
   useEffect(() => setMinimapVisible(true), [snapshot.sessionId]);
+  // The queue as the pane draws it (queuedMessages.ts `useShownQueue`): an entry that comes and goes
+  // within TRANSIENT_SHOW_MS never paints, in the composer's queue or as the transcript's waiting
+  // card (Leo, 2026-11-17: "i also dont like seeing the flicker flash of the Queued blah blah blah
+  // something"). Both read this one list, so they show in the same frame.
+  const shownQueue = useShownQueue(snapshot.queue, snapshot.sessionId ?? snapshot.summary?.sessionId);
   // The person's own queued prompts: another agent's message never draws in the composer's queue.
-  const queueIds = useMemo(() => ownQueue(snapshot.queue).map((entry) => entry.id), [snapshot.queue]);
+  const queueIds = useMemo(() => ownQueue(shownQueue).map((entry) => entry.id), [shownQueue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
@@ -2244,7 +2290,39 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (snapshot.sessionId !== undefined || !directClient.current?.newChatPeer());
   /// The composer's agent runs on this Mac (composerAgentLocal): not with Cloud picked for a new chat.
   /// Its health and sign-in are read only then; the folder's trust, rules and accounts stay `healthLocal`'s.
-  const agentLocal = composerAgentLocal(healthLocal, sandbox.mode, snapshot.sessionId);
+  /// An empty chat whose local session opened first still starts on Cloud when picked (`emptyLocalChat`).
+  const agentLocal = composerAgentLocal(
+    healthLocal,
+    sandbox.mode,
+    isNewChat(snapshot, newSession) ? undefined : snapshot.sessionId,
+  );
+  // A new chat that will start on another of the person's machines: whether the agent the composer
+  // shows is set up there (machineHarnesses.ts; Austin, 2026-11-12: "ideally we should check if the
+  // model that is selected is supported on that machine as well but this should just work").
+  const machinePeer = snapshot.sessionId
+    ? undefined
+    : snapshot.summary?.peer || directClient.current?.newChatPeer() || undefined;
+  const machineReady =
+    machinePeer !== undefined &&
+    environmentReady({
+      id: machinePeer,
+      label: machinePeer,
+      kind: "ssh",
+      ...(snapshot.peerConnected?.[machinePeer] !== undefined
+        ? { connected: snapshot.peerConnected[machinePeer] }
+        : {}),
+      ...(snapshot.peerStates?.[machinePeer] !== undefined ? { state: snapshot.peerStates[machinePeer] } : {}),
+    });
+  const machineAgents = useMachineHarnesses(catalogSource, machinePeer, machineReady);
+  const machineSelected = switchView.intent?.harness ?? healthHarness;
+  const machineCheck = useMachineHarnessCheck({
+    peer: machinePeer,
+    selected: machineSelected,
+    verdict: machineHarnessVerdict(machineSelected, machineAgents),
+    switching: switchView.intent !== undefined,
+    // The model picker's own pick of that agent (DefaultComposerChips `onHarness`).
+    switchTo: (harness) => void callNative("chat.new", { harness }).catch(() => undefined),
+  });
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
   /// it by that name); `{}` for a chat on another machine, whose CLIs are not this Mac's, and while
   /// the pane has no acpmux connection. Stable per chat: the Harnesses page re-reads when it changes.
@@ -3223,8 +3301,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const queuedRows = useMemo(() => {
     if (childRows) return NO_ROWS;
-    return (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current));
-  }, [childRows, snapshot.queue]);
+    return (lastQueuedRows.current = queuedMessageRows(shownQueue, lastQueuedRows.current));
+  }, [childRows, shownQueue]);
   // Find searches the queued messages too: each is its own row, drawn in the group of waiting
   // messages (its `joined` names them, chatFind.ts findRowIndex).
   const findRows = useMemo(() => searchablePendingRows(sourceRows, queuedRows), [sourceRows, queuedRows]);
@@ -4630,6 +4708,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChooseFolder(start.chooseFolder);
   }, []);
   const earlyNewTab = useEarlyNewTabContext(callNative, takeEarlyNewTab, markContextKnown);
+  // A context that came with no shared part while this document keeps none: asked again (newtab/sharedPart.ts).
+  const checkSharedPart = useLostSharedPart(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     newTabStartGeneration.current += 1;
@@ -4760,6 +4840,39 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sessionSelection?.state !== "pending" &&
     surface !== "quick";
   const sandboxOffered = sandbox.checked && sandboxOfferable;
+  /// A new chat whose local session already opened and is still empty: New Agent Chat or New Cloud
+  /// Chat beside a chat starts its inherited agent at once (a harness switch), so a session shows
+  /// before anything is said. Cloud is still this chat's choice: its first Send starts the chat on a
+  /// Cloud machine, and the host closes this tab with the empty chat (`replacesChat`, AgentPaneHandOff).
+  /// Sandboxed is not: its run's result would be this chat's, which already is one.
+  const emptyLocalChat =
+    freshChat &&
+    Boolean(snapshot.sessionId) &&
+    snapshot.summary?.sessionId === snapshot.sessionId &&
+    snapshot.switching === undefined &&
+    sessionSelection?.state !== "pending" &&
+    surface !== "quick" &&
+    !snapshot.summary?.peer &&
+    snapshot.summary?.hostKind !== "cloud" &&
+    snapshot.origin !== "remote" &&
+    snapshot.origin !== "peer" &&
+    cloudMachineID === undefined;
+  /// A new chat whose only start is an agent or model pick (GPT-6.1 Sol on a Claude page): its switch
+  /// is no chat starting here, so Cloud stays offered and the pick goes with the Cloud start (cmux#45946).
+  const pickOnlyChat = pickOnlyNewChat({
+    fresh: freshChat,
+    sessionId: snapshot.sessionId,
+    summarySessionId: snapshot.summary?.sessionId,
+    switching: snapshot.switching !== undefined,
+    selectionPending: sessionSelection?.state === "pending",
+    quick: surface === "quick",
+  });
+  /// Cloud as where this new chat runs: wherever Sandboxed is, in an empty local chat, and on a page
+  /// that holds only a pick.
+  const cloudOfferable = sandboxOfferable || emptyLocalChat || pickOnlyChat;
+  const cloudOffered = sandbox.checked && cloudOfferable;
+  /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
+  const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -4779,6 +4892,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
+  /// A Cloud send held back because the account has no Cloud plan (`sendToCloud`): what it was, and the composer's
+  /// draft as it was held (unchanged, the start takes it out once it goes). Its turn keys the held card.
+  const cloudPlanHeld = useRef<
+    | {
+        text: string;
+        attachments: ComposerAttachment[];
+        start: Omit<CloudStart, "task" | "attachments">;
+        fromPage: boolean;
+        shown?: { text: string; attachments: ComposerAttachment[] };
+      }
+    | undefined
+  >(undefined);
+  const cloudPlanHeldTurn = useRef(0);
+  /// The pricing card's Subscribe (cloudPlanSubscribe.ts): back from the browser with the plan on, the held send or
+  /// the refused start goes again, once (`cloudPlanReady`, set after each commit).
+  const cloudPlanReady = useRef<() => void>(() => undefined);
+  const [cloudPlanStore] = useState(() => createCloudPlanSubscribe({ onReady: () => cloudPlanReady.current() }));
+  /// The pricing card went (Not now, Run on This Mac, another chat or place): nothing waits on the plan any more.
+  const dropCloudPlanWait = () => {
+    cloudPlanHeld.current = undefined;
+    cloudPlanStore.reset();
+  };
   /// The cap card answered Run on This Mac (cloudRunsHere): the prompt sends here once the mode switched.
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
@@ -4795,22 +4930,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
   /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
   const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
+  /// Run mode set for this new chat: by the person (`sandboxModeRows.onMode`) or an automation.
+  const applyRunMode = (mode: RunMode) => {
+    if (mode === "cloud") cloudHint.used();
+    // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
+    // picker target must not survive that choice and wake the old machine on the next edit.
+    cloudDraftMachineID.current = null;
+    cloudTypingPrewarm.reset();
+    runModePicked.current = true;
+    sandbox.setMode(mode);
+    const eligible = mode === "cloud" && cloudOffered ? { replaces: cloudReserveReplaces } : false;
+    cloudComposeEligible.current = eligible;
+    if (eligible) {
+      newChatPrewarm.abandon();
+      cloudReservation.selected(eligible.replaces);
+    } else cloudReservation.abandon();
+  };
   const sandboxModeRows = {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
+    /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
-      if (mode === "cloud") cloudHint.used();
-      // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
-      // picker target must not survive that choice and wake the old machine on the next edit.
-      cloudDraftMachineID.current = null;
-      cloudTypingPrewarm.reset();
-      runModePicked.current = true;
-      sandbox.setMode(mode);
-      cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
-      if (cloudComposeEligible.current) {
-        newChatPrewarm.abandon();
-        cloudReservation.selected();
-      } else cloudReservation.abandon();
+      const place = placeOfRunMode(mode);
+      if (place) rememberNewChatPlace(place);
+      applyRunMode(mode);
     },
   };
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
@@ -4823,8 +4966,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
-      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-      if ("cwd" in folder)
+      const folder = composerCloudStartFolder(composerSnapshot.summary);
+      // A GitHub repository (githubRepos.ts) is cloned on the machine: no folder of this Mac to grant.
+      if ("cwd" in folder && !githubFolderRepo(folder.cwd))
         cloudFolderGrant.granting(
           folder.cwd,
           pickFolder(callNative, folder.cwd, () => undefined),
@@ -4843,9 +4987,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => ({
       mode: sandboxModeRows.mode,
       environment: sandboxModeRows.environment,
+      // An empty local chat offers Cloud, not Sandboxed (`emptyLocalChat`).
+      ...(sandboxOffered ? {} : { sandbox: false as const }),
       onMode: (mode: RunMode) => composerModePick.current(mode),
     }),
-    [sandboxModeRows.mode, sandboxModeRows.environment],
+    [sandboxModeRows.mode, sandboxModeRows.environment, sandboxOffered],
   );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
@@ -4856,13 +5002,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
-  const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  const cloudPicked = sandbox.mode === "cloud" && (!snapshot.sessionId || emptyLocalChat);
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
-  cloudComposeEligible.current = cloudPicked && sandboxOfferable;
-  const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
+  // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
+  // whose reserve names the chat its Send replaces (the host reserves for a tab with a chat only for that one).
+  cloudComposeEligible.current = cloudPicked && cloudOfferable ? { replaces: cloudReserveReplaces } : false;
+  const cloudPickedNotOffered = cloudPicked && !cloudOffered;
   const [startCloud] = useState(() =>
-    grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
+    grantedCloudStart(
+      pickedChatCloudCall(reservedCloudCall(callNative, cloudReservation), (ms) => harnessSwitch.pickSession(ms)),
+      cloudFolderGrant,
+    ),
   );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
@@ -4874,6 +5025,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
   /// The sign-in a start waits on (cloudSignIn.ts): leaving Cloud (another mode, chat or tab) withdraws it.
   const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
+  /// Set up Cloud's button (cloudSetup.ts): the next sign-in resend waits on that way in instead of the
+  /// account sign-in, then the start goes again on the click the host kept.
+  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed } | undefined>(undefined);
   const cancelCloudSignIn = () => {
     const wait = cloudSignInWait.current;
     cloudSignInWait.current = undefined;
@@ -4891,6 +5045,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// draft (CloudStartChat `openUploaded`). On failure the prompt comes back in front of it. A start
   /// the host has said nothing about for minutes (cloudStartProgress.ts `CLOUD_START_STALL_MS`)
   /// stalled: the card says so, and the start is still out.
+  /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
+  /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
+  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
+  const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -4961,6 +5120,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       lastCloudAttempt.current = undefined;
     }
     cloudSignInRetry.reset();
+    if (expectedKey === undefined) dropCloudPlanWait();
     setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
     runModePicked.current = true;
     runHereSend.current = true;
@@ -4971,8 +5131,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudRetryFolder = useRef<ReturnType<typeof cloudStartFolder> | undefined>(undefined);
   const dismissCloudFailure = () => {
     cloudRetryFolder.current = undefined;
+    dropCloudPlanWait();
     setCloudStart(undefined);
   };
+  /// Set up Cloud's button: its way in runs on this Mac, and the prompt goes again once a connection
+  /// serves the model (the sign-in resend, `cloudSignInSend`), with no retyping.
+  const setUpCloud = (action: CloudSetupAction) => {
+    const need = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+    if (!need) return;
+    // The resend takes the pick at once (`beginCloudSend`); a retry that sent nothing (one already out
+    // or resumed, an edited prompt, a reset) leaves none, so a later Sign in signs in.
+    void retryWithSetUpPick(cloudSetUpPick, { action, need }, cloudSignInRetry);
+  };
+  /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
+  /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
+  /// chat, or a Cloud one a connection serves, never shows it. Connect runs the card's first button.
+  const setUpCloudNow = useRef(setUpCloud);
+  useEffect(() => {
+    setUpCloudNow.current = setUpCloud;
+  });
+  const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+  const cloudSetupWaiting = cloudStart?.signingIn === true;
+  const modelConnect = useMemo(
+    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
+    [cloudSetupNeed, cloudSetupWaiting],
+  );
+  /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
+  const dismissCloudSetUp = () => (cloudStart?.signingIn ? cancelCloudSignIn() : dismissCloudFailure());
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
@@ -4988,6 +5173,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudHeldOnPage = useRef(false);
   const cloudPageHeld = cloudWaitsForCheck && cloudHeldOnPage.current && !sandbox.unread;
   const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
+  /// The send held for the plan goes now (the plan read fresh admits it), once: the prompt taken from the composer as a
+  /// Send that went at once would, unless the person changed it meanwhile.
+  const sendHeldForPlan = (held: NonNullable<typeof cloudPlanHeld.current>) => {
+    cloudPlanHeld.current = undefined;
+    const handle = composerHandle.current;
+    const stillShown = !held.fromPage && heldPromptShown(handle?.draft(), held.shown);
+    setCloudStart(undefined);
+    const went = sendToCloudLatest.current(held.text, held.attachments, held.start, held.fromPage, stillShown, true);
+    if (went === true && stillShown) handle?.take();
+  };
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -4996,8 +5191,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     /// A held send going (`cloudAfterCheck`): whether the chat composer still shows the prompt as it
     /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
     heldStillShown?: boolean,
+    /// The plan was just read fresh and does not hold this send (`cloudPlanHeld`): it goes without another read.
+    planRead = false,
   ): string | boolean => {
-    const refused = cloudPageRefusal({ offerable: sandboxOfferable, checked: sandbox.checked });
+    const refused = cloudPageRefusal({ offerable: cloudOfferable, checked: sandbox.checked });
     if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
     if (refused === "cloud_checking") {
       // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
@@ -5030,6 +5227,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return false;
     }
     if (cloudStartPending.current) return false;
+    // The last read says the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`; `unknown` and an
+    // older app's reply never hold): nothing goes yet, the prompt stays where it was typed, and the plan is read again
+    // fresh (it may have been bought since, here or on the website). Still `none`: the pricing card shows in the
+    // start's place, and the prompt goes by itself once the plan is on (`cloudPlanReady`). Anything else, a failed
+    // read included: the send goes now.
+    if (!planRead && cloudPlanHoldsSend(currentCloudPlan())) {
+      const turn = ++cloudPlanHeldTurn.current;
+      const held = {
+        text,
+        attachments,
+        start,
+        fromPage,
+        ...(fromPage ? {} : { shown: composerHandle.current?.draft() }),
+      };
+      cloudPlanHeld.current = held;
+      void readCloudPlanFresh().then((plan) => {
+        // The card went, another chat shows, or a newer Send replaced this one: nothing to do.
+        if (cloudPlanHeld.current !== held) return;
+        if (cloudPlanHoldsSend(plan)) setCloudStart(cloudStartPlanHeld(`plan-held-${turn}`, text, start.cwd));
+        else sendHeldForPlan(held);
+      });
+      return false;
+    }
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
@@ -5041,6 +5261,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(environment ? { environment } : {}),
       ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
+      // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
+      ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
     const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
@@ -5052,6 +5274,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The held send runs the render's latest `sendToCloud` (its offerable and checked), set after commit, not during render.
   useLayoutEffect(() => {
     sendToCloudLatest.current = sendToCloud;
+    cloudPlanReady.current = () => {
+      // The page's own hold (no plan at Send): that send goes now, the prompt taken from the composer as a Send that
+      // went at once would, unless the person changed it meanwhile.
+      const held = cloudPlanHeld.current;
+      if (held) {
+        sendHeldForPlan(held);
+        return;
+      }
+      // The platform's refusal (no plan, or a machine larger than the plan includes): the same start again, once.
+      if (
+        cloudStart?.state === "failed" &&
+        (cloudStart.code === "cloud_plan_required" || cloudStart.code === "cloud_size_locked")
+      )
+        retryCloudStart();
+    };
   });
   // The held send goes once Cloud is offered here; leaving Cloud, a chat opening here or another
   // New Tab drops it.
@@ -5059,15 +5296,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // becomes that refusal, with New Cloud chat.
   useEffect(() => {
     if (!cloudWaitsForCheck) return;
-    if (sandbox.mode !== "cloud" || snapshot.sessionId) {
+    if (sandbox.mode !== "cloud" || (snapshot.sessionId && !emptyLocalChat)) {
       cloudAfterCheck.drop();
       setCloudHeld(undefined);
-    } else if (sandboxOffered) {
+    } else if (cloudOffered) {
       cloudAfterCheck.offered();
     } else if (sandbox.unread && cloudHeldOnPage.current) {
       cloudAfterCheck.drop();
       setCloudHeld(undefined);
-    } else if (sandbox.checked && !sandboxOfferable) {
+    } else if (sandbox.checked && !cloudOfferable) {
       const held = cloudAfterCheck.take();
       setCloudHeld({
         refusal: translate("cloudStart.chatStartingHere"),
@@ -5078,8 +5315,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [
     cloudAfterCheck,
     cloudWaitsForCheck,
-    sandboxOffered,
-    sandboxOfferable,
+    cloudOffered,
+    cloudOfferable,
+    emptyLocalChat,
     sandbox.checked,
     sandbox.unread,
     sandbox.mode,
@@ -5111,10 +5349,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return startCloud({ ...request, signedIn: true }, key);
     };
     let signIn: CloudSignInWait | undefined;
+    let setUpNeed: CloudSetupNeed | undefined;
     if (signingIn) {
       // One sign-in at a time: a newer one ends the wait on an older one.
       cancelCloudSignIn();
-      signIn = waitForCloudSignIn(callNative, key);
+      const pick = cloudSetUpPick.current;
+      cloudSetUpPick.current = undefined;
+      setUpNeed = pick?.need;
+      signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
       cloudSignInWait.current = signIn;
     }
     const wait = signIn;
@@ -5123,6 +5365,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : startCloud(request, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return undefined;
+    // A start went: no prompt held for the plan may go again after it (the pricing card's wait ends with it).
+    dropCloudPlanWait();
     // What the chat composer holds for this start: the page's draft once it is put back there.
     let expectedDraft = preservedDraft;
     cloudSignInSend.current = () => {
@@ -5183,6 +5427,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         start.harness ? harnessLabel(start.harness) : undefined,
         start.home,
         signingIn,
+        setUpNeed,
       ),
     );
     void started.then((answer) => {
@@ -5222,7 +5467,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A folder the host refused before binding the compose's reservation: that machine is given back now.
       if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
         cloudReservation.returned(request.reservationKey);
-      if (answer.ok) cloudRetryFolder.current = undefined;
+      if (answer.ok) {
+        cloudRetryFolder.current = undefined;
+        // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
+        harnessSwitch.cancel();
+      }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -5250,6 +5499,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     cloudReservation.reset();
     cloudSwitchTeam.reset();
+    cloudPlanHeld.current = undefined;
+    cloudPlanStore.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     cancelCloudSignIn();
     cloudSignInRetry.reset();
@@ -5271,6 +5522,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (sandbox.mode !== "cloud") {
       cloudReservation.abandon();
       cloudSwitchTeam.reset();
+      cloudPlanHeld.current = undefined;
+      cloudPlanStore.reset();
       cancelCloudSignIn();
       cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
@@ -7361,16 +7614,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // folder's trust holds (trustHeld.ts). The first is the transcript's row (`withStartingPrompt`).
     const startingQueued = queuedStartingSends(shownStarting, snapshot.rows);
     if (startingQueued.length || heldRows.length)
-      withCommands.queue = [...snapshot.queue, ...startingQueued.map(startingQueueEntry), ...heldRows];
-    return withDraftFolder(withCommands, projectDraft);
+      withCommands.queue = [...shownQueue, ...startingQueued.map(startingQueueEntry), ...heldRows];
+    else if (shownQueue !== snapshot.queue) withCommands.queue = [...shownQueue];
+    // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
+    // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
+    return projectDraft
+      ? withDraftFolder(withCommands, projectDraft)
+      : withCloudStartFolder(withCommands, cloudStartFolderShown);
   }, [
     snapshot,
     projectDraft,
+    cloudStartFolderShown,
     continueAvailable,
     forkable,
     forkSeq,
     isSideSession,
     shownStarting,
+    shownQueue,
     heldRows,
     sidePlace,
     quick,
@@ -7381,7 +7641,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
-  const composerDrawn = useComposerView(composerSnapshot);
+  // While another machine is the pick, the model picker greys the agents it has not set up.
+  const machineNote = machinePeer ? t("composer.peerHarnessMissingShort", { machine: machinePeer }) : "";
+  const machineCatalog = useMemo(
+    () => withMachineHarnesses(composerSnapshot.catalog, machineAgents, machineNote),
+    [composerSnapshot.catalog, machineAgents, machineNote],
+  );
+  const composerOnMachine = useMemo(
+    () =>
+      machineCatalog === composerSnapshot.catalog ? composerSnapshot : { ...composerSnapshot, catalog: machineCatalog },
+    [composerSnapshot, machineCatalog],
+  );
+  const composerDrawn = useComposerView(composerOnMachine);
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -7396,15 +7667,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
   /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
   const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  /// The person's last pick of where a new chat starts (lastNewChatPlace.ts), read again for each new
+  /// chat here: a pick on another workspace's page since counts.
+  const lastPlace = useMemo(
+    () => lastNewChatPlace(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
+    [snapshot.sessionId, newTabGeneration],
+  );
   const folderRunDefault = useMemo(
     () =>
       sandboxOffered && !onOtherMachine
         ? newChatRunLocation(
             newChatsIn,
             folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+            pickedRunLocation(lastPlace),
           )
         : undefined,
     [
+      lastPlace,
       sandboxOffered,
       onOtherMachine,
       newChatsIn,
@@ -7414,6 +7694,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.peerKinds,
     ],
   );
+  /// The New Tab page's machine by the person's last pick (cmux#46019), while acpmux lists it.
+  /// Settings' Start New Chats In set to Cloud is read on its own: the folder default waits for the host's check.
+  /// Never on a page of another machine: its new chat stays on that machine.
+  const newTabStartMachine = onOtherMachine
+    ? undefined
+    : pickedStartMachine(
+        lastPlace,
+        newChatsIn === "cloud" ? "cloud" : folderRunDefault,
+        snapshot.peers,
+        snapshot.peerConnected,
+      );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -7548,8 +7839,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
+      // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
+      // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
+      if (!peer && githubFolderRepo(cwd)) {
+        if (freshRef.current) setProjectDraft(cwd);
+        accepted?.(cwd);
+        return Promise.resolve();
+      }
       // Another computer's folder is that computer's to check.
       if (peer) {
+        rememberNewChatPlace({ kind: "machine", peer });
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return Promise.resolve();
       }
@@ -7646,8 +7945,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     runMode: () => sandbox.mode,
     setRunMode(mode) {
-      if (!sandboxOffered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
-      sandboxModeRows.onMode(mode);
+      // An empty local chat offers Cloud and This Mac, never Sandboxed (`emptyLocalChat`).
+      const offered = sandboxOffered || (cloudOffered && mode !== "sandboxed");
+      if (!offered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
+      // An automation's mode is this chat's only, never the person's pick for the next new chat.
+      applyRunMode(mode);
       return true;
     },
     cloudStart: () => cloudStart ?? null,
@@ -7992,6 +8294,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
     let pendingModel: string | undefined;
+    let pendingEffort: string | undefined;
     /// The connected client as the harness switch sees it.
     let switchPort: SwitchPort | undefined;
     /// Who sent each prompt a harness switch held, stamped when the switch sends it into the session
@@ -8051,6 +8354,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
+          /// A Cloud start's picked effort (AgentPaneHandshake `effort`): the seeded chat starts on it.
+          effort?: unknown;
           peer?: string;
           adopt?: unknown;
           surface?: unknown;
@@ -8210,6 +8515,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
         // cold page, the palette's actions whose places event came before its listener: add them.
         else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
+        if (!reconnect) checkSharedPart(host.newTab);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -8233,6 +8539,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         if (typeof host.model === "string" && host.model) pendingModel = host.model;
+        if (typeof host.effort === "string" && host.effort) pendingEffort = host.effort;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setPreviewHost(host.transport === "preview");
@@ -8672,6 +8979,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           let unhold: (() => void) | undefined;
           const movedOn = heldStartStop(client);
           const started = client.startedSession;
+          // The agent this send starts, read before another chat can be selected.
+          const startHarness = client.shownSession()?.harness ?? client.startHarness;
           const sessionId = await untilHostAnswers(() => client.ensureSession(), {
             stop: () => movedOn() || !ownsSession(),
             waiting: () => {
@@ -8681,10 +8990,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             .finally(() => unhold?.())
             .catch((error: unknown) => {
               // A folder harness that waits for Enable or Trust says so on its own card.
-              setBlockedHarness(harnessBlock(error));
+              const block = harnessBlock(error);
+              setBlockedHarness(block);
               // A refused start (a chat on another machine, cx-k21v) says why in this page's own
               // view: the host's typed refusal, already localized, under the localized "Not sent".
               if (isStartRefusal(error)) client.notice(failedSendText(error, false));
+              // Any other failed start says why too, and its cause goes to the log (#44964). Not when
+              // its card says it (Enable, Trust), it was cancelled, or another chat was selected while
+              // it was out (`superseded`): the notice would land in that chat.
+              else if (!block && !isTrustRefusal(error) && !isStartCancelled(error) && !isStartSuperseded(error)) {
+                const line = startFailureNotice(translate, startHarness, error);
+                if (line) client.notice(line);
+              }
               return refused(error, Boolean(accepted));
             });
 
@@ -8959,6 +9276,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   composerHandle.current === holder,
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
                 clearFolder: () => setProjectDraft(undefined),
+                discard: (id) => client.discard(id),
                 select: async (id) => {
                   holder?.suppressAttachmentCarryFor(summary?.sessionId);
                   try {
@@ -9645,6 +9963,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           leave: () => client.leave(),
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
+          attached: (sessionId) => client.shownAndAttached(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
           send: (text, attachments, promptId, ticket) => {
             // One the folder's trust held (trustHeld.ts) goes with its own send's ticket.
@@ -9743,11 +10062,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const hasPrompt = Boolean(prompt || attachments.length);
         const harness = pendingHarness;
         const model = pendingModel;
+        // The picker's effort with its model (a Cloud start), held under its kind's id (heldOptions.ts).
+        const options = pendingEffort ? { [HELD_EFFORT_ID]: pendingEffort } : undefined;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingAttachments = undefined;
         pendingHarness = undefined;
         pendingModel = undefined;
+        pendingEffort = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
         if (hasPrompt && ticket) heldPrompt.keep(ticket);
@@ -9766,7 +10088,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
           );
         } else if (harness && hasPrompt) {
-          void harnessSwitch.switchTo(harness, host.cwd, { model });
+          void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
           void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
             () => undefined,
           );
@@ -9780,7 +10102,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
         else if (harness && !client.adopted && client.startsOnSend)
-          void harnessSwitch.switchTo(harness, host.cwd, { model });
+          void harnessSwitch.switchTo(harness, host.cwd, { model, ...(options ? { options } : {}) });
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -9884,6 +10206,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     queryClient,
     toggleInspector,
     earlyNewTab,
+    checkSharedPart,
     restartGate,
     sandbox,
     cloudTypingPrewarm,
@@ -10208,6 +10531,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
+  // Cloud picked for a new chat: the plan is read now (`cloudMachine.list` `plan`), so a Send without one shows the
+  // pricing card at once instead of a start the platform refuses.
+  useEffect(() => {
+    if (cloudPicked) void refreshCloudMachines();
+  }, [cloudPicked]);
   // Stop and Pause waits for the chat's turn to end before it pauses (cloudMachineMenu.ts): its
   // own turn state, which a forced stop's cleared working indicator does not end.
   const stopWaiter = useMemo(createStopWaiter, []);
@@ -10995,8 +11323,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!cloudPickPending) return;
     if (newTabWithoutCloud && sandboxOffered && !onOtherMachine) return setCloudLeftPage(newTabGeneration);
     if (showNewTab) return;
-    if (snapshot.sessionId) return takeCloudPick();
-    if (!sandboxOffered || onOtherMachine) return;
+    // A chat that started here drops it; an empty one whose local session opened first still takes it.
+    if (
+      snapshot.sessionId &&
+      (snapshot.rows.length > 0 || (snapshot.summary?.sessionId === snapshot.sessionId && !freshChat))
+    )
+      return takeCloudPick();
+    if (!cloudOffered || onOtherMachine) return;
     takeCloudPick();
     pickCloudInComposer();
   }, [
@@ -11005,6 +11338,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabGeneration,
     showNewTab,
     snapshot.sessionId,
+    snapshot.summary?.sessionId,
+    snapshot.rows.length,
+    freshChat,
+    cloudOffered,
     sandboxOffered,
     onOtherMachine,
     takeCloudPick,
@@ -11264,7 +11601,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return sent;
       }
       const { harness } = freshPick.current;
@@ -11284,7 +11621,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       );
       if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return;
       }
       newChatPrewarm.typed(
@@ -12115,6 +12452,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
           <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
+        <Notice id="machine-harness" tier="error" when={machineCheck.notice && machinePeer !== undefined}>
+          <p className="acpmux-composer-remote-note" role="alert">
+            {t("composer.peerHarnessMissing", {
+              agent: catalog.find((entry) => entry.id === machineSelected)?.name ?? machineSelected ?? "",
+              machine: machinePeer ?? "",
+            })}
+          </p>
+        </Notice>
         <Notice id="import-error" tier="error" when={!showNewTab && importError}>
           <p className="acpmux-composer-remote-note" role="alert">
             {importError}
@@ -12134,11 +12479,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {harnessCard}
           </Notice>
         ) : (
-          <Notice
-            id="switch"
-            tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
-            when={snapshot.switching && snapshot.switching.phase !== "starting"}
-          >
+          <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
             <SwitchNotice
               switching={snapshot.switching}
               // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
@@ -12363,6 +12704,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
+            turnQueue={snapshot.queue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -12421,10 +12763,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
-                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
+                // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
+                // machine's own folder (composerCloudStartFolder). Never the tab's inherited folder, which no chip shows.
                 const once = cloudFolderOnce.current;
                 cloudFolderOnce.current = undefined;
-                const folder = once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+                const folder =
+                  once ??
+                  (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
                 const started = sendToCloud(
@@ -12434,6 +12779,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     ...folder,
                     ...heldPick(composerSnapshot),
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
+                    // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
+                    ...cloudPickExtras(composerSnapshot.summary),
                   },
                 );
                 if (typeof started === "string") {
@@ -12809,6 +13156,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
               cloudDraftMachineID.current = null;
+              rememberNewChatPlace(computer === "local" ? { kind: "local" } : { kind: "machine", peer: computer });
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
             // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it
@@ -12873,7 +13221,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             })}
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
+            {...(cloudOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
@@ -12922,7 +13270,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
             blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
-            blockSend={blockSend || cloudSendHeld}
+            // A new chat on another machine holds Send while its agent is not set up there.
+            blockSend={blockSend || cloudSendHeld || machineCheck.blocked}
             closeOnTrustAsk={Boolean(
               trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
             )}
@@ -13073,11 +13422,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         currentId: snapshot.sessionId,
         // The person's own queued prompts, as the composer's queue counts them.
         queueCounts:
-          snapshot.sessionId && ownQueue(snapshot.queue).length > 0
-            ? new Map([[snapshot.sessionId, ownQueue(snapshot.queue).length]])
+          snapshot.sessionId && ownQueue(shownQueue).length > 0
+            ? new Map([[snapshot.sessionId, ownQueue(shownQueue).length]])
             : undefined,
         steeringIds:
-          snapshot.summary?.steering && snapshot.sessionId && ownQueue(snapshot.queue).length > 0
+          snapshot.summary?.steering && snapshot.sessionId && ownQueue(shownQueue).length > 0
             ? new Set([snapshot.sessionId])
             : undefined,
         onSelect: selectSession,
@@ -13313,6 +13662,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   onImportFile={importFile}
                   importError={importError}
                   importSandboxed={sandbox.mode === "sandboxed"}
+                  // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
+                  {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
                   onCommands={(harness, cwd) => {
                     void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                       () => undefined,
@@ -13370,12 +13721,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onAnswer={answerCloudStart}
                                   onRetry={retryCloudStart}
                                   onSignIn={cloudSignInRetry}
-                                  onUpgrade={access.addCredits}
+                                  planStore={cloudPlanStore}
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
                                   {...cloudTooBigActions}
+                                  onSetUp={setUpCloud}
+                                  onSetUpDismiss={dismissCloudSetUp}
                                 />
                               ),
                             }
@@ -13517,7 +13870,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           newTabGeneration === page &&
                           (allowReconnect || directClient.current === client);
                       },
-                      leave: () => setNewTab(undefined),
+                      // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
+                      leave: () => {
+                        holdComposerPlace();
+                        setNewTab(undefined);
+                      },
                       selectSession,
                       showAllChats,
                       runShell: (command, cwd) => {
@@ -13916,18 +14273,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
-                ) : cloudStart && !snapshot.sessionId ? (
+                ) : cloudStartShown ? (
                   <CloudStartView
                     start={cloudStart}
                     onAnswer={answerCloudStart}
                     onRetry={retryCloudStart}
                     onSignIn={cloudSignInRetry}
-                    onUpgrade={access.addCredits}
+                    planStore={cloudPlanStore}
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
                     {...cloudTooBigActions}
+                    onSetUp={setUpCloud}
+                    onSetUpDismiss={dismissCloudSetUp}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
@@ -13979,7 +14338,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {/* Between the hero and the docked composer. */}
                 {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
                     Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !sandboxHoldsChat && !viewedSandbox && !(cloudStart && !snapshot.sessionId) && (
+                {freshView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
                   <div className="acpmux-home-area">
                     <HomeLists
                       sessions={snapshot.sessions}
@@ -14143,7 +14502,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           <HarnessUpdatesContext.Provider value={harnessUpdates}>
             <AgentProgressContext.Provider value={progressStore}>
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
-                <NoticeSlot>{pane}</NoticeSlot>
+                <ClaudeConnectContext.Provider value={modelConnect}>
+                  <NoticeSlot>{pane}</NoticeSlot>
+                </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>
             </AgentProgressContext.Provider>
           </HarnessUpdatesContext.Provider>
