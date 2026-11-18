@@ -106,24 +106,51 @@ export const sendsHeldForHost = {
 /// `chat.send` yet: the chat still loads, or acpmux restarts). Each goes, in its turn, the moment the
 /// page connects (`acpmuxSendsReady`), never refused and never left in the composer (Leo,
 /// 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS ... JUST MAKE IT LOOK LIKE IT'S
-/// SENT OR JUST SEND IT"). A wait ends with the connection only: each one belongs to a send the
-/// person made, which its row draws and its Remove withdraws.
-const connectWaiters = new Set<() => void>();
+/// SENT OR JUST SEND IT"). A wait ends with the connection, or when the host answers that this page
+/// has no acpmux to reach (`noAcpmuxForSends`): each one belongs to a send the person made, which
+/// its row draws and its Remove withdraws, and which then comes back to the composer.
+const connectWaiters = new Map<() => void, (reason: Error) => void>();
+/// Why no acpmux comes to this page, once the host said so: a send that waits from then on is
+/// refused at once, until a handshake may bring acpmux again (`acpmuxMayCome`).
+let absent: Error | undefined;
 
-/// Resolves once acpmux takes prompts on this page: at once when it does now.
+/// Resolves once acpmux takes prompts on this page: at once when it does now. Rejects when the host
+/// answered that no acpmux comes here (`noAcpmuxForSends`).
 export function untilAcpmuxTakesSends(page: { cmuxAcpmuxActions?: Record<string, unknown> } = window): Promise<void> {
   if (page.cmuxAcpmuxActions?.["chat.send"]) return Promise.resolve();
-  return new Promise((resolve) => {
+  if (absent) return Promise.reject(absent);
+  return new Promise((resolve, reject) => {
     const ready = () => {
       if (!page.cmuxAcpmuxActions?.["chat.send"]) return;
       connectWaiters.delete(ready);
       resolve();
     };
-    connectWaiters.add(ready);
+    connectWaiters.set(ready, reject);
   });
 }
 
 /// The page installed (or replaced) its acpmux actions: the sends waiting for them go.
 export function acpmuxSendsReady(): void {
-  for (const ready of [...connectWaiters]) ready();
+  absent = undefined;
+  // A wait that ends leaves the map as it is walked, which a Map's walk allows.
+  for (const ready of connectWaiters.keys()) ready();
 }
+
+/// The host answered that this page has no acpmux to reach (a preview host): none will come, so
+/// every send waiting for it is refused with `reason`, as is each one that waits from now on, and
+/// its prompt comes back to the composer (startingSends.ts). Before, they waited forever
+/// (cmux#45759 follow-up F3).
+export function noAcpmuxForSends(reason: Error): void {
+  absent = reason;
+  const refused = [...connectWaiters.values()];
+  connectWaiters.clear();
+  for (const refuse of refused) refuse(reason);
+}
+
+/// A handshake may bring acpmux to this page again: a send waits for it once more.
+export function acpmuxMayCome(): void {
+  absent = undefined;
+}
+
+/// The `code` of the refusal a page with no acpmux gives a waiting send (`noAcpmuxForSends`).
+export const NO_ACPMUX = "acpmux.absent";

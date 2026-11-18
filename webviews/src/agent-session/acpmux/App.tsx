@@ -699,8 +699,11 @@ import {
   quickRetry,
 } from "./hostRetry";
 import {
+  acpmuxMayCome,
   acpmuxSendsReady,
   heldStartStop,
+  NO_ACPMUX,
+  noAcpmuxForSends,
   sendsHeldForHost,
   untilAcpmuxTakesSends,
   untilHostAnswers,
@@ -6806,6 +6809,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (keptInChat(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
           if (composerHandle.current) composerHandle.current.restore(text, attachments);
           else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+          // No acpmux comes to this page: the first prompt back says why, once for all of them.
+          if ((error as { code?: unknown } | null)?.code === NO_ACPMUX) notices.failed((error as Error).message);
         },
         () => ({ chat: sessionIdRef.current || undefined, visit: directClient.current?.selectionToken ?? 0 }),
       ),
@@ -8507,8 +8512,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
         browserSocket = !mock && !bridge;
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
-          // A host with no daemon to reach has nothing left to fail, and no send waits for it.
+          // A host with no daemon to reach has nothing left to fail, and no send waits for it: those
+          // already waiting in the pane come back to the composer, in order, saying why
+          // (cmux#45759 follow-up F3).
           noAcpmux.current = true;
+          noAcpmuxForSends(
+            Object.assign(new Error(translate("prompt.notSent", { reason: translate("host.unavailable") })), {
+              code: NO_ACPMUX,
+            }),
+          );
           setHostError(undefined);
           setHostErrorShown(false);
           return;
@@ -8516,6 +8528,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Native chats never load the in-page daemon or its fixture transcripts. Keep this
         // await in the mock branch so the native handshake still starts in the same turn.
         noAcpmux.current = false;
+        acpmuxMayCome();
         const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
         if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon. A host

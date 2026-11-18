@@ -47,8 +47,13 @@ type Item = StartingSend & {
   going: boolean;
   lost?: string;
   gesture?: SendGesture;
-  ready?: Promise<ComposerAttachment[]>;
+  ready?: FilesReady;
 };
+/// A prompt's attachments once the files it went with are chips (composer `sendWith`). `giveBack`,
+/// when it is given: the prompt comes back before they are its (a refused prompt before it), so its
+/// files still loading are the composer's chips again; it answers the attachments the prompt comes
+/// back with, made ones in their places and never a stand-in (cmux#45759 follow-up F2).
+export type FilesReady = Promise<ComposerAttachment[]> & { giveBack?(): ComposerAttachment[] };
 /// A rejection of `ready` may name the attachments the prompt comes back with instead of those it
 /// was added with, the stand-ins for files that never became chips (composer `SendFilesFailed`).
 export type ReadyFailure = { attachments?: ComposerAttachment[] };
@@ -120,7 +125,7 @@ export class StartingSends {
     go: Go,
     gesture?: SendGesture,
     id?: string,
-    waits: { ready?: Promise<ComposerAttachment[]>; asSent?: boolean } = {},
+    waits: { ready?: FilesReady; asSent?: boolean } = {},
   ) {
     const item: Item = {
       id: id ?? `starting-${crypto.randomUUID()}`,
@@ -175,6 +180,7 @@ export class StartingSends {
           // Its files' failure names what comes back in place of the stand-ins (`ReadyFailure`).
           const back = (error as ReadyFailure | null)?.attachments;
           if (Array.isArray(back)) item.attachments = back;
+          delete item.ready;
           throw error;
         });
         // Removed (its row's Remove) or given back while its files were read.
@@ -186,10 +192,20 @@ export class StartingSends {
       item.going = true;
       await go(item.text, item.attachments, item.gesture);
     } catch (error) {
+      // Removed (its row's Remove) while its files were read, and they failed: it is gone, and the
+      // prompts behind it still go. Never `splice(-1)`, which took the newest prompt with it.
+      if (!this.items.includes(item)) return;
       // This prompt and every one behind it come back; the composer puts each before what it
       // holds, so the last goes back first and they read in the order they were sent.
       const back = this.items.splice(this.items.indexOf(item));
       for (const each of back) this.returned.add(each.id);
+      // One behind it still waiting for its files comes back with the files made so far, and those
+      // still loading are the composer's chips again, never hidden as a prompt's that is gone.
+      for (const each of back) {
+        if (each === item || !each.ready) continue;
+        if (each.ready.giveBack) each.attachments = each.ready.giveBack();
+        delete each.ready;
+      }
       this.emit();
       for (const each of back.reverse()) this.giveBack(each.text, each.attachments, each === item ? error : undefined);
       return;

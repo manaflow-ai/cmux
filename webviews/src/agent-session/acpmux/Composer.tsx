@@ -134,6 +134,7 @@ import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
+import type { FilesReady } from "./startingSends";
 import {
   appendAttachments,
   SendFilesFailed,
@@ -315,12 +316,14 @@ type Props = {
   /// has stand-ins for them (their ids, names, no bytes) and this is the whole list once they are
   /// chips. A sender that cannot hold a prompt for them answers false and does nothing else: the
   /// composer then keeps the prompt until they are ready, as before. Given only with `sendsBeforeFiles`.
+  /// Its `giveBack` hands the files back to the composer when the prompt comes back before they are
+  /// its (startingSends.ts `FilesReady`).
   onSend(
     text: string,
     attachments?: ComposerAttachment[],
     steer?: boolean,
     gesture?: SendGesture,
-    filesReady?: Promise<ComposerAttachment[]>,
+    filesReady?: FilesReady,
   ): boolean | void | Promise<unknown>;
   /// `onSend` takes a prompt before its files (`filesReady`), answering true or false. Unset: a
   /// sender that knows nothing of stand-ins, so the composer holds the prompt for its files itself
@@ -1756,15 +1759,21 @@ function ComposerFrame({
         if (chip) return [{ ...chip, ...(attachment.inline ? { inline: true } : {}) }];
         return handed?.standIns.some((standIn) => standIn.id === attachment.id) ? [] : [attachment];
       });
-    const handOff = (sent: ComposerAttachment[]) =>
-      handed?.take().then(
-        (made) => inPlaces(sent, new Map(made.map((chip) => [chip.id, chip]))),
-        // One could not be made: the prompt comes back with the chips that were, never a stand-in;
-        // the rest are the composer's chips already (the failed one with why and its Retry).
-        (error: unknown) => {
-          if (error instanceof SendFilesFailed) error.attachments = inPlaces(sent, error.made);
-          throw error;
-        },
+    const handOff = (sent: ComposerAttachment[]): FilesReady | undefined =>
+      handed &&
+      Object.assign(
+        handed.take().then(
+          (made) => inPlaces(sent, new Map(made.map((chip) => [chip.id, chip]))),
+          // One could not be made: the prompt comes back with the chips that were, never a stand-in;
+          // the rest are the composer's chips already (the failed one with why and its Retry).
+          (error: unknown) => {
+            if (error instanceof SendFilesFailed) error.attachments = inPlaces(sent, error.made);
+            throw error;
+          },
+        ),
+        // The prompt comes back before its files are its (a refused prompt before it): the same,
+        // with those still loading the composer's chips again (cmux#45759 follow-up F2).
+        { giveBack: () => inPlaces(sent, handed.giveBack()) },
       );
     if (!handed && holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.

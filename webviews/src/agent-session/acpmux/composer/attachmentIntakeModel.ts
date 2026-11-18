@@ -365,7 +365,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// what stops a try still waiting. Its x, a send or a settle ends it.
   const autoRetries = useRef(new Map<string, { tries: number; stop: () => void }>());
   /// `retry`, for a try again that intake starts on its own (declared below it).
-  const retryRef = useRef<(id: string) => void>(() => {});
+  const retryRef = useRef<(id: string) => boolean>(() => false);
   /// Files of chips cancelled while still loading (their node deleted from the prompt), by id: an
   /// undo that brings the node back reads its file again under the same id (`revive`).
   const parked = useRef(new Map<string, PendingSource>());
@@ -862,7 +862,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         flushSync(() =>
           setPending((chips) =>
             again !== undefined && chips.some((shown) => shown.id === again)
-              ? chips.map((shown) => (shown.id === again ? chip : shown))
+              ? // One a prompt went with stays that prompt's (`sendWith`) while it is made again.
+                chips.map((shown) => (shown.id === again ? (shown.sent ? { ...chip, sent: true } : chip) : shown))
               : [...chips, chip],
           ),
         );
@@ -906,7 +907,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       }
       making.current.clear();
     },
-    [],
+    // Stable (a `useState` value): the cleanup runs once, when the composer goes.
+    [failedForSend],
   );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
@@ -996,21 +998,29 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [attachments]);
   /// A failed chip's Retry: its file is read again (and uploaded again when it was) as the same chip,
   /// where it was: a retry read as a new paste went in at the caret, or nowhere (review of #26545). A
-  /// staged image's: its original is uploaded again.
-  const [retry] = useState(() => (id: string) => {
-    if (originals.current.has(id)) return void retryOriginal(id);
+  /// staged image's: its original is uploaded again. `remake` answers false when there was nothing
+  /// to try again (a send's `take` then fails its prompt).
+  const [remake] = useState(() => (id: string): boolean => {
+    if (originals.current.has(id)) {
+      void retryOriginal(id);
+      return true;
+    }
     const source = sources.current.get(id);
     if (source && "make" in source) {
       attachLater(source.name, source.make, source.failure, source.stop, id);
-      return;
+      return true;
     }
     const file = source?.file;
     // A file whose bytes were never made (making them failed) has nothing to retry.
-    if (!source || !file || "then" in file) return;
+    if (!source || !file || "then" in file) return false;
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
     void intake([file], source.uploads, undefined, id);
+    return true;
   });
-  retryRef.current = retry;
+  const [retry] = useState(() => (id: string): void => {
+    remake(id);
+  });
+  retryRef.current = remake;
   // A try again still waiting (its timer, its key and click listeners) goes with the composer.
   useEffect(
     () => () => {
@@ -1080,14 +1090,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// to hand over, or when a gesture's files are not chips yet (a twin read: the send holds as before).
   /// Nothing changes until `take()`, the prompt going: from then the chips are the prompt's (their
   /// tiles go) and `ready` settles; `giveBack()` makes them the composer's again (the send was
-  /// refused). A chip whose upload already failed is tried again at `take`: no tile shows its Retry.
+  /// refused, or a refused prompt before it brought it back) and answers those already made, which
+  /// leave the composer to go back with the prompt. A chip that already failed (an upload, or one
+  /// the host makes) is made again at `take`: no tile shows its Retry.
   const [sendWith] = useState(
     () =>
       ():
         | {
             standIns: ComposerAttachment[];
             take(): Promise<ComposerAttachment[]>;
-            giveBack(): void;
+            giveBack(): ReadonlyMap<string, ComposerAttachment>;
           }
         | undefined => {
         const here = live.current.options.scope;
@@ -1102,6 +1114,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
               ),
             ),
           );
+        /// The prompt's chips once taken.
+        let group: SentFiles | undefined;
         return {
           standIns: chips.map((chip) => ({
             id: chip.id,
@@ -1114,20 +1128,34 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           })),
           take: () => {
             const wait = new Promise<ComposerAttachment[]>((settle, fail) => {
-              const group: SentFiles = { ids: [...ids], made: new Map(), settle, fail };
-              for (const id of ids) sentWith.current.set(id, group);
+              const taken: SentFiles = { ids: [...ids], made: new Map(), settle, fail };
+              group = taken;
+              for (const id of ids) sentWith.current.set(id, taken);
             });
             mark(true);
-            // A chip showing its Retry has given up (its own tries are over: `giveUp`, whose try
-            // record stays), so nothing would ever make it: the send is its Retry. Skipping one
-            // with a try record left the prompt waiting forever on a file no tile showed.
-            for (const chip of chips) if (chip.uploadFailed) retryRef.current(chip.id);
+            // A chip showing its Retry has given up (an upload's own tries are over: `giveUp`,
+            // whose try record stays; a chip the host makes failed: `bound`), so nothing would ever
+            // make it: the send is its Retry. Skipping one left the prompt waiting forever on a
+            // file no tile showed (cmux#45759 follow-up F1). One with nothing to try again fails
+            // the prompt at once, saying why.
+            for (const chip of chips) {
+              if (chip.failed === undefined || retryRef.current(chip.id)) continue;
+              failedForSend(chip.id, chip.failed);
+              break;
+            }
             return wait;
           },
-          // Before `take` only: no chip was the prompt's yet.
           giveBack: () => {
-            for (const id of ids) sentWith.current.delete(id);
-            mark(false);
+            const taken = group;
+            if (!taken) {
+              for (const id of ids) sentWith.current.delete(id);
+              mark(false);
+              return new Map();
+            }
+            // Still the prompt's: those loading are the composer's chips again, and the made ones
+            // go back with the prompt (cmux#45759 follow-up F2). Settled or failed: as it ended.
+            if (taken.ids.some((id) => sentWith.current.get(id) === taken)) release(taken);
+            return new Map(taken.made);
           },
         };
       },
