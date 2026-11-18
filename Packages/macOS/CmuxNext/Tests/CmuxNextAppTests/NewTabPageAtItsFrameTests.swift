@@ -41,7 +41,7 @@ struct NewTabPageAtItsFrameTests {
     }
 
     /// Returns when the scheduler's next frame showed what waited for it.
-    private static func frame(_ services: AppServices) async {
+    static func frame(_ services: AppServices) async {
         let probe = FrameProbe()
         await withCheckedContinuation { (shown: CheckedContinuation<Void, Never>) in
             probe.onShow = { shown.resume() }
@@ -55,8 +55,8 @@ struct NewTabPageAtItsFrameTests {
 
     /// The app with an empty pool of prewarmed pages, so each New Tab page is made cold. `body` gets the pane that
     /// Cmd-T opens in, its window, and the count of page views built since the setup.
-    private static func withAnEmptyPool(_ install: String,
-                                        _ body: (AppServices, NSWindow, PaneController, () -> Int) async throws -> Void) async throws {
+    static func withAnEmptyPool(_ install: String,
+                                _ body: (AppServices, NSWindow, PaneController, () -> Int) async throws -> Void) async throws {
         try await withThePagesOfAnEmptyPool(install) { services, window, pane, pages in
             try await body(services, window, pane) { pages().count }
         }
