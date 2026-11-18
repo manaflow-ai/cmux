@@ -449,14 +449,18 @@ fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_theme
     let faces = file.face_diagnostics();
     assert_eq!(
         faces.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
-        ["agentPane.display.font.faces.Pack Sans", "agentPane.display.font.faces.Pack Serif:italic"]
+        [
+            "agentPane.display.font.faces.Pack Sans",
+            "agentPane.display.font.faces.Pack Serif:italic"
+        ]
     );
     assert!(faces[0].display().starts_with("themes/pack.json: "), "{}", faces[0].display());
 }
 
 #[test]
 fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
-    let file = overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
+    let file =
+        overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
     assert_eq!(file.keys(), ["agentPane.display.font.size"]);
     assert_eq!(
         file.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),

@@ -33,7 +33,10 @@ fn the_first_bytes_name_the_font_type() {
 
 #[test]
 fn a_key_is_one_family_optionally_italic() {
-    assert_eq!(parse_key("Inter Display"), Ok(FaceKey { family: "Inter Display".into(), italic: false }));
+    assert_eq!(
+        parse_key("Inter Display"),
+        Ok(FaceKey { family: "Inter Display".into(), italic: false })
+    );
     assert_eq!(parse_key(" Lora :italic"), Ok(FaceKey { family: "Lora".into(), italic: true }));
     assert!(parse_key("Lora:bold").is_err());
     assert!(parse_key("Lora, serif").is_err());
