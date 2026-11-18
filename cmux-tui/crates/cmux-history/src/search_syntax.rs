@@ -24,9 +24,10 @@ const DAY_MS: i64 = 86_400_000;
 /// window it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchFilter<K> {
-    /// Folded; every one must appear. A quoted phrase keeps its spaces.
+    /// As typed; every one must appear. A quoted phrase keeps its spaces.
+    /// Each store folds them as its own text is folded.
     pub words: Vec<String>,
-    /// Folded; none may appear.
+    /// As typed; none may appear.
     pub excluded: Vec<String>,
     /// Empty: every kind.
     pub kinds: Vec<K>,
@@ -37,6 +38,11 @@ pub struct SearchFilter<K> {
 }
 
 impl<K: PartialEq> SearchFilter<K> {
+    /// Every one of `words`, in every kind and at any time.
+    pub fn words(words: Vec<String>) -> Self {
+        Self { words, excluded: Vec::new(), kinds: Vec::new(), after_ms: None, before_ms: None }
+    }
+
     /// Parses `text`. `kind` names the surface's kinds (`None`: not a kind
     /// there). Ages count back from `now_ms`; `today`, `yesterday` and dates
     /// count from `local_day_start_ms`, the local start of today.
@@ -46,13 +52,7 @@ impl<K: PartialEq> SearchFilter<K> {
         local_day_start_ms: i64,
         kind: impl Fn(&str) -> Option<K>,
     ) -> Self {
-        let mut filter = Self {
-            words: Vec::new(),
-            excluded: Vec::new(),
-            kinds: Vec::new(),
-            after_ms: None,
-            before_ms: None,
-        };
+        let mut filter = Self::words(Vec::new());
         for token in split(text) {
             let (negated, body) = match token.text.strip_prefix('-') {
                 Some(rest) if !rest.is_empty() => (true, rest),
@@ -62,14 +62,14 @@ impl<K: PartialEq> SearchFilter<K> {
             {
                 continue;
             }
-            let folded = fold(if token.quoted { &token.text } else { body });
-            if folded.trim().is_empty() {
+            let word = if token.quoted { token.text.as_str() } else { body };
+            if word.trim().is_empty() {
                 continue;
             }
             if negated && !token.quoted {
-                filter.excluded.push(folded)
+                filter.excluded.push(word.to_owned());
             } else {
-                filter.words.push(folded)
+                filter.words.push(word.to_owned());
             }
         }
         filter
@@ -126,14 +126,15 @@ impl<K: PartialEq> SearchFilter<K> {
             && self.before_ms.is_none_or(|before| at_ms < before)
     }
 
-    /// True when the folded `haystack` has every word and no excluded one.
+    /// True when `haystack` has every word and no excluded one, both sides
+    /// folded ([`fold`]).
     pub fn matches(&self, haystack: &str) -> bool {
         if self.words.is_empty() && self.excluded.is_empty() {
             return true;
         }
         let folded = fold(haystack);
-        self.words.iter().all(|word| folded.contains(word.as_str()))
-            && !self.excluded.iter().any(|word| folded.contains(word.as_str()))
+        self.words.iter().all(|word| folded.contains(fold(word).as_str()))
+            && !self.excluded.iter().any(|word| folded.contains(fold(word).as_str()))
     }
 }
 
@@ -211,8 +212,10 @@ fn when(value: &str, now_ms: i64, local_day_start_ms: i64) -> Option<i64> {
 }
 
 /// Local midnight of `YYYY-MM-DD`. The zone offset is read off
-/// `local_day_start_ms` (local midnight sits within 14 hours of a UTC one),
-/// so a date across a daylight-saving change can be an hour off.
+/// `local_day_start_ms`: for zones from UTC-10 to UTC+14, local midnight of
+/// day D falls in [D - 14 h, D + 10 h), so D is the UTC date 14 hours later.
+/// UTC-11 and UTC-12 read a day late, and a date across a daylight-saving
+/// change can be an hour off.
 fn date(value: &str, local_day_start_ms: i64) -> Option<i64> {
     let mut parts = value.splitn(3, '-');
     let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
@@ -221,12 +224,21 @@ fn date(value: &str, local_day_start_ms: i64) -> Option<i64> {
     }
     let (year, month, day): (i64, u32, u32) =
         (year.parse().ok()?, month.parse().ok()?, day.parse().ok()?);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
         return None;
     }
-    let utc_today = (local_day_start_ms + DAY_MS / 2).div_euclid(DAY_MS) * DAY_MS;
+    let utc_today = (local_day_start_ms + 14 * HOUR_MS).div_euclid(DAY_MS) * DAY_MS;
     let offset = utc_today - local_day_start_ms;
     Some(days_from_civil(year, month, day) * DAY_MS - offset)
+}
+
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 /// Days since 1970-01-01 of a proleptic Gregorian date (Howard Hinnant's
@@ -260,7 +272,7 @@ mod tests {
     #[test]
     fn plain_words_fold_and_all_must_match() {
         let filter = parse("Café  Build");
-        assert_eq!(filter.words, vec!["cafe", "build"]);
+        assert_eq!(filter.words, vec!["Café", "Build"]);
         assert!(filter.matches("the build at the CAFÉ"));
         assert!(!filter.matches("the cafe"));
     }
@@ -299,6 +311,20 @@ mod tests {
         let tokyo = DAY_START - 9 * HOUR_MS;
         let filter = SearchFilter::parse("before:2025-11-18", NOW, tokyo, kind);
         assert_eq!(filter.before_ms, Some(tokyo));
+        // UTC+13 (New Zealand summer) and UTC-10 (Hawaii), the ends of the
+        // zones a date reads exactly.
+        for offset_h in [13, 14, -10] {
+            let start = DAY_START - offset_h * HOUR_MS;
+            let filter = SearchFilter::parse("after:2025-11-18", NOW, start, kind);
+            assert_eq!(filter.after_ms, Some(start), "UTC{offset_h:+}");
+        }
+    }
+
+    #[test]
+    fn impossible_dates_stay_words() {
+        assert_eq!(parse("after:2025-02-29").after_ms, None);
+        assert_eq!(parse("after:2025-04-31").after_ms, None);
+        assert!(parse("after:2024-02-29").after_ms.is_some());
     }
 
     #[test]

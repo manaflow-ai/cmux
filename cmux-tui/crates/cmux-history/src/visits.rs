@@ -200,13 +200,8 @@ impl VisitStore {
         since_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<Visit>, HistoryError> {
-        let filter = SearchFilter::<HistoryKind> {
-            words: tokens(text),
-            excluded: Vec::new(),
-            kinds: Vec::new(),
-            after_ms: since_ms,
-            before_ms: None,
-        };
+        let filter =
+            SearchFilter::<HistoryKind> { after_ms: since_ms, ..SearchFilter::words(tokens(text)) };
         self.visits_matching(&filter, limit)
     }
 
@@ -226,13 +221,14 @@ impl VisitStore {
             sql.push_str(" AND visit_time_ms < ?");
             bindings.push(Sql::Integer(before));
         }
+        // The `search` column is folded, so the words are too.
         for word in &filter.words {
             sql.push_str(" AND search LIKE ? ESCAPE '\\'");
-            bindings.push(Sql::Text(format!("%{}%", escape_like(word))));
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
         }
         for word in &filter.excluded {
             sql.push_str(" AND search NOT LIKE ? ESCAPE '\\'");
-            bindings.push(Sql::Text(format!("%{}%", escape_like(word))));
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
         }
         sql.push_str(" ORDER BY visit_time_ms DESC, id DESC LIMIT ?");
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
