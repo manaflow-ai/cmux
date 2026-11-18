@@ -427,6 +427,11 @@ impl ScreenDetectTracker {
     /// working or blocked report the output still holds the read, because a
     /// read can land between two parts of a redraw and see the prompt with
     /// no spinner.
+    ///
+    /// One exception: a manifest whose idle rule is above each of its working
+    /// rules ([`Detection::idle_above_working`]). No working rule can win on
+    /// that prompt, so output is the only fact of work there and still
+    /// starts it.
     pub fn apply_output_activity(
         &mut self,
         terminal_id: &str,
@@ -441,7 +446,7 @@ impl ScreenDetectTracker {
             return;
         }
         let at_rest = entry.emitted.as_ref().is_none_or(|(_, state)| *state == AgentState::Idle);
-        if detection.visible_idle && at_rest {
+        if detection.visible_idle && at_rest && !detection.idle_above_working {
             return;
         }
         detection.state = ScreenState::Working;
