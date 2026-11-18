@@ -433,7 +433,13 @@ pub fn requested_id(line: &str) -> Option<&str> {
 /// Serves `git_dir`'s blobs on `listen` until the process ends: `GET /objects/<id>`, read only,
 /// HTTP/1.1 keep-alive, nothing else.
 pub fn serve(git_dir: &Path, listen: &str, limits: SeedLimits) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(listen)?;
+    serve_on(git_dir, TcpListener::bind(listen)?, &limits);
+    Ok(())
+}
+
+/// [`serve`] on a listener already bound, so a caller that needs the port (a test) has it before
+/// the first connection and no other socket can take it in between.
+pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
     let bucket = Mutex::new(Bucket::new(limits.rate, Instant::now()));
     let active = AtomicUsize::new(0);
     // Each connection is a thread of this scope, so none outlives the seed.
@@ -455,7 +461,6 @@ pub fn serve(git_dir: &Path, listen: &str, limits: SeedLimits) -> anyhow::Result
             });
         }
     });
-    Ok(())
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &[u8], close: bool) -> std::io::Result<()> {
