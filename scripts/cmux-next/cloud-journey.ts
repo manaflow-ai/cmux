@@ -3949,7 +3949,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 4, memory_mb: 16384, disk_mb: 65536 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -3958,7 +3958,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const spare = spareFields(v);
           Object.assign(probeExtra, spare, { claimed_spare: null });
           if (process.env.GITHUB_ACTIONS === "true") console.log(spareNotice(backendName, process.env.JOURNEY_PHASE ?? "", spare));
-          return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
+          return { value: v.machine, detail: `${machine} status ${v.machine.status} size=${JSON.stringify((v.machine as { size?: unknown }).size ?? null)}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
