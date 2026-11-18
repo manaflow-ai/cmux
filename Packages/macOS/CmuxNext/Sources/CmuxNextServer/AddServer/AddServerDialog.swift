@@ -23,9 +23,12 @@ public final class AddServerDialog {
     private var shape: CmuxDialogSpec?
     private var watch: Task<Void, Never>?
 
-    public init(model: ServerModel) {
+    /// - Parameter isPersonEvent: Whether an event is the person's own input (the app's HID check).
+    public init(model: ServerModel, isPersonEvent: @escaping @MainActor (NSEvent) -> Bool = { _ in false }) {
         self.model = model
+        self.isPersonEvent = isPersonEvent
         panel.personOnlyClick = CmuxDialogPersonClick(activationDelay: { NSEvent.doubleClickInterval })
+        panel.personOnlyClick?.isPersonEvent = isPersonEvent
         panel.onPersonPress = { [weak self] id in self?.personPressed(id) }
         panel.onHide = { [weak self] in self?.hidden() }
     }

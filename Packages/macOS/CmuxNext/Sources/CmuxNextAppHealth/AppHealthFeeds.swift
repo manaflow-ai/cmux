@@ -277,6 +277,8 @@ extension AppHealthFeeds {
             popover.fixture = AppHealthCard.fixture(state: state)
             popover.close()
             popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
+            // A capture host's app is not active: the card stays up as it would over the person's active window.
+            popover.panel?.hidesWhenInactive = false
             return .value(["shown": true, "state": .string(state)])
         }
     }

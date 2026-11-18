@@ -95,9 +95,8 @@ final class ServerMenuBarController: NSObject {
     func openAddServer(code: String? = nil) {
         guard let provider = currentProvider() else { return Self.logger.fault("server card: no source (the App's services are gone)") }
         if let code { provider.model.beginApproval(code: code) } else { provider.model.beginApproval() }
-        let card = addServer ?? makeAddServer(provider.model)
-        addServer = card
-        card.open(over: Self.frontWindow(), takeKeys: code == nil)
+        addServer = addServer ?? makeAddServer(provider.model)
+        addServer?.open(over: Self.frontWindow(), takeKeys: code == nil)
     }
 
     /// Shows the native Pair Another Machine card top center over the front cmux window, with the keys, and mints a

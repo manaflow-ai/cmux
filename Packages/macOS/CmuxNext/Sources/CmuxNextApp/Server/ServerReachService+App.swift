@@ -52,11 +52,7 @@ extension ServerMenuBarController {
             guard let services else { return nil }
             return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-        }, makeAddServer: { [person = PersonInputCheck(sources: services.personInput.sources)] model in
-            let card = AddServerDialog(model: model)
-            card.isPersonEvent = { person.isPerson($0) }
-            return card
-        },
+        }, makeAddServer: { [person = PersonInputCheck(sources: services.personInput.sources)] in AddServerDialog(model: $0, isPersonEvent: person.isPerson) },
         makeInvite: { [weak services] in services.map(PairInviteDialog.app) },
         qr: { [qrCode = PairingQRCode()] in qrCode.pngDataURL(for: $0) })
     }
