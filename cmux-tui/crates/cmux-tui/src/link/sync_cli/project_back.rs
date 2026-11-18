@@ -253,6 +253,10 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         }
     }
 
+    // Each repository's changes as one diff against its base commit, and the preflight `git apply
+    // --3way` makes: a conflict whose file merges cleanly against the base becomes a write.
+    let diffs = diff_stage(&root, &found.name, &staging, &received, &manifest, &mac, &mut plan)?;
+
     let applied = apply(&root, &staging, &received, &manifest, &plan)?;
     let mut moved = Vec::new();
     for (folder, git_plan) in &git_plans {
@@ -282,9 +286,21 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         plan.left_out.iter().map(|(path, why)| json!({"path": path, "why": why})).collect();
     left_out.extend(ignored.iter().map(|path| json!({"path": path, "why": "ignored by git here"})));
     left_out.extend(git_left.iter().map(|why| json!({"path": ".git", "why": why})));
+    // The report (hq#13128's three lists): what came back, what stayed on the machine, and what
+    // neither side's version won.
+    let mut applied_paths: Vec<&str> = plan.writes.iter().map(|w| w.path.as_str()).collect();
+    applied_paths.extend(plan.deletes.iter().map(|d| d.path.as_str()));
+    applied_paths.extend(plan.modes.iter().map(|m| m.path.as_str()));
+    applied_paths.sort_unstable();
+    applied_paths.dedup();
+    let mut skipped: Vec<&str> = plan.left_out.iter().map(|(path, _)| path.as_str()).collect();
+    skipped.extend(ignored.iter().map(String::as_str));
+    let conflicted: Vec<&str> = plan.conflicts.iter().map(|c| c.path.as_str()).collect();
     Ok(Back::Done(json!({
         "ok": true,
         "mode": "projection",
+        "report": {"applied": applied_paths, "skipped": skipped, "conflicted": conflicted},
+        "diffs": diffs,
         "written": applied.written,
         "deleted": applied.deleted,
         "modes": applied.modes,
@@ -299,6 +315,171 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         "timings": {"listed_ms": listed_ms, "plan_ms": plan_ms, "fetched_ms": fetched_ms,
                     "applied_ms": applied_ms, "total_ms": ms(started)},
     })))
+}
+
+/// One plan path of a repository's working tree: where it is inside the repository, and the
+/// machine's file for it (None: the machine deleted it).
+struct Change {
+    path: String,
+    inside: String,
+    file: Option<PathBuf>,
+}
+
+/// For each repository whose HEAD and index here are still the session's (its base commit known):
+/// the machine's changes to its working tree as one diff against that commit (kept beside this
+/// Mac's records, so a later best-of-N can offer sibling diffs against the same base), and the
+/// preflight `git apply --3way` runs. A path the Mac also changed is merged three-way against the
+/// base commit's blob (`git merge-file`); a clean merge turns the conflict into a write of the
+/// merged file, an overlapping one stays a conflict (the machine's version beside it). Files
+/// outside git, and repositories whose base moved, keep the manifest plan alone. The diffs, as
+/// `{"repo", "base", "patch", "files"}`.
+fn diff_stage(
+    root: &Path,
+    name: &str,
+    staging: &Staging,
+    received: &Path,
+    manifest: &Manifest,
+    mac: &BTreeMap<String, MacStat>,
+    plan: &mut Plan,
+) -> anyhow::Result<Vec<Value>> {
+    let mut by_repo: BTreeMap<String, Vec<Change>> = BTreeMap::new();
+    let mut add = |path: &str, file: Option<PathBuf>| {
+        let Some(repo) = repository_of(manifest, path) else { return };
+        let inside =
+            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        by_repo.entry(repo).or_default().push(Change { path: path.to_owned(), inside, file });
+    };
+    for write in plan.writes.iter().filter(|w| w.kind == Kind::File) {
+        add(&write.path, Some(received.join(&write.path)));
+    }
+    for delete in plan.deletes.iter().filter(|d| d.kind == Kind::File) {
+        add(&delete.path, None);
+    }
+    for conflict in plan.conflicts.iter().filter(|c| c.beside) {
+        let file = received.join(&conflict.path);
+        if file.is_file() {
+            add(&conflict.path, Some(file));
+        }
+    }
+    let mut diffs = Vec::new();
+    let mut merged: Vec<(String, u32)> = Vec::new();
+    for (number, (repo, changes)) in by_repo.into_iter().enumerate() {
+        let folder = if repo.is_empty() { root.to_path_buf() } else { root.join(&repo) };
+        let Some(dirs) = GitDirs::of(&folder).ok().flatten() else { continue };
+        if !git_base_known(root, manifest, &repo, &dirs) {
+            continue;
+        }
+        let Ok(base) = git_back::checked(git_back::local(&folder).args([
+            "rev-parse",
+            "-q",
+            "--verify",
+            "HEAD^{commit}",
+        ])) else {
+            continue;
+        };
+        let base = String::from_utf8_lossy(&base).trim().to_owned();
+        let index = staging.0.join(format!("diff-index-{number}"));
+        let git = |args: &[&str]| {
+            let mut command = git_back::local(&folder);
+            command.env("GIT_INDEX_FILE", &index).args(args);
+            command
+        };
+        git_back::checked(&mut git(&["read-tree", &base]))?;
+        for change in &changes {
+            match &change.file {
+                Some(file) => {
+                    let id = git_back::checked(
+                        git_back::local(&folder)
+                            .args(["hash-object", "-w", "--no-filters"])
+                            .arg(file),
+                    )?;
+                    let id = String::from_utf8_lossy(&id).trim().to_owned();
+                    let exec = std::fs::metadata(file)
+                        .map(|meta| meta.mode() & 0o111 != 0)
+                        .unwrap_or(false);
+                    let mode = if exec { "100755" } else { "100644" };
+                    let info = format!("{mode},{id},{}", change.inside);
+                    git_back::checked(&mut git(&["update-index", "--add", "--cacheinfo", &info]))?;
+                }
+                None => {
+                    git_back::checked(&mut git(&[
+                        "update-index",
+                        "--force-remove",
+                        "--",
+                        &change.inside,
+                    ]))?;
+                }
+            }
+        }
+        let tree = git_back::checked(&mut git(&["write-tree"]))?;
+        let tree = String::from_utf8_lossy(&tree).trim().to_owned();
+        let patch = git_back::checked(git_back::local(&folder).args([
+            "diff",
+            "--binary",
+            "--no-renames",
+            "--no-color",
+            &base,
+            &tree,
+        ]))?;
+        let kept = records_dir()?.join("back");
+        std::fs::create_dir_all(&kept)?;
+        let patch_path = kept.join(format!("{name}-{number}.patch"));
+        std::fs::write(&patch_path, &patch)?;
+        diffs.push(json!({"repo": if repo.is_empty() { "." } else { repo.as_str() }, "base": base,
+                          "patch": patch_path, "files": changes.len()}));
+
+        // The preflight's three-way for paths this Mac changed too.
+        for change in &changes {
+            let Some(conflict) = plan.conflicts.iter().find(|c| c.path == change.path) else {
+                continue;
+            };
+            if conflict.why != way_back::Why::ChangedOnMac {
+                continue;
+            }
+            let (Some(file), Some(now)) = (&change.file, mac.get(&change.path)) else { continue };
+            let spec = format!("{base}:{}", change.inside);
+            let Ok(base_bytes) =
+                git_back::checked(git_back::local(&folder).args(["cat-file", "blob", &spec]))
+            else {
+                continue;
+            };
+            let base_file = staging.0.join(format!("merge-base-{}", merged.len()));
+            std::fs::write(&base_file, &base_bytes)?;
+            let output = git_back::local(&folder)
+                .args([
+                    "merge-file",
+                    "-p",
+                    "--quiet",
+                    "-L",
+                    "this Mac",
+                    "-L",
+                    "base",
+                    "-L",
+                    "machine",
+                ])
+                .arg(root.join(&change.path))
+                .arg(&base_file)
+                .arg(file)
+                .output()
+                .context("cannot run git")?;
+            if output.status.code() == Some(0) {
+                std::fs::write(file, &output.stdout)?;
+                merged.push((change.path.clone(), now.mode));
+            }
+        }
+    }
+    for (path, mode) in merged {
+        plan.conflicts.retain(|c| c.path != path);
+        plan.writes.push(way_back::Write {
+            path,
+            kind: Kind::File,
+            mode,
+            link: None,
+            replaces: Some(Kind::File),
+        });
+    }
+    plan.writes.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(diffs)
 }
 
 /// This Mac's path, stat'ed without following a link at its end; None when missing.

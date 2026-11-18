@@ -142,6 +142,7 @@ fn folder(at: &Path, files: usize) {
         write(&repo.join(format!("src/m{index:02}.rs")), &format!("fn f{index}() {{}}\n"));
     }
     write(&repo.join(".gitignore"), "target/\n");
+    write(&repo.join("src/long.rs"), "// one\n// two\n// three\n// four\n// five\n");
     write(&repo.join("README.md"), "# app\n");
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "init"]);
@@ -151,6 +152,14 @@ fn folder(at: &Path, files: usize) {
             &format!("note {index}\n"),
         );
     }
+}
+
+/// A sparse 21 GiB disk image (no disk spent) that puts `at` past the copy's limits, so a start
+/// projects it.
+fn past_the_limits(at: &Path) {
+    let image = at.join("Downloads/disk.img");
+    std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+    std::fs::File::create(&image).unwrap().set_len(21 * 1024 * 1024 * 1024).unwrap();
 }
 
 /// `cmux link start-chat copy` of `local`, projection on or off: the machine's folder.
@@ -263,6 +272,7 @@ fn edits_on_a_projected_folder_come_back_and_nothing_else_changes() {
     }
     let w = world(300);
     let state = w.base.join("state");
+    past_the_limits(&w.local);
     let remote = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
     let upper_state = projection_state(&remote);
     assert!(upper_state.is_dir(), "{} holds the upper layer", upper_state.display());
@@ -281,7 +291,9 @@ fn edits_on_a_projected_folder_come_back_and_nothing_else_changes() {
     // `git status` refreshes the index's stat data only (hard case 13); `git add` stages one.
     git(&app, &["status", "--short"]);
     git(&app, &["add", "src/new.rs"]);
+    write(&app.join("src/long.rs"), "// one\n// two\n// three\n// four\n// five, machine\n");
     // Meanwhile on the Mac: an edit the machine also made, and one it did not.
+    write(&w.local.join("app/src/long.rs"), "// one, mac\n// two\n// three\n// four\n// five\n");
     write(&w.local.join("notes/d0001/f000100.md"), "the Mac's version\n");
     write(&w.local.join("notes/d0002/f000200.md"), "the Mac's own edit\n");
 
@@ -306,6 +318,28 @@ fn edits_on_a_projected_folder_come_back_and_nothing_else_changes() {
         Some("the machine's version\n")
     );
     assert_eq!(read("notes/d0002/f000200.md").as_deref(), Some("the Mac's own edit\n"));
+    // Changed on both, different lines: merged three-way against the base commit.
+    assert_eq!(
+        read("app/src/long.rs").as_deref(),
+        Some("// one, mac\n// two\n// three\n// four\n// five, machine\n"),
+        "{answer}"
+    );
+    // The report and the diff against the base commit.
+    assert_eq!(answer["report"]["conflicted"], json!(["notes/d0001/f000100.md"]), "{answer}");
+    let skipped = answer["report"]["skipped"].as_array().unwrap();
+    assert!(skipped.contains(&json!("app/target")), "{answer}");
+    assert!(skipped.iter().all(|p| p.as_str().unwrap().starts_with("app/target")), "{answer}");
+    let applied = answer["report"]["applied"].as_array().unwrap();
+    assert!(
+        applied.contains(&json!("app/src/long.rs")) && applied.contains(&json!("app/src/m01.rs"))
+    );
+    let diff = &answer["diffs"][0];
+    assert_eq!(diff["repo"], "app", "{answer}");
+    let patch = std::fs::read_to_string(diff["patch"].as_str().unwrap()).unwrap();
+    assert!(
+        patch.contains("+fn f0() { /* machine */ }") && patch.contains("+// five, machine"),
+        "{patch}"
+    );
     // The staged file came back staged; the stat-only index refresh did nothing more.
     let staged = git(local.join("app").as_path(), &["diff", "--cached", "--name-only"]);
     assert_eq!(staged.trim(), "src/new.rs", "{answer}");
@@ -324,6 +358,7 @@ fn a_git_conflict_brings_nothing_back_and_keeps_the_upper_layer() {
     }
     let w = world(10);
     let state = w.base.join("state");
+    past_the_limits(&w.local);
     let remote = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
     let app = remote.join("app");
     write(&app.join("src/m00.rs"), "fn f0() { /* machine */ }\n");
@@ -380,6 +415,9 @@ fn a_bench_of_bring_back() {
         let local = w.base.join(if projected { "Folder-p" } else { "Folder-c" });
         let copied = Command::new("cp").arg("-a").arg(&w.local).arg(&local).status().unwrap();
         assert!(copied.success());
+        if projected {
+            past_the_limits(&local);
+        }
         let remote = start_chat(&state, &w.socket, &local, &work, projected);
         fifty_edits(&remote, files);
         let (answer, took) = bring_back(&state, &w.socket, &local, &remote);
