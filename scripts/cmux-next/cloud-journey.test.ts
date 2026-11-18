@@ -408,6 +408,9 @@ describe("cloud journey: Claude login route (cmux#40159)", () => {
     expect(startsOnLaunchCredential({ ...base, gatewayAny: true })).toBe(false);
     expect(startsOnLaunchCredential({ ...base, startVia: "app" })).toBe(false);
     expect(startsOnLaunchCredential({ ...base, login: "" })).toBe(false);
+    // A --preclaim-login run measures the spare.ready copy itself.
+    expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
   });
 });
 
