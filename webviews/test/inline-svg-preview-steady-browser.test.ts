@@ -46,19 +46,12 @@ await requireBrowserLane("inline-svg-preview-steady-browser.test.ts", async () =
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width, height: 640 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, frame: "component", width })}`);
+    // The stage writes its load report once the page has settled (the frame's height report included).
     await page.waitForFunction(
       () => Boolean((window as unknown as { cmuxGalleryLoadReport?: unknown }).cmuxGalleryLoadReport),
       undefined,
-      {
-        timeout: 90_000,
-      },
+      { timeout: 90_000 },
     );
-    // The frame reports its height after it loads; give it the time it takes on a busy runner.
-    await page.waitForFunction(() => {
-      const frames = [...document.querySelectorAll<HTMLIFrameElement>(".cv-inline-preview iframe")];
-      return frames.length > 0;
-    });
-    await page.waitForTimeout(1_000);
     const report = (await page.evaluate(
       () => (window as unknown as { cmuxGalleryLoadReport: Load }).cmuxGalleryLoadReport,
     )) as Load;
