@@ -1,4 +1,4 @@
-import CmuxNextActions
+public import CmuxNextActions
 import CmuxNextDesign
 public import CmuxNextSidebar
 
@@ -19,6 +19,13 @@ extension SidebarTransientItem {
             let symbol = row.symbol ?? descriptor.map(\.symbol).flatMap { $0.isEmpty ? nil : $0 } ?? "circle"
             return SidebarTransientItem(id: LayoutItemID(navPrefix + row.action), info: SidebarItemInfo(title: title, symbol: symbol))
         }
+    }
+
+    /// Runs a nav block item's action, as a person's click; false for any other item.
+    public static func activateNav(_ id: LayoutItemID, registry: ActionRegistry) -> Bool {
+        guard let action = navAction(id) else { return false }
+        _ = registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
+        return true
     }
 
     /// The action a nav block item runs, or nil for any other item.
