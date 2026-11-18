@@ -2008,6 +2008,10 @@ function TranscriptView({
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
   const followingRef = useRef(true);
+  /// Tells the client the oldest row in view (`keepFromInView`, below). The view following again tells it at once,
+  /// in the same turn: the client sheds while it follows (direct.ts `setFollowing`), and a record that came before
+  /// the next commit shed by the count alone, cutting the rows on screen (#44776 F1).
+  const keepFromNow = useRef<() => void>(() => {});
   const followDeferred = useRef(false);
   /// A send or a move toward the latest row asks to follow now, through the input hold that defers
   /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
@@ -2036,7 +2040,9 @@ function TranscriptView({
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
     if (next) heldPlace.current = undefined;
+    const was = followingRef.current;
     followingRef.current = next;
+    if (next && !was) keepFromNow.current();
     onFollowingChange?.(next);
     setFollowing(next);
   };
@@ -2093,7 +2099,9 @@ function TranscriptView({
     if (atLatest && !followingRef.current) reachedLatest();
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
+    const was = followingRef.current;
     followingRef.current = atLatest;
+    if (atLatest && !was) keepFromNow.current();
     onFollowingChange?.(atLatest);
     // The pacer may already have committed this offset (a frame-driven scroll moves it before its
     // event comes): an event that brings no new offset keeps the direction the scroll has. Its delta
@@ -6945,6 +6953,7 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
+    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
