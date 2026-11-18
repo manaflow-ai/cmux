@@ -256,7 +256,7 @@ final class CEFRuntime {
         let gate = initializeAfter
         let resources = Bundle.main.resourceURL
         let mark = launchMark
-        let task = Task.detached(priority: .utility) { () -> CEFLaunchPrep in
+        let task = Task.detached(priority: .userInitiated) { () -> CEFLaunchPrep in
             _ = await CEFRuntime.waitForInitializeGate(gate)
             mark("app.r1.cef_prep_start")
             let prep = CEFLaunchPrep(preparing: storage, resources: resources)
@@ -431,7 +431,7 @@ final class CEFRuntime {
         launchMark("app.r1.cef_preload")
         state = .loading
         preloaded = true
-        let task = newLoadTask(candidate, priority: .utility)
+        let task = newLoadTask(candidate, priority: .userInitiated)
         loadTask = task
         // The reads before CefInitialize (profile root, the kept log, the person's ad blocker) start when the first
         // frame commits, off the main thread, before any page's start needs them (CMUX-571).
