@@ -4,7 +4,8 @@ public import Foundation
 
 /// POSTs install-auth JSON to the API Worker at `baseURL`. Redirects are
 /// refused (a bearer or a signed challenge never follows one), and nothing
-/// is cached.
+/// is cached. A read, the challenge and a keyed op get a new socket when
+/// their connection goes nowhere (``CloudConnectHedge``).
 public struct InstallHTTPTransport: InstallAuthTransport {
     private let baseURL: URL
     private let session: URLSession
@@ -22,12 +23,13 @@ public struct InstallHTTPTransport: InstallAuthTransport {
     }
 
     public func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
-        let (data, response) = try await session.data(for: try postRequest(path, json: json, bearer: bearer, headers: headers))
+        let (data, response) = try await CloudConnectHedge().data(for: try postRequest(path, json: json, bearer: bearer, headers: headers),
+                                                                  on: session)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 
     public func get(_ path: String, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
-        let (data, response) = try await session.data(for: getRequest(path, bearer: bearer, headers: headers))
+        let (data, response) = try await CloudConnectHedge().data(for: getRequest(path, bearer: bearer, headers: headers), on: session)
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
     }
 

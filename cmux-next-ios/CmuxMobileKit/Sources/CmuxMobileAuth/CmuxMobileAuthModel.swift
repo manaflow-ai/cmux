@@ -61,6 +61,9 @@ public final class CmuxMobileAuthModel {
     public let buildSpace: CMUXBuildSpaceState
     /// Where Create Team goes (``TeamCreationRoute``): the cmux team API for production accounts.
     @ObservationIgnored let teamCreationRoute: TeamCreationRoute
+    /// DEBUG `CMUX_MOBILE_BILLING_ORIGIN`: the cmux web origin for App Store plans in a
+    /// development build (``TeamCreationRoute/billingOrigin(launchOverride:)``). Nil otherwise.
+    @ObservationIgnored let billingOriginOverride: String?
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
     /// The Stack project this build signs in to: the Cloud derives its user and team ids from it
@@ -75,8 +78,9 @@ public final class CmuxMobileAuthModel {
 
     init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil,
          teamCreationRoute: TeamCreationRoute? = nil, isMock: Bool, stackProjectID: String? = nil,
-         buildSpace: CMUXBuildSpaceState = .nightly) {
+         billingOriginOverride: String? = nil, buildSpace: CMUXBuildSpaceState = .nightly) {
         self.stackProjectID = stackProjectID
+        self.billingOriginOverride = billingOriginOverride
         self.buildSpace = buildSpace
         self.coordinator = coordinator
         self.stack = stack
@@ -190,6 +194,7 @@ public final class CmuxMobileAuthModel {
         )
         let model = CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
                                         teamCreationRoute: teamCreationRoute, isMock: false, stackProjectID: config.stack.projectId,
+                                        billingOriginOverride: isDebug ? environment["CMUX_MOBILE_BILLING_ORIGIN"] : nil,
                                         buildSpace: buildSpace)
         // The welcome screen says why this build's cloud never answers.
         model.errorMessage = buildSpace.refusal?.localizedDescription
@@ -492,9 +497,11 @@ public final class CmuxMobileAuthModel {
     /// The cmux web origin that sells and verifies App Store plans
     /// (`<origin>/api/billing/apple/*`, `docs/billing/ios-in-app-purchases.md`):
     /// only for accounts of the production Stack project, the one cmux.com
-    /// signs in to. Nil (no Plan row) in mock, DEBUG and staging builds.
+    /// signs in to. Nil (no Plan row) in mock, DEBUG and staging builds, unless a DEBUG
+    /// build names one with `CMUX_MOBILE_BILLING_ORIGIN` (a development-project origin such as
+    /// staging, for Sandbox purchase testing).
     public var billingAPIBase: URL? {
-        isMock ? nil : teamCreationRoute.billingOrigin
+        isMock ? nil : teamCreationRoute.billingOrigin(launchOverride: billingOriginOverride)
     }
 
     /// Builds the app's one App Store billing model over this account's Stack
