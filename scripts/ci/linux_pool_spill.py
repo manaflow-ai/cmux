@@ -30,7 +30,17 @@ Each pass it
   `_spill`. It comes back once the member it left shows a drain on a complete sample (nothing waited, at most
   SPILL_RETURN_QUEUED queued, at most SPILL_RETURN_SHARE of what it ran when the pool left) after SPILL_MIN_HOLD,
   or when the target backs up while the member left does not, or after SPILL_MAX_HOLD in any case: if the member
-  is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour;
+  is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour.
+  linux_16 (gallery health's shards, compiles, large suites) spills the same way, and when both its members are
+  backed up it also spills down to main's release valve for it (DOWN_SPILL_FLOOR, has_room()): a smaller size whose
+  oldest sampled job waited at most DOWN_ROOM_OLDEST minutes and a quarter of linux_16's own oldest;
+- opens or closes the hosted-first release valve (valve_choice()): the declared hosted light jobs (.github/runners.json
+  `hosted_light_jobs`: routers, resolvers, report steps) take GitHub-hosted `ubuntu-24.04` on attempt 1. When
+  VALVE_ON_WAITED or more sampled jobs on that label have waited WAITED_MINUTES, GitHub-hosted is saturated, and
+  RUNNER_POOLS' VALVE_KEY records since when; each such job's runs-on reads it ahead of its hosted branch
+  (`github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2`)
+  and takes the smallest live Linux pool instead. It closes after VALVE_MIN_HOLD once a sample shows at most
+  VALVE_OFF_WAITED waited there; with no mark every job keeps hosted-first, the default;
 - writes RUNNER_POOLS and the LINUX_RUNNER mirror (main's mirror_writes(), so the overflow switch's record still
   wins) only when something changed.
 
@@ -59,8 +69,30 @@ import runner_pool_reconcile  # noqa: E402  (load_policy(): main's policy, never
 UTC = dt.timezone.utc
 VARIABLE = "RUNNER_POOLS"
 SPILL_KEY = "_spill"
-QUEUE_AWARE_POOLS = ("linux",)
+QUEUE_AWARE_POOLS = ("linux", "linux_16")
+# A pool here also spills down, to main's release valve for it (runner_pools.valve_labels(): the smaller x64 sizes,
+# largest first), no smaller than this many vCPU. On 2026-11-18 at 02:58Z gallery health's shards (linux_16) waited
+# 16,431 s at p90 over 2 h with 16 and 32 vCPU both hours deep, while 8 vCPU started jobs in a p50 of 646 s. The linux
+# pool does not: its valve is 2 vCPU, the hosted-first valve's target.
+DOWN_SPILL_FLOOR = {"linux_16": 4}
+# A down target has room when the oldest sampled job waiting for it waited at most DOWN_ROOM_OLDEST minutes and at
+# most 1/DOWN_ROOM_RATIO of the pool's own oldest: a smaller size is slower, so it must be much sooner to start.
+DOWN_ROOM_OLDEST = 30
+DOWN_ROOM_RATIO = 4
+VCPU = re.compile(r"^blacksmith-([0-9]+)vcpu-")
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
+# GitHub-hosted Ubuntu, sampled beside the Blacksmith sizes for the hosted-first valve (valve_choice()).
+HOSTED_LABEL = re.compile(r"^ubuntu-[0-9]+\.[0-9]+$")
+# The label every declared hosted light job asks for on attempt 1 (scripts/ci/runner_routing_table.py).
+HOSTED_LIGHT_LABEL = "ubuntu-24.04"
+# The hosted-first release valve. On 2026-11-17/18 GitHub-hosted held 2,500+ queued jobs in this repository; jobs
+# that finished there between 01:40Z and 02:10Z on 11-18 had waited a median 10,768 s (166 jobs), while
+# blacksmith-2vcpu-ubuntu-2404 started its 727 jobs in a median 23 s. Every pull request's `changes` router waited
+# in that queue, so its required checks never started.
+VALVE_KEY = "hosted_saturated"
+VALVE_ON_WAITED = 10
+VALVE_OFF_WAITED = 2
+VALVE_MIN_HOLD = dt.timedelta(minutes=60)
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
 # The sample: runs in flight created WAITED_MINUTES to SAMPLE_WINDOW ago, at most MAX_RUNS of them.
@@ -77,6 +109,8 @@ SPILL_MAX_HOLD = dt.timedelta(minutes=60)
 SPILL_RETURN_QUEUED = 5
 SPILL_RETURN_SHARE = 0.7
 COMPLETE = "_complete"
+# Label -> minutes the oldest sampled queued job has waited.
+OLDEST = "_oldest"
 ZERO = {"queued": 0, "running": 0, "waited": 0}
 
 
@@ -141,6 +175,7 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             weight[run["id"]] = population / len(found)
         recent += found
     counts: dict[str, dict[str, float]] = {}
+    oldest: dict[str, float] = {}
     for run in recent:
         try:
             jobs = client.jobs(run["id"])
@@ -154,7 +189,8 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             status = job.get("status")
             if status not in ("queued", "in_progress"):
                 continue
-            label = next((str(label) for label in job.get("labels") or () if LINUX_LABEL.match(str(label))), None)
+            label = next((str(label) for label in job.get("labels") or ()
+                          if LINUX_LABEL.match(str(label)) or HOSTED_LABEL.match(str(label))), None)
             if label is None:
                 continue
             entry = counts.setdefault(label, {key: 0.0 for key in ZERO})
@@ -165,8 +201,11 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             created = parse_time(job.get("created_at"))
             if created is not None and now - created >= dt.timedelta(minutes=WAITED_MINUTES):
                 entry["waited"] += weight[run["id"]]
+            if created is not None:
+                oldest[label] = max(oldest.get(label, 0.0), (now - created).total_seconds() / 60)
     load: dict[str, Any] = {label: {key: round(value) for key, value in entry.items()} for label, entry in counts.items()}
     load[COMPLETE] = complete
+    load[OLDEST] = {label: round(minutes) for label, minutes in oldest.items()}
     return load
 
 
@@ -179,10 +218,38 @@ def valid_spill(spill: object, listed: Sequence[str]) -> bool:
             and isinstance(running, int) and not isinstance(running, bool) and running >= 0)
 
 
+def spill_candidates(name: str, listed: Sequence[str], valves: Sequence[str]) -> list[str]:
+    """Where a pool may spill: its members, then (DOWN_SPILL_FLOOR pools only) main's release valve for it, largest
+    first, down to the floor."""
+    floor = DOWN_SPILL_FLOOR.get(name)
+    if floor is None:
+        return list(listed)
+    down = [label for label in valves if label not in listed
+            and (size := VCPU.match(label)) is not None and int(size.group(1)) >= floor]
+    return [*listed, *down]
+
+
+def has_room(member: str, members: Sequence[str], base: str, load: Mapping[str, Any]) -> bool:
+    """Whether a backed-up pool on `base` may spill to `member`: a declared member with at most SPILL_ROOM_WAITED
+    waited, or a down target (main's release valve) whose oldest sampled queued job waited at most DOWN_ROOM_OLDEST
+    minutes and 1/DOWN_ROOM_RATIO of `base`'s oldest. A size with nothing queued in the sample has room."""
+    if load.get(member, ZERO)["waited"] <= SPILL_ROOM_WAITED and member in members:
+        return True
+    if member in members:
+        return False
+    oldest = load.get(OLDEST) if isinstance(load.get(OLDEST), Mapping) else {}
+    took, left = oldest.get(member, 0), oldest.get(base, 0)
+    return took <= DOWN_ROOM_OLDEST and took * DOWN_ROOM_RATIO <= left
+
+
 def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], base: str,
                  spill: Mapping[str, Any] | None, load: Mapping[str, Any] | None, *,
-                 now: dt.datetime) -> tuple[str, dict[str, Any] | None, list[str]]:
-    """(member, spill record or None, lines) for a pool whose first live member (main's choice) is `base`."""
+                 now: dt.datetime,
+                 members: Sequence[str] | None = None) -> tuple[str, dict[str, Any] | None, list[str]]:
+    """(member, spill record or None, lines) for a pool whose first live member (main's choice) is `base`.
+
+    `candidates` is spill_candidates(): the declared `members` (all of them when None), then any down targets."""
+    members = list(candidates) if members is None else list(members)
     if name not in QUEUE_AWARE_POOLS:
         return base, None, []
     later = candidates[candidates.index(base) + 1:] if base in candidates else []
@@ -217,13 +284,35 @@ def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], 
         if member in dead:
             continue
         room = load.get(member, ZERO)
-        if room["waited"] <= SPILL_ROOM_WAITED:
+        if has_room(member, members, base, load):
             record = {"from": base, "to": member, "since": iso(now), "running": left["running"]}
             return member, record, [f"pools.{name}: {base} backed up ({left['waited']} of {left['queued']} sampled "
                                     f"queued jobs waited {WAITED_MINUTES}+ min, {left['running']} running); "
                                     f"spill to {member} ({room['waited']} waited)"]
     return base, None, [f"pools.{name}: {base} backed up ({left['waited']} sampled jobs waited) and no later live "
                         "member has room; staying"]
+
+
+def valve_choice(since: object, load: Mapping[str, Any] | None, *,
+                 now: dt.datetime) -> tuple[str | None, list[str]]:
+    """(the VALVE_KEY value or None, lines): whether the hosted light jobs leave GitHub-hosted on attempt 1.
+
+    Open (a since-time) while sampled jobs on HOSTED_LIGHT_LABEL back up; closed (None) is hosted-first, the default.
+    An unread sample changes nothing. Once open it holds VALVE_MIN_HOLD, so the jobs it moved off do not read as a
+    drain at once, then closes on a sample with at most VALVE_OFF_WAITED waited there; if hosted backs up again the
+    next pass opens it again."""
+    opened = parse_time(since)
+    hosted = (load or {}).get(HOSTED_LIGHT_LABEL, ZERO)
+    if opened is not None:
+        if load is None or now - opened < VALVE_MIN_HOLD or hosted["waited"] > VALVE_OFF_WAITED:
+            return iso(opened), []
+        return None, [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} drained ({hosted['waited']} sampled jobs waited "
+                      f"{WAITED_MINUTES}+ min, {hosted['queued']} queued); hosted light jobs take it first again"]
+    if load is None or hosted["waited"] < VALVE_ON_WAITED:
+        return None, []
+    return iso(now), [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} saturated ({hosted['waited']} of "
+                      f"{hosted['queued']} sampled queued jobs waited {WAITED_MINUTES}+ min); hosted light jobs take "
+                      "the linux_2 pool on attempt 1"]
 
 
 class Recorder:
@@ -285,12 +374,14 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
     for name in QUEUE_AWARE_POOLS:
         if name not in pools or name not in value:
             continue
-        listed = policy.members(pools[name])
+        members = policy.members(pools[name])
+        valves = getattr(policy, "valve_labels", lambda spec, pools: [])(pools[name], pools)
+        listed = spill_candidates(name, members, valves)
         spill = spills.get(name)
         if spill is not None and not valid_spill(spill, listed):
             lines.append(f"{VARIABLE}.{SPILL_KEY}.{name} is not a spill between two of its members; dropped")
             spill = None
-        member, record, said = spill_choice(name, listed, dead, value[name], spill, load, now=now)
+        member, record, said = spill_choice(name, listed, dead, value[name], spill, load, now=now, members=members)
         lines += said
         if member != value[name]:
             lines.append(f"pools.{name}: {value[name]} -> {member}")
@@ -301,6 +392,13 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         value[SPILL_KEY] = kept
     else:
         value.pop(SPILL_KEY, None)
+    # main's parse_value() keeps only the pools, `_dead` and `_updated`, so the valve is carried from the raw value.
+    valve, said = valve_choice(previous.get(VALVE_KEY) if isinstance(previous, Mapping) else None, load, now=now)
+    lines += said
+    if valve is not None:
+        value[VALVE_KEY] = valve
+    else:
+        value.pop(VALVE_KEY, None)
     return value, lines
 
 
