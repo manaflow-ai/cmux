@@ -46,8 +46,10 @@ import Testing
         var slots = Self.slots(n)
         let before = slots.tops
         let changed = n - 5
-        #expect(slots.set(changed, extent: 56))
-        #expect(!slots.set(changed, extent: 56))
+        let first = slots.set(changed, extent: 56)
+        #expect(first)
+        let again = slots.set(changed, extent: 56)
+        #expect(!again)
         slots.restack(from: changed)
         #expect(Array(slots.tops[..<(changed + 1)]) == Array(before[..<(changed + 1)]))
         #expect(slots.tops[changed + 1] == before[changed + 1] + 28)
