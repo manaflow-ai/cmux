@@ -13,8 +13,14 @@
 //! turn.
 //!
 //! The same output rule also holds a `working` state through a read that
-//! lands between two parts of a redraw. That hold stays: the last row here
-//! guards it.
+//! lands between two parts of a redraw. That hold stays: one row here guards
+//! it.
+//!
+//! Two more rows hold the edges of that rule. After a `blocked` report the
+//! output still reads as work one time, and the state is then `idle`. And an
+//! agent with no hook, whose turn starts on its idle prompt, reads `working`
+//! at the first read that matches its working rule: at most one read
+//! interval after the first frame that shows it.
 
 use std::time::{Duration, Instant};
 
@@ -167,5 +173,107 @@ fn a_read_between_two_parts_of_a_redraw_does_not_end_a_working_turn() {
         emitted,
         [(0_u64, AgentState::Working)],
         "a read of the prompt with no spinner ended a turn that still prints"
+    );
+}
+
+/// Claude Code asking to run a command: a blocker, and no prompt box.
+const CLAUDE_ASKS: &str = "⏺ Bash(rm -rf build)\n\n Bash command\n\n   rm -rf build\n\n \
+     Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend\n";
+
+/// The answer to the question: the idle prompt comes back in one redraw.
+const ANSWER_AT_MS: u64 = 3_200;
+/// One more redraw of the idle prompt, long after the answer.
+const LATER_REDRAW_AT_MS: u64 = 5_000;
+
+/// The first frame of a turn that shows the spinner: one tick after the read
+/// of the turn's first output, the worst case for the next read.
+const FIRST_WORKING_FRAME_MS: u64 = OUTPUT_AT_MS + TICK_MS;
+/// The tracker's pace on a screen that does not go quiet.
+const READ_INTERVAL_MS: u64 = 1_000;
+
+/// Drives the tracker over `frame`, which answers the screen and the output
+/// revision at each time. Answers each emitted state with its time in ms
+/// from the start.
+fn drive_frames(agent: &str, frame: impl Fn(u64) -> (String, u64)) -> Vec<(u64, AgentState)> {
+    let manifest =
+        ManifestSet::bundled().manifests().find(|m| m.id() == agent).expect("bundled manifest");
+    let mut tracker = ScreenDetectTracker::default();
+    let start = Instant::now();
+    let mut emitted = Vec::new();
+    for ms in (0..END_MS).step_by(TICK_MS as usize) {
+        let now = start + Duration::from_millis(ms);
+        tracker.observe_size(TERMINAL, 120, 40, now);
+        let (screen, revision) = frame(ms);
+        if !tracker.observe_revision(TERMINAL, revision, now) {
+            continue;
+        }
+        let mut detection =
+            manifest.detect(DetectionInput { screen: &screen, osc_title: "", osc_progress: "" });
+        tracker.apply_output_activity(TERMINAL, &mut detection, now);
+        if let Some(emission) =
+            tracker.record_detection_at(TERMINAL, Some((agent, detection)), now, false, false)
+        {
+            emitted.push((ms, emission.state));
+        }
+    }
+    emitted
+}
+
+/// After a `blocked` report the output's age still makes `working`: a person
+/// answers the question, the agent goes on, and a read can see the prompt
+/// before the spinner. Here the agent does not go on. That is one `working`
+/// and one `idle` report; the state is then `idle`, and a later redraw of
+/// the prompt makes no report.
+#[test]
+fn after_blocked_one_redraw_makes_at_most_one_working_and_one_idle_report() {
+    assert_eq!(read("claude", CLAUDE_ASKS), (Some("bash_permission_prompt".to_owned()), false));
+    let emitted = drive_frames("claude", |ms| {
+        if ms < ANSWER_AT_MS {
+            (CLAUDE_ASKS.to_owned(), 1)
+        } else if ms < LATER_REDRAW_AT_MS {
+            (CLAUDE_IDLE.to_owned(), 2)
+        } else {
+            (CLAUDE_IDLE.to_owned(), 3)
+        }
+    });
+    assert_eq!(emitted.first(), Some(&(0_u64, AgentState::Blocked)), "{emitted:?}");
+    let after: Vec<AgentState> =
+        emitted.iter().filter(|(ms, _)| *ms >= ANSWER_AT_MS).map(|(_, state)| *state).collect();
+    assert_eq!(
+        after,
+        [AgentState::Working, AgentState::Idle],
+        "the reports from the answer on: {emitted:?}"
+    );
+}
+
+/// An agent with no hook starts a turn. The turn's first output is a frame
+/// with the prompt and no spinner; the tracker reads it at once and it stays
+/// `idle`. The `working` report comes at the first read that matches the
+/// working rule: at most one read interval after the first frame that shows
+/// the spinner.
+#[test]
+fn the_start_of_a_turn_is_reported_within_one_read_interval() {
+    let emitted = drive_frames("claude", |ms| {
+        if ms < OUTPUT_AT_MS {
+            (CLAUDE_IDLE.to_owned(), 1)
+        } else if ms < FIRST_WORKING_FRAME_MS {
+            (claude_turn(0, false), 2)
+        } else {
+            let frame = (ms - FIRST_WORKING_FRAME_MS) / 100;
+            (claude_turn(frame, true), frame + 3)
+        }
+    });
+    let states: Vec<AgentState> = emitted.iter().map(|(_, state)| *state).collect();
+    assert_eq!(states, [AgentState::Idle, AgentState::Working], "{emitted:?}");
+    let working_at = emitted[1].0;
+    assert!(
+        working_at >= FIRST_WORKING_FRAME_MS,
+        "working at {working_at} ms, before a frame showed work: {emitted:?}"
+    );
+    let latency = working_at - FIRST_WORKING_FRAME_MS;
+    println!("turn-start timing: claude reads working {latency} ms after the first working frame");
+    assert!(
+        latency <= READ_INTERVAL_MS,
+        "working {latency} ms after the first working frame, over one read interval: {emitted:?}"
     );
 }
