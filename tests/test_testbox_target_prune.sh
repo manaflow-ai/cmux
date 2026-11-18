@@ -67,10 +67,25 @@ touch -d '5 days ago' "$keep/release"
 out="$("$prune" "$keep" 100000 3 aarch64-unknown-linux-musl)" || fail "the prune failed with only the kept entry over the bound"
 [[ -f "$keep/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept entry was removed when it alone is over the bound"
 [[ ! -e "$keep/debug" ]] || fail "an entry beside the kept one survived over the bound"
-grep -Eq '^prune: still over the bound with only aarch64-unknown-linux-musl left \([0-9]+ bytes, bound 100000\); nothing more is removed$' <<<"$out" \
-  || fail "no line says the kept entry alone is over the bound"
+said="$(grep -Ec '^prune: still over the bound with only aarch64-unknown-linux-musl left \([0-9]+ bytes, bound 100000\); nothing more is removed$' <<<"$out" || true)"
+[[ "$said" == 1 ]] || fail "$said lines say the kept entry alone is over the bound, not 1"
+
+# A kept name that is not one entry name is refused before anything goes.
+for bad in .. a/b -x; do
+  rc=0
+  "$prune" "$keep" 1 3 "$bad" >/dev/null 2>&1 || rc=$?
+  [[ "$rc" == 2 ]] || fail "the kept name '$bad' gave exit $rc, not 2"
+  [[ -f "$keep/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept name '$bad' removed an entry"
+done
+
+# A kept name that is not in the dir protects nothing, and no line names it.
+out="$("$prune" "$keep" 100000 3 no-such-entry)" || fail "the prune failed with a kept name that is not in the dir"
+[[ ! -e "$keep/aarch64-unknown-linux-musl" ]] || fail "a kept name that is not in the dir protected another entry"
+said="$(grep -c 'still over the bound' <<<"$out" || true)"
+[[ "$said" == 0 ]] || fail "a line names a kept entry that is not in the dir"
 
 # Without a kept name the old rule holds: that same entry goes (the Testbox).
+fill "$keep/aarch64-unknown-linux-musl/release/cmux-tui" 300000
 "$prune" "$keep" 100000 3 >/dev/null
 [[ ! -e "$keep/aarch64-unknown-linux-musl" ]] || fail "without a kept name the oldest entry survived"
 
