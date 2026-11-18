@@ -239,7 +239,8 @@
   box-sizing: border-box;
   max-width: 70%;
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
+  /* --cv-user-bubble-radius: a look's corner (schemas/agent-pane/style-tokens.json, paint only). */
+  border-radius: var(--cv-user-bubble-radius, calc(3 * var(--grid-base) * var(--cv-bubble-scale)));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -259,17 +260,18 @@
 .cv-user__bubble {
   /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
      outline is removed. The fill remains liquid glass; it is not a solid message plate. */
-  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* --cv-user-bubble-tint and --cv-user-bubble-edge: a look's fill and hairline (style-tokens.json). */
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--cv-fg) 10%, transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
   /* No rim in any glass mode: the edge is Plain's whole rim, and --glass-rim 0 clears Lens's and
      Spectrum's specular line, lower shade and colour fringes (ui/glass/glass.css --glass-rim-shadow). */
-  --glass-edge: transparent;
+  --glass-edge: var(--cv-user-bubble-edge, transparent);
   --glass-rim: 0;
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--agent-text) 14%, transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
 }

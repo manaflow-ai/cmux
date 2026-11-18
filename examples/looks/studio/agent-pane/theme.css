@@ -1,0 +1,14 @@
+/* Studio's chat: a boxed prompt with a hairline, square-ish corners, and quiet cards.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-user-bubble-tint: rgb(39 39 42 / 0.72);
+  --cv-user-bubble-edge: rgb(63 63 70 / 0.9);
+  --cv-user-bubble-radius: 8px;
+  --cv-card-fill: rgb(24 24 27 / 0.9);
+  --cv-card-ring: rgb(63 63 70 / 0.7);
+  --cv-text-muted: #a1a1aa;
+  --cv-text-dim: #71717a;
+  --cv-link: #93c5fd;
+  --agent-link: #93c5fd;
+}

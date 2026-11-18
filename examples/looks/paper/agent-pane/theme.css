@@ -1,0 +1,13 @@
+/* Paper's chat: a soft, rounded prompt in a warm tint, no hairline, and cards like a ruled page.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-user-bubble-tint: rgb(232 225 211 / 0.85);
+  --cv-user-bubble-radius: 18px;
+  --cv-card-fill: rgb(244 239 229 / 0.9);
+  --cv-card-ring: rgb(214 203 184 / 0.8);
+  --cv-text-muted: #6b6257;
+  --cv-text-dim: #948a7d;
+  --cv-link: #8a5a2b;
+  --agent-link: #8a5a2b;
+}

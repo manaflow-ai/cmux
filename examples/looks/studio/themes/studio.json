@@ -1,0 +1,25 @@
+// Studio: a near-black, low-contrast workbench. Neutral grays, a hairline between the sidebar and the
+// chat, no wallpaper and no glass, so the transcript and the code read first.
+{
+  "name": "Studio",
+  "description": "Near-black neutral chrome, a hairline sidebar edge, no wallpaper or glass.",
+
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#0b0b0c", "foreground": "#e4e4e7", "selection": "#27272a", "accent": "#a1a1aa" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0e0e10",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0b0b0c",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "lines",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "compact"
+}
