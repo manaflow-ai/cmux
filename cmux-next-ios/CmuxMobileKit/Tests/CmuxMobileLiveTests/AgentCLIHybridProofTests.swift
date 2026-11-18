@@ -39,6 +39,7 @@ import Testing
     /// check it fails is a problem, and one that the rest of the replay cannot go past ends it.
     static func parity(_ name: String) -> ParityReport {
         var report = ParityReport()
+        if Thread.isMainThread { report.problems.append("the parity proof holds the main thread") }
         guard let fixture = HybridParityFixture.load(name) else {
             report.problems.append("\(name): no fixture at \(HybridParityFixture.url(name).path)")
             return report
@@ -220,6 +221,7 @@ import Testing
     /// The 6,000 cases behind `randomFrameStreamsNeverDrawAWrongScreenSilently`, off the
     /// test's executor.
     static func fuzz() -> FuzzReport {
+        let onMain = Thread.isMainThread
         let fixtures = HybridParityFixture.all
         guard fixtures.count == HybridParityFixture.names.count else {
             return FuzzReport(fixtures: fixtures.count, failures: [], line: "HYBRID_PROOF fuzz {\"fixtures\":\(fixtures.count)}")
@@ -386,6 +388,7 @@ import Testing
             if tellable, bad.contains(true), !outcome.fellBack { failures.append("\(caseName): no fallback") }
         }
         let summary = (try? JSONSerialization.data(withJSONObject: tally, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        if onMain { failures.append("6,000 fuzz cases hold the main thread") }
         return FuzzReport(fixtures: fixtures.count, failures: failures,
                           line: "HYBRID_PROOF fuzz {\"cases\":\(cases),\"seed\":\"0x44052C0FFEE07CEE\",\"failures\":\(failures.count),\"tally\":\(summary)}")
     }
