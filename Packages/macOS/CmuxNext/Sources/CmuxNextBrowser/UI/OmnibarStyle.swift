@@ -36,16 +36,8 @@ enum OmnibarStyle {
     /// (Lawrence 2026-10-19: the space above the omnibar row equals the
     /// space below it).
     static func toolbarTopPadding(scale: CGFloat) -> CGFloat {
-        let border = Metrics.paneBorder == .subtle ? (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale) : 0
-        return border + tabGap
-    }
-    /// The extra space above the omnibar row under a tab strip right above it (`omnibarTabGap`, 3 pt at Compact and
-    /// Default; Lucas 2026-11-18: "the bottom of the tab should have an extra 3px"); 0 with the tabs below the toolbar,
-    /// at the bottom or vertical, where the bar heads its pane.
-    static var tabGap: CGFloat {
-        let design = DesignSettings.shared
-        guard design.tabBarPosition == .top, !design.verticalTabs, design.tabBarOrder == .aboveToolbar else { return 0 }
-        return token("omnibarTabGap") ?? 0
+        guard Metrics.paneBorder == .subtle else { return 0 }
+        return (Metrics.paneBorderWidth ?? 1 / max(scale, 1)) + chromeGap(scale: scale)
     }
     /// The toolbar row's content height: the tallest thing in it, the toolbar
     /// buttons beside the omnibar; the omnibar-only row

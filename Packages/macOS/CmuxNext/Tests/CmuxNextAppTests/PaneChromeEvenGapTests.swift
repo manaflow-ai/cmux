@@ -80,11 +80,8 @@ import Testing
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the pills, \(below) pt below")
     }
 
-    /// The omnibar row keeps the chrome's gap below it, and sits 3 pt lower under the tab than that (Lucas
-    /// 2026-11-18: "make the spacing of the tabs the same as helium, this means that the bottom of the tab should have
-    /// an extra 3px"): 6 pt from the active tab to the omnibar at Default and Compact.
     @Test(arguments: ChromeStyle.allCases)
-    func theOmnibarRowSitsThreePointsUnderTheRowsGap(style: ChromeStyle) throws {
+    func theOmnibarRowHasTheSameGapAboveAndBelow(style: ChromeStyle) throws {
         defer { load(nil) }
         load(style)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -106,9 +103,9 @@ import Testing
         let inset = (max(chrome.addressBar.bounds.height, chrome.reloadButton.bounds.height) - chrome.addressBar.bounds.height) / 2
         let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + gap
         let below = page.minY - bar.maxY
-        let underTab: CGFloat = 3
-        #expect(abs(above - (gap + inset + underTab)) <= 0.5, "\(style): \(above) pt above the omnibar, want the gap \(gap) + \(inset) + \(underTab)")
+        #expect(abs(above - (gap + inset)) <= 0.5, "\(style): \(above) pt above the omnibar, the gap is \(gap) + \(inset)")
         #expect(abs(below - (gap + inset)) <= 0.5, "\(style): \(below) pt below the omnibar, the gap is \(gap) + \(inset)")
+        #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
     }
 
     /// The toolbar buttons are the window's one chrome row (a sidebar row and a tab pill tall,
@@ -132,14 +129,14 @@ import Testing
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
         // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`), Compact's 28 at Default on
-        // its 34 pt bar (Lucas 2026-11-18: Compact's padding), centered in the row.
+        // its 34 pt bar (#44875: Compact's padding), centered in the row.
         let row = OmnibarStyle.buttonSize
         #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), want \(row)")
         let centering = (OmnibarStyle.rowContentHeight() - row) / 2
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY
-        #expect(abs(above - (gap + 3 + centering)) <= 0.5, "\(style): \(above) pt above the buttons, want the gap \(gap) + 3 under the tab + \(centering)")
+        #expect(abs(above - (gap + centering)) <= 0.5, "\(style): \(above) pt above the buttons, want the gap \(gap) + \(centering)")
         #expect(abs(below - (gap + centering)) <= 0.5, "\(style): \(below) pt below the buttons, want the gap \(gap) + \(centering)")
     }
 }
