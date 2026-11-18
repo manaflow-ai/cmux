@@ -1776,6 +1776,9 @@ function ComposerFrame({
     onCacheCompact?.(cacheCompact.meta);
     // `/customize …` goes as the ask it stands for (customizeCommand.ts).
     const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
+    // The client took it already (its send reads it first); a path that sent nothing leaves no
+    // choice for a later send to carry.
+    onCacheCompact?.(undefined);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     cacheCompact.sent();

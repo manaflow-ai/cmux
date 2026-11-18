@@ -149,9 +149,11 @@ impl Hub {
             |u: &&Value| u.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update");
         if let Some(update) = update.filter(|u| !replayed && usage(u)) {
             self.cache_compact_on_usage(session, update);
-        } else if update.is_some_and(|u| !replayed && completed_compaction(u)) {
-            Self::cache_compact_disarm(&session.id);
-            // The compacted context has no warm cache yet: the last usage no longer names one,
+        } else if update.is_some_and(completed_compaction) {
+            if !replayed {
+                Self::cache_compact_disarm(&session.id);
+            }
+            // Replayed too (a restart rebuilds the usage from the log). The compacted context has no warm cache yet: the last usage no longer names one,
             // so the next prompt is not compacted again (`return_compact.rs`).
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(acpmux) = m

@@ -29,6 +29,14 @@ const RETURN_MIN_TOKENS_RANGE: (u64, u64) = (20_000, 1_000_000);
 /// How long the person's prompt waits for the compaction to take the turn: it records at once,
 /// so this bounds only a stuck admission.
 const ACCEPT_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+/// The prompt id prefix of the compaction, which names its turn (`TurnInfo::prompt_id`).
+const PROMPT_PREFIX: &str = "return-compact-";
+/// The chats whose compaction was sent and has not yet taken its turn or been refused.
+static STARTING: std::sync::LazyLock<StdMutex<HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+/// The settings file's modification times when [`read_min_tokens`] last read it, and what it read.
+type Cached = Option<(Vec<Option<std::time::SystemTime>>, Option<u64>)>;
+static READ: std::sync::LazyLock<StdMutex<Cached>> = std::sync::LazyLock::new(Default::default);
 
 /// A client's word for one prompt (`_meta.acpmux.cacheCompact`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,11 +75,41 @@ pub(crate) fn settings_min_tokens(doc: Option<&Value>) -> Option<u64> {
     Some(tokens)
 }
 
+/// [`settings_min_tokens`] of the settings file, read again only once a settings path's
+/// modification time changed: it is asked on every Claude model call's usage.
 pub(crate) fn read_min_tokens() -> Option<u64> {
-    match crate::user_settings::read() {
+    let stamps: Vec<_> = crate::user_settings::paths()
+        .iter()
+        .map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .collect();
+    let mut cached = READ.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((seen, tokens)) = cached.as_ref()
+        && *seen == stamps
+    {
+        return *tokens;
+    }
+    let tokens = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => settings_min_tokens(Some(&doc)),
         _ => None,
-    }
+    };
+    *cached = Some((stamps, tokens));
+    tokens
+}
+
+/// Whether a prompt is the person's own as this module reads it: no other agent's message (its
+/// sender named or worked out from its provenance), none of acpmux's own, no trigger, no Cloud
+/// execution, no inbox message and no guest's prompt waiting for the owner. A client's word
+/// (`cacheCompact`) counts only on such a prompt.
+fn persons_own(opts: &PromptOptions) -> bool {
+    let provenance = opts.provenance.as_ref();
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    (kind.is_none() || kind == Some(crate::author::PERSON_MESSAGE))
+        && super::digest::agent_sender(provenance, opts.agent.as_deref()).is_none()
+        && super::inbox::persons_prompt(opts.agent.as_deref(), provenance)
+        && !crate::author::awaits_owner(provenance)
+        && !crate::prompt_provenance::is_trigger(provenance)
+        && opts.cloud_turn.is_none()
+        && !opts.inbox
 }
 
 /// Whether a prompt compacts the chat first: `choice` the client's word, `min_tokens` the
@@ -106,31 +144,35 @@ fn slash_command(blocks: &[Value]) -> bool {
 }
 
 impl Hub {
+    /// Whether `session`'s compaction is starting or running: a prompt then queues behind it,
+    /// never steers into it, so prompts keep the order they were sent in.
+    fn return_compacting(session: &Session) -> bool {
+        STARTING.lock().unwrap_or_else(|e| e.into_inner()).contains(&session.id)
+            || session.turn().is_some_and(|t| t.prompt_id.starts_with(PROMPT_PREFIX))
+    }
+
     /// Before a prompt is run: starts the compaction when it is due (module docs) and waits until
-    /// it holds the turn, so the prompt queues behind it. True when it did; the prompt then goes
-    /// as a plain prompt, never a steer into the compaction.
+    /// it holds the turn, so the prompt queues behind it. True when the prompt must queue (its
+    /// compaction, or an earlier prompt's, holds or takes the turn): it then goes as a plain
+    /// prompt, never a steer into the compaction.
     pub(super) async fn return_compact_first(
         self: &Arc<Self>,
         session: &Arc<Session>,
         blocks: &[Value],
         opts: &PromptOptions,
     ) -> bool {
-        if opts.cache_compact == Some(Choice::Keep)
-            || opts.steer_only
-            || opts.no_queue
-            || opts.after_turn.is_some()
-            || slash_command(blocks)
-        {
+        if opts.steer_only || opts.no_queue || opts.after_turn.is_some() {
             return false;
         }
-        // Unasked, only for the person's own prompt; a client's explicit word for any.
-        if opts.cache_compact.is_none()
-            && !super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref())
-        {
+        if Self::return_compacting(session) {
+            return true;
+        }
+        if opts.cache_compact == Some(Choice::Keep) || slash_command(blocks) || !persons_own(opts) {
             return false;
         }
         // An idle chat only: a running turn or a queued prompt warms the cache first.
         if session.turn().is_some()
+            || session.turn_claimed()
             || session.queued() > 0
             || session.harness_turn.load(Ordering::SeqCst)
         {
@@ -141,9 +183,13 @@ impl Hub {
         if !due(opts.cache_compact, min_tokens, usage.as_ref(), now_ms()) {
             return false;
         }
+        // Taken by this prompt only: a second prompt arriving now queues behind it.
+        if !STARTING.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone()) {
+            return true;
+        }
         let (taken, accepted) = tokio::sync::oneshot::channel::<bool>();
         let compact = PromptOptions {
-            prompt_id: Some(format!("return-compact-{}", uuid::Uuid::now_v7())),
+            prompt_id: Some(format!("{PROMPT_PREFIX}{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),
             no_queue: true,
             control: opts.control,
@@ -166,11 +212,15 @@ impl Hub {
                 }
             }),
         );
-        match tokio::time::timeout(ACCEPT_WAIT, accepted).await {
+        let started = match tokio::time::timeout(ACCEPT_WAIT, accepted).await {
             Ok(Ok(started)) => started,
-            // Refused (a turn began meanwhile, a gate) or still not taken: the prompt goes as is.
-            _ => false,
-        }
+            // Refused (a turn began meanwhile, a gate): the prompt goes as is.
+            Ok(Err(_)) => false,
+            // Still not taken (a stuck admission): the prompt queues rather than steers in ahead.
+            Err(_) => true,
+        };
+        STARTING.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
+        started
     }
 }
 
