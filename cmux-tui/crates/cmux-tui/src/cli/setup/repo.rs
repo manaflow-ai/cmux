@@ -162,7 +162,10 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "on" | "off" if !yes => Ok(Request::On { which: one(&words)?, on: verb == "on" }),
         "order" if !yes => {
             if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
-                return Err("cmux setup order needs the setups, top first: cmux setup order ID [ID]...".to_owned());
+                return Err(
+                    "cmux setup order needs the setups, top first: cmux setup order ID [ID]..."
+                        .to_owned(),
+                );
             }
             Ok(Request::Order { ids: words.into_iter().cloned().collect() })
         }
@@ -560,8 +563,6 @@ fn card(plan: &Plan, opened: &Opened, extensions: &[Value]) -> Value {
         "reviewed": false,
         "extensions": extensions,
         "undo": undo,
-    })
-
     })
 }
 
