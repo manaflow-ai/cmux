@@ -52,12 +52,13 @@ prebuilt_zip() {
 install_prebuilt() {
   local zip="$1" work
   work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/cmux-cua-helper.XXXXXX")"
-  ditto -x -k "$zip" "$work"
+  ditto -x -k "$zip" "$work" || { rm -rf "$work"; return 1; }
   local entries; entries="$(cd "$work" && ls -A)"
   [[ "$entries" == "cmux Computer Use.app" && -d "$work/cmux Computer Use.app" && ! -L "$work/cmux Computer Use.app" ]] \
     || { echo "error: the prebuilt zip holds '$entries', expected one cmux Computer Use.app" >&2; rm -rf "$work"; return 1; }
-  /usr/bin/codesign --verify --deep --strict "$work/cmux Computer Use.app"
-  "$work/cmux Computer Use.app/Contents/MacOS/cmux-cua" --version >/dev/null
+  # Inside `if`, set -e is off: every check returns on its own.
+  /usr/bin/codesign --verify --deep --strict "$work/cmux Computer Use.app" || { rm -rf "$work"; return 1; }
+  "$work/cmux Computer Use.app/Contents/MacOS/cmux-cua" --version >/dev/null || { rm -rf "$work"; return 1; }
   mkdir -p "$app/Contents/Library"
   rm -rf "$helper"
   mv "$work/cmux Computer Use.app" "$helper"
