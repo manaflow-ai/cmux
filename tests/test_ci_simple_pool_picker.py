@@ -837,5 +837,64 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         self.assertEqual(picker.pick(state).label, small)
 
 
+class BlacksmithSwitchTests(unittest.TestCase):
+    """vars.CI_BLACKSMITH_MACOS off: an owned pick names no Blacksmith label (run 43990120167, 2026-11-17).
+
+    Compile admission waited on the owned light pool; the shards it did not own took the Blacksmith
+    retry_runner, blacksmith-12vcpu-macos-26, and sat queued five hours with the switch off.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    FREE = (pool(picker.BLACKSMITH[0], 5), pool(picker.BLACKSMITH[1], 10), pool(picker.BLACKSMITH[2], 10))
+
+    def state(self, *, switch: str | None, **kwargs):
+        env = {} if switch is None else {"CI_BLACKSMITH_MACOS": switch}
+        defaults = dict(jobs=8, owned=(pool(self.LIGHT_POOL, 4, running=3, free=1, queued=0),),
+                        blacksmith=self.FULL_OR_FREE, owned_enabled=True, wait_on_owned=True,
+                        blacksmith_on=picker.blacksmith_allowed(env))
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    FULL_OR_FREE = (pool(picker.BLACKSMITH[0], 5, 5, 3), pool(picker.BLACKSMITH[1], 10, 10, 4),
+                    pool(picker.BLACKSMITH[2], 10, 10, 2))
+
+    def test_only_on_allows_blacksmith(self):
+        self.assertTrue(picker.blacksmith_allowed({}))  # a caller that passes no switch keeps today's route
+        self.assertTrue(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": "on"}))
+        for value in ("", "off", "pr-rescue", "1"):
+            self.assertFalse(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
+
+    def test_the_owned_wait_names_no_blacksmith_retry_runner_while_off(self):
+        choice = picker.pick(self.state(switch=""))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        values = picker.write_outputs(choice, 8, env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true"})
+        for key in ("runner", "retry_runner", "shard_runner", "side_runner"):
+            self.assertFalse(values[key].startswith("blacksmith-"), (key, values[key]))
+        self.assertEqual(values["retry_runner"], self.LIGHT_POOL)
+
+    def test_a_free_blacksmith_slot_takes_nothing_while_off(self):
+        choice = picker.pick(self.state(switch="", blacksmith=self.FREE, wait_on_owned=False))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(choice.owned)
+        self.assertEqual(picker.write_outputs(choice, 8)["retry_runner"], self.LIGHT_POOL)
+
+    def test_on_keeps_the_blacksmith_retry_runner(self):
+        choice = picker.pick(self.state(switch="on"))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
+
+    def test_a_fork_still_takes_blacksmith_while_off(self):
+        choice = picker.pick(self.state(switch="", fork=True, blacksmith=self.FREE))
+        self.assertTrue(choice.label.startswith("blacksmith-"))
+
+    def test_state_from_reads_the_switch(self):
+        state = picker.state_from(jobs=1, env={"CI_BLACKSMITH_MACOS": ""}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertFalse(state.blacksmith_on)
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertTrue(state.blacksmith_on)
+
+
 if __name__ == "__main__":
     unittest.main()

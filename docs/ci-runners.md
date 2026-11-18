@@ -1107,8 +1107,10 @@ control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
   size; never GitHub-hosted Ubuntu, and only a size whose probe started in
   that run, so with every size stalled the Linux variables are left alone),
   `MACOS_RUNNER_15`,
-  `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
+  `_26_LARGE` and `_PR` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
+  never `_DUAL_XCODE` (swift-package-tests builds the Release helper with an
+  SDK 15 Xcode no owned pool carries, so its jobs wait for Blacksmith),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
   read. That is the lever pulled by hand on 2026-09-29. A variable a signing
