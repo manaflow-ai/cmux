@@ -61,6 +61,7 @@ dependencies = [
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
+ "cmux-ui-surfaces",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-egress",

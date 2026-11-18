@@ -105,7 +105,7 @@ final class UISurfaceHost {
     func set(_ surface: UISurface, _ key: String, _ value: JSONValue) {
         guard edits[surface.surfaceId]?[key] != value else { return }
         edits[surface.surfaceId, default: [:]][key] = value
-        if let pending = pending(surface) { cancel(surface, pending) }
+        if let open = pending(surface) { cancel(surface, open) }
     }
 
     /// The strip the card shows: Rust's answer to the last press, else the surface's own `pending`,
@@ -120,11 +120,11 @@ final class UISurfaceHost {
     func press(_ surface: UISurface, _ action: UISurface.Action, extra: [String: JSONValue] = [:]) {
         let id = surface.surfaceId
         guard !waiting.contains(id) else { return }
-        if let pending = pending(surface) { cancel(surface, pending) }
+        if let open = pending(surface) { cancel(surface, open) }
         waiting.insert(id)
-        let values = values(surface).merging(extra) { _, new in new }
+        let held = self.values(surface).merging(extra) { _, new in new }
         Task {
-            let pending = await self.actions.action(surfaceId: id, actionId: action.id, values: values)
+            let pending = await self.actions.action(surfaceId: id, actionId: action.id, values: held)
             waiting.remove(id)
             if let pending {
                 answered[id] = pending

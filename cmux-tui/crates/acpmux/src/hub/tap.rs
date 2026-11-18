@@ -348,6 +348,17 @@ impl Hub {
                         &super::gemini_plan::gemini_homes(),
                     );
                 }
+                // labs.agentUiSurfaces: the normalized surface of a `ui_surface` call, an A2UI
+                // tool result or a cached MCP App goes into the logged update
+                // (`_meta.acpmux.uiSurface`), which the translator puts on the tool row.
+                if !kind.ends_with(".replay")
+                    && let Some(update) = params.get_mut("update")
+                {
+                    crate::ui_surfaces::annotate(&tap_session.id, update, || {
+                        let m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        (m.harness.clone(), m.cwd.clone())
+                    });
+                }
                 // The chat's own thread is never one of its subagents. Seed the
                 // native roots (the current one and the earlier ones a daemon restart
                 // forgot) before handling updates so echoed root activity cannot

@@ -974,6 +974,11 @@ impl Hub {
                 Err(person_required("changing the workspace folders"))
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
+            // An agent UI surface's confirm sends the person's turn or runs an app's tool call
+            // (`ui_surfaces.rs`): the app or an authenticated Web/phone client, never an agent.
+            method::MUX_UI_SURFACE_CONFIRM if !remote_authenticated => {
+                Err(person_required("confirming an agent UI surface action"))
+            }
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.

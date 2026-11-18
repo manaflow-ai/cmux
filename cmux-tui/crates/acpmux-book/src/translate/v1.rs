@@ -429,6 +429,10 @@ fn agent(
             if let Some(raw) = u.meta.terminal_output.data {
                 parts.push((BodyField::Text, true, raw));
             }
+            // An agent UI surface the daemon attached (labs.agentUiSurfaces): replaced whole.
+            if let Some(raw) = u.meta.acpmux.ui_surface.filter(|r| r.get().starts_with('{')) {
+                parts.push((BodyField::Card("uiSurface"), false, raw));
+            }
             state.tool(
                 key,
                 &metadata,

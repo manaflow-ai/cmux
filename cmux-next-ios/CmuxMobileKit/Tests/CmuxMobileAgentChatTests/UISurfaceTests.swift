@@ -16,6 +16,32 @@ import Testing
         #expect(traveler?.node(withAction: "a1")?.label == "Save traveller")
     }
 
+    /// Every surface Rust's golden files hold (cmux-tui `cmux-ui-surfaces/tests/golden`) reads here, with
+    /// no node this build does not know.
+    @Test func everyRustGoldenSurfaceDecodes() throws {
+        let golden = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "cmux-tui/crates/cmux-ui-surfaces/tests/golden")
+        let files = try FileManager.default.contentsOfDirectory(at: golden, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+        #expect(files.count >= 10)
+        var surfaces = 0
+        for file in files {
+            let value = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: file))
+            for raw in value["surfaces"]?.arrayValue ?? [] {
+                let surface = try #require(UISurface(json: raw), "\(file.lastPathComponent)")
+                surfaces += 1
+                func walk(_ node: UISurface.Node) {
+                    #expect(node.nodeType != nil, "\(file.lastPathComponent): \(node.type)")
+                    node.children?.forEach(walk)
+                }
+                if let root = surface.root { walk(root) }
+            }
+        }
+        #expect(surfaces > 0)
+    }
+
     @Test func anUnknownNodeAndABadFieldReadAsLittleAsPossible() throws {
         let error = try #require(UISurface(json: UISurfaceFixtures.json(UISurfaceFixtures.claimedError)))
         #expect(error.status == .error)
@@ -35,7 +61,7 @@ import Testing
     @Test func theCallCarriesItInItsMetaItsRowFieldOrItsOutputMeta() throws {
         let surface = UISurfaceFixtures.json(UISurfaceFixtures.approvalCompact)
         let meta = JSONValue.object(["toolCallId": .string("c1"), "title": .string("mcp__cmux__ui_surface"),
-                                     "_meta": .object(["cmux": .object(["uiSurface": surface])])])
+                                     "_meta": .object(["acpmux": .object(["uiSurface": surface])])])
         let fromMeta = try meta.decoded(as: ACPToolCall.self)
         #expect(UISurface(fromMeta)?.surfaceId == "ap-compact")
         let row = JSONValue.object(["toolCallId": .string("c2"), "uiSurface": surface])

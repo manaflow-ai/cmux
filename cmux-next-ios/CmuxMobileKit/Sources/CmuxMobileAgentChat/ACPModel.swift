@@ -182,7 +182,7 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
     /// record loads when the person opens it (``AgentChatStore/loadFullOutput(of:)``). Nil: whole.
     public var outputCut: ACPToolOutputCut?
     /// The agent UI surface Rust attached to the call (`cmux.ui-surface/1`, the row's `uiSurface` or
-    /// the call's `_meta.cmux.uiSurface`), undecoded; `UISurface(call)` reads it.
+    /// the logged update's `_meta.acpmux.uiSurface`), undecoded; `UISurface(call)` reads it.
     public var uiSurface: JSONValue?
     /// Client-side timing (first event, first terminal status).
     public var startedAt: Date?
@@ -289,7 +289,7 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
     public var rawOutput: JSONValue?
     /// The Mac cut this update's output (`_meta.acpmux.cut`); nil: it is whole.
     public var outputCut: ACPToolOutputCut?
-    /// The surface this update carries (`uiSurface` or `_meta.cmux.uiSurface`), whole; nil: unchanged.
+    /// The surface this update carries (`uiSurface` or `_meta.acpmux.uiSurface`), whole; nil: unchanged.
     public var uiSurface: JSONValue?
 
     public init(

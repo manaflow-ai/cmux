@@ -304,7 +304,14 @@ struct UISurfaceFieldView: View {
         default:
             VStack(alignment: .leading, spacing: 6) {
                 fieldLabel(label)
-                TextField(label, text: Binding(get: { value?.uiSurfaceText ?? "" }, set: { set(.string($0)) }))
+                let text = Binding(get: { value?.uiSurfaceText ?? "" }, set: { set(.string($0)) })
+                Group {
+                    if node.secure == true {
+                        SecureField(label, text: text)
+                    } else {
+                        TextField(label, text: text)
+                    }
+                }
                     .font(type.body)
                     .padding(.horizontal, 12)
                     .frame(minHeight: 44)

@@ -10,9 +10,7 @@ import Observation
 /// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
-    private(set) var previewFeatures = false
-    /// `labs.agentUiSurfaces`: interactive cards from agents (off by default).
-    private(set) var agentUiSurfaces = false
+    private(set) var labs = AgentPaneLabs()
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
@@ -23,7 +21,6 @@ final class AgentPanePageSettings {
     private(set) var display = AgentPaneDisplaySetting.fallback
     private var displayObservation: Task<Void, Never>?
     private var previewObservation: Task<Void, Never>?
-    private var agentUiSurfacesObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
@@ -35,14 +32,13 @@ final class AgentPanePageSettings {
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
-        for task in [previewObservation, agentUiSurfacesObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
+        for task in [previewObservation,editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
         AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? SessionSettings.promptSuggestionsDefault }
         // `agentPane.needsYou.enabled` (App Store): read as each new agent page is made.
         AgentPaneTunables.needsYouInstalled = { [weak settings] in settings?.snapshot.agentPaneNeedsYouEnabled ?? false }
-        previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
-        agentUiSurfacesObservation = observe({ settings.snapshot.agentUiSurfaces }, push: push) { $0.agentUiSurfaces = $1 }
+        previewObservation = observe({ AgentPaneLabs(previewFeatures: settings.snapshot.previewFeatures, agentUiSurfaces: settings.snapshot.agentUiSurfaces) }, push: push) { $0.labs = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
         composerObservation = Task { [weak self] in
@@ -128,8 +124,7 @@ final class AgentPanePageSettings {
 
     /// Gives `view` the current values (the view pushes only a change).
     func apply(to view: AgentPaneView) {
-        view.previewFeatures = previewFeatures
-        view.agentUiSurfaces = agentUiSurfaces
+        labs.push(to: view)
         view.editedFiles = editedFiles
         view.zoom = zoom
         sidebarPreviewVariant.push(to: view)

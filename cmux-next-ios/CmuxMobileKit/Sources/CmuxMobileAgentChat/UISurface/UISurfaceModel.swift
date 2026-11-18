@@ -209,6 +209,8 @@ struct UISurface: Codable, Hashable, Sendable, Identifiable {
         var min: Double?
         var max: Double?
         var bind: String?
+        /// A text field whose value is obscured (a password).
+        var secure: Bool?
         // approval, review
         var title: String?
         var detail: String?
@@ -242,7 +244,7 @@ struct UISurface: Codable, Hashable, Sendable, Identifiable {
 
         private enum CodingKeys: String, CodingKey {
             case id, type, a11y, text, style, axis, children, name, alt, label, action, variant, input, value, options, multi,
-                 min, max, bind, title, detail, risk, facts, approve, deny, prompt, submit, columns, rows, truncated, kind,
+                 min, max, bind, secure, title, detail, risk, facts, approve, deny, prompt, submit, columns, rows, truncated, kind,
                  series, yLabel, state
         }
 
@@ -268,6 +270,7 @@ struct UISurface: Codable, Hashable, Sendable, Identifiable {
             min = read(.min)
             max = read(.max)
             bind = read(.bind)
+            secure = read(.secure)
             title = read(.title)
             detail = read(.detail)
             risk = read(.risk)
@@ -291,11 +294,11 @@ struct UISurface: Codable, Hashable, Sendable, Identifiable {
 
 extension UISurface {
     /// The surface a tool call's row carries, or nil. **The one place the phone reads it**: the call's
-    /// `uiSurface` (the row field Rust attaches, or the ACP tool call's `_meta.cmux.uiSurface`, both read
-    /// by `ACPToolCall`'s decoder), else its `rawOutput._meta.cmux.uiSurface`. Retarget here if Rust
-    /// puts it elsewhere. A value of another schema, or one that does not decode, is no surface.
+    /// `uiSurface`, which `ACPToolCall`'s decoder fills from the record (``meta(in:)``), else its
+    /// `rawOutput`'s `_meta`. Retarget here if Rust puts it elsewhere. A value of another schema, or
+    /// one that does not decode, is no surface.
     init?(_ call: ACPToolCall) {
-        guard let raw = call.uiSurface ?? call.rawOutput?["_meta"]?["cmux"]?["uiSurface"] else { return nil }
+        guard let raw = call.uiSurface ?? call.rawOutput?["_meta"].flatMap(Self.surface(inMeta:)) else { return nil }
         self.init(json: raw)
     }
 
@@ -304,11 +307,18 @@ extension UISurface {
         self = surface
     }
 
-    /// `_meta.cmux.uiSurface` of the value `decoder` reads (an ACP `tool_call` or `tool_call_update`).
+    /// The surface in the `_meta` of the value `decoder` reads (an ACP `tool_call` or `tool_call_update`
+    /// as acpmux logs it). The row field `uiSurface` is read by the caller.
     static func meta(in decoder: any Decoder) -> JSONValue? {
         guard let container = try? decoder.container(keyedBy: MetaKey.self),
               let meta = (try? container.decodeIfPresent(JSONValue.self, forKey: .meta)) ?? nil else { return nil }
-        return meta["cmux"]?["uiSurface"]
+        return surface(inMeta: meta)
+    }
+
+    /// acpmux's tap writes it at `_meta.acpmux.uiSurface` (cmux-tui `acpmux/src/ui_surfaces.rs`
+    /// `annotate`), the book's v1 row at `uiSurface`; `_meta.cmux.uiSurface` is read too.
+    static func surface(inMeta meta: JSONValue) -> JSONValue? {
+        meta["acpmux"]?["uiSurface"] ?? meta["cmux"]?["uiSurface"]
     }
 
     private enum MetaKey: String, CodingKey { case meta = "_meta" }

@@ -62,6 +62,9 @@
               }
             ],
             "prompt": "Pick one; the agent continues with it.",
+            "selected": [
+              "a"
+            ],
             "submit": {
               "id": "pick.submit",
               "name": "choose_fix",

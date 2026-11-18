@@ -72,9 +72,9 @@ Nodes (every node has `id`, optional `a11y: {label, description, live: "polite"|
 | `icon` | `name` (from a fixed set; unknown names draw nothing) |
 | `image` | `alt` (prototype draws the alt text in a frame; no network fetch) |
 | `button` | `label`, `action`, `variant`: `primary` `secondary` `danger` |
-| `field` | `label`, `input`: `text` `checkbox` `choice` `slider` `date`, `value`, `options` [{`value`,`label`}], `multi`, `min`, `max`, `bind` (data-model path, host-held) |
+| `field` | `label`, `input`: `text` `checkbox` `choice` `slider` `date`, `value`, `options` [{`value`,`label`}], `multi`, `min`, `max`, `bind` (data-model path, host-held), `secure` (masked text, A2UI `obscured`) |
 | `approval` | `title`, `detail`, `risk`: `low` `medium` `high`, `facts` [{`label`,`value`}], `approve` action, `deny` action |
-| `review` | `title`, `prompt`, `options` [{`id`,`label`,`detail`}], `multi`, `submit` action |
+| `review` | `title`, `prompt`, `options` [{`id`,`label`,`detail`}], `multi`, `submit` action, `bind` (where the selected ids go in `values`), `selected` [id] |
 | `table` | `columns` [{`key`,`label`,`align`}], `rows` [[string]], `truncated` (rows capped at 200) |
 | `chart` | `kind`: `bar` `line` `pie`, `series` [{`name`, `points` [{`x`,`y`}]}], `yLabel` |
 | `progress` | `label`, `value`, `max` (both absent = indeterminate), `state`: `running` `done` `failed` |
@@ -86,8 +86,56 @@ current field values it holds, keyed by `bind`. Rust answers with a `Pending`:
 
 ```jsonc
 { "requestId": "r7", "actionId": "a3", "summary": "Send \"submit\" to the agent with: name = Ada, seat = window",
-  "sends": [ { "label": "name", "value": "Ada" } ], "target": "agent" | "tool:get-time" | "link:https://..." }
+  "sends": [ { "label": "name", "value": "Ada" } ],
+  "target": "agent" | "tool:get-time" | "link:https://..." | "model-context" }
 ```
+
+Additions to the contract made while building the prototype: `source.claimed` (bool, omitted when
+false), `field.secure`, `review.bind` and `review.selected`, the `model-context` target. Node ids are
+the A2UI component ids; a node a `children` template repeats gets `#<index>` (nested `#i.j`), and an
+action's id is its button's node id (`<id>.approve`, `<id>.deny`, `<id>.submit` on cards). A text
+component whose string starts with Markdown `#`..`######` becomes `style: heading` without the marks.
+
+### The cmux catalog (`https://cmux.com/a2ui/catalog/v1`)
+
+The basic catalog's components plus these (props are A2UI dynamic values unless noted):
+
+| component | props | node |
+|---|---|---|
+| `ApprovalCard` | `title`, `detail`, `risk` (`low` `medium` `high`, default `medium`), `facts` [{`label`,`value`}], `approveAction`, `denyAction` (A2UI actions) | `approval` |
+| `ReviewCard` | `title`, `prompt`, `options` [{`id`,`label`,`detail`}], `multi` (bool), `value` (`{"@path"}` holding the selected ids; default `/@review/<id>`), `submitAction` (its context gains `selected`) | `review` |
+| `Table` | `columns` [string or {`key`,`label`,`align`: `start` `center` `end`}], `rows` ([[cell]] or [{key: cell}], or `{"@path"}`) | `table` |
+| `Chart` | `kind` (`bar` `line` `pie`), `series` [{`name`, `points` [{`x`, `y` number}]}], `yLabel` | `chart` |
+| `Progress` | `label`, `value`, `max`, `state` (`running` `done` `failed`) | `progress` |
+
+The travel catalog draws its basic components; `AirportPicker`, `DateRangePicker`, `Flights`,
+`Trip`, `ItineraryDay`, `StatTile` and its other widgets are `fallback` nodes naming the widget. A
+component with an `@catalogId` cmux does not know, and the A2UI MCP catalog's `McpApp`, are fallbacks;
+a surface whose `catalogId` is unknown is `status: error`. An omitted `catalogId` means basic (the
+spec calls it an error; the `ui_surface` tool's agents often omit it).
+
+### Crate `cmux-tui/crates/cmux-ui-surfaces`
+
+Pure, no I/O. `a2ui` parses messages (array, `{messages}`, JSONL with a partial last line while
+streaming); `store::SurfaceStore` applies them, holds each surface's data model, builds the
+normalized model (`model`), and mediates actions: `request_action(surface, action, values) ->
+Pending`, `values_changed`, `confirm(request, values?, timestamp) -> Outbound`, `cancel`, and
+`bridge(surface, json-rpc)` for an MCP App view. `functions` evaluates `@path`, `@call` and
+`formatString` against the allowlist; `mcp_apps` reads `_meta.ui`, `resources/read` contents and
+builds the CSP; `coalesce::Coalescer` is the 16 ms per-surface emit gate. Fixtures for the
+renderers: `tests/golden/*.json` (one per quickstart sample, plus `cmux-catalog-cards`,
+`cmux-pending` and `mcp-app-frame`), each `{sample, surfaces: [Surface], errors, replies}`;
+`UPDATE_GOLDEN=1 cargo test -p cmux-ui-surfaces --test quickstart_golden` rewrites them.
+
+### Wiring
+
+- The daemon's tap writes the surface into the logged tool update as `_meta.acpmux.uiSurface`;
+  the translator puts it on the tool row as body field `uiSurface` (an object, replaced whole).
+- RPC: `_acpmux/ui_surface_action {sessionId, surfaceId, actionId, values}` -> Pending;
+  `_acpmux/ui_surface_confirm {sessionId, surfaceId, requestId, values?}` -> `{sent: agent|tool|link|none,
+  reply?, openUrl?}` (person or authenticated remote only); `_acpmux/ui_surface_cancel {sessionId,
+  surfaceId, requestId}` -> `{cancelled}`; `_acpmux/ui_surface_bridge {sessionId, surfaceId, message}`
+  -> `{reply?, notify?[], height?, blocked?, pending?, draft?}`.
 
 The card shows this host-written summary with Confirm and Cancel. Only `uiSurfaceConfirm
 {surfaceId, requestId}` sends anything (the A2UI `action` message back to the agent as a user turn,
@@ -100,7 +148,9 @@ Return confirms, Escape cancels.
 - **Data only.** A2UI content can declare components, values and named actions. It cannot carry
   HTML, scripts, URLs that load, credentials or command strings. `@call` functions run only from a
   fixed allowlist (`formatString`, `formatNumber`, `formatCurrency`, `pluralize`, `required`,
-  `email`, `length`, `regex` without backtracking blowup); `openUrl` becomes a link action that
+  `email`, `length`, `regex` without backtracking blowup, and the pure checks `numeric`, `and`,
+  `or`, `not`, `@index`; any other function, `formatDate` included, is empty text); an agent's
+  `callRendererFunction` gets the same allowlist; `openUrl` becomes a link action that
   needs confirmation and only allows `https`.
 - **Caps.** 512 components, depth 32, 200 table rows, 1,000 chart points, 4 KB per string, 256 KB
   per surface; over a cap the surface shows what fit and a `fallback` saying what was cut.

@@ -275,13 +275,13 @@ pub fn interpolate(s: &str, ctx: Ctx<'_>, depth: usize) -> String {
             i += 3;
             continue;
         }
-        if s[i..].starts_with("${") {
-            if let Some(end) = matching_close(s, i + 2) {
-                let v = expr(&s[i + 2..end], ctx, depth + 1);
-                out.push_str(&text::display(&v));
-                i = end + 1;
-                continue;
-            }
+        if s[i..].starts_with("${")
+            && let Some(end) = matching_close(s, i + 2)
+        {
+            let v = expr(&s[i + 2..end], ctx, depth + 1);
+            out.push_str(&text::display(&v));
+            i = end + 1;
+            continue;
         }
         let ch = s[i..].chars().next().unwrap_or(' ');
         out.push(ch);

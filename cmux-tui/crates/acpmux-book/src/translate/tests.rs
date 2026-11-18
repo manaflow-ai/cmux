@@ -1706,3 +1706,32 @@ fn a_reorder_of_a_full_queue_is_one_pass() {
     assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
     assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
 }
+#[test]
+fn a_tool_updates_ui_surface_is_the_rows_ui_surface_body() {
+    let surface = r#"{"schema":"cmux.ui-surface/1","surfaceId":"s1","status":"ready","root":{"id":"root","type":"text","text":"hi","style":"body"},"frame":null,"pending":null}"#;
+    let line = update(
+        1,
+        &format!(
+            r#"{{"sessionUpdate":"tool_call","toolCallId":"u","status":"completed","title":"mcp__cmux__ui_surface","_meta":{{"acpmux":{{"uiSurface":{surface}}}}}}}"#
+        ),
+    );
+    let mut s = State::default();
+    let ops = t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+    let body = ops.iter().find_map(|o| match &o.change {
+        Change::Body {
+            field: BodyField::Card("uiSurface"), source: BodySource::Input(r), ..
+        } => Some(&line[r.offset..r.offset + r.length]),
+        _ => None,
+    });
+    assert_eq!(body, Some(surface));
+    // A tool update without one has no such body; a non-object is ignored.
+    let line = update(
+        2,
+        r#"{"sessionUpdate":"tool_call","toolCallId":"v","_meta":{"acpmux":{"uiSurface":"<b>"}}}"#,
+    );
+    let ops = t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+    assert!(
+        !ops.iter()
+            .any(|o| matches!(o.change, Change::Body { field: BodyField::Card("uiSurface"), .. }))
+    );
+}
