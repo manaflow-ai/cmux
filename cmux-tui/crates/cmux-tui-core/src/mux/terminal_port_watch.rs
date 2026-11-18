@@ -45,6 +45,9 @@ pub(crate) const PORTS_ICON: &str = "network";
 pub(crate) const PASS_INTERVAL: Duration = Duration::from_secs(1);
 /// How long the worker waits for output before it ends.
 const IDLE_LINGER: Duration = Duration::from_secs(5);
+/// How long a pass that met a busy registry or a busy connection of the
+/// store waits before it looks again.
+const REGISTRY_BUSY_LOOK: Duration = Duration::from_millis(20);
 /// Passes a terminal gets without new output while its screen names a port
 /// that does not accept yet (a server that prints before it listens).
 const UNCONFIRMED_RETRIES: u8 = 3;
@@ -83,6 +86,9 @@ struct WatchState {
     reconcile: bool,
     worker: bool,
     last_pass: Option<Instant>,
+    /// A pass met a busy registry or a busy connection of the store: when
+    /// the worker looks again, in place of the next [`PASS_INTERVAL`].
+    look_again: Option<Instant>,
     /// The terminal a pass is reading now, and whether it ended meanwhile:
     /// an end during the read wins over what the read saw.
     reading: Option<(SurfaceId, bool)>,
@@ -219,10 +225,17 @@ impl Mux {
     }
 
     /// One pass over the queued terminals (and, once, the stale entries).
-    fn terminal_ports_pass(&self, queued: Vec<SurfaceId>, reconcile: bool) {
+    /// `Err` gives `queued` back: the registry or the store's connection
+    /// was busy for the read of the stale entries, and the pass did nothing.
+    fn terminal_ports_pass(
+        &self,
+        queued: Vec<SurfaceId>,
+        reconcile: bool,
+    ) -> Result<(), Vec<SurfaceId>> {
         let mut touched: BTreeSet<String> = BTreeSet::new();
         if reconcile {
-            touched.extend(self.carry_stale_terminal_ports());
+            let Some(carried) = self.carry_stale_terminal_ports() else { return Err(queued) };
+            touched.extend(carried);
         }
         for runtime in queued {
             let known: BTreeSet<u16> = {
@@ -290,6 +303,7 @@ impl Mux {
         for workspace in touched {
             self.write_terminal_ports(&workspace);
         }
+        Ok(())
     }
 
     /// The accepting ports `runtime`'s live screen names, plus those of
@@ -417,9 +431,18 @@ impl Mux {
 
     /// The daemon's own `ports` entries an earlier run left: their ports
     /// that still accept are carried, the rest go at this pass. Returns the
-    /// workspaces to write.
-    fn carry_stale_terminal_ports(&self) -> Vec<String> {
-        let stale = self.read_registry_state(|connection| {
+    /// workspaces to write. `None`: another thread has the registry or the
+    /// store's connection, and the read did not run. This read takes each
+    /// of them with one try and never waits for one, because the worker
+    /// holds the mux here: a wait would keep a mux that its owner dropped,
+    /// and with it the session, for as long as the lock is busy. A wait for
+    /// the connection would also be a wait with the registry's lock: each
+    /// thread that takes the registry would wait for the connection's
+    /// holder (the journal writer at a commit) too.
+    fn carry_stale_terminal_ports(&self) -> Option<Vec<String>> {
+        let registry =
+            self.workspace_registry.try_lock_free()?.unwrap_or_else(PoisonError::into_inner);
+        let stale = registry.try_read_state(|connection| {
             let mut statement = connection.prepare(
                 "SELECT workspace_id, text FROM workspace_status_entries
                  WHERE status_key = ?1 AND icon = ?2",
@@ -429,11 +452,12 @@ impl Mux {
             })?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
         });
-        let stale = match stale {
+        drop(registry);
+        let stale = match stale? {
             Ok(stale) => stale,
             Err(error) => {
                 eprintln!("cmux-tui: terminal ports: reading stale entries failed: {error}");
-                return Vec::new();
+                return Some(Vec::new());
             }
         };
         let mut touched = Vec::new();
@@ -448,7 +472,7 @@ impl Mux {
             entry.written.get_or_insert(text);
             touched.push(workspace);
         }
-        touched
+        Some(touched)
     }
 }
 
@@ -463,10 +487,24 @@ impl TerminalPortWatch {
 /// shutdown; its waits are bounded.
 ///
 /// It holds the mux only for the shutdown check and for a pass, never across
-/// a wait: a mux its owner dropped is freed at once (with the registry's
-/// session lease), not after [`IDLE_LINGER`]. The watch it waits on is its
-/// own `Arc`. The strong mux is let go before the watch is locked, so a mux
-/// whose last reference ends here never drops under that lock.
+/// a wait on the watch: a mux its owner dropped is freed at once (with the
+/// registry's session lease), not after [`IDLE_LINGER`]. A pass whose read
+/// of the stale entries meets a busy registry or a busy connection of the
+/// store does not wait for it with the mux: it puts its work back, gives
+/// the mux back and looks again after [`REGISTRY_BUSY_LOOK`]. Each look is
+/// one try for each of the 2 and the worker is no waiter of them, so a
+/// registry or a connection that stays busy holds the pass back with no
+/// bound. The other waits of a pass keep the mux: a terminal's privacy
+/// read that is not cached and the write of an entry wait for the registry
+/// and then, with its lock, for the connection.
+///
+/// The watch it waits on is its own `Arc`. The strong mux is let go after
+/// the watch's lock, so a mux whose last reference ends here never drops
+/// under that lock. A pass takes its mux before it lets the watch's lock
+/// go, and a pass that met a busy lock puts its request back before it
+/// lets its mux go. So a taken request with no mux of the worker, read
+/// under the watch's lock, is a pass that ended (it ran to its end or it
+/// panicked).
 fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
     // A pass that panics leaves no stale `worker`: the next output starts one.
     struct OnPanic<'a>(&'a TerminalPortWatch);
@@ -498,18 +536,30 @@ fn run_worker(weak: &Weak<Mux>, watch: &TerminalPortWatch) {
             }
             continue;
         }
-        let due = state.last_pass.map_or(now, |last| last + PASS_INTERVAL);
+        let due = state
+            .look_again
+            .unwrap_or_else(|| state.last_pass.map_or(now, |last| last + PASS_INTERVAL));
         if due > now {
             let _ =
                 watch.wake.wait_timeout(state, due - now).unwrap_or_else(PoisonError::into_inner);
             continue;
         }
+        let Some(mux) = weak.upgrade() else { return };
+        state.look_again = None;
         state.last_pass = Some(now);
         let queued: Vec<SurfaceId> = state.queued.drain().collect();
         let reconcile = std::mem::take(&mut state.reconcile);
         drop(state);
-        let Some(mux) = weak.upgrade() else { return };
-        mux.terminal_ports_pass(queued, reconcile);
+        let Err(queued) = mux.terminal_ports_pass(queued, reconcile) else { continue };
+        // The registry or the connection was busy. The request goes back
+        // first, then the watch's lock goes, then the mux: it never drops
+        // under that lock.
+        let mut state = watch.lock();
+        state.queued.extend(queued);
+        state.reconcile = true;
+        state.look_again = Some(Instant::now() + REGISTRY_BUSY_LOOK);
+        drop(state);
+        drop(mux);
     }
 }
 

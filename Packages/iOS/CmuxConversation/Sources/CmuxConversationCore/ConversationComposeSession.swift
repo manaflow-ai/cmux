@@ -196,29 +196,64 @@ public struct ConversationComposeImage: Sendable, Hashable {
 public struct ConversationComposeMessage: Sendable, Hashable {
     public var text: String
     public var images: [ConversationComposeImage]
+    /// A recording made in New Message's composer: sent after the text and images, alone,
+    /// as Messages sends audio (``ConversationStore/sendAudio(data:info:replyToID:)``).
+    public var audio: ConversationComposeAudio?
+    /// Documents picked in Files, sent with the text and images.
+    public var files: [ConversationPendingFile]
 
-    public init(text: String, images: [ConversationComposeImage] = []) {
+    public init(text: String, images: [ConversationComposeImage] = [], audio: ConversationComposeAudio? = nil,
+                files: [ConversationPendingFile] = []) {
         self.text = text
         self.images = images
+        self.audio = audio
+        self.files = files
     }
 
-    public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty }
+    /// Text, images or files, the part that goes as one message.
+    public var hasTextOrImages: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty
+    }
+
+    public var isEmpty: Bool { !hasTextOrImages && audio == nil }
+}
+
+/// A recorded audio message waiting to be sent (its bytes and what the recorder measured).
+public struct ConversationComposeAudio: Sendable, Hashable, Codable {
+    public var data: Data
+    public var info: ConversationAudioInfo
+
+    public init(data: Data, info: ConversationAudioInfo) {
+        self.data = data
+        self.info = info
+    }
 }
 
 extension ConversationStore {
     /// Sends `message` as soon as the session is connected: the first message
     /// of a conversation New Message just opened.
     public func sendWhenConnected(_ message: ConversationComposeMessage) {
-        let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
-        if meID != nil {
-            send(text: message.text, images: images)
+        // A kept transcript gives the store a sender before it connects: wait for the connection.
+        if meID != nil, connection == .connected {
+            deliver(message)
             return
         }
-        var sent = false
-        addObserver { [weak self] change in
-            guard !sent, change == .connection, let self, self.meID != nil else { return }
-            sent = true
-            self.send(text: message.text, images: images)
+        // One observer per waiting message, removed once it sends (it ran on every change before).
+        var token: Int?
+        token = addObserver { [weak self] change in
+            guard change == .connection, let self, self.meID != nil, self.connection == .connected, let mine = token else { return }
+            token = nil
+            self.removeObserver(mine)
+            self.deliver(message)
         }
+    }
+
+    /// The text and images as one message, then the recording on its own.
+    private func deliver(_ message: ConversationComposeMessage) {
+        if message.hasTextOrImages {
+            let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
+            send(text: message.text, images: images, files: message.files)
+        }
+        if let audio = message.audio { sendAudio(data: audio.data, info: audio.info) }
     }
 }

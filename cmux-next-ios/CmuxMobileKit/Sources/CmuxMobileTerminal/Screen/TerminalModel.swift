@@ -204,9 +204,6 @@ public final class TerminalModel {
     public func setAppActive(_ active: Bool) {
         controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
-        // A claim kept through the background grace: the Mac's lease starts
-        // over now, when leaving and when coming back.
-        if sizeClaimer.claims { session.renewSizeClaim() }
     }
 
     /// A sheet of the page's own covers it (Files and Links, the photo
@@ -562,6 +559,7 @@ public final class TerminalModel {
     @ObservationIgnored private var cardRenders = 0
 
     public func focusComposer() {
+        controller?.keyboardToggleWillStart(showing: true)
         directTyping = false
         // The field may not exist yet (a new tab whose page just appeared):
         // it then takes focus once it is in a window.

@@ -833,10 +833,12 @@ impl Brain {
         policy: Option<String>,
         harness: Option<String>,
         made: Option<crate::action_lifetime::Made>,
+        goal: bool,
     ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            sub.goal = goal;
             if made.is_some() {
                 sub.made = made;
             }
@@ -1076,6 +1078,7 @@ impl Brain {
                     sub.stuck_noted = false;
                     sub.auto_continues = 0;
                     sub.continued_ms = 0;
+                    sub.reopened = true;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -1101,8 +1104,11 @@ impl Brain {
     }
 
     /// Reads a subagent's turn ends since its floor; when one ended, its
-    /// last reply is its report.
-    fn finish_sub(&mut self, id: &str, session_id: &str) {
+    /// last reply is its report. Under a goal (goal.rs) a Codex subagent's
+    /// next turns are its own (acpmux `background_turn` brackets): their
+    /// words count as replies, and while its goal goes on it is held for the
+    /// tick (`goal_held`) instead of reported.
+    pub(super) fn finish_sub(&mut self, id: &str, session_id: &str) {
         let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
         let events = match self.agents.events(session_id, floor) {
             Ok(events) => events,
@@ -1111,12 +1117,60 @@ impl Brain {
                 return;
             }
         };
-        let (replies, last_end, cancelled) = ended_replies(&events);
+        let (mut replies, mut last_end, cancelled) = ended_replies(&events);
+        let goal = super::children::has_goal(&events);
+        if goal
+            && let Some((seq, reply)) = super::children::last_background_reply(&events)
+            && last_end.is_none_or(|end| seq > end)
+        {
+            replies.push(reply);
+            last_end = Some(seq);
+        }
         // Idle before its prompt started (a new session is ready first); the
         // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
+        // A cut turn with a newer prompt queued behind it (a Chief restart cut
+        // the turn, then a tell reopened the session): the next turn ends
+        // the run, not this one.
+        if cancelled && super::children::prompt_after(&events, last_end) {
+            return;
+        }
+        // Codex under its goal ends a turn and starts the next by itself
+        // while the goal is active: that idle is not its end. One quiet for
+        // QUIET_AFTER since reports after all.
+        if !cancelled
+            && super::children::goal_goes_on(&events, self.now(), super::control::QUIET_AFTER)
+        {
+            if let Some(sub) = self.state.sub_mut(id)
+                && !sub.goal_held
+            {
+                sub.goal_held = true;
+                self.save();
+                self.trace.emit("subagent.goal_goes_on", json!({"id": id}));
+            }
+            return;
+        }
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.goal_held = false;
+        }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
+        // Under the goal it ended its last run only with its task done, so a
+        // run that only acpmux notices started (its own background command
+        // finished) after that report wakes no Chief turn: its words go in
+        // quietly (live on build 108: a2 reported again what it had reported).
+        let after_report = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, s)| s.goal && s.reopened);
+        if !cancelled && after_report && super::children::notice_only(&events) {
+            (self.log)(&format!(
+                "subagent {id}: a notice turn after its report, passed on quietly"
+            ));
+            self.trace.emit("subagent.notice_quiet", json!({"id": id}));
+            self.sub_done(id, report, true, Some(last_end), Some(&events));
+            return;
+        }
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
     }
 
@@ -1226,6 +1280,7 @@ impl Brain {
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
+            sub.reopened = false;
             sub.awaiting_task = false;
             sub.auto_continues = 0;
             sub.continued_ms = 0;
