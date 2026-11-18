@@ -267,7 +267,8 @@ final class CEFPaneHost {
             let initialURL = tab.takeInitialURLString()
             // Experiment (lane/rtc-alloy-experiment, not for merge): with CMUX_CHAT_ALLOY=1 a cmux page's
             // browser is created Alloy style (the shim's experiment switch, for this one call).
-            let alloy = key.pane.rawValue.hasPrefix("cmux-page-") && ProcessInfo.processInfo.environment["CMUX_CHAT_ALLOY"] == "1"
+            // Head of the A/B: on unless CMUX_CHAT_ALLOY=0 (the bench at a feat-cmux-next commit passes no env).
+            let alloy = key.pane.rawValue.hasPrefix("cmux-page-") && ProcessInfo.processInfo.environment["CMUX_CHAT_ALLOY"] != "0"
             let create = {
                 CEFStartSteps.shared.createWindow {
                     if alloy { shim.experimentAlloyNext?(1) }
