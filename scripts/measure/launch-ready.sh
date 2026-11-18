@@ -208,8 +208,7 @@ main() {
     done
   done
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
-  local pids; pids="$(ps -axo pid=,command= | awk -v r="$out/" 'index($0, r) { print $1 }')"
-  [[ -n "$pids" ]] && kill $pids 2>/dev/null
+  end_left "$out/"
   # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
   python3 -I "$out/summary.py" "$out/runs.jsonl" --state "$LR_STATE" --case "$LR_CASE" --daemon "$LR_DAEMON" \
     --snapshot "$LR_SNAPSHOT" --front "$LR_FRONT" --out "$out"
@@ -384,14 +383,22 @@ front_prime() {
 # through ENVIRON, as in quiesce_left.
 cold_daemon() {
   local out="$1" side="$2" pids n=0
-  pids="$(ps -axo pid=,command= | LR_DIR="$out/$side/" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
+  end_left "$out/$side/"; pids="$LR_LEFT"
   if [[ -n "$pids" ]]; then
     n="$(echo "$pids" | wc -l | tr -d ' ')"
-    kill $pids 2>/dev/null
     for _ in $(seq 100); do ps -p "$(echo $pids | tr ' ' ,)" >/dev/null || break; sleep 0.1; done
-    kill -9 $pids 2>/dev/null
+    end_left "$out/$side/" KILL
   fi
   echo "LR-COLD $side $3 stopped=$n"
+}
+
+# end_left DIR [SIG]: SIG (TERM by default) to every process started from DIR, one of this run's copies, and nothing
+# else; the path reaches awk through ENVIRON, as in quiesce_left. LR_LEFT holds the pids it signalled. The one kill in
+# this script (the fleet rule lint allowlists one): a lookup by this run's own path, not by a name.
+end_left() {
+  LR_LEFT="$(ps -axo pid=,command= | LR_DIR="$1" awk 'index($0, ENVIRON["LR_DIR"]) { print $1 }')"
+  if [[ -n "$LR_LEFT" ]]; then kill -"${2:-TERM}" $LR_LEFT 2>/dev/null; fi
+  return 0
 }
 
 # unknown_seed OUT SIDE: snapshot=unknown's state. The priming launch left a tab in front of workspace KEY (its row's
