@@ -257,7 +257,8 @@ class WebValidationTests(unittest.TestCase):
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
         self.assertNotIn("strategy:", base)
-        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        # The shards that ran tests: web-subarea-scope's pick, the whole matrix when it picked none.
+        self.assertIn(f"HEAD_SHARDS: ${{{{ needs.web-subarea-scope.outputs.webview_shards || '{len(shards)}' }}}}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
@@ -277,7 +278,7 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("if: ${{ env.SHARD_IDLE != 'true' && (!cancelled() && steps.engines.outcome != 'failure') }}", step("Test webviews"))
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
         gate = step("Fail on the gate checks")
         self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)

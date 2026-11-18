@@ -6,6 +6,7 @@
     webviews_test_shards.py order-triples TRIPLES DURATIONS desc         # xargs -n 3 triples, by their first item
     webviews_test_shards.py record LINES OUT                            # the runner's `SECONDS FILE` lines as JSON
     webviews_test_shards.py merge OUT PRIOR MEASURED...                 # the next duration manifest
+    webviews_test_shards.py count FILE_LINES DURATIONS MAX WIDTHS BUDGET # shards a selection needs (1..MAX)
 
 The shards used to take files by index mod 4: one new file moved every file after it, and the
 heavy dev-server files fell together by chance (run 40815704587 on 32 vCPU: shards of 18.6, 9.9,
@@ -202,6 +203,57 @@ def assign(files: list[str], serial: set[str], durations: dict[str, float], coun
     return shards
 
 
+# run-webviews-tests.sh's dev_servers: a file that runs a Vite dev server (the split's SERIAL files).
+# tests/test_webviews_tests_per_file.py holds the two equal.
+DEV_SERVERS = re.compile(r'vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config')
+# A file the manifest has not timed weighs this much when `count` sizes the shards (never in the split).
+UNKNOWN_SECONDS = 60.0
+
+
+def dev_server_files(files: list[str]) -> set[str]:
+    found = set()
+    for name in files:
+        try:
+            if DEV_SERVERS.search(Path(name).read_text(encoding="utf-8", errors="replace")):
+                found.add(name)
+        except OSError:
+            pass
+    return found
+
+
+def walls(files: list[str], serial: set[str], durations: dict[str, float], shards: list[int], count: int,
+          widths: tuple[int, int, int] | None, head_start: dict[int, int]) -> list[int]:
+    """Each shard's estimated wall time (ms) for the split `shards`, untimed files at UNKNOWN_SECONDS."""
+    plans = [ShardPlan(widths, head_start.get(shard, 0)) for shard in range(count)]
+    for name, target in zip(files, shards):
+        if name in serial:
+            kind = "alone" if runs_alone(name) else "dev"
+        else:
+            kind = "browser" if runs_browser(name) else "plain"
+        cost = round(durations.get(name, UNKNOWN_SECONDS) * 1000)
+        plans[target].add(kind, cost, vite_config(name) if kind == "dev" else "")
+    return [plan.wall() for plan in plans]
+
+
+def shard_count(files: list[str], serial: set[str], durations: dict[str, float], most: int,
+                widths: tuple[int, int, int] | None, head_start_text: str, budget_seconds: float) -> int:
+    """How many of the `most` shards a run of `files` needs: the fewest whose split puts no shard over
+    `budget_seconds` and leaves none empty (an empty shard's runner exits 1, naming no file). A
+    pull request whose change reaches 40 test files ran them over all 12 shards, each paying its own
+    checkout, install, bundle build, engines and Vite warm-up (about 2-4 min) for a few files. When
+    no count fits the budget, the most shards that each get a file."""
+    best = 1
+    for count in range(1, max(1, min(most, len(files))) + 1):
+        head_start = parse_head_start(head_start_text, count) or {}
+        shards = assign(files, serial, durations, count, widths, head_start)
+        if len(set(shards)) < count:
+            continue
+        best = count
+        if max(walls(files, serial, durations, shards, count, widths, head_start)) <= budget_seconds * 1000:
+            return count
+    return best
+
+
 def order(names: list[str], durations: dict[str, float], direction: str) -> list[str]:
     """asc: known files shortest first, then unknown ones, then alone files (the warming pick).
     desc: known files longest first, then unknown ones (the order a pool should start them)."""
@@ -264,6 +316,17 @@ def main(argv: list[str]) -> int:
         for triple in triples:
             by_file.setdefault(triple[0], []).append(triple)
         write_nul([item for name in ranked for item in by_file[name].pop(0)])
+        return 0
+    if len(argv) == 6 and argv[0] == "count":
+        names = [line.strip() for line in Path(argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
+        widths = parse_widths(argv[4])
+        if widths is None or not argv[3].isdigit() or int(argv[3]) < 1:
+            print(f"error: count needs MAX >= 1 and PLAIN,BROWSER,DEV widths, not {argv[3]!r} {argv[4]!r}", file=sys.stderr)
+            return 2
+        most = int(argv[3])
+        found = shard_count(names, dev_server_files(names), load_durations(argv[2]), most, widths,
+                            os.environ.get("CMUX_WEB_TEST_SHARD_HEAD_START", ""), float(argv[5])) if names else most
+        print(found)
         return 0
     if len(argv) == 3 and argv[0] == "record":
         try:

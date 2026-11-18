@@ -20,11 +20,16 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process;
+    Vite or a browser, or spawns a process. A module name counts where it is imported, not as
+    data (`{ process: "vite" }`); comment lines are no code; a line marked
+    `webviews-affected: runtime-url` loads a URL the build serves, not a source;
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
-    webviews/scripts/, the test support dir, the preload bunfig loads before every file and
-    what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
-    any other file under webviews/ no rule maps.
+    webviews/scripts/, the preload bunfig loads before every file and what it imports, the
+    runner scripts, this file, ci-web.yml) selects everything, as does any other file under
+    webviews/ no rule maps, and a name a webviews/scripts/ file holds (a generator's input);
+  - a test/support/ module selects the tests that import it, as any module does (every browser,
+    dev-server and file-reading test runs anyway); a name in a .json only src/ and test/ modules
+    import is data (a fixture), and selects the tests reaching that .json.
 Docs (.md) no test imports and files no webviews source names select nothing.
 """
 from __future__ import annotations
@@ -41,17 +46,45 @@ import focused_tests as ft  # noqa: E402
 WEB = "webviews/"
 EVERYTHING = re.compile(
     r"^webviews/(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|vite[^/]*\.(ts|mjs|js)|"
-    r"reactCompiler\.mjs|scripts/|test/support/|test/setup|test/preload)"
+    r"reactCompiler\.mjs|scripts/|test/setup|test/preload)"
     r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py"
     r"|focused_tests\.py)$|^\.github/workflows/ci-web\.yml$|^config/vite-plus/")
 # What a module does that the import graph cannot follow: read files, import a computed path or
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
+# A module name counts only where it is imported (`from "vite"`, `import("playwright")`,
+# `require("node:fs")`, `import "vite"`): `{ process: "vite" }` or a list of project names is data,
+# and those strings put 204 tests (projectIcon.ts) in the always set (2026-11-17).
+MODULE_IMPORT = r"(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)"
 UNTRACKED = re.compile(
-    r"[\"'](node:)?fs(/promises)?[\"']|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
-    r"|import\(\s*(?![\"'`])|import\(\s*`[^`]*\$\{|(from\s+|import\(\s*)[\"']cmux:|[\"']vite[\"']"
-    r"|[\"'](playwright|child_process|node:child_process)[\"']|Bun\.spawn")
+    MODULE_IMPORT + r"[\"']((node:)?fs(/promises)?|vite|playwright|(node:)?child_process)[\"']"
+    r"|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
+    r"|import\(\s*(?![\"'`])|import\(\s*`[^`]*\$\{|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")
 UNTRACKED_OUTSIDE_SRC = re.compile(r"readFile|readdir|createServer\(|requireBrowserLane|spawnSync|execSync|execFile")
+# A comment line is no code: `// even an already loaded import() would yield` (mockTransport.ts) put
+# 90 tests in the always set. A line that carries RUNTIME_URL loads a URL the page's build serves
+# (frameOwners.ts: `import(/* @vite-ignore */ url)` of the bundle's chunks/frame-sites.js), never a
+# webviews source, and before this mark it put 1767 of 2870 tests in the always set (2026-11-17).
+RUNTIME_URL = "webviews-affected: runtime-url"
+
+
+def scanned(text: str) -> str:
+    """`text` without its comment lines and RUNTIME_URL lines, for the UNTRACKED scans. A line that
+    opens a block comment keeps whatever follows the comment's close on it."""
+    kept = []
+    for line in text.splitlines():
+        head = line.lstrip()
+        if RUNTIME_URL in line or head.startswith("//") or head.startswith("*") and not head.startswith("*/"):
+            continue
+        if head.startswith("/*"):
+            _, closed, rest = head.partition("*/")
+            if not closed:
+                continue
+            line = rest
+        kept.append(line)
+    return "\n".join(kept)
+
+
 TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 # An asset imported with a query (`./fixture.md?raw`, `./clip.webp?url`): an edge to the asset itself.
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
@@ -74,10 +107,14 @@ class Selector:
         for target, importers in self.graph.importers.items():
             for source in importers:
                 self.imports.setdefault(source, set()).add(target)
-        untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
+        code = {f: scanned(text) for f, text in self.text.items()}
+        untracked = {f for f, text in code.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
         self.always = {t for t in self.graph.tests if self.closure(t) & untracked}
         self.preload = self.closure(PRELOAD)
+        # Every scanned text at once: a name it lacks is in no one text, so named_by skips the per-file scan.
+        # A pull request of 600 Swift files scanned all 57 MB of webviews sources three times a file.
+        self.blob = "\0".join(self.text.values())
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -94,13 +131,35 @@ class Selector:
         name = Path(path).name
         keys = [path, path.removeprefix(WEB)] + ([name] if len(name) >= NAME_MIN else [])
         out: set[str] = set()
+        if name not in self.blob:  # every key ends with the name
+            return out
         for source, text in self.text.items():
             if source == path or not any(k in text for k in keys):
                 continue
-            if not source.endswith(ft.EXTENSIONS):
+            if source.startswith(WEB + "scripts/"):
+                # Build tooling: a generator (scripts/pages/gen-strings.mjs) writes gitignored tables the pages
+                # import, which no import graph sees.
                 return None
+            if not source.endswith(ft.EXTENSIONS):
+                if not self.data_only(source):
+                    return None
+                # A fixture only app and test modules import holds the name as data
+                # (src/pages/changelog/fixtures/nightly-next-50.json lists commits' files, Cargo.lock among them).
             out |= self.reaching(source)
         return out
+
+    def data_only(self, path: str) -> bool:
+        """`path` is a .json that modules import, and every module importing it, transitively, is under
+        src/ or test/: nothing that builds, serves or scripts the app reads it."""
+        if not path.endswith(".json") or not self.graph.importers.get(path):
+            return False
+        seen, frontier = {path}, [path]
+        while frontier:
+            frontier = [i for f in frontier for i in self.graph.importers.get(f, ()) if i not in seen]
+            if any(not i.startswith((WEB + "src/", WEB + "test/")) for i in frontier):
+                return False
+            seen.update(frontier)
+        return True
 
     def select(self, files: list[str]) -> tuple[set[str] | None, str]:
         """(test files under the repo root, or None for every file; the reason for None)."""

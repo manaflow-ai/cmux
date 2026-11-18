@@ -63,13 +63,37 @@ TREE = {
     "webviews/test/docs.test.ts": 'import { doc } from "../src/docs";\n',
     "README.md": "x\n",
     "unrelated/tool.py": "x = 1\n",
+    # Module names as data, a comment that names import(), and a runtime URL import marked as one: none
+    # leaves the graph (projectIcon.ts, mockTransport.ts and frameOwners.ts put 1767 of 2870 tests in the
+    # always set before, 2026-11-17). The same import unmarked does.
+    "webviews/src/brands.ts": 'export const brands = ["vite", "playwright", "node:fs"];\n',
+    "webviews/test/brands.test.ts": 'import { brands } from "../src/brands";\nconst port = { process: "vite" };\n',
+    "webviews/src/note.ts": ("// even an already loaded import() would yield, as fs would\n"
+                             " * a doc line: import(name) from \"vite\"\n"
+                             "/* inline */ export const note = 1;\n"),
+    "webviews/test/note.test.ts": 'import { note } from "../src/note";\n',
+    "webviews/src/sites.ts": ("export const sites = (url: string) =>\n"
+                              "  import(/* @vite-ignore */ url); // webviews-affected: runtime-url\n"),
+    "webviews/test/sites.test.ts": 'import { sites } from "../src/sites";\n',
+    "webviews/src/live.ts": "export const live = (url: string) => import(/* @vite-ignore */ url);\n",
+    "webviews/test/live.test.ts": 'import { live } from "../src/live";\n',
+    "webviews/test/side.test.ts": 'import "vite";\n',
+    # A fixture app and test modules import names a path as data; a build script names a generator input.
+    "webviews/src/data/commits.json": '{"files": ["cmux-tui/Cargo.lock"]}\n',
+    "webviews/src/commits.ts": 'import COMMITS from "./data/commits.json";\nexport const commits = COMMITS;\n',
+    "webviews/test/commits.test.ts": 'import { commits } from "../src/commits";\n',
+    "cmux-tui/Cargo.lock": "x\n",
+    "webviews/scripts/gen.mjs": 'export const input = "catalogs/app-strings.json";\n',
+    "catalogs/app-strings.json": "{}\n",
+    "webviews/test/support/helper.ts": "export const help = 1;\n",
+    "webviews/test/uses-helper.test.ts": 'import { help } from "./support/helper";\n',
 }
 
 
 # Tests the import graph cannot cover, which every selection runs: one reads files, one imports
 # a computed path, one starts Vite, one imports a helper that reads files.
-ALWAYS = ["webviews/test/fresh.test.ts", "webviews/test/helper.test.ts", "webviews/test/scan.test.ts",
-          "webviews/test/served.test.ts"]
+ALWAYS = ["webviews/test/fresh.test.ts", "webviews/test/helper.test.ts", "webviews/test/live.test.ts",
+          "webviews/test/scan.test.ts", "webviews/test/served.test.ts", "webviews/test/side.test.ts"]
 
 
 def git(root: Path, *args: str) -> str:
@@ -141,6 +165,22 @@ class SelectTest(unittest.TestCase):
 
     def test_strings_naming_file_reads_in_app_code_do_not_mark_a_test(self) -> None:
         self.assertEqual(self.change("webviews/src/tools.ts"), with_always("webviews/test/tools.test.ts"))
+
+    def test_module_names_as_data_comments_and_marked_runtime_urls_stay_in_the_graph(self) -> None:
+        self.assertEqual(self.change("webviews/src/brands.ts"), with_always("webviews/test/brands.test.ts"))
+        self.assertEqual(self.change("webviews/src/note.ts"), with_always("webviews/test/note.test.ts"))
+        self.assertEqual(self.change("webviews/src/sites.ts"), with_always("webviews/test/sites.test.ts"))
+
+    def test_a_name_in_a_fixture_selects_its_readers_and_one_in_a_build_script_everything(self) -> None:
+        self.assertEqual(self.change("cmux-tui/Cargo.lock"), with_always("webviews/test/commits.test.ts"))
+        self.assertIsNone(self.change("catalogs/app-strings.json"))
+
+    def test_a_test_support_module_selects_its_importers(self) -> None:
+        self.assertEqual(self.change("webviews/test/support/helper.ts"), with_always("webviews/test/uses-helper.test.ts"))
+
+    def test_a_block_comment_keeps_the_code_after_its_close(self) -> None:
+        self.assertIn('import("vite")', wa.scanned('/* lead */ const v = import("vite");\n'))
+        self.assertNotIn("import(", wa.scanned("/* a block\n * import(x)\n */\nconst a = 1;\n"))
 
     def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))

@@ -177,8 +177,9 @@ export function browserOwnersEnv(): OwnersEnv {
       siteTable ??= (async () => {
         try {
           // Beside pane.js (the document's folder); a dev server and the gallery have none.
+          // A build output, not a source module: no test's import graph runs through it.
           const url = new URL("chunks/frame-sites.js", document.baseURI).href;
-          const module = (await import(/* @vite-ignore */ url)) as { default?: SiteTable };
+          const module = (await import(/* @vite-ignore */ url)) as { default?: SiteTable }; // webviews-affected: runtime-url
           return module.default?.files ? module.default : null;
         } catch {
           return null;
