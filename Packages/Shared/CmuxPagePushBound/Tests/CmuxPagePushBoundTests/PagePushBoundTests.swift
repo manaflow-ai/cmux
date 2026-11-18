@@ -288,6 +288,37 @@ import Testing
         #expect(drains.stalls == 0)
     }
 
+    /// A page acking a push the host never made (a seq past the newest pushed) must not clear what
+    /// it has not acked, nor end a stall: else a buggy page walks past the bound and its renderer
+    /// grows without limit again.
+    @Test func anAckPastTheNewestPushNeitherClearsNorResumes() {
+        var ledger = PagePushLedger(bounds: .init(maximumUnackedBytes: 100, maximumUnackedPushes: 240))
+        ledger.pushed(seq: 1, bytes: 60)
+        ledger.pushed(seq: 2, bytes: 60)
+        let held = ledger.deadlinePassed()
+        #expect(!held && ledger.stalled)
+        let before = ledger.unacked
+
+        let future = ledger.acked(seq: 3)
+        #expect(!future, "an ack past the newest push resumes nothing")
+        #expect(ledger.stalled, "still held")
+        #expect(ledger.unacked == before && ledger.unackedBytes == 120, "the unacked pushes are kept")
+        let farFuture = ledger.acked(seq: .max)
+        #expect(!farFuture && ledger.stalled && ledger.unacked == before)
+
+        let valid = ledger.acked(seq: 2)
+        #expect(valid, "an ack of the newest push still resumes")
+        #expect(!ledger.stalled && ledger.unacked.isEmpty && ledger.unackedBytes == 0)
+
+        // Not stalled: a future ack still leaves the unacked pushes alone.
+        var flowing = PagePushLedger()
+        flowing.pushed(seq: 7, bytes: 10)
+        let notHeld = flowing.acked(seq: 8)
+        #expect(!notHeld && flowing.unacked == [PagePushLedger.Push(seq: 7, bytes: 10)])
+        let applied = flowing.acked(seq: 7)
+        #expect(!applied && flowing.unacked.isEmpty)
+    }
+
     @Test func anEpisodeHoldsKeptRecordsBehindItsOneMarker() {
         var episode = PageShedEpisode()
         let heldOutside = episode.deferRecord("r0", bytes: 2)
