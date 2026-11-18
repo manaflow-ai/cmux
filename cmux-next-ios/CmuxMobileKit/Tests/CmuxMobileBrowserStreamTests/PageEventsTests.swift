@@ -30,6 +30,10 @@ import Testing
             box.lock.withLock { box.sinks.append(sink) }
             return stream
         }
+        // No picture ever comes here, and the stall watchdog's real one-second ticks would open
+        // the stream again after a few seconds on a busy runner: the sink below would go stale and
+        // every later message would be dropped (run 44223779266). Stalls are StallTests' to check.
+        model.watchdogTick = { throw CancellationError() }
         model.setVisible(true)
         model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
         for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
