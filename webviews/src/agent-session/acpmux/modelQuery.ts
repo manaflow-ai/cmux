@@ -61,13 +61,36 @@ export function parseQuery(query: string, efforts: ReadonlySet<string>): ParsedQ
 
 export type QueryModel = { id: string; name: string; efforts?: string[]; fast?: boolean };
 
+/// The text a query matches against, per model object and harness name: a key of a search over a
+/// catalog of thousands then reads each model's text once rather than lowercasing and compacting it
+/// again. The picker's model objects are cached per catalog entry and never changed in place.
+const searchTexts = new WeakMap<QueryModel, { harnessName: string; text: string; flat: string }>();
+function searchTextOf(model: QueryModel, harnessName: string): { text: string; flat: string } {
+  const kept = searchTexts.get(model);
+  if (kept?.harnessName === harnessName) return kept;
+  const made = {
+    harnessName,
+    text: `${model.name} ${model.id} ${harnessName}`.toLowerCase(),
+    flat: `${compact(model.name)} ${compact(model.id)} ${compact(harnessName)}`,
+  };
+  searchTexts.set(model, made);
+  return made;
+}
+/// A parsed query's words compacted, once per query rather than once per model.
+const compactWords = new WeakMap<ParsedQuery, string[]>();
+
 /// Whether `model` of `harnessName` fits the query: every word in its name, id or harness name;
 /// the named effort among its efforts and fast mode among its options, when the catalog lists them.
 export function fitsQuery(model: QueryModel, harnessName: string, query: ParsedQuery): boolean {
-  const text = `${model.name} ${model.id} ${harnessName}`.toLowerCase();
+  const { text, flat } = searchTextOf(model, harnessName);
   // A word matches as typed, or with spaces, dots and dashes ignored on both sides ("opus55", "gpt5.5", "4-5").
-  const flat = `${compact(model.name)} ${compact(model.id)} ${compact(harnessName)}`;
-  if (!query.words.every((word) => text.includes(word) || (compact(word) !== "" && flat.includes(compact(word)))))
+  let flatWords = compactWords.get(query);
+  if (!flatWords) compactWords.set(query, (flatWords = query.words.map(compact)));
+  if (
+    !query.words.every(
+      (word, index) => text.includes(word) || (flatWords[index] !== "" && flat.includes(flatWords[index]!)),
+    )
+  )
     return false;
   if (query.effort && model.efforts && !model.efforts.some((effort) => effort.toLowerCase() === query.effort))
     return false;
