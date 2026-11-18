@@ -16,7 +16,7 @@ import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls"
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
-import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
+import { finishedBackgroundPhrase } from "./toolRunSummary";
 import { commandGroupSaid } from "./commandActions";
 import { readPath } from "./readPath";
 
@@ -555,7 +555,9 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
   const stretches: RunStretch[] = [];
   let current: RunStretch | undefined;
   const close = () => {
-    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
+    // Claude Code desktop lists a run's calls one line each ("Edit src/a.ts +3", "Typecheck ›"), never under
+    // one summary line, so this look branch folds no stretch.
+    if (current) current.fold = false;
     current = undefined;
   };
   groups.forEach((group, at) => {

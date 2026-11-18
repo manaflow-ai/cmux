@@ -5,11 +5,13 @@
 import { useContext } from "react";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 
-/// `path` as the chat's folder sees it: relative under `cwd`, else as given.
+/// `path` as the chat's folder sees it: relative under `cwd`; outside it (or with no folder known),
+/// an absolute path's last three parts ("src/api/client.ts"), as the app's chips stay short.
 export function chatRelativePath(path: string, cwd?: string): string {
   const folder = cwd?.replace(/\/+$/, "");
   if (folder && path.startsWith(`${folder}/`)) return path.slice(folder.length + 1);
-  return path;
+  if (!path.startsWith("/") && !path.startsWith("~")) return path;
+  return path.split("/").filter(Boolean).slice(-3).join("/");
 }
 
 /// `line` is the translated line with "\u0000" where the file goes ("Edit \u0000").
