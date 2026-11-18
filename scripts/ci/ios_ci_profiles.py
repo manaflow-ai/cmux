@@ -16,6 +16,12 @@ $GITHUB_ENV for cmux-next-ios/scripts/testflight-build.sh.
 Detector: it fails, before anything is signed, naming the certificate and the profile,
 when a profile it would hand on does not list CI's certificate.
 
+Setting: regenerating deletes and creates profiles in the team's App Store Connect account,
+so it can be turned off. CMUX_IOS_CI_PROFILE_REGENERATE (the repository variable of that
+name in ios-internal-nightly.yml; on by default) set to 0, false, no or off, or
+--no-regenerate, only fetches: with no usable profile it fails naming each stale one and
+what an Admin does in the portal, and changes nothing there.
+
 Needs `asc` on PATH with ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY_PATH set. Prints
 no secret: certificate SHA-1s and App Store Connect ids only.
 """
@@ -82,6 +88,16 @@ def usable(p: dict, identity: str, team_bundle: str, min_days: int) -> str:
     return ""
 
 
+REGENERATE_ENV = "CMUX_IOS_CI_PROFILE_REGENERATE"
+
+
+def regenerate_default(environ=os.environ) -> bool:
+    """Whether a missing or stale profile is regenerated in App Store Connect: on unless
+    CMUX_IOS_CI_PROFILE_REGENERATE says 0, false, no or off (an empty value is the default)."""
+    value = environ.get(REGENERATE_ENV, "").strip().lower()
+    return value not in ("0", "false", "no", "off")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--keychain", required=True)
@@ -91,6 +107,9 @@ def main() -> int:
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--min-days", type=int, default=3)
     ap.add_argument("--github-env", default=os.environ.get("GITHUB_ENV", ""))
+    ap.add_argument("--regenerate", action=argparse.BooleanOptionalAction, default=regenerate_default(),
+                    help=f"delete stale profiles and create one for CI's certificate when none is usable "
+                         f"(default: on, unless {REGENERATE_ENV} turns it off)")
     args = ap.parse_args()
 
     ids = keychain_identities(args.keychain)
@@ -145,6 +164,11 @@ def main() -> int:
                     stale.append((p["id"], why))
                 elif chosen is None:
                     chosen = a["profileContent"]
+            if chosen is None and not args.regenerate:
+                stale_list = "; ".join(f"{pid} {why}" for pid, why in stale) or "none exists"
+                fail(f"no usable \"{name}\" App Store profile ({stale_list}), and regeneration is off "
+                     f"({REGENERATE_ENV}). An Admin opens {PORTAL}, edits or creates \"{name}\" to include "
+                     f"the certificate with SHA-1 {identity}, and reruns. Nothing was changed or signed.")
             if chosen is None:
                 for pid, why in stale:
                     print(f"\"{name}\" {pid} {why}: deleting it")

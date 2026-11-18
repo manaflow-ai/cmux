@@ -356,7 +356,12 @@ jobs:
       # (IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64) that drifted from the
       # certificate and stopped every upload. Fails here, before anything is
       # signed, when a profile does not list CI's certificate.
+      # Regeneration deletes and creates profiles in App Store Connect; the
+      # repository variable CMUX_IOS_CI_PROFILE_REGENERATE=0 turns it off (fetch
+      # only, fail with the portal step). On by default.
       - name: App Store profiles for CI's certificate (fetch or regenerate)
+        env:
+          CMUX_IOS_CI_PROFILE_REGENERATE: ${{ vars.CMUX_IOS_CI_PROFILE_REGENERATE || '1' }}
         run: python3 -I scripts/ci/ios_ci_profiles.py --keychain cmux-mobile-internal.keychain --out-dir "$RUNNER_TEMP/asc"
 
       # The note comes from the `notes` job; this job only reads it. Without

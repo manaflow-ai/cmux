@@ -42,5 +42,16 @@ class Usable(unittest.TestCase):
         self.assertIn("not " + TEAM_BUNDLE, why)
 
 
+class RegenerateSetting(unittest.TestCase):
+    def test_regeneration_is_on_by_default(self):
+        self.assertTrue(mod.regenerate_default({}))
+        self.assertTrue(mod.regenerate_default({mod.REGENERATE_ENV: ""}))
+        self.assertTrue(mod.regenerate_default({mod.REGENERATE_ENV: "1"}))
+
+    def test_the_variable_turns_it_off(self):
+        for value in ("0", "false", "No", " off "):
+            self.assertFalse(mod.regenerate_default({mod.REGENERATE_ENV: value}), value)
+
+
 if __name__ == "__main__":
     unittest.main()
