@@ -85,6 +85,46 @@ await requireBrowserLane("visible-lists-combobox.browser.test.ts", async () => {
     });
   }
 
+  // A list opened long windows from its first commit: it never mounts every row for one render
+  // before the window takes over (the mount bound above reads the DOM after that commit is gone).
+  for (const name of ["combobox", "combobox-pinned"]) {
+    test(`${name}: the first render of a long list mounts only the window`, async () => {
+      for (const n of [1000, 10000]) {
+        const open = await server.open(name, n);
+        const { peakMounts, peakRenders } = open.mountCounts;
+        console.log(`${name} at ${n}: mount peak ${peakMounts} rows mounted, ${peakRenders} rendered in one commit`);
+        expect(peakMounts).toBeGreaterThan(0);
+        expect(peakMounts).toBeLessThanOrEqual(MOUNTED_BOUND);
+        expect(peakRenders).toBeLessThanOrEqual(MOUNTED_BOUND);
+        await open.close();
+      }
+    });
+    test(`${name}: a list that opens short and grows past the bound windows as it grows`, async () => {
+      const open = await server.open(`${name}&start=10`, 10000);
+      const { page } = open;
+      expect((await open.counts()).rows).toBe(name === "combobox" ? 10 : 11);
+      const peak = await page.evaluate(async () => {
+        const w = window as unknown as {
+          __grow(): void;
+          __visibleList: {
+            renderCounts: { start(): void; stop(): void; read(names: readonly string[]): { peakMounts: number } };
+          };
+        };
+        w.__visibleList.renderCounts.start();
+        w.__grow();
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        w.__visibleList.renderCounts.stop();
+        return w.__visibleList.renderCounts.read(["ComboboxOption", "ComboboxCaseRow"]).peakMounts;
+      });
+      const { rows } = await open.counts();
+      console.log(`${name} grown 10 to 10000: mount peak ${peak}, mounted ${rows}`);
+      expect(peak).toBeLessThanOrEqual(MOUNTED_BOUND);
+      expect(rows).toBeLessThanOrEqual(MOUNTED_BOUND);
+      expect(await page.locator('[role="option"][aria-setsize="10000"]').count()).toBeGreaterThan(0);
+      await open.close();
+    });
+  }
+
   /** The active descendant of the focused field or list: its place in the list, and whether it is
    * mounted and wholly inside the scroller's view. */
   async function activeRow(page: Awaited<ReturnType<VisibleListsServer["open"]>>["page"]) {

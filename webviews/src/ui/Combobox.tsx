@@ -344,8 +344,9 @@ export function Combobox({
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
   const scrollingRows = hasPinned ? scrollingCount : enabledSuggestions.length;
   // Once a list has windowed it stays windowed while mounted: a query that narrows it to a few rows
-  // and back must not rebuild the window (and measure its rows again) on each key.
-  const [windowing, setWindowing] = useState(false);
+  // and back must not rebuild the window (and measure its rows again) on each key. A list that opens
+  // long windows from its first render; one that grows past the bound switches on as it does.
+  const [windowing, setWindowing] = useState(() => scrollingRows > COMBOBOX_VIRTUAL_AFTER);
   if (!windowing && scrollingRows > COMBOBOX_VIRTUAL_AFTER) setWindowing(true);
   const virtualized = (hasPinned && virtualRows !== undefined) || windowing || scrollingRows > COMBOBOX_VIRTUAL_AFTER;
   // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:

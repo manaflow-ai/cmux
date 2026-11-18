@@ -27,8 +27,18 @@ export interface StepNumbers {
   steps: number;
 }
 
+/** Row renders from mounting a case through two frames after: in all, and in the one commit with
+ * the most (a list that mounted every row for one commit before windowing them shows it here). */
+export interface MountCounts {
+  renders: number;
+  mounts: number;
+  peakRenders: number;
+  peakMounts: number;
+}
+
 export interface VisibleListOpen {
   page: Page;
+  mountCounts: MountCounts;
   /** Mounted rows and the DOM nodes under the list. */
   counts(): Promise<{ rows: number; domNodes: number }>;
   measure(step: VisibleStep, steps?: number): Promise<StepNumbers>;
@@ -82,10 +92,15 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
       // The page's chunks are relative to it (`./chunks/...`): it is served at the root.
       await page.goto(`http://127.0.0.1:${statics.port}/?case=${caseName}&n=${n}`);
       await page.waitForFunction(() => "__visibleList" in window);
-      const { rowSelector, rowComponents } = await page.evaluate(
+      const { rowSelector, rowComponents, mountCounts } = await page.evaluate(
         () =>
-          (window as unknown as { __visibleList: { ready: Promise<{ rowSelector: string; rowComponents: string[] }> } })
-            .__visibleList.ready,
+          (
+            window as unknown as {
+              __visibleList: {
+                ready: Promise<{ rowSelector: string; rowComponents: string[]; mountCounts: MountCounts }>;
+              };
+            }
+          ).__visibleList.ready,
       );
       if (errors.length) throw new Error(errors.join("\n"));
       await frames(page);
@@ -93,6 +108,7 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
       await cdp.send("Performance.enable");
       return {
         page,
+        mountCounts,
         counts: () =>
           page.evaluate((selector) => {
             const controls = (window as unknown as { __visibleListControls: { list(): HTMLElement } })
