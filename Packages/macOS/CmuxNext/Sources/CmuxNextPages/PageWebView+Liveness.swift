@@ -57,7 +57,66 @@ extension PageWebView {
     /// one ended renderer that share a window's toasts each show theirs at once instead of
     /// replacing each other; its kind is one for all, so Don't Show Again hides every copy.
     public func rendererRestartedToast(_ line: String) -> CmuxToast {
-        CmuxToast(id: "page.rendererRestarted.\(PageRegistry.instance(of: self))", kind: "page.rendererRestarted", message: line)
+        CmuxToast(id: "page.rendererRestarted.\(PageRegistry.instance(of: self))", kind: Self.rendererRestartedToastKind, message: line)
+    }
+
+    /// The restart toast's Don't Show Again key: the id the agent pane's one toast had before the
+    /// toast became each page's own, so a person who hid it keeps it hidden.
+    public nonisolated static let rendererRestartedToastKind = "agentPane.rendererRestarted"
+
+    /// The page global the restart line's document script sets (webviews rendererRestartStore.ts
+    /// reads it when the pane's module loads, so the line is in the chat's first frame) and the
+    /// page's hook it calls when the pane already runs (the script came late).
+    nonisolated static let restartFlagGlobal = "__cmuxRendererRestart"
+    nonisolated static let restartFlagChanged = "__cmuxRendererRestartChanged"
+
+    /// The document script that tells the page's next document why it loaded: `line`, the
+    /// localized restart line, in ``restartFlagGlobal``. It runs once per restart (`restart`, kept
+    /// in the tab's sessionStorage), so a later reload of the same tab shows nothing even when the
+    /// script could not be taken off.
+    nonisolated static func restartFlagScript(line: String, restart: String) -> String {
+        let key = ChromiumPageHostWire.jsonString("cmux.rendererRestart." + restart)
+        let flag = ChromiumPageHostWire.jsonString(restartFlagGlobal)
+        let changed = ChromiumPageHostWire.jsonString(restartFlagChanged)
+        return """
+        (() => {
+          try {
+            if (sessionStorage.getItem(\(key))) return;
+            sessionStorage.setItem(\(key), "1");
+          } catch {}
+          globalThis[\(flag)] = { line: \(ChromiumPageHostWire.jsonString(line)) };
+          globalThis[\(changed)]?.();
+        })();
+        """
+    }
+
+    /// The watchdog ended this page's renderer and the page reloads: the reload's document gets
+    /// the restart line before any of its own scripts run (a new-document script; the renderer
+    /// is gone, so Chromium hands it to the renderer the reload brings, before that document
+    /// commits). The pane draws it as a row in the chat, so every chat of the ended renderer says
+    /// so, however many share a window's toasts.
+    func flagRestartForNextDocument() {
+        guard let line = pendingRestartNotice, let page = chromiumSession?.page else { return }
+        let source = Self.restartFlagScript(line: line, restart: UUID().uuidString)
+        // task-owner: the page (`restartFlagScript`); one bounded DevTools call, answered by the next renderer
+        restartFlagScript = Task {
+            guard let answer = try? await page.devTools("Page.addScriptToEvaluateOnNewDocument",
+                                                        params: ["source": source, "runImmediately": true],
+                                                        timeout: .seconds(30)) else { return nil }
+            return ChromiumPageHostWire.object(answer)?["identifier"] as? String
+        }
+    }
+
+    /// The restarted document loaded: its restart line's script comes off, so no later document
+    /// of the page runs it.
+    func clearRestartFlag() {
+        guard let added = restartFlagScript, let page = chromiumSession?.page else { return }
+        restartFlagScript = nil
+        // task-owner: the page (`restartFlagRemoval`); one bounded DevTools call after the add's answer
+        restartFlagRemoval = Task {
+            guard let identifier = await added.value else { return }
+            _ = try? await page.devTools("Page.removeScriptToEvaluateOnNewDocument", params: ["identifier": identifier])
+        }
     }
 
     /// Ends the one renderer `pages` share, by force (``PageRendererProcess/endRenderer()``):

@@ -43,6 +43,7 @@ extension PageWebView {
         healthFeed?.pageLoaded(self)
         if let notice = pendingRestartNotice {
             pendingRestartNotice = nil
+            clearRestartFlag()
             onRendererRestarted?(rendererRestartedToast(notice))
         }
     }

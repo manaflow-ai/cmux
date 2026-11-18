@@ -120,6 +120,8 @@ extension PageWebView {
             // App health ended this renderer to repair the page: bring it back, never the notice.
             rendererRestartPending = false
             logger.error("page \(self.descriptor.id, privacy: .public) renderer restarted by app health; reloading")
+            // The watchdog's end: the new document draws the restart line in the chat itself.
+            flagRestartForNextDocument()
             return reloadPage()
         }
         healthFeed?.pageCrashed(self)
