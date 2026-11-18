@@ -65,6 +65,33 @@ struct SwiftUIListsVisibleRowsTests {
         #expect(typed.rowsConfigured == 0, "a key in the search field configured \(typed.rowsConfigured) rows")
     }
 
+    /// What the baselined "items walked" costs at 10,000 rows: one Automations reload (both sources parsed, indexed,
+    /// grouped and sorted) and one Memory Inspector reload (the whole view decoded), each the median of 7, no window.
+    /// Printed ("swiftui-lists walk"), not asserted: the number is for the row-patch follow-up.
+    @Test func theBaselinedWalksAtTenThousandRows() async throws {
+        let rows = 10_000
+        func median(_ run: () async -> Void) async -> Int {
+            var samples: [Duration] = []
+            for _ in 0..<7 {
+                let start = ContinuousClock.now
+                await run()
+                samples.append(ContinuousClock.now - start)
+            }
+            let mid = samples.sorted()[samples.count / 2]
+            return Int(mid.components.seconds * 1_000_000 + mid.components.attoseconds / 1_000_000_000_000)
+        }
+        let local = await AutomationsSource(count: rows).json() // made once: the timed reload times the app, not this fake
+        let page = AutomationsPage(local: { local }, cloud: { Data(#"{"automations": []}"#.utf8) })
+        let automations = await median {
+            await page.reload(now: AutomationsSource.now)
+            _ = page.sections(now: AutomationsSource.now)
+        }
+        let model = ChiefMemoryInspectorModel(source: MemorySource(count: rows), confirmDelete: { _, _ in true })
+        let memory = await median { await model.reload() }
+        print("swiftui-lists walk n=\(rows) automations_reload_us=\(automations) memory_reload_us=\(memory)")
+        #expect(page.rows.count == rows && model.lines.count == rows)
+    }
+
     @Test(arguments: [10, 50])
     func aTodoChangeConfiguresOnlyTheRowItChanged(items: Int) async throws {
         _ = NSApplication.shared
@@ -216,12 +243,17 @@ private actor AutomationsSource {
 private actor MemorySource: ChiefMemorySource {
     let count: Int
     var changed: Int?
+    /// The last `/api/view` answer, made again only after a change (so a timed reload times the app, not this fake).
+    var view: Data?
 
     init(count: Int) { self.count = count }
 
     nonisolated static func name(_ index: Int) -> String { "vr-\(index)" }
 
-    func change(_ index: Int) { changed = index }
+    func change(_ index: Int) {
+        changed = index
+        view = nil
+    }
 
     func call(_ path: String, query: [String: String]) async throws(ChiefMemoryError) -> Data {
         switch path {
@@ -231,11 +263,14 @@ private actor MemorySource: ChiefMemorySource {
             return Data((#"{"name": "4+1", "level": 0, "start": 4, "n": 1, "built": true, "text": "user: hello", "#
                 + #""message": {"id": 4, "kind": "user", "text": "hello there", "bytes": 11}}"#).utf8)
         case "/api/view":
+            if let view { return view }
             let lines = (0..<count).map { i in
                 #"{"name": "\#(Self.name(i))", "level": 1, "start": \#(i), "n": 1, "built": true, "#
                     + #""text": "\#(i == changed ? "changed" : "line") \#(i)"}"#
             }
-            return Data((#"{"lines": ["# + lines.joined(separator: ",") + "]}").utf8)
+            let made = Data((#"{"lines": ["# + lines.joined(separator: ",") + "]}").utf8)
+            view = made
+            return made
         default: throw .refused(status: 404, message: "no API \(path)")
         }
     }
