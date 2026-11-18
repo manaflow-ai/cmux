@@ -47,6 +47,8 @@ struct CmuxMobileApp: App {
             #if DEBUG
             if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if TerminalChatToggleGalleryRoot.isRequested {
+                TerminalChatToggleGalleryRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {

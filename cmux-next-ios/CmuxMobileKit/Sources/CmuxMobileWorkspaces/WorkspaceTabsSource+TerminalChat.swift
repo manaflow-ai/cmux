@@ -283,6 +283,12 @@ struct TerminalChatPage<Terminal: View>: View {
                 }
             }
         }
+        #if DEBUG
+        // Review variants of where the swap lives (`TerminalChatToggleVariant`); base without the launch argument.
+        .modifier(TerminalChatToggleVariantOverlay(
+            variant: .current, offered: faces.offered, showsChat: showsChat, topInset: topInset,
+            swap: { source.swapTerminalChat(tab.id, to: showsChat ? .terminal : .chat) }))
+        #endif
         // Runs again when another chat shows the session, so the pairing kept on disk follows it.
         .task(id: "\(tab.linkIDs?.harnessSession ?? "")|\(faces.offered)|\(chatSession ?? "")") {
             if faces.offered { source.openTerminalChatIfNeeded(tab.id) }
