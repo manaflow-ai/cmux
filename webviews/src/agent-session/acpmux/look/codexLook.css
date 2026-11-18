@@ -3,13 +3,21 @@
    Colors, radii and shadows only: no rule here changes a row's measured height (model.ts), so the
    transcript's virtual placement holds. Light and dark follow the theme (shared/theme.ts sets the
    root's color-scheme), with light-dark() picking the Codex app's light values or a dark twin. */
+:root {
+  --codex-1: #f2f2f2; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-2: #f0f0f0; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-3: #0a74e8; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-4: #5aa9ff; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-5: #ffffff; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-6: #e3e3e3; /* colour-allow: the reference app's own token, which this look carries */
+}
 
 /* The prompt: a right-aligned light gray pill, 20 px corners, no rim. */
 .acpmux-shell .cv-user__bubble,
 .acpmux-shell .cv-user__edit {
-  --glass-tint: light-dark(#f2f2f2, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  --glass-tint: light-dark(var(--codex-1), color-mix(in srgb, var(--agent-text) 10%, transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only */
-  --glass-opaque: light-dark(#f2f2f2, color-mix(in srgb, var(--agent-text) 10%, var(--glass-surface)));
+  --glass-opaque: light-dark(var(--codex-1), color-mix(in srgb, var(--agent-text) 10%, var(--glass-surface)));
   --glass-edge: transparent;
   --glass-rim: 0;
   border-radius: 20px;
@@ -18,8 +26,8 @@
 /* The reply is plain text on the page; inline code is a light gray chip; links are blue with no
    underline until hovered. */
 .acpmux-shell {
-  --cv-code-bg: light-dark(#f0f0f0, color-mix(in srgb, var(--agent-text) 10%, transparent));
-  --agent-link: light-dark(#0a74e8, #5aa9ff);
+  --cv-code-bg: light-dark(var(--codex-2), color-mix(in srgb, var(--agent-text) 10%, transparent));
+  --agent-link: light-dark(var(--codex-3), var(--codex-4));
 }
 .acpmux-shell .cv-code {
   --cv-code-radius: 6px;
@@ -39,8 +47,8 @@
   --acpmux-composer-radius: 24px;
 }
 .acpmux-shell {
-  --acpmux-composer-bg: light-dark(#ffffff, color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)));
-  --acpmux-composer-edge: light-dark(#e3e3e3, color-mix(in srgb, var(--agent-text) 14%, transparent));
+  --acpmux-composer-bg: light-dark(var(--codex-5), color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)));
+  --acpmux-composer-edge: light-dark(var(--codex-6), color-mix(in srgb, var(--agent-text) 14%, transparent));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box {
   box-shadow:
@@ -69,8 +77,8 @@
 
 /* Scroll to bottom: a white disc with a gray hairline and a soft shadow, the arrow in the text color. */
 :root .acpmux-shell .acpmux-jump-latest {
-  --glass-tint: light-dark(#ffffff, var(--agent-page-bg));
-  --glass-edge: light-dark(#e3e3e3, color-mix(in srgb, var(--agent-text) 18%, transparent));
+  --glass-tint: light-dark(var(--codex-5), var(--agent-page-bg));
+  --glass-edge: light-dark(var(--codex-6), color-mix(in srgb, var(--agent-text) 18%, transparent));
   --glass-backdrop: none;
   width: 36px;
   height: 36px;

@@ -2,15 +2,23 @@
    sidebar of categories with a rounded gray selection, a white page, plain section titles, and
    each group a white card with a hairline and 12 px corners whose pickers are plain text with a
    chevron. Loaded last (page.css), colors and radii only, so the rows keep their heights. */
+:root {
+  --codex-settings-1: #ededed; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-settings-2: #f4f4f4; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-settings-3: #ececec; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-settings-4: #e5e5e5; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-settings-5: #e6e6e6; /* colour-allow: the reference app's own token, which this look carries */
+  --codex-settings-6: #ffffff; /* colour-allow: the reference app's own token, which this look carries */
+}
 .settings {
   --look-control-fill: transparent;
-  --look-control-fill-hover: light-dark(#ededed, color-mix(in srgb, var(--text, currentColor) 10%, transparent));
+  --look-control-fill-hover: light-dark(var(--codex-settings-1), color-mix(in srgb, var(--text, currentColor) 10%, transparent));
   --look-control-line: transparent;
 }
 .settings > .sidebar,
 :root[data-settings-look] .settings > .sidebar {
-  background: light-dark(#f4f4f4, color-mix(in srgb, var(--text, currentColor) 4%, transparent));
-  border-right: 1px solid light-dark(#ececec, color-mix(in srgb, var(--text, currentColor) 8%, transparent));
+  background: light-dark(var(--codex-settings-2), color-mix(in srgb, var(--text, currentColor) 4%, transparent));
+  border-right: 1px solid light-dark(var(--codex-settings-3), color-mix(in srgb, var(--text, currentColor) 8%, transparent));
 }
 .settings .sidebar-title {
   font-weight: var(--weight-medium, 500);
@@ -21,7 +29,7 @@
 }
 .settings .section-link[aria-current],
 :root[data-settings-look] .settings .section-link[aria-current] {
-  background: light-dark(#e5e5e5, color-mix(in srgb, var(--text, currentColor) 12%, transparent));
+  background: light-dark(var(--codex-settings-4), color-mix(in srgb, var(--text, currentColor) 12%, transparent));
 }
 .settings .section-title {
   font-weight: var(--weight-medium, 500);
@@ -32,9 +40,9 @@
 }
 .settings .rows,
 :root[data-settings-look] .settings .rows {
-  border: 1px solid light-dark(#e6e6e6, color-mix(in srgb, var(--text, currentColor) 12%, transparent));
+  border: 1px solid light-dark(var(--codex-settings-5), color-mix(in srgb, var(--text, currentColor) 12%, transparent));
   border-radius: 12px;
-  background: light-dark(#ffffff, transparent);
+  background: light-dark(var(--codex-settings-6), transparent);
 }
 .settings .rows > .row:first-child {
   border-top-left-radius: 12px;
