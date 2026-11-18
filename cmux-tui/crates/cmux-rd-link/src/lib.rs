@@ -40,6 +40,12 @@ pub const TAG_HANDSHAKE_1: u8 = 0xD0;
 pub const TAG_HANDSHAKE_2: u8 = 0xD1;
 pub const TAG_HANDSHAKE_3: u8 = 0xD2;
 pub const TAG_SEALED: u8 = 0xD3;
+/// A responder's hole punch: one byte, sent to each of the initiator's routes
+/// until the handshake finishes, so the responder's own NAT or firewall lets
+/// the initiator's message 1 in (a responder behind address-dependent
+/// filtering that only listens never hears it). Every side drops it unread;
+/// an older initiator does too, as an unknown tag.
+pub const TAG_PUNCH: u8 = 0xD4;
 /// Bytes a sealed packet adds to its payload: tag, nonce, inner kind, AEAD tag.
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
@@ -57,6 +63,10 @@ mod inner {
     pub const PROBE: u8 = 3;
     pub const PROBE_REPLY: u8 = 4;
     pub const CLOSE: u8 = 5;
+    /// Nothing to deliver: the packet only keeps the radios on the path awake
+    /// ([`crate::endpoint::KEEP_AWAKE_US`]). A peer that predates it drops it as
+    /// an unknown kind, so it needs no version or cap.
+    pub const KEEP_AWAKE: u8 = 6;
 }
 
 /// Which side opens the handshake. The viewer initiates; the host responds.
@@ -348,6 +358,8 @@ impl Link {
                 self.state = State::Failed;
                 events.push(Event::Closed);
             }
+            // Its only job, waking this side's radio, is done by arriving.
+            inner::KEEP_AWAKE => {}
             _ => {}
         }
         Ok(())
@@ -392,6 +404,11 @@ impl Link {
     /// A probe with `id`, sealed, for one path (the caller sends it on that path).
     pub fn probe(&mut self, id: u64) -> Result<Vec<u8>, LinkError> {
         self.seal(inner::PROBE, &id.to_le_bytes())
+    }
+
+    /// A keep-awake packet (no payload, never answered), sealed, for the current path.
+    pub fn keep_awake(&mut self) -> Result<Vec<u8>, LinkError> {
+        self.seal(inner::KEEP_AWAKE, &[])
     }
 
     /// Tells the peer the link ends.
