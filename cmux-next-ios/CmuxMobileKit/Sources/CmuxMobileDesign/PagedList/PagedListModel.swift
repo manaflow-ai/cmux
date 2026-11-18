@@ -93,9 +93,17 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
         do {
             let page = try await loader(nil)
             guard run == generation else { return }
-            newestFirst = Self.unique(page.items)
-            cursor = page.nextCursor
-            edge = page.nextCursor == nil ? .end : .more
+            let fresh = Self.unique(page.items)
+            if let merged = newestFirst.mergingFirstPage(fresh, hasMore: page.nextCursor != nil) {
+                // The older pages already read stay (and so does the reader in them); their cursor
+                // still reads what comes after them.
+                newestFirst = merged
+                if edge == .loading { edge = cursor == nil ? .end : .more }
+            } else {
+                newestFirst = fresh
+                cursor = page.nextCursor
+                edge = page.nextCursor == nil ? .end : .more
+            }
             phase = .loaded
             refreshFailure = nil
         } catch {
@@ -161,5 +169,17 @@ public final class PagedListModel<Item: Identifiable & Equatable & Sendable> whe
     private static func unique(_ items: [Item]) -> [Item] {
         var seen = Set<Item.ID>()
         return items.filter { seen.insert($0.id).inserted }
+    }
+}
+
+extension Array where Element: Identifiable {
+    /// This list (newest first) with `fresh`, a first page read again, in place of its head: the
+    /// rows after the page's last row stay, so a reader in the older pages keeps them. Nil when the
+    /// page doesn't reach a row this list has (more new rows than a page: the rest is unknown) or is
+    /// the whole list (`hasMore` false).
+    public func mergingFirstPage(_ fresh: [Element], hasMore: Bool) -> [Element]? {
+        guard hasMore, let last = fresh.last, let at = firstIndex(where: { $0.id == last.id }), at + 1 < count else { return nil }
+        let ids = Set(fresh.map(\.id))
+        return fresh + self[(at + 1)...].filter { !ids.contains($0.id) }
     }
 }

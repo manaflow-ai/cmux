@@ -165,8 +165,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private(set) var followsNewest = true
     private var loaded = false
     private var lastBoundsHeight: CGFloat = 0
+    private var lastBoundsWidth: CGFloat = 0
     private var bottomGap: CGFloat = 0
     private var readAheadQueued = false
+    /// Where the reader is, from the end of the last layout pass: what the next pass puts back.
+    private var kept: Anchor?
+    /// A layout pass is putting the reader back (setting the offset lays out again).
+    private var keeping = false
+    /// The status bar's scroll to top is running: it moves the list on purpose.
+    private var scrollingToTop = false
     private(set) var applies = 0
     private var refreshAction: (() async -> Void)?
     /// Pull to refresh under the search drawer (`ListPullToRefresh` says why not `UIRefreshControl`).
@@ -280,7 +287,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // stays put); the diff only reconfigures what changed.
         dataSource.apply(snapshot, animatingDifferences: false)
         collectionView.layoutIfNeeded()
+        // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
+        // lands above a reader who is still scrolling into it).
         if let anchor { restore(anchor) }
+        keepReader()
         if !loaded, direction == .up { scrollToNewest() }
         loaded = true
         if rowsChanged { reportShift(anchor) }
@@ -292,36 +302,85 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     // MARK: Keeping the reader in place
 
+    /// The rows being read, in list order, each with its top in window coordinates (a banner or a
+    /// search drawer that moves the whole list counts as moving them).
     private struct Anchor {
-        var id: CellID
-        /// The row's top on screen (relative to the viewport's top).
-        var screenY: CGFloat
+        struct Row {
+            var id: CellID
+            var index: Int
+            var windowY: CGFloat
+        }
+        var rows: [Row]
+        var id: CellID? { rows.first?.id }
     }
 
-    /// The first row whose bottom is below the reader's top edge.
+    /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read).
     private func captureAnchor() -> Anchor? {
         let readerTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        let visible = collectionView.indexPathsForVisibleItems.sorted()
-        for indexPath in visible {
+        var rows: [Anchor.Row] = []
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
             guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
                   attributes.frame.maxY > readerTop + 0.5,
                   let id = dataSource.itemIdentifier(for: indexPath), id != .edge else { continue }
-            return Anchor(id: id, screenY: attributes.frame.minY - collectionView.contentOffset.y)
+            rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes)))
         }
-        return nil
+        return rows.isEmpty ? nil : Anchor(rows: rows)
     }
 
-    private func screenY(of id: CellID) -> CGFloat? {
+    private func windowY(_ attributes: UICollectionViewLayoutAttributes) -> CGFloat {
+        collectionView.convert(attributes.frame.origin, to: nil).y
+    }
+
+    private func windowY(of id: CellID) -> CGFloat? {
         guard let indexPath = dataSource.indexPath(for: id),
               let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
-        return attributes.frame.minY - collectionView.contentOffset.y
+        return windowY(attributes)
     }
 
+    /// Puts the reader back: the first row of `anchor` that is still in the list and kept its place
+    /// among the others goes back to where it was on screen. A row that left (removed, filtered out)
+    /// or moved (to the newest end, re-sorted) is skipped: following it would carry the reader away.
     private func restore(_ anchor: Anchor) {
-        guard let now = screenY(of: anchor.id) else { return }
-        let delta = now - anchor.screenY
+        let survivors = anchor.rows.compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
+        guard !survivors.isEmpty else { return }
+        func stable(_ i: Int) -> Bool {
+            guard survivors.count > 1 else { return true }
+            let j = i + 1 < survivors.count ? i + 1 : i - 1
+            let oldGap = survivors[j].0.index - survivors[i].0.index
+            let newGap = survivors[j].1 - survivors[i].1
+            return oldGap.signum() == newGap.signum() && abs(newGap - oldGap) <= max(2, abs(oldGap))
+        }
+        guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
+              let now = windowY(of: pick.id) else { return }
+        let delta = now - pick.windowY
         guard abs(delta) > 0.25 else { return }
         collectionView.contentOffset.y += delta
+    }
+
+    /// After every layout pass: whatever moved the rows (a page or a live row landing, a row above
+    /// that grew, a removal, a banner or drawer above the list, the keyboard, a rotation, a text size
+    /// change), the row being read goes back to where it was, before the frame is drawn. Not while
+    /// the reader scrolls, not at the newest end (the list follows it), and not while the status
+    /// bar's scroll to top runs. Chrome calls this scroll anchoring.
+    private func keepReader() {
+        guard !keeping else { return }
+        keeping = true
+        defer { keeping = false }
+        // While the reader scrolls nothing is kept (and nothing is measured: a scroll step costs no
+        // more than without this); the place is taken again when the scroll ends.
+        let reading = collectionView.isTracking || collectionView.isDecelerating || scrollingToTop
+        guard loaded, !reading, !followsNewest, collectionView.window != nil else {
+            kept = nil
+            return
+        }
+        if let kept { restore(kept) }
+        takePlace()
+    }
+
+    /// Remembers where the reader is now.
+    private func takePlace() {
+        kept = followsNewest ? nil : captureAnchor()
+        if let probe, case .row(let id)? = kept?.id { probe.readingID = AnyHashable(id) }
     }
 
     /// Reports how far the anchored row moved, after the run loop turn in which its self-sizing settled.
@@ -335,7 +394,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.collectionView.layoutIfNeeded()
-            let shift = self.screenY(of: anchor.id).map { abs($0 - anchor.screenY) } ?? 0
+            guard let first = anchor.rows.first else { return }
+            let shift = self.windowY(of: first.id).map { abs($0 - first.windowY) } ?? 0
             probe.pageLanded?(shift, rows)
         }
     }
@@ -354,10 +414,17 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// row stays on it (keyboard, rotation, a row that grew); a reader in the middle of an `.up` list
     /// keeps the bottom edge's distance when the list's height changes (Messages does the same).
     private func didLayout() {
-        if let probe, case .row(let id)? = captureAnchor()?.id { probe.readingID = AnyHashable(id) }
-        guard direction == .up else { return }
+        guard !keeping else { return }
+        guard direction == .up else {
+            keepReader()
+            return
+        }
         let height = collectionView.bounds.height
-        defer { lastBoundsHeight = height }
+        let width = collectionView.bounds.width
+        defer {
+            lastBoundsHeight = height
+            lastBoundsWidth = width
+        }
         let insets = collectionView.adjustedContentInset
         let room = height - (insets.top - bottomGap) - insets.bottom
         let gap = max(0, (room - collectionView.contentSize.height).rounded(.down))
@@ -365,20 +432,28 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             collectionView.contentInset.top += gap - bottomGap
             bottomGap = gap
         }
-        guard loaded, !collectionView.isTracking else { return }
+        guard loaded, !collectionView.isTracking else {
+            keepReader()
+            return
+        }
         if followsNewest {
             if !collectionView.isDecelerating { scrollToNewest() }
-        } else if lastBoundsHeight > 0, abs(height - lastBoundsHeight) > 0.5 {
+            kept = nil
+        } else if lastBoundsHeight > 0, abs(height - lastBoundsHeight) > 0.5, abs(width - lastBoundsWidth) < 0.5 {
+            // Only the height changed (the keyboard, a composer that grew): the bottom edge keeps its
+            // distance, as in Messages; the rows go up with the keyboard.
             collectionView.contentOffset.y += lastBoundsHeight - height
+            takePlace()
+        } else {
+            keepReader()
         }
     }
 
     private func textSizeChanged() {
         heights.removeAll()
-        let anchor = followsNewest ? nil : captureAnchor()
         layout.invalidateLayout()
         collectionView.layoutIfNeeded()
-        if let anchor { restore(anchor) }
+        keepReader()
         if followsNewest { scrollToNewest() }
     }
 
@@ -440,15 +515,32 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { probe?.scrolling?(true) }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { probe?.scrolling?(false) }
+        if !decelerate {
+            takePlace()
+            probe?.scrolling?(false)
+        }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         pullToRefresh?.endedDecelerating()
+        takePlace()
         probe?.scrolling?(false)
     }
 
-    func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { followsNewest = direction == .down }
+    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        scrollingToTop = true
+        return true
+    }
+
+    func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+        scrollingToTop = false
+        followsNewest = direction == .down
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        scrollingToTop = false
+        takePlace()
+    }
 
     // MARK: Swipe actions
 
