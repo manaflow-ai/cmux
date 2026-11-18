@@ -33,6 +33,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/LaunchTimesFile.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	1	cmux-tui's default state root, only for a build without its own state directory (release); a DEV build has its own (linkStateRoot)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArtDownloads.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropImageStore.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropShader.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesktopPicture.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceMachine.swift	1	shared on purpose: cmux-device-hub/machine.key is the one per-Mac key every build and cmux Remote derive this Mac's device id from (an input of this Mac, never a build's data); a dev build reads the same Mac identity, not nightly's state (base #44039)
 Packages/macOS/CmuxNext/Sources/CmuxNextFiles/MarkdownTableWidths/MarkdownTableWidthRepository.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
