@@ -56,11 +56,17 @@ pub(super) fn gates_its_tools(profile: &crate::config::HarnessProfile) -> bool {
 }
 
 /// [`gates_its_tools`] for a running agent, from what it speaks and how it started rather than
-/// the profile: a reload may change the profile's harness without replacing the agent. Only a
-/// stream it translates itself registers the callback, and only a Codex started with the hook
-/// runs it; a hosted agent's is not known here, so it waits.
+/// the profile: a reload may change the profile's harness without replacing the agent. Only
+/// Claude Code's translator registers the callback: the daemon's own for a direct child, or the
+/// one in its `__agent-host` (the same `Translator`, `agent_host/host.rs`), which its host record
+/// names. Only a Codex started with the hook runs it. A host that does not say (an older build)
+/// waits.
+///
+/// Before, a hosted Claude counted as an agent that does not gate its tools: every Cloud start
+/// (agents run under hosts) waited for the whole copy in its first `child_for` (`set_model`,
+/// `set_mode` of `session/new`), though `ensure_child` had started it at the head.
 pub(super) fn child_gates_its_tools(child: &crate::agent::ChildAgent) -> bool {
-    cfg!(unix) && (child.translator.is_some() || child.codex_repo_gated)
+    cfg!(unix) && (child.runs_claude_translator() || child.codex_repo_gated)
 }
 
 /// Whether a start that went ahead at the head (`head_ok`) by its Codex profile must still wait
