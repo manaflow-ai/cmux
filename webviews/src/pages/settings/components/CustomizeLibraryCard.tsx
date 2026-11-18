@@ -8,10 +8,10 @@
 // (sectionQueries) and answered again by each change; it does not poll. Opened at this card by
 // `#/settings/personalization?focus=card.customizeLibrary`.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
-import { useCardWindow, windowGap, type CardWindow } from "../cardWindow";
+import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
 import { useStore } from "../context";
 import { beatenByEntry, beatenLine, entryDetail, sourceLabel, step, type Beaten } from "../customizeLibrary";
 import { Switch } from "../editors/ToggleEditor";
@@ -313,15 +313,11 @@ export function LibraryList({
     );
   });
   return (
-    <LibraryBusy.Provider value={busy}>
+    <CardBusy.Provider value={busy}>
       {layout === "cards" ? <div className="library-grid">{rows}</div> : rows}
-    </LibraryBusy.Provider>
+    </CardBusy.Provider>
   );
 }
-
-/** A change in flight: every entry's controls are disabled until it answers. The controls read it,
- * not the rows, so a change draws the controls again and leaves each row's own lines be. */
-const LibraryBusy = createContext(false);
 
 /** One entry: its look (swatches), its name, what asked for it and what it sets, which higher entry
  * wins over it and on what, its order and its switch. */
@@ -470,7 +466,7 @@ function LibrarySwatches({ entry, wide = false }: { entry: LibraryEntry; wide?: 
 }
 
 function EntrySwitch(props: { checked: boolean; labelId: string; onToggle: (on: boolean) => void }) {
-  return <Switch {...props} disabled={useContext(LibraryBusy)} />;
+  return <Switch {...props} disabled={useContext(CardBusy)} />;
 }
 
 function EntryButton({
@@ -490,7 +486,7 @@ function EntryButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const busy = useContext(LibraryBusy);
+  const busy = useContext(CardBusy);
   return (
     <Button
       variant="ghost"

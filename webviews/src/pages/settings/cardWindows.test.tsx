@@ -164,3 +164,31 @@ test("Customization Library: a toggle draws its own row again and no other, whil
   );
   expect(renders.since()).toBe(1);
 });
+
+test("Shared Links: a revoke in flight disables every Revoke and draws no row again", async () => {
+  page = await renderPage({
+    path: "/settings/privacy",
+    setup: (provider) => (provider.shares = manyShares(1_000, NOW)),
+  });
+  await settle();
+  const rows = () => page!.container.querySelectorAll('[data-card="sharedLinks"] [data-shared-link]');
+  const buttons = () => [
+    ...page!.container.querySelectorAll<HTMLButtonElement>(
+      '[data-card="sharedLinks"] [data-shared-link-action="revoke"]',
+    ),
+  ];
+  // The revoke waits until the test lets it answer, and ends nothing, so the list read after it is
+  // the same list: only `busy` changes, on and off.
+  let answer: () => void = () => {};
+  page.store.revokeShares = () => new Promise((resolve) => (answer = () => resolve(null)));
+  const renders = rowPropsRenders(rows);
+  renders.mark();
+  await click(buttons()[5]!);
+  await settle();
+  expect(buttons().every((button) => button.disabled)).toBe(true);
+  expect(renders.since()).toBe(0);
+  await act(async () => answer());
+  await settle();
+  expect(buttons().some((button) => button.disabled)).toBe(false);
+  expect(renders.since()).toBe(0);
+});

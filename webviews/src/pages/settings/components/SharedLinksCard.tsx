@@ -6,12 +6,12 @@
 // Opened at this card by `#/settings/privacy?focus=card.sharedLinks`. The list is read with the
 // section (sectionQueries) and after each revoke; it does not poll.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { SHARES_KEY, sharesQuery } from "../sectionQueries";
-import { useCardWindow, windowGap, type CardWindow } from "../cardWindow";
+import { CardBusy, useCardWindow, windowGap, type CardWindow } from "../cardWindow";
 import { keepUnchangedLinks, shareDate, sharedLinkRows, startOfDay, type SharedLinkRow } from "../sharedLinks";
 import { locale, t } from "../strings";
 
@@ -149,7 +149,8 @@ const SHARED_LINK_ESTIMATE = 72;
 /**
  * The rows, as memo rows: each takes its own share, the start of today (all its dates need of the
  * clock) and one stable `onRevoke`, so a revoke, a read that changed one share or a new reading of
- * the clock draws only the rows it changed. With `rowWindow` (the card), only the rows near the
+ * the clock draws only the rows it changed. `busy` goes through CardBusy to the Revoke buttons
+ * alone, so a revoke in flight draws no row again. With `rowWindow` (the card), only the rows near the
  * viewport mount; without (the gallery), every row.
  */
 export function SharedLinksList({
@@ -170,7 +171,7 @@ export function SharedLinksList({
   const today = startOfDay(now);
   const items = rowWindow?.items ?? rows.map((row, index) => ({ index, key: row.id, gap: 0 }));
   return (
-    <>
+    <CardBusy.Provider value={busy}>
       {items.map(({ index, key, gap }) => (
         <Fragment key={key}>
           {windowGap(gap)}
@@ -179,14 +180,13 @@ export function SharedLinksList({
             index={index}
             count={rows.length}
             today={today}
-            busy={busy}
             layout={layout}
             onRevoke={onRevoke}
             measure={rowWindow?.measure}
           />
         </Fragment>
       ))}
-    </>
+    </CardBusy.Provider>
   );
 }
 
@@ -195,7 +195,6 @@ const SharedLinkItem = memo(function SharedLinkItem({
   index,
   count,
   today,
-  busy,
   layout,
   onRevoke,
   measure,
@@ -204,7 +203,6 @@ const SharedLinkItem = memo(function SharedLinkItem({
   index: number;
   count: number;
   today: number;
-  busy: boolean;
   layout: SharedLinksLayout;
   onRevoke: (id: string) => void;
   measure?: (node: HTMLElement | null) => void;
@@ -220,17 +218,7 @@ const SharedLinkItem = memo(function SharedLinkItem({
   };
   const revoke = (
     <span className="row-control">
-      <Button
-        danger
-        variant="ghost"
-        className="button"
-        data-shared-link-action="revoke"
-        aria-label={t("settingsPage.sharedLinks.revokeChat", chat)}
-        disabled={busy}
-        onClick={() => onRevoke(row.id)}
-      >
-        {t("settingsPage.sharedLinks.revoke")}
-      </Button>
+      <RevokeButton id={row.id} chat={chat} onRevoke={onRevoke} />
     </span>
   );
   const guests = row.guests.length > 0 && (
@@ -282,3 +270,21 @@ const SharedLinkItem = memo(function SharedLinkItem({
     </div>
   );
 });
+
+/** A row's Revoke, disabled while a revoke is in flight: it reads CardBusy, so the row around it
+ * does not draw again. */
+function RevokeButton({ id, chat, onRevoke }: { id: string; chat: string; onRevoke: (id: string) => void }) {
+  return (
+    <Button
+      danger
+      variant="ghost"
+      className="button"
+      data-shared-link-action="revoke"
+      aria-label={t("settingsPage.sharedLinks.revokeChat", chat)}
+      disabled={useContext(CardBusy)}
+      onClick={() => onRevoke(id)}
+    >
+      {t("settingsPage.sharedLinks.revoke")}
+    </Button>
+  );
+}

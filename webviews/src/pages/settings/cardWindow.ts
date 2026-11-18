@@ -8,7 +8,16 @@
 // in list order and enter the list at its first or last row (no key handler); a row the card says to
 // keep (a Revoke asking first) stays mounted, so its state survives a scroll.
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { createElement, useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent } from "react";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+} from "react";
 
 const NO_KEYS: ReadonlySet<string> = new Set();
 
@@ -166,3 +175,8 @@ export function windowGap(gap: number) {
     ? createElement("div", { className: "card-window-gap", "aria-hidden": true, style: { height: gap } })
     : null;
 }
+
+/** A change in flight in a windowed card (a revoke, a library change): every row's controls are
+ * disabled until it answers. The controls read it, not the rows, so a change draws the controls
+ * again and leaves each memo row's own lines be. */
+export const CardBusy = createContext(false);
