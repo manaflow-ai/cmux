@@ -142,4 +142,40 @@ extension PaneCommitMotionTests {
         #expect(spent >= Self.split.time / 2 && spent <= Self.split.time + 2 * Self.dt,
                 "the hold ended \(spent) s after the frame that showed the split; a split's time is \(Self.split.time) s")
     }
+
+    /// The 2 counts in the note of an act that moves: the panes that get a move, and the panes that change.
+    static func counts(of note: String) -> (moves: Int, changes: Int)? {
+        let words = note.split(separator: " ")
+        guard let at = words.firstIndex(of: "moves"), at + 1 < words.count, let moves = Int(words[at + 1]),
+              let changes = words.last.flatMap({ Int($0.dropLast()) }) else { return nil }
+        return (moves, changes)
+    }
+
+    /// What a probe reads of an act while `debug.motion` records: one note with the count of the panes that get a
+    /// move and the count of the panes that change. A split in sight moves each pane that it changes. A split in a
+    /// column that is out of sight moves none of them.
+    @Test func aProbesNoteCountsThePanesThatGetAMove() throws {
+        func notes() -> [String] { MotionTrace.notes.map { $0.text }.filter { $0.hasPrefix("layout.commit") } }
+        defer { MotionTrace.stop() }
+        let begun = try Self.begin(Self.split) { _ in MotionTrace.start() }
+        defer { begun.harness.window.closeAfterTest() }
+        let near = notes()
+        let shown = near.count == 1 ? Self.counts(of: near[0]) : nil
+        #expect(shown.map { $0.moves > 0 && $0.moves == $0.changes } == true,
+                "a split in sight did not write one note with each pane that changes as a pane that gets a move: \(near)")
+        _ = Self.toTheEnd(begun.harness, begun.screen)
+        MotionTrace.stop()
+
+        let harness = Self.strip(Self.columns([1, 2, 3, 4]), focused: "p1")
+        defer { harness.window.closeAfterTest() }
+        MotionTrace.start()
+        let halves = SplitNode.split(SplitID("far"), axis: .horizontal, ratio: 0.5, a: .leaf(PaneID("p4")), b: .leaf(PaneID("p9")))
+        harness.model.apply(screens: Self.columns([1, 2, 3, 4], roots: [4: halves]))
+        harness.root.syncWithModel()
+        _ = harness.root.advanceFrame(Self.dt)
+        let far = notes()
+        let hidden = far.count == 1 ? Self.counts(of: far[0]) : nil
+        #expect(hidden.map { $0.moves == 0 && $0.changes > 0 } == true,
+                "a split out of sight did not write one note with 0 panes that get a move and a count of the panes that change: \(far)")
+    }
 }
