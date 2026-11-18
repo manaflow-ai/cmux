@@ -197,6 +197,17 @@ struct PaneZoomMarkFrameTests {
             layOut()
         }
 
+        /// Zooms the left pane and steps the layout to rest: the screen shows the zoomed pane alone, with its control.
+        func zoomToRest() throws {
+            try #require(toggleZoom(), "SETUP: no handler ran Toggle Pane Zoom")
+            takeStoreZoom()
+            _ = try #require(firstFrame(where: { !shows(right) }, noting: { false }), "SETUP: no frame of \(PaneZoomMarkFrameTests.frames) showed the zoom")
+            try #require(rests(), "SETUP: the layout did not come to rest in 240 frames after the zoom")
+            layOut()
+            try #require(shows(left) && !shows(right), "SETUP: the screen does not show the zoomed pane alone at rest")
+            try #require(exitZoom != nil, "SETUP: the zoomed pane shows no Exit Zoom control at rest")
+        }
+
         /// Steps the layout frame by frame, a layout pass after each, to the first frame for which `done` holds.
         /// Returns that frame's number, from 1, and the numbers of the frames before it for which `flaw` held. Nil
         /// when `done` held for no frame of `frames`.
@@ -313,11 +324,79 @@ struct PaneZoomMarkFrameTests {
         shown.layOut()
         #expect(shown.exitZoom == nil, "the page's pane, alone and at rest, shows an Exit Zoom control")
 
+        // The store's zoom under the page: the pane's own state takes it from the store (`PaneController.apply`).
+        try #require(shown.toggleZoom() && shown.storeZooms, "SETUP: Toggle Pane Zoom under the page did not zoom the store")
+        shown.takeStoreZoom()
+        #expect(shown.exitZoom != nil, "a zoom key under a page with the whole window shows no Exit Zoom control")
+        try #require(shown.toggleZoom() && !shown.storeZooms, "SETUP: Toggle Pane Zoom under the page did not unzoom the store")
+        shown.takeStoreZoom()
+        #expect(shown.exitZoom == nil, "an unzoom key under a page with the whole window keeps the Exit Zoom control")
+
         shown.left.presentsPage = false
         try #require(!shown.layoutZooms, "SETUP: the layout model still shows the page's pane alone after the page gave the window back")
         let back = shown.firstFrame(where: { shown.shows(shown.right) }, noting: { shown.exitZoom != nil })
         let both = try #require(back, "SETUP: no frame of \(Self.frames) showed both panes again")
         #expect(both.flawed.isEmpty, "an Exit Zoom control shows in \(both.flawed.count) frame(s) before both panes show again")
         #expect(shown.exitZoom == nil, "the frame that shows both panes again shows an Exit Zoom control")
+    }
+
+    /// A page takes the whole window in the frames between an unzoom key and the frame that shows the unzoom. The
+    /// store has no zoom then, and the pane's Exit Zoom control still shows: the frame that takes it away has not
+    /// come. The page's pane takes the store's zoom in the turn that gives the page the window
+    /// (`PaneController.presentsPage`), so the page shows with no control.
+    @Test func aPageThatStartsBeforeAnUnzoomShowsHasNoExitZoomControl() async throws {
+        let services = Self.makeServices()
+        defer { services.daemon.shutdownConnection() }
+        try await Self.connect(services)
+        // One main-actor turn from here to the end of the test: no `await`.
+        let controller = try #require(Self.open(services), "SETUP: no window opened")
+        defer { Self.close(controller) }
+        let shown = try Shown(controller, services)
+        try shown.zoomToRest()
+
+        try #require(shown.toggleZoom(), "SETUP: no handler ran Toggle Pane Zoom for the unzoom")
+        try #require(!shown.storeZooms, "SETUP: the store still has the zoom in the unzoom's turn")
+        shown.layOut()
+        try #require(shown.exitZoom != nil, "SETUP: the unzoom's own turn took the Exit Zoom control away")
+        shown.left.presentsPage = true
+        shown.layOut()
+        #expect(shown.exitZoom == nil, "a page that takes the whole window before an unzoom shows keeps the Exit Zoom control, and the store has no zoom")
+        try #require(shown.rests(), "SETUP: the layout did not come to rest in 240 frames with the page's pane alone")
+        shown.layOut()
+        #expect(shown.exitZoom == nil, "the page's pane, alone and at rest, shows an Exit Zoom control, and the store has no zoom")
+    }
+
+    /// A zoom key in the turn that ends a page's time with the whole window, after an unzoom under the page. The
+    /// store has the zoom, the pane's own state has none (its task did not run since the key), and the layout shows
+    /// the same pane alone before and after, so no pass shows another zoom than the pass before. The screen's first
+    /// pass after the page's time tells each pane that it placed (`PaneZoomDim.showMarks(on:)`): the zoomed pane has
+    /// its Exit Zoom control then. The test makes that pass itself (`ScreenContentView.applyPresentation`).
+    @Test func aZoomKeyInTheTurnThatEndsAPageShowsItsExitZoomControlAtTheNextPass() async throws {
+        let services = Self.makeServices()
+        defer { services.daemon.shutdownConnection() }
+        try await Self.connect(services)
+        // One main-actor turn from here to the end of the test: no `await`.
+        let controller = try #require(Self.open(services), "SETUP: no window opened")
+        defer { Self.close(controller) }
+        let shown = try Shown(controller, services)
+        try shown.zoomToRest()
+
+        shown.left.presentsPage = true
+        shown.layOut()
+        try #require(shown.rests(), "SETUP: the layout did not come to rest in 240 frames with the page's pane alone")
+        shown.layOut()
+        // An unzoom under the page: the pane takes the store's state, and its control goes.
+        try #require(shown.toggleZoom() && !shown.storeZooms, "SETUP: Toggle Pane Zoom under the page did not unzoom the store")
+        shown.takeStoreZoom()
+        try #require(shown.exitZoom == nil, "SETUP: after an unzoom under the page the Exit Zoom control still shows")
+        // One turn: a zoom key, then the page gives the window back. No step of the pane's task between or after.
+        try #require(shown.toggleZoom() && shown.storeZooms, "SETUP: Toggle Pane Zoom under the page did not zoom the store")
+        shown.left.presentsPage = false
+        try #require(shown.layoutZooms, "SETUP: the layout model does not have the store's zoom after the page's time")
+        shown.layOut()
+        shown.screen.applyPresentation()
+        shown.layOut()
+        try #require(shown.shows(shown.left) && !shown.shows(shown.right), "SETUP: the screen does not show the zoomed pane alone after the page's time")
+        #expect(shown.exitZoom != nil, "after a zoom key in the turn that ends a page's time, the zoomed pane shows no Exit Zoom control at the screen's next pass")
     }
 }

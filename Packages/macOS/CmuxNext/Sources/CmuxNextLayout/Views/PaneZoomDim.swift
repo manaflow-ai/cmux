@@ -29,7 +29,7 @@ final class PaneZoomDim {
     private(set) var phase: Phase = .off
     /// The screen's zoom is a page that takes the whole window (``LayoutScreen/presented``), set before each update: it
     /// comes and goes with no dim.
-    var presentsPage = false
+    var presentsPage = false { didSet { if presentsPage { owesMarks = true } } }
     /// Seconds of frame time left in the phase.
     private var remaining: TimeInterval = 0
     /// The zoom the screen applies now gets a dim before it shows (``layoutWillChange(on:to:zoomed:structural:onCanvas:waitsForFrame:)``).
@@ -42,6 +42,9 @@ final class PaneZoomDim {
     private var cameUndimmed = false
     /// The pane whose own zoom marks show, as the last pass told the panes (``showMarks(on:)``); nil: none.
     private var marked: PaneID?
+    /// The next pass that tells the zoom marks tells each pane it placed, whatever ``marked`` is: no pass told yet, or
+    /// a page had the whole window since, and the pane's own state wrote its marks in that time.
+    private var owesMarks = true
     private weak var view: PaneZoomDimView?
 
     /// The longest the dim's fade may take, whatever the animation speed. With the frames a layout change may wait for
@@ -153,11 +156,13 @@ final class PaneZoomDim {
     /// own zoom marks (an Exit Zoom control) change with the frame that shows the zoom or the unzoom, not with the key
     /// before it. Only a pass that shows another zoom than the pass before tells: the pane that had the marks, and
     /// each pane the pass placed. A page that has the whole window shows its pane alone whatever the zoom is: the
-    /// layout says nothing in that time.
+    /// layout says nothing in that time. The first pass of all and the first pass after a page's time tell each pane
+    /// they placed (``owesMarks``): a pane can have marks that this screen's passes did not give it.
     private func showMarks(on screen: ScreenContentView) {
         guard !presentsPage else { return }
         let zoomed = screen.zoomed ? screen.layout.panes.first : nil
-        guard zoomed != marked else { return }
+        guard zoomed != marked || owesMarks else { return }
+        owesMarks = false
         for pane in Set(screen.paneFrames.keys).union([marked, zoomed].compactMap { $0 }) {
             (screen.context.hosts[pane]?.content as? PaneContentChrome)?.setPaneShownZoomed(pane == zoomed)
         }
