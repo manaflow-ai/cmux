@@ -15,6 +15,8 @@ module gives the session M visited pages on N sites:
   - The sign of each visit is the app's own list (`debug.new_tab state`, `omnibar_history`: what a New Tab page
     opened now would list): the visit's address is its newest page and has an icon.
   - Then the workspace is closed, so no open tab shows a site, and the list is read one more time (`judge`).
+  - After the last row the tool reads the list ONE time more (`after_rows`): a list that has less pages of the
+    sites, or less icons, than after the close makes the option invalid for the rows.
 
 The order (`plan`): page 0 of each site, then page 1 of each site, and so on. The last N visits are N sites.
 
@@ -32,12 +34,18 @@ from urllib.parse import parse_qs, urlsplit
 
 ICON_SIDE = 64
 HOST = "127.0.0.1"
+# The app's list has 40 pages at most (`AgentPaneOmnibar.maximumEntries`), and `judge` needs each site in it.
+MOST_SITES = 40
 LIMITS = (
     "the sites are loopback pages with one icon of 64 x 64 pixels each: a key's time has the sort of the history, the scan "
     "for each site's icon and the encode of each kept icon, NOT a fetch from the network and NOT the decode of a large icon",
     "the app's icon store is warm at the first key: each read of the state runs the work that a New Tab page runs for "
-    "its list, and the option made `state_reads` of them before the rows",
-    "the pages' workspace is closed before the rows: no open tab shows a site",
+    "its list (the read can start a load of an icon that the store does not have, and it lists the palette's actions), "
+    "and the option made `state_reads` of them: its reads before the rows and one read after the last row",
+    "the pages' workspace is closed before the rows: no open tab shows a site; the closed page can be in the New Tab "
+    "page's list of closed tabs, with its icon",
+    "the app's list is judged before the rows and one time after the last row, NOT at each key: a page or an icon that "
+    "the list lost and got back between the 2 reads is not seen",
 )
 
 
@@ -121,6 +129,9 @@ class Sites:
     def urls(self, pages):
         return [self.url(site, page) for site, page in plan(self.count, pages)]
 
+    def ports(self):
+        return [server.server_address[1] for server in self.servers]
+
     def answer(self, request, site):
         path = urlsplit(request.path)
         if path.path == "/favicon.ico":
@@ -185,7 +196,7 @@ class Sites:
             waiter["event"].set()
         if self.thread:
             os.write(self.wake_write, b"x")
-            self.thread.join()
+            self.thread.join(5)  # a daemon thread: one that is held in a request must not hang the tool
             self.thread = None
         for server in self.servers:
             server.server_close()
@@ -275,10 +286,12 @@ def seed(builder, state, sites, pages, seconds, wait, clock=time.monotonic, make
     The report's `recent_pages`: `invalid` names each reason for which the rows are NOT rows of a session with
     recent pages."""
     began, reads = clock(), [0]
-    report = {"asked": {"sites": sites, "pages": pages}, "icon": None, "visits_seen": 0, "state_reads": 0, "requests": None,
-              "before_the_close": None, "after_the_close": None, "seconds": None, "invalid": [], "limits": list(LIMITS)}
-    if sites < 1 or pages < sites:
-        report["invalid"].append(f"asked {sites} sites and {pages} pages: the option needs 1 site or more and a page or more for each site")
+    report = {"asked": {"sites": sites, "pages": pages}, "icon": None, "ports": None, "visits_seen": 0, "state_reads": 0,
+              "requests": None, "before_the_close": None, "after_the_close": None, "after_the_rows": None, "seconds": None,
+              "invalid": [], "limits": list(LIMITS)}
+    if sites < 1 or sites > MOST_SITES or pages < sites:
+        report["invalid"].append(f"asked {sites} sites and {pages} pages: the option needs 1 site or more, {MOST_SITES} sites at most "
+                                 f"(the app's list has {MOST_SITES} pages at most) and a page or more for each site")
         return report
 
     def read():
@@ -290,7 +303,7 @@ def seed(builder, state, sites, pages, seconds, wait, clock=time.monotonic, make
         server = make_sites(sites).start()
         sizes = sorted(len(icon) for icon in server.icons)
         report["icon"] = {"pixels": f"{ICON_SIDE} x {ICON_SIDE}", "png_bytes_least": sizes[0], "png_bytes_most": sizes[-1]}
-        urls = server.urls(pages)
+        urls, report["ports"] = server.urls(pages), server.ports()
         workspace = builder.new_workspace()
         if not workspace:
             raise RuntimeError("no workspace came for the pages")
@@ -331,3 +344,27 @@ def seed(builder, state, sites, pages, seconds, wait, clock=time.monotonic, make
             server.close()
     report["state_reads"], report["seconds"] = reads[0], round(clock() - began, 1)
     return report
+
+
+def after_rows(report, pages):
+    """ONE more judge after the last row, on `report` (what `seed` gave): `pages` is the app's list then, as `listed`
+    gives it. `after_the_rows` gets {history: the list's pages of the option's sites (by the port of the address),
+    icons: those with an icon}. A list with less of either than after the close, or no list, adds a reason to
+    `invalid`: the list of a later key did not have what the option made. Gives the new reasons. An option that had
+    no read after its close gets no judge. The read is counted in `state_reads`."""
+    report["state_reads"] = (report.get("state_reads") or 0) + 1
+    was = report.get("after_the_close")
+    if not was or report.get("ports") is None:
+        return []
+    if pages is None:
+        why = "the app's state has no `omnibar_history`"
+    else:
+        marks = tuple(f"http://{HOST}:{port}/p/" for port in report["ports"])
+        mine = [page for page in pages if str(page.get("url")).startswith(marks)]
+        now = report["after_the_rows"] = {"history": len(mine), "icons": sum(1 for page in mine if page.get("icon"))}
+        if now["history"] >= was["history"] and now["icons"] >= was["icons"]:
+            return []
+        why = (f"the app's list has {now['history']} pages of the sites, {now['icons']} with an icon; after the close it had "
+               f"{was['history']} pages, {was['icons']} with an icon")
+    report["invalid"].append(f"after the rows: {why}")
+    return [f"after the rows: {why}"]
