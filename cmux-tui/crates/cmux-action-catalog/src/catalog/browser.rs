@@ -394,7 +394,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "browserScrollToTop",
         group: GROUP,
-        title: t("ActionCatalog", "action.browserScrollToTop", "Scroll to Top"),
+        title: t("ActionCatalog", "action.browserScrollToTop", "Scroll to Top of Page"),
         keywords: &["browser", "scroll", "top", "vim", "vimium", "gg"],
         category: "browser",
         symbol: "arrow.up.to.line",
@@ -408,7 +408,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "browserScrollToBottom",
         group: GROUP,
-        title: t("ActionCatalog", "action.browserScrollToBottom", "Scroll to Bottom"),
+        title: t("ActionCatalog", "action.browserScrollToBottom", "Scroll to Bottom of Page"),
         keywords: &["browser", "scroll", "bottom", "end", "vim", "vimium"],
         default_shortcut: Some(Shortcut { key: "g", modifiers: SHIFT }),
         category: "browser",

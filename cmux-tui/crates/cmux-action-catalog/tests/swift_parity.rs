@@ -34,6 +34,7 @@ fn repo() -> PathBuf {
 /// - `fields/<id>`: fields of an existing action this crate changed, one JSON pointer into the
 ///   action's catalog row per line (`/surfacePlan/palette`); the dump keeps the old value of each.
 /// - `family/<family>/<id>`: a palette family member the dump does not have yet.
+/// - `duplicate/<id>`: a declared palette duplicate (`palette::DUPLICATES`) the dump does not have yet.
 /// - `tier/<list>/<id>`: an id the crate added to the palette tier list `daily` or `niche`.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
@@ -333,10 +334,13 @@ fn english_catalog_equals_the_swift_dump() {
             .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
     awaiting_family_repin(&mut rust, &swift);
+    awaiting_duplicate_repin(&mut rust, &swift);
     awaiting_tier_repin(&mut rust, &swift);
     awaiting_field_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
-        let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
+        let Some(id) = action["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
         let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
         if dumped.is_some_and(|d| shortcut_awaits_repin(&id, &d["defaultShortcut"])) {
             action["defaultShortcut"] = Value::Null;
@@ -348,7 +352,7 @@ fn english_catalog_equals_the_swift_dump() {
              FFI does not have yet (step A, docs/ci/app-ffi-release.md) waits for the re-pin in a \
              marker under {MARKERS}/: an action's changed field is a JSON pointer line in \
              fields/<id>, a new shortcut is shortcut/<id>, a dropped one shortcut-removal/<id>, a \
-             new palette family member family/<family>/<id>"
+             new palette family member family/<family>/<id>, a new palette duplicate duplicate/<id>"
         );
     }
 }
@@ -413,11 +417,33 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
-            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            let Some(dumped) = action["id"].as_str().and_then(dump) else {
+                continue;
+            };
             for field in ["palette_family", "palette_tier"] {
                 action["computed"][field] = dumped["computed"][field].clone();
             }
         }
+    }
+}
+
+/// Declared palette duplicates (`palette::DUPLICATES`) the crate has and the pinned app's dump
+/// does not yet: `awaiting-repin/duplicate/<id>`, one marker per duplicate id. Each leaves the
+/// Rust side here until the re-pin, and fails once the dump has it.
+static DUPLICATE_AWAITING_REPIN: LazyLock<Vec<String>> = LazyLock::new(|| marked("duplicate"));
+
+fn awaiting_duplicate_repin(rust: &mut Value, swift: &Value) {
+    for id in DUPLICATE_AWAITING_REPIN.iter() {
+        let path = marker("duplicate", id);
+        assert!(
+            swift["palette"]["duplicates"].get(id.as_str()).is_none(),
+            "action-catalog.json's palette duplicates have {id}: the re-pin landed, so delete {path}"
+        );
+        let duplicates = rust["palette"]["duplicates"].as_object_mut().expect("palette duplicates");
+        assert!(
+            duplicates.remove(id.as_str()).is_some(),
+            "{id} is awaiting a duplicate re-pin but not in palette::DUPLICATES: delete {path}"
+        );
     }
 }
 
@@ -495,7 +521,16 @@ fn action_list_export_matches() {
             "{id}"
         );
         assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
-        assert_eq!(row["title"], action.title.en, "{id}");
+        if field_awaits_repin(id, "/title") {
+            assert_ne!(
+                row["title"],
+                action.title.en,
+                "action-surfaces.json has {id}'s title: the re-pin landed, so take /title out of {} (delete the file when it is the last)",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["title"], action.title.en, "{id}");
+        }
         // `title_key` is not compared: the export guesses it from the English
         // (`ActionTitleCatalog`), and two keys can share one (Recently Closed is
         // `action.history.closed`, not `action.recentlyClosed`). The catalog keeps the key the
@@ -605,7 +640,9 @@ fn mcp_exemptions_have_a_cli_verb() {
     use cmux_action_catalog::Decision;
     for action in cmux_action_catalog::actions() {
         let plan = action.surface_plan;
-        let Some(mcp) = plan.mcp_exemption else { continue };
+        let Some(mcp) = plan.mcp_exemption else {
+            continue;
+        };
         assert!(
             !matches!(plan.cli, Some(Decision::Exempt(_))),
             "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",

@@ -51,6 +51,7 @@ pub static DUPLICATES: &[(&str, &str)] = &[
     ("remote.copyError", "copyWorkspaceSSHError"),
     ("remote.newWorkspace", "workspace.newOnMachine"),
     ("sidebar.item.hideApp", "app.hide"),
+    ("new.newTabPage", "new.newTabPage.right"),
 ];
 #[rustfmt::skip]
 pub static FAMILIES: &[PaletteFamily] = &[
