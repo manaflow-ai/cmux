@@ -14,6 +14,7 @@ final class MainWindowVisibilityController {
         case findShortcut
         case focusMainWindow
         case globalHotkey
+        case leftSidebarFocus
         case menuBar
         case notification
         case rightSidebarFocus

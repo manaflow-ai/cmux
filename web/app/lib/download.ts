@@ -103,7 +103,9 @@ export type PlatformDownloadAvailability = Readonly<
  */
 export const PLATFORM_DOWNLOAD_AVAILABILITY = {
   windows: false,
-  linux: true,
+  // Linux is waitlist-only on cmux.com (2026-11-10). The signed feed and its
+  // assets stay published, so installed copies keep updating in place.
+  linux: false,
 } as const satisfies PlatformDownloadAvailability;
 
 const DOWNLOAD_PLATFORM_ORDER = ["windows", "linux"] as const;

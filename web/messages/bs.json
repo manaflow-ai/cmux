@@ -80,6 +80,11 @@
       "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
       "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
     },
+    "hostRecovery": {
+      "title": "Host mašine se oporavlja",
+      "message": "Disk ove mašine nalazi se na Cloud hostu koji se oporavlja, pa se još ne može pokrenuti. Njeni fajlovi su sačuvani.",
+      "action": "Pokušajte ponovo za nekoliko minuta. Nemojte brisati niti ponovo kreirati mašinu: njen disk je sačuvan i vraća se s njom. Ako se ni nakon sat vremena ne pokrene, kontaktirajte podršku s ID-om praćenja."
+    },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
-    "backToSignIn": "Nazad na prijavu"
+    "backToSignIn": "Nazad na prijavu",
+    "chatgptLinkTitle": "Prijavite se jednom da povežete ChatGPT",
+    "chatgptLinkBody": "Ovaj email već ima cmux račun. Prijavite se metodom koju ste ranije koristili i ChatGPT će biti povezan s tim računom.",
+    "chatgptEmailUnverifiedBody": "Email na vašem ChatGPT računu nije potvrđen. Potvrdite ga kod OpenAI-ja ili se prijavite na drugi način."
   },
   "cloudPublicationAccess": {
     "title": "Nemate pristup",
@@ -509,7 +517,18 @@
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
         "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama.",
-        "addSeats": "Dodaj mjesta"
+        "addSeats": "Dodaj mjesta",
+        "enterprise": {
+          "current": "Trenutni plan",
+          "body": "{team} koristi prilagođeni plan dogovoren s cmux timom. Kontaktirajte cmux tim da ga promijenite.",
+          "price": "Cijena",
+          "perMonth": "{amount}/mjesečno",
+          "machines": "Cloud mašine",
+          "pool": "Dijeljeni vCPU / memorija",
+          "largest": "Najveća mašina",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Bez ograničenja"
+        }
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -965,7 +984,12 @@
         "deleteConfirmBody": "Ovo je nepovratno i briše sve podatke povezane s vašim računom.",
         "deleteAcknowledge": "Razumijem da će moj račun i njegovi podaci biti trajno izbrisani.",
         "deleteConfirm": "Izbriši račun",
-        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo."
+        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo.",
+        "deleteErrorPending": "Vaš račun se već briše. Pokušajte ponovo za trenutak.",
+        "deleteErrorRetryable": "Brisanje računa nije dovršeno. Provjerite vezu i pokušajte ponovo.",
+        "deleteAppStoreTitle": "Vaša App Store pretplata će se i dalje obnavljati",
+        "deleteAppStoreBody": "Brisanje vašeg cmux računa ne otkazuje vašu App Store pretplatu. Apple vam nastavlja naplaćivati dok je ne otkažete u App Storeu.",
+        "deleteAppStoreManage": "Upravljaj pretplatom u App Storeu"
       }
     },
     "teams": {
@@ -1243,7 +1267,10 @@
           "failed": "neuspjelo",
           "paused": "pauzirano",
           "destroyed": "izbrisano"
-        }
+        },
+        "wake": "Probudi",
+        "waking": "Buđenje…",
+        "wakeError": "Nije moguće probuditi ovu mašinu. Pokušajte ponovo."
       },
       "network": {
         "open": "Mreža",

@@ -8,8 +8,12 @@
  * Without the app installed the page loads as before.
  */
 
-/** Apple team `7WLXT3NR37`, app "cmux INTERNAL" (the cmux-next iOS TestFlight build). */
-const APP_IDS = ["7WLXT3NR37.dev.cmux.app.internal"];
+/**
+ * Apple team `7WLXT3NR37`: "cmux" (`com.cmux.app`), the App Store home of the
+ * cmux-next iOS app, and "cmux INTERNAL" (`dev.cmux.app.internal`), its
+ * TestFlight build. Both open the same agent links.
+ */
+const APP_IDS = ["7WLXT3NR37.com.cmux.app", "7WLXT3NR37.dev.cmux.app.internal"];
 
 /** The agent link page, bare and under a locale prefix (`/ja/deeplink/agent`). */
 const COMPONENTS = [{ "/": "/deeplink/agent" }, { "/": "/*/deeplink/agent" }];

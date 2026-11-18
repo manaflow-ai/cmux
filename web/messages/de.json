@@ -80,6 +80,11 @@
       "message": "Diese Maschine startet, pausiert oder läuft nicht und kann das gerade nicht ausführen.",
       "action": "Warte kurz und versuche es erneut. Prüfe den Status der Maschine mit cmux vm ls und setze sie zuerst fort, falls sie pausiert ist."
     },
+    "hostRecovery": {
+      "title": "Host der Maschine wird wiederhergestellt",
+      "message": "Die Festplatte dieser Maschine liegt auf einem Cloud-Host, der gerade wiederhergestellt wird, daher kann sie noch nicht starten. Ihre Dateien bleiben erhalten.",
+      "action": "Versuche es in ein paar Minuten erneut. Lösche die Maschine nicht und erstelle sie nicht neu: Ihre Festplatte bleibt erhalten und kommt mit ihr zurück. Wenn sie nach einer Stunde immer noch nicht startet, wende dich mit der Trace-ID an den Support."
+    },
     "networkRuleCapacity": {
       "title": "Netzwerkregeln ausgeschöpft",
       "message": "Ihre Netzwerkrichtlinie wurde gespeichert, aber nicht angewendet: cmux Cloud hat seine Kapazität für Netzwerkregeln erreicht.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Wenn du bereits ein Konto hast, melde dich mit der zuvor verwendeten Methode an. Wenn du gerade ein Konto erstellt hast, bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
-    "backToSignIn": "Zur Anmeldung"
+    "backToSignIn": "Zur Anmeldung",
+    "chatgptLinkTitle": "Einmal anmelden, um ChatGPT zu verbinden",
+    "chatgptLinkBody": "Für diese E-Mail-Adresse gibt es bereits ein cmux-Konto. Melde dich mit der bisherigen Methode an, dann wird ChatGPT mit diesem Konto verbunden.",
+    "chatgptEmailUnverifiedBody": "Die E-Mail-Adresse deines ChatGPT-Kontos ist nicht bestätigt. Bestätige sie bei OpenAI oder melde dich anders an."
   },
   "cloudPublicationAccess": {
     "title": "Du hast keinen Zugriff",
@@ -509,7 +517,18 @@
         "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
         "seatsUsed": "{members} von {seats} belegt",
         "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Die Plätze folgen der Mitgliederzahl, das Abonnement wird automatisch angepasst.",
-        "addSeats": "Plätze hinzufügen"
+        "addSeats": "Plätze hinzufügen",
+        "enterprise": {
+          "current": "Aktueller Tarif",
+          "body": "{team} hat einen individuellen Tarif, der mit dem cmux-Team vereinbart wurde. Wende dich an das cmux-Team, um ihn zu ändern.",
+          "price": "Preis",
+          "perMonth": "{amount}/Monat",
+          "machines": "Cloud-Maschinen",
+          "pool": "Gemeinsame vCPUs / Arbeitsspeicher",
+          "largest": "Größte Maschine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Keine Begrenzung"
+        }
       },
       "teamList": {
         "heading": "Abrechnungsbereiche",
@@ -965,7 +984,12 @@
         "deleteConfirmBody": "Dies kann nicht rückgängig gemacht werden und löscht alle Daten, die mit deinem Konto verknüpft sind.",
         "deleteAcknowledge": "Mir ist klar, dass mein Konto und seine Daten dauerhaft gelöscht werden.",
         "deleteConfirm": "Konto löschen",
-        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut."
+        "deleteError": "Das Konto konnte nicht gelöscht werden. Versuche es erneut.",
+        "deleteErrorPending": "Dein Konto wird bereits gelöscht. Versuche es gleich noch einmal.",
+        "deleteErrorRetryable": "Das Konto konnte nicht vollständig gelöscht werden. Prüfe deine Verbindung und versuche es erneut.",
+        "deleteAppStoreTitle": "Dein App Store-Abo verlängert sich weiter",
+        "deleteAppStoreBody": "Wenn du dein cmux-Konto löschst, wird dein App Store-Abo nicht gekündigt. Apple berechnet es weiter, bis du es im App Store kündigst.",
+        "deleteAppStoreManage": "Abo im App Store verwalten"
       }
     },
     "teams": {
@@ -1243,7 +1267,10 @@
           "failed": "fehlgeschlagen",
           "paused": "pausiert",
           "destroyed": "gelöscht"
-        }
+        },
+        "wake": "Aufwecken",
+        "waking": "Wird aufgeweckt…",
+        "wakeError": "Diese Maschine konnte nicht aufgeweckt werden. Versuche es erneut."
       },
       "network": {
         "open": "Netzwerk",

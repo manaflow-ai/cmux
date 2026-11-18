@@ -363,6 +363,23 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// Per terminal public id: the session of the last applied hook event and
+    /// the latest hook start among its applied events, so an event journaled
+    /// out of send order does not set the state
+    /// (`crate::agent_hooks::hook_event_is_reordered`). One small record per
+    /// terminal that ran a hook agent; it stays after the session ends so a
+    /// late event of that session cannot bring the row back.
+    #[serde(default)]
+    hook_order: HashMap<String, HookOrder>,
+}
+
+/// See [`AgentRoster::hook_order`]. The stamp is flattened, so a snapshot
+/// from before the monotonic stamp (`session`, `observed_at_ms`) still reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct HookOrder {
+    session: Option<String>,
+    #[serde(flatten)]
+    stamp: crate::agent_hooks::HookOrderStamp,
 }
 
 impl AgentRoster {
@@ -502,11 +519,28 @@ impl AgentRoster {
         // Socket reports lose to both stronger sources.
         match source {
             AgentSource::Hook => {
+                let session = event.normalized("agent_session_id");
+                let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
+                let last_order = self
+                    .hook_order
+                    .get(terminal_id)
+                    .filter(|order| order.session.as_deref() == session)
+                    .map(|order| &order.stamp);
+                if crate::agent_hooks::hook_event_is_reordered(event.kind, &stamp, last_order) {
+                    return Vec::new();
+                }
+                let order = stamp.applied_over(last_order);
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
                 {
                     return Vec::new();
+                }
+                if !order.is_empty() {
+                    self.hook_order.insert(
+                        terminal_id.to_string(),
+                        HookOrder { session: session.map(str::to_owned), stamp: order },
+                    );
                 }
             }
             AgentSource::Plugin => {

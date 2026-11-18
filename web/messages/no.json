@@ -80,6 +80,11 @@
       "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
       "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
     },
+    "hostRecovery": {
+      "title": "Maskinens vert blir gjenopprettet",
+      "message": "Disken til denne maskinen ligger på en Cloud-vert som blir gjenopprettet, så den kan ikke starte ennå. Filene beholdes.",
+      "action": "Prøv igjen om noen minutter. Ikke slett eller opprett maskinen på nytt: disken beholdes og kommer tilbake med den. Hvis den fortsatt ikke starter etter en time, kontakt kundestøtte med sporings-ID-en."
+    },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
       "message": "Nettverkspolicyen din er lagret, men ble ikke brukt: cmux Cloud har nådd kapasiteten for nettverksregler.",
@@ -199,7 +204,10 @@
     "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
-    "backToSignIn": "Tilbake til innlogging"
+    "backToSignIn": "Tilbake til innlogging",
+    "chatgptLinkTitle": "Logg inn én gang for å koble til ChatGPT",
+    "chatgptLinkBody": "Denne e-postadressen har allerede en cmux-konto. Logg inn med metoden du brukte før, så kobles ChatGPT til kontoen.",
+    "chatgptEmailUnverifiedBody": "E-postadressen på ChatGPT-kontoen din er ikke bekreftet. Bekreft den hos OpenAI, eller logg inn på en annen måte."
   },
   "cloudPublicationAccess": {
     "title": "Du har ikke tilgang",
@@ -509,7 +517,18 @@
         "grantedBody": "cmux-teamet har gitt {team} tilgang til Team. Det finnes ikke noe abonnement å administrere.",
         "seatsUsed": "{members} av {seats} brukt",
         "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Plassene følger antall medlemmer, så abonnementet oppdateres av seg selv.",
-        "addSeats": "Legg til plasser"
+        "addSeats": "Legg til plasser",
+        "enterprise": {
+          "current": "Nåværende plan",
+          "body": "{team} har en tilpasset plan avtalt med cmux-teamet. Kontakt cmux-teamet for å endre den.",
+          "price": "Pris",
+          "perMonth": "{amount}/måned",
+          "machines": "Skymaskiner",
+          "pool": "Delte vCPU-er / minne",
+          "largest": "Største maskin",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Ingen grense"
+        }
       },
       "teamList": {
         "heading": "Faktureringsomfang",
@@ -965,7 +984,12 @@
         "deleteConfirmBody": "Dette kan ikke angres og sletter alle data som er knyttet til kontoen din.",
         "deleteAcknowledge": "Jeg forstår at kontoen min og dataene i den slettes permanent.",
         "deleteConfirm": "Slett konto",
-        "deleteError": "Kunne ikke slette kontoen. Prøv igjen."
+        "deleteError": "Kunne ikke slette kontoen. Prøv igjen.",
+        "deleteErrorPending": "Kontoen din blir allerede slettet. Prøv igjen om et øyeblikk.",
+        "deleteErrorRetryable": "Slettingen av kontoen kunne ikke fullføres. Sjekk tilkoblingen og prøv igjen.",
+        "deleteAppStoreTitle": "App Store-abonnementet ditt fortsetter å fornyes",
+        "deleteAppStoreBody": "Sletting av cmux-kontoen din sier ikke opp App Store-abonnementet ditt. Apple fortsetter å belaste deg til du sier det opp i App Store.",
+        "deleteAppStoreManage": "Administrer abonnementet i App Store"
       }
     },
     "teams": {
@@ -1243,7 +1267,10 @@
           "failed": "mislyktes",
           "paused": "satt på pause",
           "destroyed": "slettet"
-        }
+        },
+        "wake": "Vekk",
+        "waking": "Vekker…",
+        "wakeError": "Kunne ikke vekke denne maskinen. Prøv igjen."
       },
       "network": {
         "open": "Nettverk",
