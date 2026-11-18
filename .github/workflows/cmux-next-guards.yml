@@ -1041,6 +1041,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
 
+      # A Mac whose sudoers grants purge but not launchctl ran every launch-ready step into "a password is required".
+      - name: console-session.sh hops into Aqua only when it must and sudo grants launchctl
+        if: ${{ !cancelled() }}
+        run: bash scripts/ci/tests/console-session-hop.test.sh
+
+      # The controller runs a measure script only at a landed commit: build=SHA builds an unlanded pull request's
+      # arm with that commit's reload.sh while the landed driver runs it (cmux#45010's A/B, 2026-11-17).
+      - name: relaunch-restore.sh and instant-new-surfaces.sh build the app at build=SHA
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/measure-build-sha.test.sh
+
+      # A launch-ready step's own builds leave the load at 12-21; each launch waits (bounded) until it is under 8.
+      - name: launch-ready.sh waits for the load to settle before each launch
+        if: ${{ !cancelled() }}
+        run: bash scripts/measure/tests/launch-ready-load.test.sh
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py

@@ -37,6 +37,24 @@
 # process is stopped at its main_start mark). Prints LP-RUN per launch (with arm and rep), LP-TABLE at the end.
 set -uo pipefail
 
+# console CMD...: CMD in the console user's GUI session, as the app the probe opens runs (console-session.sh).
+console() { GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$@"; }
+
+# fresh_keychain HOME: a login keychain in a launch's empty home, as a person's home has, made as the console user.
+# Without one, the app's Chromium makes "cmux Safe Storage" through a "Keychain Not Found" SecurityAgent panel nobody
+# answers (left after launch-fresh-install on cmux12s; three from this script's arms h,a,d on cmux-austin-mini-1,
+# 2026-11-18). CMUX_MOCK_KEYCHAIN is no way out: the app drops it from an inherited environment
+# (fresh_home_launch_smoke.py login_keychain, which this follows). Every call has the home's own HOME and
+# CFFIXED_USER_HOME, so the console user's own keychains and search list are untouched. Writes to $OUT/keychain.log.
+fresh_keychain() {
+  local home="$1" keychain="$1/Library/Keychains/login.keychain-db" step
+  console /bin/mkdir -p "$home/Library/Keychains"
+  for step in "create-keychain -p ''" "list-keychains -d user -s" "default-keychain -d user -s" "set-keychain-settings"; do
+    console /usr/bin/env HOME="$home" CFFIXED_USER_HOME="$home" /bin/sh -c "exec /usr/bin/security $step \"\$0\"" "$keychain" \
+      >>"$OUT/keychain.log" 2>&1 || { echo "LP keychain: security ${step%% *} failed in $home; a Keychain panel may show"; return 1; }
+  done
+}
+
 # store_fetch HEX FILE: the fleet artifact store's object sha256:HEX into FILE, through the controller's signed URL
 # (never printed), else its own GET; FILE must hash to HEX.
 store_fetch() {
@@ -104,6 +122,8 @@ main() {
   cmux_signing_runtime_guard || exit 3
   local mount="$out/mnt" found
   mkdir -p "$mount" "$out/copy" "$out/home" && chmod 0777 "$out/home"
+  # The probe's home (launch-premain.swift's HOME_ROOT/h) gets a login keychain before any launch (fresh_keychain).
+  OUT="$out" fresh_keychain "$out/home/h" || true
   hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LP attach failed"; exit 3; }
   found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   ditto "$found" "$out/copy/$(basename "$found")" || exit 3

@@ -4,7 +4,7 @@
   launch-ready-seed.py SOCKET [--windows 3] [--workspaces 60]
 
 SOCKET is the app's release control socket (launch-ready.swift starts the app with CMUX_NEXT_SOCKET_PATH set to
-the short /tmp path launch-ready.sh gives it, and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get` and `action.run`.
+the short /tmp path launch-ready.sh gives it, and CMUX_NEXT_SOCKET_MODE allowAll). Only release socket methods: `snapshot.get`, `action.run` and `context.keys`.
 
 It opens windows until there are --windows (newWindow), then makes --workspaces workspaces (workspace.newAtBottom, a
 terminal each; the new id from the reply's `created`) and moves each to its window, as evenly as it can
@@ -59,6 +59,19 @@ class Seed:
     def topology(self):
         reply = rpc(self.path, "snapshot.get", timeout=10)
         return (reply.get("topology") or {}) if isinstance(reply, dict) and not reply.get("error") else {}
+
+    def front(self):
+        """launch-ready.swift's front(): the focused workspace's key, its tab, the key window's top page, windows."""
+        top = wait(self.topology, 1, 0.25)
+        if not top:
+            return {"error": "snapshot.get did not answer"}
+        focus = top.get("focus") or {}
+        focused = focus.get("workspace")
+        key = next((w.get("key") for w in top.get("workspaces") or [] if w.get("id") == focused), None) or focused
+        context = rpc(self.path, "context.keys", timeout=10)
+        keys = (context.get("keys") or context) if isinstance(context, dict) and not context.get("error") else {}
+        return {"workspace": key, "tab": focus.get("tab"), "top_page": keys.get("topPage"),
+                "windows": len(top.get("windows") or [])}
 
     def window_ids(self):
         return [w.get("id") for w in self.topology().get("windows") or [] if w.get("id")]
@@ -123,6 +136,7 @@ def main(argv=None):
     parser.add_argument("socket")
     parser.add_argument("--windows", type=int, default=3)
     parser.add_argument("--workspaces", type=int, default=60)
+    parser.add_argument("--front-out", help="write the front just before the quit here (launch-ready.swift's shape)")
     args = parser.parse_args(argv)
     started = time.monotonic()
     seed, code = Seed(args.socket, args.windows, args.workspaces), 0
@@ -135,6 +149,10 @@ def main(argv=None):
             seed.row["error"], code = str(error), 1
         finally:
             time.sleep(1)  # measurement script: the session's save after the last change, before the quit
+            # The seed quits the app itself, so the probe reads no front at its quit; this one is what run1 must reopen.
+            if args.front_out:
+                with open(args.front_out, "w") as out:
+                    json.dump(seed.front(), out)
             # The app may end before it answers; then the reply is a read error, not a refused quit.
             reply = rpc(args.socket, "action.run", {"action": "quitKeepSessions", "origin": "script"}, timeout=20)
             seed.row["quit"] = str(reply["error"])[:200] if isinstance(reply, dict) and reply.get("error") else "ok"

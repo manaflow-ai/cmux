@@ -646,7 +646,7 @@ export type ModelsState = {
   /** Null without a team. */
   members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
-   * failure code (`access_denied`, `no_plan_scope`, ...). */
+   * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
 };
 

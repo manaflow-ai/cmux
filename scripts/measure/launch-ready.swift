@@ -171,10 +171,14 @@ func rpc(_ method: String) -> [String: Any]? {
 // page (`context.keys` topPage: "home" when Home is in front; snapshot.get has no top page). Read once, after the
 // settle and just before the quit, so nothing in the timed part of the launch waits on it. It is both what this
 // launch reopened and what the next launch with this home must reopen (Leo, 2026-11-17: "my recently opened thing").
+// snapshot.get is asked up to 3 times, 250 ms apart: one missed answer is not taken as nothing in front.
 func front() -> [String: Any] {
-    guard let snapshot = rpc("snapshot.get"), let topology = snapshot["topology"] as? [String: Any] else {
-        return ["error": "snapshot.get did not answer"]
+    var topology: [String: Any]?
+    for attempt in 0..<3 where topology == nil {
+        if attempt > 0 { usleep(250_000) }
+        topology = rpc("snapshot.get")?["topology"] as? [String: Any]
     }
+    guard let topology else { return ["error": "snapshot.get did not answer 3 times"] }
     let focus = topology["focus"] as? [String: Any] ?? [:]
     let focused = focus["workspace"] as? String
     let workspace = (topology["workspaces"] as? [[String: Any]] ?? []).first { $0["id"] as? String == focused }?["key"] as? String ?? focused

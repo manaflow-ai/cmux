@@ -4,7 +4,8 @@
 // composer, its chips, the header and the transcript's rows; once the composer and the transcript
 // (or the empty chat) are drawn, that frame is the first paint, and any element that later moves
 // or resizes by more than `tolerance` px, or appears only later, is reported. Leo 2026-10-18: "we
-// know the final layout", so after first paint nothing may jump.
+// know the final layout", so after first paint nothing may jump. A New Tab page has neither composer
+// nor transcript: its own parts are read by name, and its first paint is the frame with its box and field.
 
 import { chatSnapshotReport } from "./chatSnapshot/live";
 
@@ -15,6 +16,28 @@ type Frame = { at: number; boxes: Map<string, Box>; scrollTop: number; empty: bo
 
 const ROWS = ".cv-message, .cv-worked, .cv-tool, .cv-turn-actions";
 const MAX_ROWS = 40;
+/// The New Tab page's parts inside `.acpmux-newtab` (NewTabPage.tsx), each class without its `acpmux-`: the
+/// box with the field and the kinds, the line under them with the project's chip (ProjectChooser.tsx), the
+/// footer, the suggestions, a failed open and the actions. A second node of a class is `NAME:1`. That page
+/// has no composer and no transcript row.
+const NEW_TAB_PARTS = [
+  "newtab-box",
+  "newtab-row",
+  "newtab-field",
+  "newtab-switch",
+  "newtab-kind",
+  "newtab-under",
+  "newtab-context",
+  "project-button",
+  "newtab-chip",
+  "send",
+  "newtab-foot",
+  "omni",
+  "omni-row",
+  "newtab-failed",
+  "newtab-actions",
+  "newtab-all",
+];
 
 /// Stable names for elements across frames: the same node keeps its name.
 const names = new WeakMap<Element, string>();
@@ -57,6 +80,12 @@ function read(start: number): Frame {
   const rows = [...document.querySelectorAll(ROWS)];
   // The newest rows are the ones on screen when a chat opens at its latest message.
   for (const row of rows.slice(-MAX_ROWS)) add(nameOf(row, "row"), row);
+  const newTab = document.querySelector(".acpmux-newtab");
+  add("newtab", newTab);
+  for (const part of NEW_TAB_PARTS) {
+    const nodes = newTab ? [...newTab.querySelectorAll(`.acpmux-${part}`)] : [];
+    for (const [index, node] of nodes.entries()) add(index ? `${part}:${index}` : part, node);
+  }
   return {
     at: performance.now() - start,
     boxes,
@@ -66,7 +95,8 @@ function read(start: number): Frame {
 }
 
 const shown = (frame: Frame) =>
-  frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty);
+  (frame.boxes.has("composer") && ([...frame.boxes.keys()].some((name) => name.startsWith("row#")) || frame.empty)) ||
+  (frame.boxes.has("newtab-box") && frame.boxes.has("newtab-field"));
 const emptyChat = () => document.querySelectorAll(ROWS).length === 0 && document.body.innerText.trim().length > 0;
 
 export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Record<string, unknown>> {
@@ -132,6 +162,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     // transcript, which reads the same), so a caller that opened a chat with messages can tell them apart.
     first_rows: [...base.boxes.keys()].filter((name) => name.startsWith("row#")).length,
     elements: base.boxes.size,
+    // A New Tab page's first paint: each part's box by name (null on a chat's page).
+    new_tab: base.boxes.has("newtab-box") ? Object.fromEntries(base.boxes) : null,
     // The chat's drawn copy (chatSnapshot/): when it painted and when the live page took over, in
     // the page's own clock (ms since the document began), or why none drew, and the page's writes.
     snapshot: chatSnapshotReport(),

@@ -119,6 +119,8 @@ export const PREWARM_DEBOUNCE_MS = 150;
 /// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
 /// only the newest hint, so a harness hinted after another one always goes out).
 export const PREWARM_REPEAT_MS = 30_000;
+/// How often `pickSession` looks again at a start that drew no change.
+export const PICK_SESSION_POLL_MS = 50;
 
 export type SwitchConfig = { model?: string; mode?: string; options: Readonly<Record<string, string>> };
 export type QueuedSwitchPrompt = { id: string; text: string; at: number };
@@ -666,6 +668,46 @@ export class HarnessSwitch {
   /// prompt went, ends and its session is discarded. A shown switch is the chat's own.
   cancelDeferred(): void {
     if (this.intent && !this.intent.shown) this.cancel();
+  }
+
+  /// The local session a pick on a sessionless page started (a model row of another agent, such as
+  /// GPT-6.1 Sol on a Claude page), once its start settled: undefined when no pick is held, it
+  /// started none (failed, waits for Trust, a chat that starts on its first send) or `timeoutMs`
+  /// passed first. A Cloud start from that page names it as the chat it replaces (`replacesChat`),
+  /// so the host's hold on a start it saw open there (AcpmuxPaneReplacements) never refuses the
+  /// Cloud start as "a chat is already starting in this tab" (cmux#45946).
+  pickSession(timeoutMs: number): Promise<string | undefined> {
+    const settled = (): { sessionId?: string } | undefined => {
+      const intent = this.intent;
+      if (!intent || intent.phase === "failed" || intent.phase === "trust") return {};
+      if (intent.sessionId) return { sessionId: intent.sessionId };
+      // Nothing is starting it: no client runs it now (a chat that starts on its first send, or no connection).
+      if (!intent.running) return {};
+      return undefined;
+    };
+    const now = settled();
+    if (now) return Promise.resolve(now.sessionId);
+    return new Promise((resolve) => {
+      const deadline = this.clock.now() + timeoutMs;
+      let cancelTimer: (() => void) | undefined;
+      const finish = (sessionId: string | undefined) => {
+        cancelTimer?.();
+        unsubscribe();
+        resolve(sessionId);
+      };
+      const check = () => {
+        const done = settled();
+        if (done) return finish(done.sessionId);
+        if (this.clock.now() >= deadline) return finish(undefined);
+        // A shown pick's session is set before its open answers, with no change to draw: look again.
+        cancelTimer = this.clock.schedule(check, Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())));
+      };
+      const unsubscribe = this.subscribe(() => {
+        const done = settled();
+        if (done) finish(done.sessionId);
+      });
+      check();
+    });
   }
 
   cancel(): void {

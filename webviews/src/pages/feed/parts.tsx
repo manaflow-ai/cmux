@@ -1,11 +1,12 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
 import { AnswerControls } from "./AnswerControls";
+import { DiffLines, shownLine } from "./DiffLines";
 import { FeedIcon, type FeedIconSize } from "./icons";
 import {
   diffAttachment,
@@ -257,29 +258,34 @@ function lineTone(line: string): string | undefined {
   return undefined;
 }
 
-/** A plain unified diff: added lines green, removed lines red, hunks dim. */
+/** A plain unified diff: added lines green, removed lines red, hunks dim. With `maxLines` (a row's
+ *  preview) its first lines; without (the Inbox detail) every line, of which only those near the
+ *  viewport mount (DiffLines.tsx): an attachment's diff has no length cap. */
 export function DiffPreview({ attachment, maxLines }: { attachment: FeedAttachment; maxLines?: number }) {
-  const lines = (attachment.text ?? "").split("\n");
-  const shown = maxLines === undefined ? lines : lines.slice(0, maxLines);
+  const lines = useMemo(() => (attachment.text ?? "").split("\n"), [attachment.text]);
   return (
     <div className="feed-diff">
       <span className="feed-diff-name">
         <FeedIcon name="file.text" size={12} />
         {attachment.name}
       </span>
-      <div className="feed-diff-lines">
-        {shown.map((line, index) => (
-          // oxlint-disable-next-line react/no-array-index-key -- diff lines repeat; their order is their identity
-          <span key={index} className="feed-diff-line" data-tone={lineTone(line)}>
-            {line || " "}
-          </span>
-        ))}
-        {shown.length < lines.length ? (
-          <span className="feed-diff-line" data-tone="meta">
-            …
-          </span>
-        ) : null}
-      </div>
+      {maxLines === undefined ? (
+        <DiffLines key={attachment.id} lines={lines} tone={lineTone} />
+      ) : (
+        <div className="feed-diff-lines">
+          {lines.slice(0, maxLines).map((line, index) => (
+            // oxlint-disable-next-line react/no-array-index-key -- diff lines repeat; their order is their identity
+            <span key={index} className="feed-diff-line" data-tone={lineTone(line)}>
+              {shownLine(line)}
+            </span>
+          ))}
+          {maxLines < lines.length ? (
+            <span className="feed-diff-line" data-tone="meta">
+              …
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

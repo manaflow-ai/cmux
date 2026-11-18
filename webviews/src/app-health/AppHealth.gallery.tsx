@@ -174,7 +174,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 520,
   widths: { narrow: 300, normal: 380, wide: 560 },
-  covers: ["app-health/AppHealth.tsx", "app-health/AppHealthHost.tsx#AppHealthHost", "app-health/model.ts"],
+  covers: ["app-health/AppHealth.tsx", "app-health/model.ts"],
   keywords: ["health", "stuck", "repair", "daemon", "renderer", "restore", "reconnecting", "status"],
   load: async () => {
     const [views, { createStrings }, table] = await Promise.all([

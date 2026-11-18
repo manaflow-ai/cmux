@@ -337,3 +337,35 @@ test("an open that answers undefined with its chat not attached still fails", as
   expect(calls).toEqual([]);
   expect(harnessSwitch.view().intent?.phase).toBe("failed");
 });
+
+// cmux#45946: the session a pick on a sessionless page started, for the Cloud start that replaces it.
+test("pickSession answers the session a deferred pick started, once its start settles", async () => {
+  let answer: (id: string) => void = () => undefined;
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect({
+    ...trustRefusingPort(),
+    create: () => new Promise<string | undefined>((resolve) => (answer = (id) => resolve(id))),
+  });
+  expect(await harnessSwitch.pickSession(10)).toBeUndefined();
+  void harnessSwitch.switchTo("codex", null, { deferred: true, model: "gpt-6.1-sol" });
+  const picked = harnessSwitch.pickSession(5000);
+  answer("codex-session");
+  expect(await picked).toBe("codex-session");
+  // Settled already: answered at once.
+  expect(await harnessSwitch.pickSession(0)).toBe("codex-session");
+  harnessSwitch.cancel();
+  expect(await harnessSwitch.pickSession(0)).toBeUndefined();
+});
+
+test("pickSession gives up on a start that never answers, and answers none for a failed or Trust-held pick", async () => {
+  const stuck = new HarnessSwitch();
+  stuck.connect(startingPort());
+  void stuck.switchTo("codex", null, { deferred: true });
+  expect(await stuck.pickSession(20)).toBeUndefined();
+  const trust = new HarnessSwitch();
+  trust.connect(trustRefusingPort());
+  void trust.switchTo("claude", "/work/untrusted", { deferred: true });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(await trust.pickSession(1000)).toBeUndefined();
+});

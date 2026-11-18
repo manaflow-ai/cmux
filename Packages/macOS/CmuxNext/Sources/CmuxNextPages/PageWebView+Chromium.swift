@@ -171,13 +171,23 @@ extension PageWebView {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
-        if healthFeed != nil {
+        // Agent chats share one renderer (one per site for cmux's page scheme): a hang there takes every
+        // chat, so it is restarted by itself, not only from App Health (#45888).
+        if descriptor.isAgentPage {
+            session.hangRestart = AgentRendererHangRestart(clock: chromiumClock, mayRestart: { [weak self, weak session] in
+                guard let self, let session, self.chromiumSession === session, session.page.isUnresponsive else { return false }
+                // A restart reloads every page in the renderer: never over unsaved edits (App Health's own rule).
+                return !PageRegistry.pages().contains(where: \.holdsEdits)
+            }, restart: { [weak self] in self?.restartRenderer() })
+        }
+        if healthFeed != nil || session.hangRestart != nil {
             let hang = ObservationStream { [weak session] in session?.page.isUnresponsive ?? false }
             // task-owner: the session (`end`); event driven (Observation on the hang monitor's state).
-            session.hangWatch = Task { [weak self] in
+            session.hangWatch = Task { [weak self, weak session] in
                 for await unresponsive in hang {
                     guard let self else { return }
                     healthFeed?.pageRenderer(self, unresponsive: unresponsive)
+                    session?.hangRestart?.rendererChanged(unresponsive: unresponsive)
                 }
             }
         }

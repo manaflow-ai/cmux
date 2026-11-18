@@ -101,6 +101,7 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 | Decorate workspace rows | `implements["cmux.sidebar.rows/1"]` (customize app only) | none |
 | A pane (a tab) | `implements["cmux.pane/1"]`, opened as above | none |
 | A whole New Tab page | `implements["cmux.newtab/1"]`; shows only once the person runs `cmux settings set tabs.newTabApp <app id>` (unset: cmux's own page; a missing, hidden or failing app: cmux's own page); render gets `{ surface: "newTab", cwd? }`. The web page only, not `tabs.nativeNewTabPage`. | none |
+| A widget (New Tab grid, sidebar) | `implements["cmux.widget/1"]` with `options.sizes` (`small`, `medium`, `large`), `refresh.everySeconds` (at least 60) and `places` (`newtab`, `sidebar`; missing means both); the person adds it from Edit Widgets > Add Widget; render gets `{ surface: "widget", place, size, instance, settings, refresh, now() }`. Scaffold: `cmux ext new NAME --kind widget`; layout helpers `WidgetFrame`, `BigNumber`, `RowList` in cmux-extension-sdk | none |
 | Look like cmux | `Panel`, `Row`, `Button`, `Menu`, `Toggle`, `Slider`, `TextField`, `Badge`, `EmptyState`, `ProgressView`, `cmux.theme` tones, `cmux.toast` ([the kit](local-app-views.md#matching-the-app)) | none |
 | Run my own command | `cmux.actions.run("cmuxConfig.<name>")` from a click | `actions:run` |
 | Run a built-in action | `cmux.actions.run(id, args)` from a click; ids from `cmux.actions.list()`. Actions that sign in, quit, change the system or act on live input are refused | `actions:run` |

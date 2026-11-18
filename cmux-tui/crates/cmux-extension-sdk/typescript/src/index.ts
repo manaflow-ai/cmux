@@ -273,3 +273,8 @@ export function onChange<T>(live: Live<T>, fn: (value: T) => void, options: { in
     untrack(() => fn(value))
   })
 }
+
+// ---------------------------------------------------------------------------------------------
+// Widgets (`cmux.widget/1`): the place and its glanceable layout helpers (widget.ts).
+
+export * from "./widget.ts"
