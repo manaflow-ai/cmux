@@ -258,6 +258,22 @@ class ToolchainStamp(unittest.TestCase):
         self.assertIn("warm target: hit", out)
         self.assertTrue(obj.exists())
 
+    def test_record_over_the_bound_keeps_the_triple_the_job_built(self) -> None:
+        # The steps after the build read target/<triple>/release, so record's prune must not
+        # remove it, also when it is the oldest entry of a disk that is over the bound.
+        self.warm("restore", None)
+        target = self.repo / "cmux-tui" / "target"
+        built = target / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        host = target / "release" / "build" / "host.bin"
+        for path in (built, host):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\0" * 300_000)
+        os.utime(target / "aarch64-apple-darwin", (1, 1))
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "450000"
+        out = self.warm("record", None)
+        self.assertTrue(built.exists(), out)
+        self.assertFalse(host.exists(), out)
+
 
 if __name__ == "__main__":
     unittest.main()

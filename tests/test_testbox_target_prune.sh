@@ -48,6 +48,32 @@ touch -d '5 days ago' "$target/release"
 [[ -d "$target" ]] || fail "the target dir (a mount point) was removed"
 [[ -z "$(ls -A "$target")" ]] || fail "the target dir is not empty under a tiny bound"
 
+# A kept entry (the triple a build leg just built and still reads) is never
+# removed: over the bound the oldest of the other entries goes, also when the
+# kept one is the oldest of all.
+keep="$work/keep"
+fill "$keep/aarch64-unknown-linux-musl/release/cmux-tui" 300000
+fill "$keep/release/build/host.bin" 300000
+fill "$keep/debug/deps/libdep.rlib" 300000
+touch -d '9 days ago' "$keep/aarch64-unknown-linux-musl"
+touch -d '5 days ago' "$keep/release"
+"$prune" "$keep" 700000 3 aarch64-unknown-linux-musl >/dev/null
+[[ -f "$keep/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept entry was removed"
+[[ ! -e "$keep/release" ]] || fail "the oldest entry beside the kept one survived"
+[[ -f "$keep/debug/deps/libdep.rlib" ]] || fail "a newer entry was removed while an older one was enough"
+
+# The kept entry alone over the bound: nothing of it goes, one line says so
+# with the bytes, and the prune still succeeds.
+out="$("$prune" "$keep" 100000 3 aarch64-unknown-linux-musl)" || fail "the prune failed with only the kept entry over the bound"
+[[ -f "$keep/aarch64-unknown-linux-musl/release/cmux-tui" ]] || fail "the kept entry was removed when it alone is over the bound"
+[[ ! -e "$keep/debug" ]] || fail "an entry beside the kept one survived over the bound"
+grep -Eq '^prune: still over the bound with only aarch64-unknown-linux-musl left \([0-9]+ bytes, bound 100000\); nothing more is removed$' <<<"$out" \
+  || fail "no line says the kept entry alone is over the bound"
+
+# Without a kept name the old rule holds: that same entry goes (the Testbox).
+"$prune" "$keep" 100000 3 >/dev/null
+[[ ! -e "$keep/aarch64-unknown-linux-musl" ]] || fail "without a kept name the oldest entry survived"
+
 # An absent dir is not an error.
 "$prune" "$work/absent" >/dev/null
 echo "PASS: target prune keeps the warm disk bounded"
