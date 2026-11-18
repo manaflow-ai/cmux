@@ -241,6 +241,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"new-tab", "pane":1}),
             json!({"cmd":"close-surface", "surface":1}),
             json!({"cmd":"send-key", "surface":1, "key":"enter"}),
+            json!({"cmd":"set-layout-sizes", "transaction":1, "values":[{"pane":1, "width":0.5}]}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -577,6 +578,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "put-blob",
     "put-frontend-projection",
     "put-session",
+    "quick-terminal",
     "remote-host-app",
     "remote-host-call",
     "remote-host-config",
