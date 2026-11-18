@@ -331,3 +331,82 @@ for (const layout of ["grid", "list"] as const) {
     expect(focusedListing()).toBe(target + 1);
   });
 }
+
+// A width that changes the grid's columns moves every listing to another row, and a row's height
+// follows its cards' width. The first row in view stays where it was, and the rows not mounted are
+// estimated at the new columns' height. Before, the scroll stayed where it was (other listings came
+// into view) and every unmounted row kept the old columns' height.
+test("grid: a column change keeps the first listing in view where it was, and sizes the rows at the new height", async () => {
+  let width = 800; // two columns
+  const rowHeight = () => (width >= 830 ? 120 : GRID_ROW); // three columns from 830 px
+  const proto = dom.window.HTMLElement.prototype;
+  const offsetWidth = Object.getOwnPropertyDescriptor(proto, "offsetWidth")!;
+  const offsetHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight")!;
+  const rect = proto.getBoundingClientRect;
+  const observers: { callback: ResizeObserverCallback; targets: Set<Element> }[] = [];
+  const globals = { ResizeObserver: scope.ResizeObserver, Event: scope.Event };
+  Object.defineProperty(proto, "offsetWidth", { configurable: true, get: () => width });
+  Object.defineProperty(proto, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.dataset.size?.startsWith("grid") ? rowHeight() : appsSizes(this);
+    },
+  });
+  // The catalog starts at the top of the scroll area's content (no banner height in jsdom).
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    const scroller = this.closest<HTMLElement>(".apps-scroll");
+    const top = this.classList.contains("apps-catalog-space") && scroller ? -scroller.scrollTop : 0;
+    return { top, left: 0, right: width, bottom: top, width, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
+  };
+  scope.ResizeObserver = class {
+    entry: { callback: ResizeObserverCallback; targets: Set<Element> };
+    constructor(callback: ResizeObserverCallback) {
+      this.entry = { callback, targets: new Set() };
+      observers.push(this.entry);
+    }
+    observe(target: Element) {
+      this.entry.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.entry.targets.delete(target);
+    }
+    disconnect() {
+      this.entry.targets.clear();
+    }
+  };
+  scope.Event = dom.window.Event;
+  try {
+    const { scroller } = await mount(1_000, "grid");
+    // Row 30 (listings 60 and 61) at the top of the view.
+    await scrollBy(scroller, 30 * (GRID_ROW + 14));
+    const placeOf = (index: number) => {
+      const row = host
+        .querySelector<HTMLElement>(`[data-app="acme.tool-${index}"]`)
+        ?.closest<HTMLElement>("[data-index]");
+      const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row?.style.transform ?? "")?.[1]);
+      return row ? top - scroller.scrollTop : undefined;
+    };
+    expect(placeOf(60)).toBe(0);
+    width = 830;
+    const listing = host.querySelector(".apps-discover-list")!;
+    await act(async () => {
+      for (const { callback, targets } of observers)
+        if (targets.has(listing))
+          callback(
+            [{ target: listing, contentRect: { width } } as unknown as ResizeObserverEntry],
+            {} as ResizeObserver,
+          );
+    });
+    // Listing 60 begins row 20 of three columns, still at the top of the view.
+    expect(placeOf(60)).toBe(0);
+    // 334 rows of 120 px and the gaps between them.
+    const space = host.querySelector<HTMLElement>(".apps-catalog-space")!;
+    expect(parseFloat(space.style.height)).toBe(334 * 120 + 333 * 14);
+  } finally {
+    Object.defineProperty(proto, "offsetWidth", offsetWidth);
+    Object.defineProperty(proto, "offsetHeight", offsetHeight);
+    proto.getBoundingClientRect = rect;
+    scope.ResizeObserver = globals.ResizeObserver;
+    scope.Event = globals.Event;
+  }
+});

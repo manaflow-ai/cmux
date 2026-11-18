@@ -12,7 +12,8 @@ import {
   useSyncExternalStore,
   type KeyboardEvent,
 } from "react";
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { flushSync } from "react-dom";
+import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
@@ -293,21 +294,35 @@ function CatalogList({
   // The catalog's width (for its columns) and its offset in the scroll area (the banner, chips and
   // featured row above it), read on mount and when the listing around it resizes.
   const [box, setBox] = useState({ width: 0, margin: 0 });
-  const place = useCallback(() => {
-    const element = space.current;
-    const scroll = scrollElement();
-    if (!element || !scroll) return;
-    const width = element.offsetWidth;
-    const margin = Math.round(
-      element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
-    );
-    setBox((old) => (old.width === width && old.margin === margin ? old : { width, margin }));
-  }, [scrollElement]);
-  useLayoutEffect(place, [place, apps.length === 0, layout, card]);
+  // A width that changes the grid's columns moves every listing to another row. The first row in
+  // view is held, by its first listing and its distance below the viewport's top, before the rows
+  // are built again, and put back there after (`hold` and `restore`, set below).
+  const anchor = useRef<Anchor>({ hold: () => false, restore: () => {} });
+  // `resized`: the listing's resize, the one place the width changes. A column change there draws
+  // the new rows and puts the held row back before the frame paints: a frame of the old rows at the
+  // new width shows other listings.
+  const place = useCallback(
+    (resized = false) => {
+      const element = space.current;
+      const scroll = scrollElement();
+      if (!element || !scroll) return;
+      const width = element.offsetWidth;
+      const margin = Math.round(
+        element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
+      );
+      const update = () => setBox((old) => (old.width === width && old.margin === margin ? old : { width, margin }));
+      if (!resized || !anchor.current.hold(width, margin)) return update();
+      flushSync(update);
+      anchor.current.restore();
+    },
+    [scrollElement],
+  );
+  const placeLayout = useCallback(() => place(), [place]);
+  useLayoutEffect(placeLayout, [placeLayout, apps.length === 0, layout, card]);
   useEffect(() => {
     const listing = space.current?.closest(".apps-discover-list");
     if (!listing || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(place);
+    const observer = new ResizeObserver(() => place(true));
     observer.observe(listing);
     return () => observer.disconnect();
   }, [place]);
@@ -326,7 +341,9 @@ function CatalogList({
   const focusedRow = focused === undefined ? -1 : (rowOf.get(focused) ?? -1);
   const kept = [0, rows.length - 1, selected === undefined ? -1 : (rowOf.get(selected) ?? -1)];
   if (focusedRow >= 0) kept.push(focusedRow - 1, focusedRow, focusedRow + 1);
-  const kind = grid ? `grid:${card}` : "list";
+  // A grid row's height follows its cards' width (a description wraps to more or fewer lines), so a
+  // grid row's estimate is learned per column count.
+  const kind = grid ? `grid:${card}:${columns}` : "list";
   const sizes = useRef(new Map<string, number>());
   const itemKey = useCallback((index: number) => rows[index]![0]!.id, [rows]);
   const virtualizer = useVirtualizer({
@@ -337,11 +354,56 @@ function CatalogList({
     gap: grid ? GRID_GAP : LIST_GAP,
     overscan: grid ? GRID_OVERSCAN : LIST_OVERSCAN,
     scrollMargin: box.margin,
+    // A row laid out at a width the rows were not built for (the columns changed, and the rows are
+    // not yet built again) keeps its size: its cards wrap onto a line of their own for that moment,
+    // and the size would move the rows and the scroll before the held row is read.
+    measureElement: (element, entry, instance) =>
+      grid && entry && gridColumns(entry.contentRect.width) !== columns
+        ? (instance.measurementsCache[instance.indexFromElement(element)]?.size ??
+          measureElement(element, entry, instance))
+        : measureElement(element, entry, instance),
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
       for (const index of kept) if (index >= 0 && index < rows.length && !indexes.includes(index)) indexes.push(index);
       return indexes.sort((a, b) => a - b);
     },
+  });
+  // Across the draw between `hold` and `restore`.
+  const held = useRef<{ id: string; offset: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    anchor.current = {
+      hold: (width, margin) => {
+        const scroll = scrollElement();
+        if (!grid || !scroll || gridColumns(width) === columns) return false;
+        // Where the rows are now: placed for the old margin, in a catalog that starts at the new one
+        // (the banner and chips above re-wrap; the browser may have moved the scroll to hold what is
+        // in view).
+        const top = scroll.scrollTop + virtualizer.options.scrollMargin - margin;
+        // The mounted rows only (about two viewports of them), once per column change.
+        const item = virtualizer.getVirtualItems().find((item) => item.start >= top);
+        held.current = item && { id: rows[item.index]![0]!.id, offset: item.start - top };
+        return true;
+      },
+      restore: () => {
+        const scroll = scrollElement();
+        const hold = held.current;
+        held.current = undefined;
+        if (!hold || !scroll) return;
+        const row = rowOf.get(hold.id);
+        // The sizes measured at the old column count are not this one's (the rows now mounted
+        // already set the new count's estimate): every row is placed again by the estimate, and
+        // re-measured as it resizes or mounts.
+        virtualizer.measure();
+        // Places the rows again now, so the held row's start below is the new one.
+        virtualizer.getTotalSize();
+        const start = row === undefined ? undefined : virtualizer.measurementsCache[row]?.start;
+        if (start === undefined) return;
+        scroll.scrollTop = Math.max(0, start - hold.offset);
+        // Read now, not at the next frame's scroll event, so the rows around the held one are
+        // drawn before this frame paints.
+        scroll.dispatchEvent(new Event("scroll"));
+      },
+    };
   });
   // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N rows again whenever a measure differs.
@@ -397,6 +459,14 @@ function CatalogList({
         )}
     </div>
   );
+}
+
+/** Holds the catalog's first row in view across a column change (`hold`, with the new width and
+ *  margin; false when the columns do not change) and puts it back once the rows are built for the
+ *  new columns (`restore`). */
+interface Anchor {
+  hold: (width: number, margin: number) => boolean;
+  restore: () => void;
 }
 
 /** Where a windowed row sits: its index (TanStack measures it by `data-index`) and offset. */
