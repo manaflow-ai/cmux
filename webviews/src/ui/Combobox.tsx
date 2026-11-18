@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import { measureElement, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
@@ -34,9 +34,12 @@ export interface ComboboxProps {
    * `pinnedPlacement: "bottom"` under the list (the arrows reach them after the last row either way). */
   pinnedSuggestions?: readonly string[];
   pinnedPlacement?: "top" | "bottom";
-  /** A line in the list's place (a list's "nothing here yet" or its load error): with
-   * `pinnedSuggestions`, after the scrolling rows and before bottom-pinned actions, so it never lands
-   * under them; without, after the list. Not a row: the arrows never reach it. */
+  /** A line in the list's place (a list's "nothing here yet"): with `pinnedSuggestions`, after the
+   * scrolling rows and before bottom-pinned actions, so it never lands under them; without, after the
+   * list. Not a row: the arrows never reach it. With `pinnedSuggestions` it sits inside the listbox
+   * (the pinned actions are options of the same list), in a `role="presentation"` wrapper, so it takes
+   * non-interactive text only: no buttons, links or live regions (an action belongs in
+   * `pinnedSuggestions`). The native popup (`native`, when the host draws the list) does not draw it. */
   listEnd?: ReactNode;
   /** The text changed (typing, completion): compute new suggestions. */
   onQuery(value: string): void;
@@ -489,7 +492,12 @@ export function Combobox({
       ) : (
         <Autocomplete.Collection>{(item: string, index: number) => renderOption(item, index)}</Autocomplete.Collection>
       )}
-      {hasPinned && listEnd}
+      {hasPinned && listEnd !== undefined && (
+        // Inside the listbox, between its scrolling options and its pinned ones: plain text, no role.
+        <div role="presentation" className="ui-combobox-list-end">
+          {listEnd}
+        </div>
+      )}
       {hasPinned && pinnedPlacement === "bottom" && pinnedRows}
       {disabledSuggestions.map((item) => (
         <li
@@ -639,6 +647,17 @@ function VirtualRows({
     estimateSize: () => rowHeight ?? estimate,
     overscan: 8,
     initialRect: { width: 320, height: 400 },
+    // A row's slot is its border box plus its vertical margins: a row is placed at its slot's start
+    // and its margin-top pushes it down (a section heading drawn in that margin), so a slot of the
+    // border box alone would let it cover the next row. A size the library answers from its cache
+    // (no resize entry) was measured here already and holds the margins.
+    measureElement: (element, entry, instance) => {
+      const size = measureElement(element, entry, instance);
+      if (!entry && instance.itemSizeCache.has(instance.options.getItemKey(instance.indexFromElement(element))))
+        return size;
+      const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+      return virtualRowSize(size, style?.marginTop ?? "", style?.marginBottom ?? "");
+    },
   });
   virtualizerRef.current = virtualizer;
   useLayoutEffect(() => {
@@ -671,6 +690,13 @@ function VirtualRows({
       })}
     </div>
   );
+}
+
+/// A virtual row's slot height: its border-box height and its computed vertical margins (CSS pixel
+/// strings such as "20px"). A value that does not parse counts as 0, so the size is never NaN.
+export function virtualRowSize(borderBox: number, marginTop: string, marginBottom: string): number {
+  const px = (value: number) => (Number.isFinite(value) ? value : 0);
+  return Math.round(px(borderBox) + px(Number.parseFloat(marginTop)) + px(Number.parseFloat(marginBottom)));
 }
 
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.

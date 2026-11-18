@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../../ui/Button";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -27,9 +26,9 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// them). The current folder is checked. The actions are fixed under the scrolling folders, each with
 /// its glyph in the folders' icon column (Leo, 2026-11-06: "it's just folder / that's your project"):
 /// Add folder…, the GitHub row, Add another folder…, New Worktree, New Project and No folder last,
-/// where the host offers them. The empty line (no folders yet, or none match the words) and the
-/// repositories' load error sit in the list's place, over the actions (Combobox `listEnd`); only the
-/// extra folders a chat already has (ExtraFolderList) are listed under them.
+/// where the host offers them. The empty line (no folders yet, or none match the words) sits in the
+/// list's place, over the actions (Combobox `listEnd`); only the extra folders a chat already has
+/// (ExtraFolderList) are listed under them.
 /// A folder is the one thing the menu picks (Leo, 2026-11-06: "what even is the deal with add
 /// project? ... why not just add fodler? what's special about project?"): Add folder… is the host's
 /// folder panel, and a folder picked there is listed with the others from then on. The shared
@@ -41,7 +40,9 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// to the list: a GitHub group, filtered by the same search, whose pick is the folder
 /// `github:owner/name`, over the folders for a chat set to Cloud (`githubFirst`), else under them.
 /// The GitHub row is a fixed action under Add folder…: Choose more repositories… (the installation's
-/// page on GitHub) once connected, so a connected team always sees it; until then (the cmux GitHub
+/// page on GitHub) once connected, so a connected team always sees it; Retry, its second line the
+/// error, when the repositories' list failed to load (a click reads it again, the menu still open);
+/// until then (the cmux GitHub
 /// App not installed, signed out, no GitHub App on this Cloud service, or the check did not answer)
 /// Connect to GitHub, which one click connects in place: the host opens the install page, or sign-in when signed out, the menu
 /// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
@@ -177,16 +178,16 @@ export function FolderPopover({
     () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
     [githubReady, githubRepos, typed],
   );
-  // Connect to GitHub (not connected yet) or Choose more repositories… (connected) is pinned with the
-  // actions under the list: the folder list scrolls (thousands of projects), and a row at its end
-  // would sit below the fold where nobody finds it.
+  // Connect to GitHub (not connected yet), Choose more repositories… (connected) or Retry (connected,
+  // the repositories' list failed) is pinned with the actions under the list: the folder list scrolls
+  // (thousands of projects), and a row at its end would sit below the fold where nobody finds it.
   const githubAction =
     github && !addingExtra
       ? githubReady
         ? GITHUB_MORE
-        : githubStatus !== "ready"
-          ? GITHUB_ADD
-          : undefined
+        : githubStatus === "ready"
+          ? GITHUB_RETRY
+          : GITHUB_ADD
       : undefined;
   const githubRows = repos.map((repo) => GITHUB_REPO + repo.fullName);
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
@@ -247,6 +248,11 @@ export function FolderPopover({
     // answers the row only says it is checking: a click then does nothing.
     if (value === GITHUB_ADD) {
       if (githubStatus !== undefined) github?.onConnect();
+      return;
+    }
+    // Retry reads the repositories again, the menu still open; they are listed once they load.
+    if (value === GITHUB_RETRY) {
+      github?.onRetry();
       return;
     }
     // Return on words no loaded repository matches: ask GitHub for them (the loaded page may be
@@ -312,6 +318,18 @@ export function FolderPopover({
         </span>
       );
     }
+    if (value === GITHUB_RETRY)
+      return (
+        <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-retry="">
+          <span className="acpmux-location-action-icon" aria-hidden="true">
+            <GitHubMark />
+          </span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("project.retry")}</span>
+            <span className="acpmux-menu-description">{github?.state.error}</span>
+          </span>
+        </span>
+      );
     if (value === GITHUB_MORE)
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-section={section}>
@@ -542,23 +560,11 @@ export function FolderPopover({
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
           virtualRows={{ estimate: 28 }}
-          // The empty line and the repositories' load error sit in the list's place, over the actions.
+          // The empty line sits in the list's place, over the actions.
           listEnd={
-            <>
-              {shown.size === 0 && !typedPath && githubRows.length === 0 && (
-                <div className="acpmux-location-empty">
-                  {t(typed ? "composer.folderNone" : "composer.folderNoneYet")}
-                </div>
-              )}
-              {github?.state.error !== undefined && githubStatus === "ready" && (
-                <div className="acpmux-location-empty acpmux-github-error" role="alert">
-                  <span className="acpmux-github-error-text">{github.state.error}</span>
-                  <Button variant="ghost" size="sm" onClick={() => github.onRetry()}>
-                    {t("project.retry")}
-                  </Button>
-                </div>
-              )}
-            </>
+            shown.size === 0 && !typedPath && githubRows.length === 0 ? (
+              <div className="acpmux-location-empty">{t(typed ? "composer.folderNone" : "composer.folderNoneYet")}</div>
+            ) : undefined
           }
         />
         {extra && !addingExtra && <ExtraFolderList folders={extra.folders} onRemove={extra.onRemove} />}
@@ -573,6 +579,7 @@ const ACTION_EXTRA = ACTION + "extra";
 /// The GitHub part's rows: never a path either.
 const GITHUB_ADD = "\u0000github:add";
 const GITHUB_MORE = "\u0000github:more";
+const GITHUB_RETRY = "\u0000github:retry";
 const GITHUB_REPO = "\u0000github:repo:";
 
 /// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch

@@ -117,15 +117,24 @@ async function renderTray(props: Record<string, unknown>, store: ReturnType<type
 }
 
 const doc = () => dom.window.document;
+/// A listbox holds options and plain text only: no button, and no live region, inside it.
+const expectOnlyOptionsInListbox = () => {
+  for (const listbox of doc().querySelectorAll("[role=listbox]")) {
+    expect(listbox.querySelectorAll("button, [role=button], [role=alert], [role=status]").length).toBe(0);
+  }
+};
 const openFolderMenu = async () => {
   await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
   await settle();
+  expect(doc().querySelector(".acpmux-folder-popover [role=listbox]")).not.toBeNull();
+  expectOnlyOptionsInListbox();
 };
 const option = (name: string) =>
   [...doc().querySelectorAll<HTMLElement>("[role=option]")].find((item) => item.textContent?.includes(name));
 const press = async (element: HTMLElement) => {
   await act(async () => element.click());
   await settle();
+  expectOnlyOptionsInListbox();
 };
 const face = () => doc().querySelector(".acpmux-location-button")?.textContent ?? "";
 const CONNECT = "Connect to GitHub";
@@ -250,6 +259,8 @@ test("a Cloud chat with no folders and GitHub not connected: the empty line sits
     await openFolderMenu();
     const empty = doc().querySelector(".acpmux-folder-popover .acpmux-location-empty");
     expect(empty?.textContent).toBe("No recent folders");
+    // Inside the listbox, plain text under a role-less wrapper.
+    expect(empty!.parentElement!.getAttribute("role")).toBe("presentation");
     expect(option(CONNECT)!.closest(".ui-combobox-pinned")).not.toBeNull();
     expectAboveActions(empty);
   } finally {
@@ -407,29 +418,41 @@ test("repos.list refused as not connected falls back to the Connect to GitHub ro
   try {
     await openFolderMenu();
     expect(option(CONNECT)).toBeDefined();
-    expect(doc().querySelector(".acpmux-github-error")).toBeNull();
+    expect(option("Retry")).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("another repos.list failure shows one line with Retry, which reads again", async () => {
+test("another repos.list failure makes the pinned GitHub row Retry, which reads again with the menu open", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { error: new Error("GitHub did not answer") },
   });
-  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
   try {
     await openFolderMenu();
-    const line = doc().querySelector(".acpmux-github-error");
-    expect(line?.textContent).toContain("GitHub did not answer");
-    // With the list, over the actions.
-    expectAboveActions(line);
+    // The GitHub row under Add folder…, the only GitHub row there: Retry over the error.
+    const pinned = doc().querySelector(".ui-combobox-pinned")!;
+    const actions = [...pinned.querySelectorAll<HTMLElement>("[role=option]")];
+    expect(actions[0]!.textContent).toContain("Add folder…");
+    const retry = actions[1]!;
+    expect(retry.querySelector(".acpmux-menu-label")?.textContent).toBe("Retry");
+    expect(detail(retry)).toBe("GitHub did not answer");
+    expect(retry.querySelector(".acpmux-location-action-icon svg")).not.toBeNull();
+    expect(actions.filter((row) => row.querySelector("[data-github]"))).toHaveLength(1);
+    expect(option("Choose more repositories…")).toBeUndefined();
+    expect(option(CONNECT)).toBeUndefined();
+    expect(doc().querySelector(".acpmux-folder-popover [role=alert]")).toBeNull();
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
-    await press(button("Retry")!);
+    await press(retry);
     expect(gh.calls.at(-1)).toEqual(["github.repos.list", { query: null }]);
-    expect(doc().querySelector(".acpmux-github-error")).toBeNull();
+    expect(picked).toEqual([]);
+    // Still open: the repositories listed, the GitHub row Choose more repositories… again.
+    expect(doc().querySelector(".acpmux-location-search")).not.toBeNull();
+    expect(option("Retry")).toBeUndefined();
     expect(option("acme/web")).toBeDefined();
+    expect(option("Choose more repositories…")!.closest(".ui-combobox-pinned")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

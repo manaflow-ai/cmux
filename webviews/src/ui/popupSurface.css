@@ -440,6 +440,8 @@
 /* Pinned combobox actions live outside the scrolling results. This sheet is loaded by the agent
    pane as well as ui.css hosts, so the buttons use the same compact menu shape in both. */
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
+/* Combobox `listEnd`: keeps its height as the scrolling list gives up room. */
+.ui-combobox-list-end { flex: none; }
 .ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
 .ui-combobox-pinned[data-placement="bottom"] { margin: 4px 0 0; padding: 4px 0 0; }
 .ui-combobox-scroll { min-height: 0; }

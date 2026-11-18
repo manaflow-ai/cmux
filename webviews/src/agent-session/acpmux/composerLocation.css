@@ -1191,8 +1191,6 @@
      UI's --available-height), so it never covers its control, and a short pane. */
   max-height: min(560px, calc(100dvh - 36px), var(--available-height, 560px));
 }
-/* The empty line and the error keep their height as the list gives up room. */
-.acpmux-folder-popover .ui-combobox-pinned-list > .acpmux-location-empty { flex: none; }
 .acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
 /* Its list takes the menu's height, not the shared location list's 260 px cap: the menu's own
    max-height bounds it, and the list gives up room first (flex, min-height 0). The designed scroll
@@ -1279,8 +1277,6 @@
    the GitHub mark in the badge column and a quiet lock for a private one. */
 .acpmux-location-lock { display: inline-flex; flex: none; align-items: center; margin-left: auto; color: var(--agent-muted); }
 .acpmux-location-lock + .acpmux-location-check { margin-left: 0; }
-.acpmux-github-error { display: flex; align-items: center; gap: var(--ds-space-2); }
-.acpmux-github-error-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
    drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted
