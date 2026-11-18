@@ -30,9 +30,13 @@
 # before it is before the executable's first instruction), when it opened CmuxNextApp.framework and Chromium's
 # framework, and the checkers' first and last read of the copy's files.
 # Prints LF-RUN per launch, LF-TABLE per row, LF-TRACE per traced launch. Deletes every copy and DMG it made.
+# With row q or m it declares the Gatekeeper prompts it raises to the fleet's dialog alarm (a marker in
+# /Users/Shared/cmux-build-fleet/expected-dialogs, removed on exit) and answers each itself: Open while the DMG mounts
+# and for the measured open, Cancel for one still up after a launch or at exit (LF-PROMPT lines). It never presses
+# anything on a keychain or password panel; each launch's home gets its own login keychain so none comes up.
 set -uo pipefail
 
-LF_DIR="$(cd "$(dirname "$0")" && pwd)"
+LF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # store_fetch, gate, checker_cpu, load1, wait_load from the pre-main study's harness (its main does not run).
 source "$LF_DIR/launch-premain.sh"
 
@@ -80,6 +84,13 @@ main() {
   echo "LF applications $APPS"
   RUN_ID="lf$$-$(date +%s)"
   local list; IFS=, read -r -a list <<<"$rows"
+  # The prompts on screen before the first row are not this job's: no sweep presses them.
+  PROMPT_BASELINE="$(prompts ids 2>/dev/null)"
+  # Rows q and m raise Gatekeeper's prompt on purpose: say so to the fleet's dialog alarm for this run, and take the
+  # word back on every exit, after a last sweep of any prompt the job left.
+  trap 'sweep_prompts Cancel exit; marker_remove' EXIT
+  trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+  [[ ",$rows," == *,q,* || ",$rows," == *,m,* ]] && marker_write
   if [[ "$trace" == 1 ]]; then
     for row in "${list[@]}"; do wait_load "$row" T; first "$row" T || rc=1; done
   fi
@@ -127,7 +138,55 @@ PY
   exit "$rc"
 }
 
-console() { GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$@"; }
+# console CMD...: launch-premain.sh's (sourced above), as is fresh_keychain.
+
+# The fleet's dialog alarm (cmuxterm-hq, "expected dialogs") pages for every system prompt on a fleet Mac's screen
+# unless a live job declared it: one marker per run, <owner>-<pid>.json, written atomically, its expiry at most 2 h
+# away (the reader ignores a marker with a dead pid, a past expiry, or an expiry over 2 h after its mtime). Only
+# "gatekeeper": a keychain or password panel (SecurityAgent, coreautha) always pages, whatever a marker says.
+EXPECTED_DIALOGS_DIR="${LF_EXPECTED_DIALOGS_DIR:-/Users/Shared/cmux-build-fleet/expected-dialogs}"
+# The job's own bound: the cmux-ci --timeout the header gives (5400 s), at most 2 h.
+MARKER_BOUND_S="${LF_MARKER_BOUND_S:-5400}"
+((MARKER_BOUND_S > 7200)) && MARKER_BOUND_S=7200
+MARKER="" MARKER_EXPIRES=0
+
+# marker_write: this run's marker, expiring now + the bound (a run that outlives it rewrites it: marker_refresh).
+marker_write() {
+  local file="$EXPECTED_DIALOGS_DIR/launch-fresh-install-$$.json" tmp expires
+  if [[ ! -d "$EXPECTED_DIALOGS_DIR" ]]; then
+    mkdir -p "$EXPECTED_DIALOGS_DIR" 2>/dev/null && chmod 1777 "$EXPECTED_DIALOGS_DIR" 2>/dev/null \
+      || { echo "LF expected-dialogs: cannot make $EXPECTED_DIALOGS_DIR; the alarm will page for this run's prompts"; return 0; }
+  fi
+  expires=$(($(date +%s) + MARKER_BOUND_S))
+  tmp="$(mktemp "$EXPECTED_DIALOGS_DIR/.launch-fresh-install-$$.tmp.XXXXXX")" \
+    || { echo "LF expected-dialogs: cannot write in $EXPECTED_DIALOGS_DIR"; return 0; }
+  if python3 -I -c '
+import datetime, json, sys
+expires = datetime.datetime.fromtimestamp(int(sys.argv[2]), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+print(json.dumps({"schema": "expected-dialogs/v1", "kinds": ["gatekeeper"], "owner": "launch-fresh-install",
+                  "pid": int(sys.argv[1]), "expires": expires}))' "$$" "$expires" >"$tmp" \
+      && chmod 0644 "$tmp" && mv -f "$tmp" "$file"; then
+    MARKER="$file" MARKER_EXPIRES=$expires
+    echo "LF expected-dialogs $file expires $expires"
+  else
+    rm -f "$tmp"; echo "LF expected-dialogs: marker not written"
+  fi
+}
+
+# marker_refresh: rewrite the marker when less than 15 min of it is left (a long run, many reps).
+marker_refresh() { [[ -n "$MARKER" ]] && (($(date +%s) + 900 > MARKER_EXPIRES)) && marker_write; return 0; }
+
+marker_remove() { [[ -n "$MARKER" ]] && rm -f "$MARKER"; MARKER=""; }
+
+# prompts ARGS...: launch-fresh-install-prompts.py in the console session, with the console's CuaDriver.
+prompts() {
+  [[ -x "${CUA:-}" ]] || return 1
+  console /usr/bin/python3 -I "$LF_DIR/launch-fresh-install-prompts.py" "$CUA" "$@"
+}
+
+# sweep_prompts Open|Cancel WHEN: press the button on each "downloaded from the Internet" prompt this job raised (none
+# from before it), and name any keychain or password panel on screen (never pressed): LF-PROMPT lines.
+sweep_prompts() { prompts press "$1" "${PROMPT_BASELINE:-}" "$2" 2>>"${OUT:-/tmp}/prompts.log"; return 0; }
 
 # quarantine FILE: a quarantine attribute as a browser's download writes it (flags 0083, now, the agent, a new event).
 quarantine() {
@@ -172,11 +231,21 @@ first() {
   else
     # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
     quarantine "$dmgfile"
+    marker_refresh
+    # The quarantined image's own check may ask first ("downloaded from the Internet", CoreServicesUIAgent or
+    # DiskImageMounter): the job needs the mount, so a sweep beside the wait presses Open there, as a person would.
+    # Beside it, not in it: the wait still sees the mount within 0.2 s.
+    local sweeper mounted="$OUT/mounted-$tag"
+    rm -f "$mounted"
+    ( while sleep 3 && [[ ! -e "$mounted" ]]; do sweep_prompts Open "mount $tag"; done ) &
+    sweeper=$!
     t_mount="$(now_ms)"
     console /usr/bin/open "$dmgfile" >>"$OUT/mount.log" 2>&1
     mount="$(mount_point "$dmgfile" 120)"
+    [[ -n "$mount" ]] && mount_ms=$(($(now_ms) - t_mount))
+    : >"$mounted"; wait "$sweeper"; rm -f "$mounted"
     if [[ -n "$mount" ]]; then
-      mounted_by=open mount_ms=$(($(now_ms) - t_mount))
+      mounted_by=open
     else
       mount="$OUT/mnt-$tag"
       hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
@@ -223,6 +292,8 @@ first() {
     trace_pid=$!
     sleep 1
   fi
+  # The probe makes $OUT/home-$tag/h the app's HOME (launch-premain.swift environment).
+  fresh_keychain "$OUT/home-$tag/h"
   t0="$(date '+%Y-%m-%d %H:%M:%S')"
   if [[ "$name" == x ]]; then
     local helper
@@ -264,6 +335,10 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   pids="$(ps -axo pid=,command= | LF_A="$app/" LF_B="${ran:-$app}/" awk 'index($0, ENVIRON["LF_A"]) || index($0, ENVIRON["LF_B"]) { print $1 }')"
   [[ -n "$pids" ]] && { sudo -n kill $pids 2>/dev/null || kill $pids 2>/dev/null; }
   sleep 1
+  # The measured open is over: a prompt still up (a press that missed, one a copy's helper raised) is not needed.
+  # Cancel it now, while its copy exists; with the copy deleted under it, it stays as '"(null)" is an app downloaded
+  # from the Internet'.
+  [[ "$name" == q || "$name" == m ]] && sweep_prompts Cancel "after $tag"
   echo "$json" >>"$OUT/runs.jsonl"
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
@@ -283,4 +358,4 @@ trace_row() {
   python3 -I "$LF_DIR/launch-fresh-install-trace.py" "$OUT/fs-$1.txt" "$OUT/log-$1.txt" "$2" "$3"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
