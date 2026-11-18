@@ -143,9 +143,13 @@ jobs:
     # read: the slot admits only nightly jobs, so its queue moves (on 2026-10-29 the canary of build 4095550219401,
     # run 40959228667, sat on the side label behind 43 PR jobs; the slot takes no PR job). A refused attempt is
     # re-run by owned_pool_rescue.SIDE_WORKFLOW_PATHS onto the same pool. With no nightly slot named, a scheduled
-    # run takes Blacksmith macOS 26, never the side label, which no rescue watches for it. A dispatch, which the slot
-    # refuses, and a same-repository pull request take the side label on attempt 1, then vars.MACOS_RUNNER_26, then
-    # Blacksmith macOS 26. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
+    # run takes Blacksmith macOS 26 while vars.CI_BLACKSMITH_MACOS is `on`; off, it takes the side label instead,
+    # except github-actions[bot]'s attempt 3 and later, which still take Blacksmith macOS 26 (the rescue's escape;
+    # tests/test_seed_derived_data.py's test_no_retry_attempt_of_any_workflow_takes_an_owned_label). A dispatch,
+    # which the slot refuses, and a same-repository pull request take the side label on attempt 1 with
+    # CI_PR_POOL_OWNED=1; later attempts take it too while the switch is off (that bot escape aside), then
+    # vars.MACOS_RUNNER_26, then Blacksmith macOS 26. Never a GitHub-hosted Mac
+    # (tests/test_ci_no_github_hosted_macos.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && (vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
