@@ -41,12 +41,12 @@
   ],
   "looks": [
     {"name": "cmux", "title": "cmux", "description": "The chat as cmux draws it: the default.", "tokens": {}},
-    {"name": "claude", "title": "Claude", "description": "Room to read: a narrower column, larger text, soft bubbles and rounded cards.",
+    {"name": "claude", "title": "Claude", "description": "Room to read: a narrower column, larger text, quiet tool lines with no icons, soft bubbles and rounded cards.",
      "tokens": {
-       "density": "comfortable", "messageWidth": 720, "font": "system", "fontSize": 15, "lineHeight": 1.65,
+       "density": "comfortable", "messageWidth": 720, "font": "system", "fontSize": 15, "lineHeight": 1.5,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.8,
        "userMessage.radius": 16, "userMessage.paddingBlock": 10, "userMessage.paddingInline": 16, "userMessage.fill": 0.06,
-       "toolCards": "row", "toolCard.radius": 12, "toolCard.border": "hairline", "codeCard.radius": 12, "timestamps": "hover"
+       "toolCards": "minimal", "toolCard.radius": 12, "toolCard.border": "hairline", "codeCard.radius": 12, "timestamps": "hover"
      }},
     {"name": "codex", "title": "Codex", "description": "A pill for your messages, borderless cards, no times.",
      "tokens": {
