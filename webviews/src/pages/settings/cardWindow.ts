@@ -9,7 +9,6 @@
 // keep (a Revoke asking first) stays mounted, so its state survives a scroll.
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import {
-  createContext,
   createElement,
   useCallback,
   useLayoutEffect,
@@ -17,6 +16,7 @@ import {
   useRef,
   useState,
   type FocusEvent,
+  type ReactNode,
 } from "react";
 
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -79,7 +79,8 @@ export function useCardWindow(
   // column changes size (a card above it opening), one rect each, never per row.
   const measureMargin = useCallback(() => {
     if (!node || !scroller) return;
-    const first = node.querySelector<HTMLElement>(':scope > [data-index="0"]') ?? node;
+    const first =
+      node.querySelector<HTMLElement>(':scope > [data-index="0"], :scope > .card-busy > [data-index="0"]') ?? node;
     const next = first.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
     setScrollMargin((previous) => (Math.abs(previous - next) < 0.5 ? previous : next));
   }, [node, scroller]);
@@ -176,7 +177,11 @@ export function windowGap(gap: number) {
     : null;
 }
 
-/** A change in flight in a windowed card (a revoke, a library change): every row's controls are
- * disabled until it answers. The controls read it, not the rows, so a change draws the controls
- * again and leaves each memo row's own lines be. */
-export const CardBusy = createContext(false);
+/** A change in flight in a card (a revoke, a library change): every row's controls are disabled until
+ * it answers. A disabled fieldset around the rows disables every button and switch in them natively,
+ * so a change draws the fieldset alone and no row again. It has no box (`.card-busy` is display:
+ * contents) and no role, so the rows stay the list's items. Only for rows whose every control waits
+ * for the change: a control that stays usable must sit outside it. */
+export function cardBusy(busy: boolean, rows: ReactNode) {
+  return createElement("fieldset", { className: "card-busy", role: "none", disabled: busy }, rows);
+}
