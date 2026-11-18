@@ -722,7 +722,14 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
     let acpmux_home = dir.path().join("acpmux-home");
     let env = [("XDG_RUNTIME_DIR", std::ffi::OsString::from("/run/user/4242"))];
     let args = linux::enable_args("https://hub.example");
-    let got = linux::run_enable(&rd, &args, &acpmux_home, &env, Duration::from_secs(30));
+    let got = linux::run_enable(
+        &rd,
+        &args,
+        &acpmux_home,
+        &env,
+        Duration::from_secs(30),
+        &AtomicBool::new(false),
+    );
     assert_eq!(got, Outcome::SetUp("This desktop is shared as \"box\" (dev1), view only.".into()));
     let recorded = std::fs::read_to_string(dir.path().join("args")).unwrap();
     assert_eq!(recorded.lines().collect::<Vec<_>>(), args);
@@ -731,14 +738,29 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
     // An exit with an error is a failure with its last line.
     let rd = fake_cmux_rd(dir.path(), "echo 'cmux-rd: no user manager' >&2; exit 3");
     assert_eq!(
-        linux::run_enable(&rd, &args, &acpmux_home, &[], Duration::from_secs(30)),
+        linux::run_enable(
+            &rd,
+            &args,
+            &acpmux_home,
+            &[],
+            Duration::from_secs(30),
+            &AtomicBool::new(false)
+        ),
         Outcome::Failed("cmux-rd: no user manager".into())
     );
     // A binary that is not there.
     let missing = dir.path().join("nothing");
     assert!(!linux::executable(&missing));
     assert_eq!(
-        linux::run_enable(&missing, &args, &acpmux_home, &[], Duration::from_secs(30)).state(),
+        linux::run_enable(
+            &missing,
+            &args,
+            &acpmux_home,
+            &[],
+            Duration::from_secs(30),
+            &AtomicBool::new(false)
+        )
+        .state(),
         "enable_failed"
     );
 }
@@ -757,6 +779,7 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         dir.path(),
         &[],
         Duration::from_millis(500),
+        &AtomicBool::new(false),
     );
     assert_eq!(got, Outcome::TimedOut);
     assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
@@ -768,6 +791,61 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         assert!(Instant::now() < gone_by, "the enable's child {pid} still runs");
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Review F2 of #45369: a leave or a daemon restart mid-setup must not let the old enable go on
+/// and start the host. A cancelled enable is stopped at once, with everything it started.
+#[test]
+fn a_cancelled_enable_is_stopped_with_everything_it_started() {
+    use super::linux::{self, Outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("pid");
+    let rd =
+        fake_cmux_rd(dir.path(), &format!("sleep 60 &\necho $! > '{}'\nwait", pid_file.display()));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let later = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        later.store(true, Ordering::SeqCst);
+    });
+    let started = Instant::now();
+    let got = linux::run_enable(
+        &rd,
+        &linux::enable_args("https://hub.example"),
+        dir.path(),
+        &[],
+        Duration::from_secs(60),
+        &cancel,
+    );
+    assert_eq!(got, Outcome::Cancelled);
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let gone_by = Instant::now() + Duration::from_secs(10);
+    // SAFETY: signal 0 only asks whether the test's own child's child still exists.
+    while unsafe { libc::kill(pid, 0) } == 0 {
+        assert!(Instant::now() < gone_by, "the enable's child {pid} still runs");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// After an enable: the join is recorded as set up only when it finished for the join that is
+/// still current and nothing cancelled it; otherwise the unit it may have started is stopped.
+#[test]
+fn only_an_enable_for_the_current_join_keeps_its_host() {
+    use super::linux::{self, After, Outcome};
+    let set_up = Outcome::SetUp("This desktop is shared".into());
+    let keep = After { save_mark: true, stop_host: false };
+    let undo = After { save_mark: false, stop_host: true };
+    assert_eq!(linux::after_enable(&set_up, false, true), keep);
+    assert_eq!(linux::after_enable(&set_up, true, true), undo, "cancelled");
+    assert_eq!(linux::after_enable(&set_up, false, false), undo, "the join changed");
+    assert_eq!(linux::after_enable(&Outcome::Cancelled, true, true), undo);
+    let failed = Outcome::Failed("x".into());
+    assert_eq!(
+        linux::after_enable(&failed, false, true),
+        After { save_mark: false, stop_host: false }
+    );
+    assert_eq!(linux::after_enable(&failed, false, false), undo);
 }
 
 #[test]

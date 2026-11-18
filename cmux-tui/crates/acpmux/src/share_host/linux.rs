@@ -21,6 +21,7 @@ use cmux_hub_host::identity;
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -91,6 +92,8 @@ pub(crate) enum Outcome {
     NotInstalled(String),
     /// It exited with an error, or did not start: its last line.
     Failed(String),
+    /// Cancelled (a leave, or the daemon stopping) and stopped with everything it started.
+    Cancelled,
     /// It did not finish within its wait and was stopped.
     TimedOut,
 }
@@ -103,6 +106,7 @@ impl Outcome {
             Self::NotInstalled(_) => "not_installed",
             Self::Failed(_) => "enable_failed",
             Self::TimedOut => "timed_out",
+            Self::Cancelled => "cancelled",
         }
     }
 
@@ -113,8 +117,26 @@ impl Outcome {
                 "cmux-rd linux-host enable did not finish within {} s",
                 ENABLE_WAIT.as_secs()
             ),
+            Self::Cancelled => {
+                "cmux-rd linux-host enable was cancelled: the join changed or the daemon stopped"
+                    .into()
+            }
         }
     }
+}
+
+/// What the daemon does once an enable ended ([`after_enable`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct After {
+    /// Record the join as set up ([`MARK`]).
+    pub(crate) save_mark: bool,
+    /// Stop the host unit the enable may have started.
+    pub(crate) stop_host: bool,
+}
+
+/// After `outcome`, cancelled or not, with the join it ran for still `current` or not.
+pub(crate) fn after_enable(outcome: &Outcome, _cancelled: bool, _current: bool) -> After {
+    After { save_mark: matches!(outcome, Outcome::SetUp(_)), stop_host: false }
 }
 
 /// One line of cmux-rd's output, made plain and short for a log line.
@@ -168,6 +190,7 @@ pub(crate) fn run_enable(
     acpmux_home: &Path,
     env: &[(&'static str, OsString)],
     wait: Duration,
+    _cancel: &AtomicBool,
 ) -> Outcome {
     let spawned = cmux_process::Command::new(rd)
         .args(args)
@@ -348,7 +371,8 @@ fn set_up(
         super::state::linux(status_json("already_set_up", &detail, rd, hub));
         return;
     }
-    let outcome = run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT);
+    let outcome =
+        run_enable(rd, &enable_args(hub), home, env, ENABLE_WAIT, &AtomicBool::new(false));
     if let Outcome::SetUp(_) = outcome
         && let Err(e) = save_mark(folder, mark)
     {
