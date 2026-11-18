@@ -83,6 +83,30 @@ struct SidebarPriorityRenderCountTests {
         #expect(step.rowsLaidOut == step.rowsConfigured, "a scroll step placed rows it did not reveal: \(step)")
     }
 
+    /// What the whole-list walk (`VisibleRowsBaseline` "sidebar priority": compare and reindex every chat) costs per
+    /// update: one title change shown, and the reindex alone, averaged over 50 updates. Prints "priority-walk".
+    @Test(arguments: [100, 10_000])
+    func theWalkPerUpdateIsMeasured(count: Int) throws {
+        var entries = Self.entries(count)
+        let (view, window, _) = Self.shown(entries)
+        defer { window.contentView = nil; window.closeAfterTest() }
+        let updates = 50
+        let clock = ContinuousClock()
+        let show = clock.measure {
+            for index in 0..<updates {
+                entries[1].title = "renamed \(index)"
+                view.show(SidebarPriorityPanel(entries: entries))
+            }
+        }
+        let reindex = clock.measure { for _ in 0..<updates { view.reindex() } }
+        let micros = { (duration: Duration) in
+            Double(duration.components.seconds) * 1e6 + Double(duration.components.attoseconds) / 1e12
+        }
+        print("priority-walk n=\(count) show_us_per_update=\(Int(micros(show) / Double(updates))) "
+            + "reindex_us_per_update=\(Int(micros(reindex) / Double(updates)))")
+        #expect(view.rows["p1"]?.entry.title == "renamed \(updates - 1)")
+    }
+
     /// A minute's tick redraws only the drawn rows whose working time reads differently: "5m" becomes "6m", "3h"
     /// stays, and no row out of view is touched.
     @Test(arguments: [100, 10_000])
