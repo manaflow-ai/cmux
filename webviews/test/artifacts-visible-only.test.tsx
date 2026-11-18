@@ -306,3 +306,32 @@ test("a copy across lines that are not mounted keeps the spaces the selection st
   expect(out.text.endsWith("\n+line 999\nRevision ")).toBe(true);
   expect(out.text).toBe([" 3", ...added(4, 1_000), "Revision "].join("\n"));
 });
+
+test("a selection made with the keyboard keeps its lines mounted while the pane scrolls far past them, and copies whole", async () => {
+  const { pane } = await mount(1_000);
+  const row = (index: number) => host.querySelector<HTMLElement>(`.artifacts-line[data-index="${index}"]`);
+  const start = row(3)!;
+  const end = row(8)!;
+  // No pointer: a selection from "ne 3" on line 3 to "+li" on line 8, as Shift and the arrows (or
+  // find, or a script) make one. The browser says so with a selectionchange (jsdom too, a task later).
+  await act(async () => {
+    dom.window.getSelection()!.setBaseAndExtent(start.childNodes[1]!, 2, end.childNodes[1]!, 2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    pane.scrollTop += LINE * 400;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(row(5)).toBeNull();
+  expect(Number((lines()[2] as HTMLElement).dataset.index)).toBeGreaterThan(300);
+  expect(start.isConnected).toBe(true);
+  expect(end.isConnected).toBe(true);
+  const selection = dom.window.getSelection()!;
+  expect(selection.anchorNode).toBe(start.childNodes[1]!);
+  expect(selection.focusNode).toBe(end.childNodes[1]!);
+
+  const copied = copySelection();
+  expect(copied.taken).toBe(true);
+  expect(copied.text).toBe(["ne 3", "+line 4", "+line 5", "+line 6", "+line 7", "+li"].join("\n"));
+});
