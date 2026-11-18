@@ -53,6 +53,7 @@ impl WorkspaceRegistry {
         let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
+        let _writer = crate::diagnostics::CommitWriter::AgentReport.scope();
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {

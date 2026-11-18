@@ -287,6 +287,7 @@ impl Mux {
         if self.journal_maintenance_paused() {
             return TickOutcome::WorkRemains;
         }
+        let _writer = crate::diagnostics::CommitWriter::JournalMaintenance.scope();
         let mut steps = MaintenanceSteps::default();
         let ledgers_remain = steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
         // The roster cursor follows the head, so a start replays one tick. A

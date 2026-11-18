@@ -649,7 +649,8 @@ object{
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64, wal_commits?:uint64,
     wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64,
-    registry_wal_file_bytes?:uint64, registry_wal_file_high_water_bytes?:uint64
+    registry_wal_file_bytes?:uint64, registry_wal_file_high_water_bytes?:uint64,
+    commits_by_writer?:array<object{writer:string,commits:uint64,wal_frames:uint64}>
   },
   locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64},
@@ -746,7 +747,18 @@ the daemon started: a reader that pins an old snapshot keeps every later
 commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
 checkpoint copied the whole WAL and the last reader of the old WAL ended (a
 read transaction still open after the checkpoint delays it); an idle registry
-keeps its size. Daemons
+keeps its size. `commits_by_writer` splits `wal_commits` and the frames of
+`registry_wal_frame_bytes` by the writer of each commit. It has one row for
+each writer of a fixed table, in the table's order, also for a writer with no
+commit: `other` (no site named the commit), `journal_writer` (each commit of
+the journal writer thread), `agent_report` (the projection of one agent
+report), `agent_roster_save`, `agent_hook_retry`, `effect_receipt`,
+`notification`, `resource_patch`, `frontend_projection`, `registry_intent`,
+`terminal_relaunch`, `state_mutation`, `feed` and `journal_maintenance`. A
+later daemon can add a name. The `commits` of the rows sum to `wal_commits`,
+and their `wal_frames` (each frame a 24-byte header and one page) to the frames
+of `registry_wal_frame_bytes`; the frames that a previous run left in the WAL
+count in the row of the first commit after the start. Daemons
 older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state

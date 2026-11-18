@@ -306,6 +306,7 @@ impl WorkspaceRegistry {
         record: &RelaunchRecord,
     ) -> anyhow::Result<()> {
         let env = record.env.iter().map(|(key, value)| (key.clone(), json!(value)));
+        let _writer = crate::diagnostics::CommitWriter::TerminalRelaunch.scope();
         self.connection.get().execute(
             "INSERT INTO terminal_relaunch(
                terminal_id, cwd, kind, shell_path, program, env_json, updated_at_ms, argv_json
@@ -333,6 +334,7 @@ impl WorkspaceRegistry {
         cwd: Option<&str>,
     ) -> anyhow::Result<()> {
         let Some(cwd) = cwd.and_then(absolute) else { return Ok(()) };
+        let _writer = crate::diagnostics::CommitWriter::TerminalRelaunch.scope();
         self.connection.get().execute(
             "UPDATE terminal_relaunch SET cwd = ?2, updated_at_ms = ?3 WHERE terminal_id = ?1",
             params![terminal_id, cwd, now_ms()?],
@@ -469,6 +471,7 @@ impl WorkspaceRegistry {
             None => None,
         };
         // Each agent hook reports its session again: only a different record is written.
+        let _writer = crate::diagnostics::CommitWriter::TerminalRelaunch.scope();
         self.connection.get().execute(
             "UPDATE terminal_relaunch SET agent_json = ?2, updated_at_ms = ?3
              WHERE terminal_id = (

@@ -72,6 +72,7 @@ impl WorkspaceRegistry {
         &self,
         intents: Vec<TerminalCommitIntent>,
     ) -> anyhow::Result<Vec<Result<TerminalRegistryCommit, String>>> {
+        let _writer = crate::diagnostics::CommitWriter::RegistryIntent.scope();
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let mut commits = Vec::with_capacity(intents.len());

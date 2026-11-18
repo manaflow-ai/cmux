@@ -328,7 +328,7 @@ impl WorkspaceRegistry {
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
         let execution_kind = if effectful { "effect" } else { "pure" };
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         if let Some(stored) = read_creation_record(&tx, correlation_key)? {
             require_creation_identity(
@@ -645,7 +645,7 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let created_path_json = canonical_json(created_path)?;
         let generation = self.generation.clone();
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         let stored = read_creation_record(&tx, correlation_key)?.ok_or_else(|| {
             anyhow::anyhow!("resource creation intent {correlation_key:?} is missing")
@@ -797,7 +797,7 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let intent_json = canonical_json(intent)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         if let Some(preparation) =
             read_effect_preparation(&tx, idempotency_key, operation, &fingerprint)?
@@ -850,7 +850,7 @@ impl WorkspaceRegistry {
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
         let generation = self.generation.clone();
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         let (stored_operation, stored_fingerprint, state, intent_json) =
             read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
@@ -991,7 +991,7 @@ impl WorkspaceRegistry {
         let generation = self.generation.clone();
         let (started, mut spans) = (std::time::Instant::now(), CommitSpans::default());
         let deltas = &self.prune_stated_topology_deltas(deltas)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
@@ -1052,7 +1052,7 @@ impl WorkspaceRegistry {
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
         validate_identifier("idempotency key", idempotency_key)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::EffectReceipt);
         let tx = db.unchecked_transaction()?;
         let Some((operation, _, state, intent_json)) = read_effect_record(&tx, idempotency_key)?
         else {

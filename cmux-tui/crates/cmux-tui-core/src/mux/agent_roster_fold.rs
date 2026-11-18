@@ -422,7 +422,7 @@ impl Mux {
     /// under the fold lock, which request paths took, 5-8 s); the roster lock
     /// is taken only to apply each page that was read.
     fn run_roster_pass(&self, pass: agent_roster_worker::RosterPass) -> Vec<String> {
-        use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, RosterEvent};
+        use crate::journal_reducers::RosterEvent;
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
         // The start's unfinished replay comes first, a slice per pass: its
         // records are older than any a request asks for, and they apply no
@@ -635,8 +635,8 @@ impl Mux {
             }
             // The connection alone, never the workspace registry lock, so
             // state commits do not wait behind the snapshot write (issue 23038).
-            match self.registry_connection.put_journal_reducer_state(
-                AGENT_ROSTER_REDUCER_ID,
+            match agent_roster_restore::save_roster_row(
+                &self.registry_connection,
                 self.agent_roster_save_version(),
                 cursor,
                 &snapshot,

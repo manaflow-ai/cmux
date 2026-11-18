@@ -7235,13 +7235,59 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "commits_by_writer": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsWritePathWriter"
+      }
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
-    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field."
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field.",
+    "commits_by_writer splits wal_commits and the frames of registry_wal_frame_bytes by the writer of each commit: one row for each writer of a fixed table, in the table's order, also for a writer with no commit. The commits of its rows sum to wal_commits. It is absent from daemons older than the field."
+   ]
+  },
+  "ServerStatsWritePathWriter": {
+   "kind": "object",
+   "fields": {
+    "writer": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wal_frames": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "writer names who made the commits: other (no site named the commit), journal_writer (the journal writer thread), agent_report, agent_roster_save, agent_hook_retry, effect_receipt, notification, resource_patch, frontend_projection, registry_intent, terminal_relaunch, state_mutation, feed or journal_maintenance. A later daemon can add a name.",
+    "commits counts the registry commits that wrote a WAL frame under this name, and wal_frames the frames that those commits appended; one frame is a 24-byte header and one page."
    ]
   },
   "ServerStatsLockSiteDetail": {

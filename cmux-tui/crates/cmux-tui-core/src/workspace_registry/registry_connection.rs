@@ -34,6 +34,15 @@ const CONNECTION_LOCK_NAME: &str = "registry.connection";
 pub(crate) struct RegistryConnectionGuard<'a> {
     guard: ReentrantMutexGuard<'a, Connection>,
     _rank: HeldRank,
+    /// The writer that this thread's commits count under while the hold
+    /// lives ([`RegistryConnection::get_as`]).
+    _writer: Option<crate::diagnostics::CommitWriterScope>,
+}
+
+impl<'a> RegistryConnectionGuard<'a> {
+    fn new(guard: ReentrantMutexGuard<'a, Connection>) -> Self {
+        Self { guard, _rank: record_rank(), _writer: None }
+    }
 }
 
 impl std::ops::Deref for RegistryConnectionGuard<'_> {
@@ -161,6 +170,9 @@ pub(crate) fn current_thread_holds_state() -> bool {
 /// lock on this thread panics in the lock-rank checker on every path.
 pub(crate) struct JournalWriterCommitScope {
     previous: bool,
+    /// Each commit of this thread counts under `journal_writer`
+    /// (`server-stats` `write_path.commits_by_writer`).
+    _writer: crate::diagnostics::CommitWriterScope,
     _rank: HeldRank,
 }
 
@@ -168,6 +180,7 @@ impl JournalWriterCommitScope {
     pub(crate) fn enter() -> Self {
         Self {
             previous: IN_JOURNAL_WRITER_COMMIT.with(|flag| flag.replace(true)),
+            _writer: crate::diagnostics::CommitWriter::JournalWriter.scope(),
             // Recorded, not checked: scopes nest (the batch commit enters
             // again inside the loop iteration).
             _rank: HeldRank::record(LockRank::JournalWriter, "journal.writer"),
@@ -409,10 +422,16 @@ impl RegistryConnection {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
     }
 
-    /// Bytes of the WAL frames this registry's commits appended (`server-stats`
-    /// `write_path.registry_wal_frame_bytes`); 0 for an in-memory registry.
-    pub(crate) fn wal_frame_bytes(&self) -> u64 {
-        self.durability.as_ref().map(|durability| durability.wal_frame_bytes()).unwrap_or_default()
+    /// (committed, synced, WAL frame bytes, commits by writer) of this registry in one read, for
+    /// `server-stats` `write_path` (`wal_commits`, `wal_synced_commits`, `registry_wal_frame_bytes`,
+    /// `commits_by_writer`), so the rows sum to the totals beside them; zeros for an in-memory registry.
+    pub(crate) fn write_path_commits(
+        &self,
+    ) -> (u64, u64, u64, crate::diagnostics::CommitsByWriter) {
+        self.durability
+            .as_ref()
+            .map(|durability| durability.write_path_commits())
+            .unwrap_or_default()
     }
 
     /// (size now, high-water) of this registry's WAL file (`server-stats`
@@ -428,7 +447,19 @@ impl RegistryConnection {
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
+        RegistryConnectionGuard::new(self.connection.lock())
+    }
+
+    /// [`Self::get`] for a site that commits: this thread's commits count
+    /// under `writer` (`write_path.commits_by_writer`) while the hold lives.
+    #[track_caller]
+    pub(crate) fn get_as(
+        &self,
+        writer: crate::diagnostics::CommitWriter,
+    ) -> RegistryConnectionGuard<'_> {
+        let mut guard = self.get();
+        guard._writer = Some(writer.scope());
+        guard
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -485,7 +516,7 @@ impl RegistryConnection {
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
         let guard = self.connection.try_lock_until(deadline)?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        Some(RegistryConnectionGuard::new(guard))
     }
 
     /// One try, for work that must not wait for the connection: `None`
@@ -493,7 +524,7 @@ impl RegistryConnection {
     /// is recorded and not checked.
     pub(crate) fn try_get(&self) -> Option<RegistryConnectionGuard<'_>> {
         let guard = self.connection.try_lock()?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        Some(RegistryConnectionGuard::new(guard))
     }
 }
 

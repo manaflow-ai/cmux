@@ -191,6 +191,7 @@ impl WorkspaceRegistry {
     /// (for an item without a terminal) is closed: a crash between a close
     /// and its feed read leaves them. Idempotent. Returns how many it read.
     pub(crate) fn sweep_closed_feed_local_items(&mut self) -> anyhow::Result<usize> {
+        let _writer = crate::diagnostics::CommitWriter::Feed.scope();
         let terminals: HashSet<String> = self
             .live_terminal_public_ids()?
             .iter()
@@ -368,6 +369,7 @@ impl WorkspaceRegistry {
         if changes.is_empty() {
             return Ok(());
         }
+        let _writer = crate::diagnostics::CommitWriter::Feed.scope();
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         write_feed_local_changes(&tx, changes)?;
@@ -395,6 +397,7 @@ impl WorkspaceRegistry {
         if notification_ids.is_empty() && extra.is_none() {
             return Ok(0);
         }
+        let _writer = crate::diagnostics::CommitWriter::Feed.scope();
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let mut added = 0;

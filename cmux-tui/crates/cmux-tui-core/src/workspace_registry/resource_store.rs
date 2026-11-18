@@ -648,7 +648,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::AgentHookRetry);
         let tx = db.unchecked_transaction()?;
         advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
         tx.commit()?;
@@ -720,7 +720,7 @@ impl WorkspaceRegistry {
         // conditions keep the attempt budget unchanged. Other failures consume
         // the bounded budget and become quarantined at the cap.
         let transient = matches!(retry_class, AgentHookRetryClass::Transient);
-        self.connection.get().execute(
+        self.connection.get_as(crate::diagnostics::CommitWriter::AgentHookRetry).execute(
             "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
@@ -773,7 +773,7 @@ impl WorkspaceRegistry {
         &mut self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
-        self.connection.get().execute(
+        self.connection.get_as(crate::diagnostics::CommitWriter::AgentHookRetry).execute(
             "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
             [terminal_id.as_str()],
         )?;
@@ -797,7 +797,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<()> {
-        self.connection.get().execute(
+        self.connection.get_as(crate::diagnostics::CommitWriter::AgentHookRetry).execute(
             "UPDATE resource_agent_hook_pending
              SET error = CASE
                    WHEN attempt + 1 >= ?4 THEN 'agent hook retry limit reached'
@@ -1009,7 +1009,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::Notification);
         let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
@@ -1112,7 +1112,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::Notification);
         let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             return Ok(replayed);
@@ -1178,7 +1178,7 @@ impl WorkspaceRegistry {
         &mut self,
         candidates: &[NotificationPublicId],
     ) -> anyhow::Result<Vec<NotificationPublicId>> {
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::Notification);
         let tx = db.unchecked_transaction()?;
         let mut remaining = Vec::new();
         for candidate in candidates {
@@ -1347,7 +1347,7 @@ impl WorkspaceRegistry {
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
         let started = std::time::Instant::now();
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::ResourcePatch);
         let tx = db.unchecked_transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1479,7 +1479,7 @@ impl WorkspaceRegistry {
             anyhow::bail!("frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::FrontendProjection);
         let tx = db.unchecked_transaction()?;
         if let Some(replay) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok(replay);

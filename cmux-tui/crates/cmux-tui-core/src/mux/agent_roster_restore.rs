@@ -193,6 +193,24 @@ impl RosterTarget for &Mutex<AgentRosterHost> {
 /// journal head. A reducer-version mismatch does not: the start never folds
 /// the journal from its first record for a bump (26 min on a 59 GB
 /// registry, 2026-11-08). It serves the old snapshot through
+/// Save the live roster's snapshot row at `version` on the connection alone.
+/// Each save is a commit of `agent_roster_save` (`server-stats`
+/// `write_path.commits_by_writer`).
+pub(super) fn save_roster_row(
+    connection: &crate::workspace_registry::RegistryConnection,
+    version: u32,
+    cursor: u64,
+    snapshot: &str,
+) -> anyhow::Result<()> {
+    let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
+    connection.put_journal_reducer_state(
+        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+        version,
+        cursor,
+        snapshot,
+    )
+}
+
 /// [`AgentRoster::migrate`] from its own cursor, or an empty roster from the
 /// head when the old format no longer restores, marked stale, and the
 /// roster's owner rebuilds it from the whole journal in the background. A
@@ -401,6 +419,7 @@ impl AgentRosterReplay {
                 && cursor != self.saved_at
             {
                 let snapshot = target.with(|host| host.roster.snapshot().to_string());
+                let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
                 if journal.save(RosterSave::At(self.save_as), cursor, &snapshot).is_ok() {
                     self.saved_at = cursor;
                 }
@@ -475,6 +494,7 @@ impl AgentRosterReplay {
             } else {
                 RosterSave::At(self.save_as)
             };
+            let _writer = crate::diagnostics::CommitWriter::AgentRosterSave.scope();
             if journal.save(how, cursor, &snapshot).is_err() {
                 eprintln!("cmux-tui: persisting the restored agent roster failed");
                 self.problems.push("its snapshot was not saved".to_owned());

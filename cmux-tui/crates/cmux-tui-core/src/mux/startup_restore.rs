@@ -57,6 +57,7 @@ impl Mux {
         for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
+                    let _writer = crate::diagnostics::CommitWriter::AgentHookRetry.scope();
                     if self
                         .workspace_registry
                         .lock()
@@ -70,6 +71,7 @@ impl Mux {
                     }
                 }
                 Err(error) if agent_hook_terminal_gone(&error) => {
+                    let _writer = crate::diagnostics::CommitWriter::AgentHookRetry.scope();
                     if self
                         .workspace_registry
                         .lock()

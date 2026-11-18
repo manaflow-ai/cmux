@@ -56,6 +56,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+use crate::diagnostics::{CommitWriter, CommitsByWriter};
 use crate::panic_free::RecoverPoison;
 
 /// WAL size past which the syncer checkpoints (SQLite's own default is
@@ -88,6 +89,9 @@ struct SyncState {
     wal_frames: u64,
     /// Bytes of the WAL frames the commits appended (`server-stats` `write_path.registry_wal_frame_bytes`).
     wal_frame_bytes: u64,
+    /// (commits, WAL frames appended) by the writer of each commit (`server-stats`
+    /// `write_path.commits_by_writer`): the rows sum to `committed` and to the frames of `wal_frame_bytes`.
+    by_writer: CommitsByWriter,
     /// The largest WAL file size seen since the database opened (`server-stats`
     /// `write_path.registry_wal_file_high_water_bytes`).
     wal_file_high_water: u64,
@@ -293,8 +297,17 @@ impl WalDurability {
     /// `write_path.registry_wal_frame_bytes`: the bytes a write puts on the disk (the checkpoint later copies
     /// each page once more into the database). The first commit also counts the frames a previous run left in
     /// the WAL, so a reader takes the difference of two reads.
+    #[cfg(test)]
     pub(crate) fn wal_frame_bytes(&self) -> u64 {
         self.shared.state.lock().recover_poison().wal_frame_bytes
+    }
+
+    /// (committed, synced, WAL frame bytes, commits by writer) in one read, for `server-stats` `write_path`:
+    /// the rows of `commits_by_writer` sum to `wal_commits`, and their frames are the frames of
+    /// `registry_wal_frame_bytes` ([`Self::wal_frame_bytes`]).
+    pub(crate) fn write_path_commits(&self) -> (u64, u64, u64, CommitsByWriter) {
+        let state = self.shared.state.lock().recover_poison();
+        (state.committed, state.synced, state.wal_frame_bytes, state.by_writer)
     }
 
     /// (size now, largest size seen since the database opened) of the WAL
@@ -330,6 +343,11 @@ fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
     state.wal_frames = frames;
     state.wal_frame_bytes =
         state.wal_frame_bytes.saturating_add(appended.saturating_mul(shared.frame_bytes));
+    // The commit's writer is this thread's (the WAL hook runs on the committing thread): two adds under the
+    // lock that this function holds already.
+    let by_writer = &mut state.by_writer[CommitWriter::current() as usize];
+    by_writer.0 += 1;
+    by_writer.1 = by_writer.1.saturating_add(appended);
     if shared.flush_each_commit {
         state.requested = state.committed;
         drop(state);
@@ -534,6 +552,49 @@ mod tests {
             again >= frame && again <= 3 * frame,
             "a second one-row commit appended {again} bytes"
         );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_commit_counts_under_the_writer_that_its_thread_names() {
+        let (dir, connection) = database("by-writer");
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
+        let row = |writer: CommitWriter| durability.write_path_commits().3[writer as usize];
+        connection.execute("INSERT INTO t VALUES (0)", []).unwrap();
+        {
+            let _report = CommitWriter::AgentReport.scope();
+            connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+            {
+                // An inner scope names the commits made while it lives.
+                let _save = CommitWriter::AgentRosterSave.scope();
+                connection.execute("INSERT INTO t VALUES (2)", []).unwrap();
+            }
+            connection.execute("INSERT INTO t VALUES (3)", []).unwrap();
+        }
+        {
+            // No scope takes a commit from the journal writer.
+            let _writer = CommitWriter::JournalWriter.scope();
+            let _report = CommitWriter::AgentReport.scope();
+            connection.execute("INSERT INTO t VALUES (4)", []).unwrap();
+        }
+        // Each scope put back the writer that held before it.
+        connection.execute("INSERT INTO t VALUES (5)", []).unwrap();
+        let (committed, _, frame_bytes, by_writer) = durability.write_path_commits();
+        assert_eq!(
+            [
+                row(CommitWriter::Other).0,
+                row(CommitWriter::AgentReport).0,
+                row(CommitWriter::AgentRosterSave).0,
+                row(CommitWriter::JournalWriter).0,
+            ],
+            [2, 2, 1, 1],
+            "(other, agent_report, agent_roster_save, journal_writer): {by_writer:?}"
+        );
+        assert_eq!(by_writer.iter().map(|row| row.0).sum::<u64>(), committed);
+        let frames = by_writer.iter().map(|row| row.1).sum::<u64>();
+        let page: i64 = connection.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap();
+        assert_eq!(frames * (u64::try_from(page).unwrap() + WAL_FRAME_HEADER_BYTES), frame_bytes);
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
