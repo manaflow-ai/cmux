@@ -1,7 +1,7 @@
 # Paper
 
 A warm, roomy reading look for agent chats in cmux: serif replies on off-white paper, ink-brown text,
-a sepia accent, and soft rounded prompts.
+a sepia accent, and soft rounded prompts; in dark, the same ink and sepia on a lamp-lit brown page.
 
 It is built only from public surfaces, so you can copy any part of it:
 

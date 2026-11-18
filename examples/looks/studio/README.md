@@ -1,7 +1,8 @@
 # Studio
 
-A dense, near-black workbench for agent chats in cmux: quiet neutral chrome, a hairline between the
-sidebar and the chat, compact rows, and a boxed prompt with square-ish corners.
+A dense, neutral workbench for agent chats in cmux, near-black in dark and near-white in light:
+quiet neutral chrome, a hairline between the sidebar and the chat, compact rows, and a boxed prompt
+with square-ish corners.
 
 It is built only from public surfaces, so you can copy any part of it:
 

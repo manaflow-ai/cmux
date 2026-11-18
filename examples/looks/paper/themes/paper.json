@@ -1,24 +1,31 @@
-// Paper: warm off-white paper, ink-brown text and a sepia accent. No wallpaper; a soft sidebar a
-// shade darker than the page.
+// Paper: warm paper and ink with a sepia accent; in dark, the same ink and sepia on a lamp-lit
+// brown page. No wallpaper; a soft sidebar beside the page.
 {
   "name": "Paper",
-  "description": "Warm paper, ink text, a sepia accent and a soft sidebar.",
+  "description": "Warm paper, ink text and a sepia accent, in light and dark.",
 
-  "appearance.theme": "Builtin Light",
+  // The terminal theme on each side, and its own colors there.
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#faf8f3", "foreground": "#2d2a26", "selection": "#e8e1d3", "accent": "#8a5a2b" },
+  "appearance.themeEdits": {
+    "Builtin Light/background": "#faf8f3",
+    "Builtin Light/foreground": "#2d2a26",
+    "Builtin Light/selection": "#e8e1d3",
+    "Builtin Light/accent": "#8a5a2b",
+    "Builtin Dark/background": "#1e1b17",
+    "Builtin Dark/foreground": "#ebe4d6",
+    "Builtin Dark/selection": "#3b342b",
+    "Builtin Dark/accent": "#d9a66b"
+  },
   "appearance.accent": "theme",
 
   "appearance.background": "none",
   "appearance.borders": "none",
   "appearance.chromeStyle": "flat",
 
+  // The sidebar and chat are the theme's own page on each side.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f1ede4",
-  "appearance.surfaces.sidebar.opacity": 1,
-  "appearance.surfaces.agentPane.color": "#faf8f3",
-  "appearance.surfaces.agentPane.opacity": 1,
   "sidebar.sectionLook": "quiet",
   "appearance.statusIndicator.style": "arc",
 

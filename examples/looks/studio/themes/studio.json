@@ -1,13 +1,24 @@
-// Studio: a near-black, low-contrast workbench. Neutral grays, a hairline between the sidebar and the
-// chat, no wallpaper and no glass, so the transcript and the code read first.
+// Studio: a low-contrast neutral workbench, near-black in dark and near-white in light. Neutral
+// grays, a hairline between the sidebar and the chat, no wallpaper and no glass, so the transcript and
+// the code read first.
 {
   "name": "Studio",
-  "description": "Near-black neutral chrome, a hairline sidebar edge, no wallpaper or glass.",
+  "description": "Neutral chrome in light and dark, a hairline sidebar edge, no wallpaper or glass.",
 
-  "appearance.theme": "Builtin Dark",
+  // The terminal theme on each side, and its own colors there.
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#0b0b0c", "foreground": "#e4e4e7", "selection": "#27272a", "accent": "#a1a1aa" },
+  "appearance.themeEdits": {
+    "Builtin Light/background": "#fafafa",
+    "Builtin Light/foreground": "#18181b",
+    "Builtin Light/selection": "#e4e4e7",
+    "Builtin Light/accent": "#52525b",
+    "Builtin Dark/background": "#0b0b0c",
+    "Builtin Dark/foreground": "#e4e4e7",
+    "Builtin Dark/selection": "#27272a",
+    "Builtin Dark/accent": "#a1a1aa"
+  },
   "appearance.accent": "neutral",
 
   "appearance.background": "none",
@@ -15,11 +26,8 @@
   "appearance.chromeStyle": "flat-sidebar-line",
   "appearance.borders": "default",
 
+  // The sidebar and chat are the theme's own page on each side.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#0e0e10",
-  "appearance.surfaces.sidebar.opacity": 1,
-  "appearance.surfaces.agentPane.color": "#0b0b0c",
-  "appearance.surfaces.agentPane.opacity": 1,
   "sidebar.sectionLook": "lines",
   "appearance.statusIndicator.style": "dot",
 

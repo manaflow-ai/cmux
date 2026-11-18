@@ -106,7 +106,29 @@ for (const key of ["languages", "language"] as const)
 
 // `host=app`: inside the app's own window (appHost.ts), the app's theme and backdrop, not the gallery's.
 const appHosted = isAppHosted(params);
-const theme = (appHosted ? appHostTheme() : undefined) ?? themeNamed(env.theme, DEFAULT_DARK_THEME);
+/**
+ * `themeEdits=background:#rrggbb,foreground:#rrggbb,...`: the named theme with a theme file's edits
+ * (`appearance.themeEdits` NAME/TOKEN), so a look add-on previews on its own colors in each appearance.
+ */
+function withThemeEdits(theme: GhosttyTheme, edits: string | null): GhosttyTheme {
+  const fields = {
+    background: "background",
+    foreground: "foreground",
+    accent: "accent",
+    selection: "selectionBackground",
+    cursor: "cursorColor",
+  } as const;
+  const next = { ...theme };
+  for (const pair of (edits ?? "").split(",")) {
+    const [token, color] = pair.split(":");
+    if (token && token in fields && /^#[0-9a-fA-F]{6}$/.test(color ?? ""))
+      next[fields[token as keyof typeof fields]] = color!;
+  }
+  return next;
+}
+const theme =
+  (appHosted ? appHostTheme() : undefined) ??
+  withThemeEdits(themeNamed(env.theme, DEFAULT_DARK_THEME), params.get("themeEdits"));
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.

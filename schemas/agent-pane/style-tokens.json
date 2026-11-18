@@ -3,6 +3,21 @@
   "interface": "cmux.agentPane.style/1",
   "status": "draft: shapes are refined with the first outside look before the interface is public",
   "selectors": [":root"],
+  "reads": {
+    "$comment": "The theme's own colors a look builds its values from, the host pushes them for the appearance the window shows (shared/theme.ts). A look's color is a var() of these or of another token, mixed with color-mix() and `transparent`, never a literal color: a literal is right in one appearance and unreadable in the other.",
+    "names": [
+      "--agent-text",
+      "--agent-muted",
+      "--agent-soft",
+      "--agent-accent",
+      "--agent-accent-soft",
+      "--agent-page-bg",
+      "--agent-surface",
+      "--agent-surface-elevated",
+      "--agent-border",
+      "--agent-border-strong"
+    ]
+  },
   "tokens": [
     {
       "name": "--cv-text",

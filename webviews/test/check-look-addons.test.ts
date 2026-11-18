@@ -23,12 +23,27 @@ test("the repo's contract and every look add-on pass", () => {
 });
 
 test("a look sets contract tokens on :root, and nothing else", () => {
-  expect(kinds(":root { --cv-user-bubble-radius: 6px; --cv-link: #93c5fd; }")).toEqual([]);
-  expect(kinds("@media (prefers-color-scheme: light) { :root { --cv-link: #0b63d6; } }")).toEqual([]);
+  expect(kinds(":root { --cv-user-bubble-radius: 6px; --cv-link: var(--agent-accent); }")).toEqual([]);
   expect(kinds(".cv-user__bubble { --cv-user-bubble-radius: 6px; }")).toEqual(["selector"]);
   expect(kinds(":root { --cv-font-size: 13px; }")).toEqual(["private-token"]);
   expect(kinds(":root { color: red; }")).toEqual(["private-token"]);
-  expect(kinds('@import "x.css"; :root { --cv-link: red; }')).toContain("remote");
+  expect(kinds('@import "x.css"; :root { --cv-link: var(--agent-accent); }')).toContain("remote");
+});
+
+test("a look's colors are the theme's own, so it reads in light and dark", () => {
+  // Studio's #46049 values: 2.9:1 on a light theme, and Paper's white-on-beige 1.4:1 on a dark one.
+  expect(kinds(":root { --cv-link: #93c5fd; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-card-fill: rgb(244 239 229 / 0.9); }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-link: red; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-link: var(--cv-private-blue); }")).toEqual(["literal-color"]);
+  expect(kinds("@media (prefers-color-scheme: light) { :root { --cv-link: #0b63d6; } }")).toEqual(["literal-color"]);
+  expect(
+    kinds(
+      ":root { --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent); --cv-text-dim: var(--cv-text-muted); }",
+    ),
+  ).toEqual([]);
+  // A length is no color: a corner may be any length.
+  expect(kinds(":root { --cv-user-bubble-radius: calc(2px + 0.5em); }")).toEqual([]);
 });
 
 test("declarations carry their selector chain", () => {

@@ -15,6 +15,9 @@
  *   selector      a rule on anything but `:root`: class names are not public, and renames break it.
  *   private-token a declaration of anything but a contract token (a property, or an internal variable).
  *   remote        `@import` or `url(`: a look draws nothing from outside.
+ *   literal-color a color token's value names a color (`#hex`, `rgb()`, a color keyword) or reads a
+ *                 variable outside the contract's `reads` and tokens: a fixed color is right in one
+ *                 appearance and unreadable in the other, so a look mixes the theme's own colors.
  * Built-in looks (COMPOSER_LOOKS in composerLook.ts, TRANSCRIPT_LOOKS in conversation/transcriptLook.ts
  * once it exists):
  *   no-twin       a built-in look id has no entry in looks.json: nobody proved an outsider can make it.
@@ -31,7 +34,7 @@ export const CONTRACT_PATH = path.join(repo, "schemas/agent-pane/style-tokens.js
 export const LOOKS_PATH = path.join(repo, "examples/looks/looks.json");
 
 export type Token = { name: string; kind: string; owner: string; alsoScopedIn?: string[]; about: string };
-export type Contract = { interface: string; selectors: string[]; tokens: Token[] };
+export type Contract = { interface: string; selectors: string[]; reads?: { names: string[] }; tokens: Token[] };
 export type Look = { id: string; addon: string | null; builtIn: unknown; pending?: string };
 export type Problem = { kind: string; where: string; message: string };
 
@@ -145,10 +148,38 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
   return problems;
 }
 
+/** The words a color value may hold besides var() names: color-mix() and its color spaces. */
+const COLOR_WORDS = new Set([
+  "color-mix",
+  "in",
+  "srgb",
+  "srgb-linear",
+  "oklab",
+  "oklch",
+  "transparent",
+  "currentcolor",
+]);
+
+/**
+ * What in a color value is a fixed color, or null when it is built only from `readable` variables
+ * (`var(--agent-text)`, `color-mix(in srgb, var(--agent-accent) 12%, transparent)`).
+ */
+export function literalColor(value: string, readable: Set<string>): string | null {
+  const hex = /#[0-9a-f]{3,8}\b/i.exec(value);
+  if (hex) return hex[0];
+  for (const match of value.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g))
+    if (!readable.has(match[1]!)) return `var(${match[1]})`;
+  const rest = value.replace(/var\(\s*--[A-Za-z0-9_-]+\s*\)/g, " ");
+  for (const word of rest.match(/[A-Za-z][A-Za-z0-9-]*/g) ?? []) if (!COLOR_WORDS.has(word.toLowerCase())) return word;
+  return null;
+}
+
 /** A look's agent-pane/theme.css against the contract. */
 export function checkAddonCss(file: string, css: string, contract: Contract): Problem[] {
   const problems: Problem[] = [];
   const allowed = new Set(contract.tokens.map((token) => token.name));
+  const colors = new Set(contract.tokens.filter((token) => token.kind === "color").map((token) => token.name));
+  const readable = new Set([...allowed, ...(contract.reads?.names ?? [])]);
   const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
   if (/@import\b|url\(/i.test(text))
     problems.push({ kind: "remote", where: file, message: "a look loads nothing: no @import or url()" });
@@ -165,6 +196,15 @@ export function checkAddonCss(file: string, css: string, contract: Contract): Pr
         where: `${file} ${stack.join(" >> ")}`,
         message: `${name ?? line} is not a ${contract.interface} token (schemas/agent-pane/style-tokens.json)`,
       });
+    else if (colors.has(name)) {
+      const literal = literalColor(line.slice(line.indexOf(":") + 1), readable);
+      if (literal)
+        problems.push({
+          kind: "literal-color",
+          where: `${file} ${name}`,
+          message: `${literal}: mix the theme's colors (${contract.interface} reads: ${[...(contract.reads?.names ?? [])].join(", ")})`,
+        });
+    }
   };
   for (const char of text) {
     if (char === "{") {
@@ -214,8 +254,7 @@ export function checkLooks(looks: Look[], builtIn: string[], contract: Contract)
       });
   for (const look of looks) {
     if (!look.addon) {
-      if (!look.pending)
-        problems.push({ kind: "no-twin", where: look.id, message: "no add-on and no pending reason" });
+      if (!look.pending) problems.push({ kind: "no-twin", where: look.id, message: "no add-on and no pending reason" });
       continue;
     }
     const css = path.join(repo, "examples/looks", look.addon, "agent-pane/theme.css");
@@ -237,7 +276,8 @@ export function run(): Problem[] {
 
 if (import.meta.main) {
   const problems = run();
-  for (const problem of problems) console.error(`check-look-addons: ${problem.kind}: ${problem.where}: ${problem.message}`);
+  for (const problem of problems)
+    console.error(`check-look-addons: ${problem.kind}: ${problem.where}: ${problem.message}`);
   if (problems.length) process.exit(1);
   console.log("check-look-addons: every look uses public surfaces only, and every contract token works from :root");
 }

@@ -35,11 +35,19 @@ change often, so a look sets only these custom properties, on `:root`
 
 ```css
 :root {
-  --cv-user-bubble-tint: rgb(39 39 42 / 0.72);
-  --cv-user-bubble-edge: rgb(63 63 70 / 0.9);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-text) 22%, transparent);
   --cv-user-bubble-radius: 8px;
 }
 ```
+
+A token's color is built from the theme's own colors, never written out: `var(--agent-text)`,
+`--agent-muted`, `--agent-soft`, `--agent-accent`, `--agent-page-bg` and the others the contract's
+`reads` lists, mixed with `color-mix()` and `transparent`. cmux sets them for the appearance the
+window shows, so one stylesheet reads in light and in dark. A fixed color (`#93c5fd`, `rgb(...)`,
+`red`) is right in one appearance and unreadable in the other, and the check refuses it. Give the
+look its own colors in the theme file instead: `"appearance.theme": "light:A,dark:B"` with
+`"appearance.themeEdits": { "A/background": "#...", "B/background": "#..." }` for each side.
 
 Every token is paint: it never changes a box, so a look applied, saved again or switched never moves
 the transcript. Type, width and spacing are settings instead, because the chat estimates row heights
@@ -57,8 +65,13 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
 - webviews `bun run check:look-addons` fails when a look styles a class or sets anything outside the
   contract, when a contract token stops working from `:root`, and when a built-in look has no add-on
   twin listed in `examples/looks/looks.json`.
+- webviews `bun run check:look-addons` also refuses a fixed color in a look's stylesheet.
 - webviews `test/browser/look-addons.test.ts` sends each look to the real chat through the host's own
   path, checks every token lands, and fails if applying, reloading or switching looks moves any box.
+  It also draws each look on its own theme colors in light and in dark and fails when any text token
+  (body, muted, dim, links, code, the prompt) reads under 4.5:1 on what it sits on (WCAG 2.2 1.4.3).
+  A theme file takes the window too (`"appearance.appTheme": "followTerminal"`): without it, a person's
+  own App Theme keeps the window, sidebar and pages in its colors.
   When a built-in preset exists, it also compares the add-on's capture with the built-in one.
 
 ## Not yet possible from outside
