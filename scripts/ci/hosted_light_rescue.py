@@ -35,8 +35,9 @@ the live attempt and current open PR again; incomplete history and unmarked canc
 
 `--backlog` is a second, separate pass (ci-hosted-backlog-rescue.yml, every 10 minutes and on dispatch) for what the
 minute pass leaves: any pull request run, up to GitHub's 24 h queue limit, whose every unfinished job has waited
-BACKLOG_STALL on hosted Ubuntu. A run at its pull request's head is cancelled and re-run on today's routes; a
-superseded one is only cancelled (see BACKLOG_STALL below).
+BACKLOG_STALL on hosted Ubuntu. A run at its pull request's head is cancelled, journalled in the pass's log, and re-run
+on today's routes by the next pass once the cancel settled; a superseded one is only cancelled (see BACKLOG_STALL
+below).
 
 Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
 with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
@@ -97,6 +98,7 @@ EXCLUDED_WORKFLOWS = frozenset({"nightly.yml"})
 DISCOVERY_CACHE_SECONDS = 75.0
 DISCOVERY_STEP_SECONDS = 30 * 60
 FORBIDDEN_COOLDOWN_SECONDS = 60.0
+JOB_LOG_BYTES = 4 * 1024 * 1024  # a backlog pass logs a few hundred short lines
 
 
 def iso(moment: dt.datetime) -> str:
@@ -439,6 +441,46 @@ class GitHub:
 
     def rerun_failed(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+
+    def force_cancel(self, run_id: int) -> None:
+        self.request("POST", f"/actions/runs/{run_id}/force-cancel")
+
+    def rate_limit(self) -> tuple[int, float] | None:
+        """(core remaining, reset epoch) of the write token, the one that cancels and re-runs; GitHub does not charge
+        GET /rate_limit against it."""
+        request = urllib.request.Request("https://api.github.com/rate_limit", headers={
+            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {self.write_token}",
+            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-light-rescue"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            core = (json.loads(response.read()).get("resources") or {}).get("core") or {}
+        if not isinstance(core.get("remaining"), int):
+            return None
+        return core["remaining"], float(core.get("reset") or 0)
+
+    def job_log(self, job_id: int) -> list[str]:
+        """A finished job's log lines, at most JOB_LOG_BYTES. The API answers with a redirect to signed storage,
+        which is fetched without the token."""
+
+        class Stay(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+                return None
+        pool, token = self.read_token()
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{self.repo}/actions/jobs/{job_id}/logs",
+            headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                     "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-light-rescue"})
+        try:
+            with urllib.request.build_opener(Stay).open(request, timeout=30) as response:
+                self.note_limit(response.headers, pool)
+                body = response.read(JOB_LOG_BYTES)
+        except urllib.error.HTTPError as error:
+            self.note_limit(error.headers, pool)
+            location = error.headers.get("Location") if error.headers is not None else None
+            if error.code not in (301, 302, 303, 307, 308) or not location:
+                raise RuntimeError(f"GET job {job_id} logs: HTTP {error.code}") from error
+            with urllib.request.urlopen(location, timeout=60) as response:
+                body = response.read(JOB_LOG_BYTES)
+        return body.decode("utf-8", "replace").splitlines()
 
     def wake_sweeper(self) -> None:
         # The workflow's owned-pool-sweeper concurrency group is the one mutation owner. Repeated
@@ -845,39 +887,85 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
 #   (a run with anything running or waiting otherwise is left alone);
 # - a run at its pull request's current head is cancelled and its failed jobs re-run (attempt 2: each job takes its
 #   route as the variables read now); a run whose pull request closed or moved on is only cancelled, since nobody
-#   reads its result; a run whose pull request cannot be read is left alone; a cancel whose re-run never went out
-#   is re-run by a later pass (BACKLOG_RECOVER_WINDOW);
-# - at most BACKLOG_ACTIONS cancels and BACKLOG_READS GitHub reads a pass, every read counted (listings, jobs, pull
-#   requests, the re-read before a cancel and the settle reads); at most BACKLOG_IN_PROGRESS_READS job reads for runs
-#   that started a job; oldest queued runs first. Recovery stops once a third of the reads are spent, listings stop
-#   walking pages at half, and a run is read only while the reads to cancel it and re-run every chosen run remain.
+#   reads its result; a run whose pull request cannot be read is left alone.
+#
+# A cancel and its re-run are paired by a journal, not by waiting. A cancel of jobs that never had a runner can take
+# many minutes to settle, and the run cannot be re-run until it has: on 2026-11-18 from 08:50Z the pass polled each
+# cancelled run every 5 s for 120 s (up to 500 more GitHub calls a pass, uncounted), almost none settled, and each
+# pass left about 20 pull request heads with no checks and no later re-run. Now a pass never waits: every
+# current-head run it cancels goes into the journal, the last lines of the pass's log (`hosted-backlog journal: ...`),
+# and the next pass reads the newest earlier log that has one (or, with --recover-since, every pass's log back to that
+# time) and re-runs each journalled run once its cancel settled, still attempt 1 and still at its open pull request's
+# head with no newer run of its workflow there. A cancel still unsettled after BACKLOG_FORCE_AFTER is force-cancelled
+# once. A run not re-run within BACKLOG_RECOVER_WINDOW leaves the journal with a ::warning naming it. A pass cancels a
+# current-head run only while fewer than BACKLOG_PENDING_MAX journalled runs wait (and only once it read a journal),
+# and recovery is sized to re-run BACKLOG_PENDING_MAX runs in one pass, so no cancel is made that the next pass cannot
+# re-run. Logs of passes from before the journal (cmux#45886's "re-run it by hand" lines) count as journal entries.
+#
+# Budget: BACKLOG_READS GitHub calls a pass, every call counted (the rate-limit read, journal reads, listings, jobs,
+# pull requests, the re-read before a cancel, recovery reads, and every cancel, force-cancel and re-run). First the
+# pass reads the write token's rate limit once (GET /rate_limit): below BACKLOG_READS + POOL_RESERVE it reads, cancels
+# and re-runs nothing, says why and exits 0 (the journal stays in the earlier log for the next pass). Recovery stops
+# at BACKLOG_RECOVER_SHARE calls; listings stop walking pages at half; at most BACKLOG_ACTIONS cancels and
+# BACKLOG_IN_PROGRESS_READS job reads for runs that started a job, oldest queued runs first, and a run is read only
+# while the calls to cancel it remain. Six passes an hour spend at most 900 of cmux-bot's 12,500.
 BACKLOG_STALL = dt.timedelta(minutes=30)
 BACKLOG_WINDOW = dt.timedelta(hours=24)
 BACKLOG_EVENTS = ("pull_request", "pull_request_target")
 BACKLOG_ACTIONS = 20
 BACKLOG_ACTIONS_MAX = 100
-BACKLOG_READS = 60
+BACKLOG_READS = 150
 BACKLOG_IN_PROGRESS_READS = 20
 BACKLOG_SLICE = dt.timedelta(hours=3)
-BACKLOG_SETTLE_S = 120.0
-# Recovery of a cancel whose re-run never went out (the cancel settled after the pass's settle time, or the re-run
-# request failed): a later pass re-runs a run cancelled in the last BACKLOG_RECOVER_WINDOW whose cancelled jobs all
-# carry the backlog's mark (no runner, hosted Ubuntu labels only, BACKLOG_STALL or more between queue and cancel), at
-# its pull request's head, when no newer run of its workflow exists at that head. At most BACKLOG_RECOVER_READS runs.
-BACKLOG_RECOVER_WINDOW = dt.timedelta(hours=2)
-BACKLOG_RECOVER_READS = 10
-# The most reads one candidate takes before its cancel (its jobs, its pull request, the re-read of the run and its
-# jobs), and the reads held back to settle and re-run each cancelled run (the run, its pull request).
-BACKLOG_RUN_READS = 4
-BACKLOG_SETTLE_READS = 2
+BACKLOG_WORKFLOW = "ci-hosted-backlog-rescue.yml"
+# Journalled cancels: at most BACKLOG_PENDING_MAX wait at once, and each costs at most BACKLOG_RECOVER_CALLS to re-run
+# (the run, its pull request, its head's runs, the re-run), so BACKLOG_RECOVER_SHARE covers the journal read and all of
+# them in one pass. A run not re-run within BACKLOG_RECOVER_WINDOW (it never settled, or its pull request could not be
+# read) is reported and dropped.
+BACKLOG_PENDING_MAX = 20
+BACKLOG_RECOVER_CALLS = 4
+BACKLOG_RECOVER_SHARE = 100
+BACKLOG_RECOVER_WINDOW = dt.timedelta(hours=24)
+BACKLOG_FORCE_AFTER = dt.timedelta(minutes=10)
+# The journal walk: one listing of earlier passes, then two calls a pass (its jobs, its log), newest first; it stops at
+# the newest log holding a journal, or at BACKLOG_JOURNAL_READS calls.
+BACKLOG_JOURNAL_RUNS = 20
+BACKLOG_JOURNAL_READS = 41
+# The most calls one candidate takes up to and including its cancel (its jobs, its pull request, the re-read of the
+# run and its jobs, the cancel).
+BACKLOG_RUN_READS = 5
+JOURNAL_ENTRY = "hosted-backlog journal: run"
+JOURNAL_END = "hosted-backlog journal end:"
+JOURNAL_LINE = re.compile(r"hosted-backlog journal: run (\d+) cancelled (\S+)( force-cancelled)?")
+# cmux#45886's passes logged a cancel they never re-ran as "run N (workflow, event, branch): ...; re-run it by hand". A
+# pass stopped before its journal (a step timeout) still logged each cancel as it went: "...; the next pass re-runs it".
+LEGACY_STRANDED = re.compile(r"\brun (\d+) \(.*(?:re-run it by hand|a later pass re-runs it|the next pass re-runs it)")
+UNDATED = dt.datetime.min.replace(tzinfo=UTC)
+
+
+class EchoLines(list):
+    """A pass's log lines, each also printed as it is added, so a pass stopped part way has logged its cancels."""
+
+    def __init__(self, echo: Callable[[str], None] | None) -> None:
+        super().__init__()
+        self.echo = echo
+
+    def append(self, line: str) -> None:
+        super().append(line)
+        if self.echo is not None:
+            self.echo(line)
+
+    def extend(self, lines: Any) -> None:
+        for line in lines:
+            self.append(line)
 
 
 class BacklogReadsSpent(RuntimeError):
-    """The pass has made BACKLOG_READS reads; nothing more is read until the next pass."""
+    """The pass has made BACKLOG_READS calls; nothing more is sent until the next pass."""
 
 
 class BacklogReads:
-    """The pass's client, every GitHub read through it counted against one budget; writes pass straight through."""
+    """The pass's client, every GitHub call through it (read or write) counted against one budget."""
 
     def __init__(self, client: Any, budget: int) -> None:
         self._client, self.budget, self.spent = client, budget, 0
@@ -891,21 +979,40 @@ class BacklogReads:
 
     def _take(self) -> None:
         if self.spent >= self.budget:
-            raise BacklogReadsSpent(f"the pass's {self.budget} reads are spent")
+            raise BacklogReadsSpent(f"the pass's {self.budget} calls are spent")
         self.spent += 1
 
     def request(self, method: str, path: str, *payload: Any) -> Any:
-        if method == "GET":
-            self._take()
+        self._take()
         return self._client.request(method, path, *payload)
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         self._take()
         return self._client.jobs(run_id)
 
+    def job_log(self, job_id: int) -> list[str]:
+        self._take()
+        return self._client.job_log(job_id)
+
+    def rate_limit(self) -> tuple[int, float] | None:
+        self._take()
+        return self._client.rate_limit()
+
+    def cancel(self, run_id: int) -> None:
+        self._take()
+        self._client.cancel(run_id)
+
+    def force_cancel(self, run_id: int) -> None:
+        self._take()
+        self._client.force_cancel(run_id)
+
+    def rerun_failed(self, run_id: int) -> None:
+        self._take()
+        self._client.rerun_failed(run_id)
+
 
 def reads_left(client: Any) -> float:
-    """Reads the pass may still make (unbounded for a client that does not count them)."""
+    """Calls the pass may still make (unbounded for a client that does not count them)."""
     return getattr(client, "reads_left", float("inf"))
 
 
@@ -1014,89 +1121,204 @@ def backlog_head(client: Any, run: Mapping[str, Any]) -> str:
     return "superseded" if live else "unknown"
 
 
-def backlog_cancelled_mark(jobs: Sequence[Mapping[str, Any]]) -> bool:
-    """Every cancelled job of the run is one the backlog pass cancels: it never had a runner, asked for hosted Ubuntu
-    only, and was queued BACKLOG_STALL or more before it was cancelled; at least one job was cancelled."""
-    cancelled = [job for job in jobs if job.get("conclusion") == "cancelled"]
-    if not cancelled:
+@dataclass
+class Journalled:
+    """A current-head run a backlog pass cancelled and has not re-run yet."""
+
+    cancelled_at: dt.datetime
+    forced: bool = False
+
+
+def parse_journal(log: Sequence[str]) -> tuple[bool, dict[int, Journalled]]:
+    """(the log holds a whole journal, its entries). A log without one yields its legacy "re-run it by hand" runs,
+    UNDATED."""
+    whole = any(JOURNAL_END in line for line in log)
+    entries: dict[int, Journalled] = {}
+    for line in log:
+        if whole:
+            match = JOURNAL_LINE.search(line)
+            moment = parse_time(match.group(2)) if match else None
+            if match and moment is not None:
+                entries[int(match.group(1))] = Journalled(moment, bool(match.group(3)))
+        else:
+            match = LEGACY_STRANDED.search(line)
+            if match:
+                entries[int(match.group(1))] = Journalled(UNDATED)
+    return whole, entries
+
+
+def journal_lines(journal: Mapping[int, Journalled]) -> list[str]:
+    """The journal as the pass's last log lines, oldest cancel first, for the next pass to read."""
+    lines = [f"{JOURNAL_ENTRY} {run_id} cancelled {iso(entry.cancelled_at)}{' force-cancelled' if entry.forced else ''}"
+             for run_id, entry in sorted(journal.items(), key=lambda item: (item[1].cancelled_at, item[0]))]
+    return lines + [f"{JOURNAL_END} {len(journal)} cancelled runs wait for their re-run"]
+
+
+def read_journal(client: Any, *, now: dt.datetime, since: dt.datetime | None,
+                 lines: list[str]) -> dict[int, Journalled] | None:
+    """The journal from the newest earlier pass's log that has one (with `since`, the union of every pass's back to
+    it), or None when no earlier pass's log could be read. Legacy lines on the way are entries too, dated by their
+    pass."""
+    floor = since or now - BACKLOG_RECOVER_WINDOW
+    query = urllib.parse.urlencode({"status": "completed", "per_page": BACKLOG_JOURNAL_RUNS,
+                                    "created": f">={iso(floor)}"})
+    own = int(os.environ.get("GITHUB_RUN_ID") or 0)
+    spend_from = reads_left(client)
+    try:
+        answer = client.request("GET", f"/actions/workflows/{BACKLOG_WORKFLOW}/runs?{query}")
+    except Exception as error:  # noqa: BLE001 - no journal: no current-head cancel this pass
+        lines.append(f"could not list earlier backlog passes ({error})")
+        return None
+    passes = [run for run in answer.get("workflow_runs") or ()
+              if isinstance(run, Mapping) and isinstance(run.get("id"), int) and run["id"] != own]
+    journal: dict[int, Journalled] = {}
+    read_any = False
+    for earlier in passes:
+        if spend_from - reads_left(client) + 2 > BACKLOG_JOURNAL_READS:
+            lines.append(f"the journal walk stopped at {BACKLOG_JOURNAL_READS} calls")
+            break
+        dated = parse_time(earlier.get("created_at")) or now
+        try:
+            log: list[str] = []
+            for found in client.jobs(earlier["id"]):
+                if isinstance(found.get("id"), int):
+                    log = list(client.job_log(found["id"]))
+                    break
+        except Exception as error:  # noqa: BLE001 - an unread log is skipped; an older one may hold the journal
+            lines.append(f"could not read backlog pass {earlier['id']}'s log ({error})")
+            continue
+        read_any = True
+        whole, entries = parse_journal(log)
+        for run_id, entry in entries.items():
+            if entry.cancelled_at == UNDATED:
+                entry.cancelled_at = dated
+            journal.setdefault(run_id, entry)  # newest pass first: its view of a run wins
+        if whole and since is None:
+            break
+    return journal if read_any or not passes else None
+
+
+def backlog_recover(client: Any, journal: dict[int, Journalled], *, now: dt.datetime, dry_run: bool,
+                    lines: list[str], counts: dict[str, int]) -> None:
+    """Re-run each journalled run whose cancel settled; drop the ones that need nothing more, keep the rest."""
+    repo = getattr(client, "repo", "")
+    for run_id, entry in sorted(journal.items(), key=lambda item: (item[1].cancelled_at, item[0])):
+        where = f"run {run_id}"
+        if now - entry.cancelled_at > BACKLOG_RECOVER_WINDOW:
+            counts["expired"] += 1
+            lines.append(f"::warning title=Hosted backlog rescue::{where} was cancelled at {iso(entry.cancelled_at)} "
+                         f"and not re-run in {int(BACKLOG_RECOVER_WINDOW.total_seconds() // 3600)} h; re-run its "
+                         f"failed jobs: https://github.com/{repo}/actions/runs/{run_id}")
+            del journal[run_id]
+            continue
+        if BACKLOG_READS - reads_left(client) + BACKLOG_RECOVER_CALLS > BACKLOG_RECOVER_SHARE:
+            lines.append(f"recovery stopped at {BACKLOG_RECOVER_SHARE} calls; the next pass goes on")
+            break
+        try:
+            state = client.request("GET", f"/actions/runs/{run_id}")
+            if state.get("run_attempt") != 1 or (state.get("status") == "completed"
+                                                 and state.get("conclusion") != "cancelled"):
+                del journal[run_id]  # re-run by someone else, or it finished after all
+                continue
+            if state.get("status") != "completed":
+                if not entry.forced and now - entry.cancelled_at >= BACKLOG_FORCE_AFTER and not dry_run:
+                    client.force_cancel(run_id)
+                    entry.forced = True
+                    lines.append(f"{where}: its cancel did not settle in "
+                                 f"{int(BACKLOG_FORCE_AFTER.total_seconds() // 60)} min; force-cancelled")
+                continue
+            head = backlog_head(client, state)
+            if head == "superseded":
+                lines.append(f"{where}: its pull request closed or moved on since the cancel; not re-run")
+                del journal[run_id]
+                continue
+            if head != "current":
+                continue
+            others = client.request("GET", f"/actions/runs?head_sha={state.get('head_sha')}&per_page=100")
+            if any(isinstance(other, Mapping) and other.get("path") == state.get("path")
+                   and int(other.get("id") or 0) > run_id for other in others.get("workflow_runs") or ()):
+                del journal[run_id]
+                continue
+            if dry_run:
+                lines.append(f"{where}: cancelled by a backlog pass and settled; would re-run (dry run)")
+                continue
+            client.rerun_failed(run_id)
+        except Exception as error:  # noqa: BLE001 - unread or refused: the next pass looks again
+            lines.append(f"{where}: cancelled by a backlog pass, not re-run this pass ({error})")
+            continue
+        del journal[run_id]
+        counts["recovered"] += 1
+        lines.append(f"{where}: cancelled by a backlog pass; re-ran its failed jobs on today's routes")
+
+
+def budget_short(client: Any, lines: list[str]) -> bool:
+    """Read the write token's rate limit once; True (and why) when it cannot cover a whole pass."""
+    read = getattr(client, "rate_limit", None)
+    if not callable(read):
         return False
-    for job in cancelled:
-        labels = [str(label) for label in job.get("labels") or ()]
-        created, ended = parse_time(job.get("created_at")), parse_time(job.get("completed_at"))
-        if (job.get("runner_id") or job.get("runner_name") or not labels
-                or not all(HOSTED_LABEL.match(label) for label in labels)
-                or created is None or ended is None or ended - created < BACKLOG_STALL):
-            return False
+    try:
+        limit = read()
+    except Exception as error:  # noqa: BLE001 - an unknown budget cannot promise a cancel its re-run
+        lines.append(f"skipped: the token's rate limit could not be read ({error}); nothing read, cancelled or "
+                     f"re-run")
+        return True
+    if limit is None:
+        return False
+    remaining, reset = limit
+    if remaining >= BACKLOG_READS + POOL_RESERVE:
+        return False
+    until = dt.datetime.fromtimestamp(reset, UTC).strftime("%H:%M:%SZ") if reset else "its reset"
+    lines.append(f"skipped: the token has {remaining} core API calls left until {until}; a pass needs "
+                 f"{BACKLOG_READS} plus the {POOL_RESERVE} reserve; nothing read, cancelled or re-run")
     return True
 
 
-def backlog_recover(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
-                    lines: list[str], counts: dict[str, int]) -> None:
-    """Re-run the backlog's cancels that were never re-run (a slow settle or a failed re-run request)."""
-    repo = getattr(client, "repo", "")
-    start = now - BACKLOG_WINDOW
-    recent = now - BACKLOG_RECOVER_WINDOW
-    found: list[Mapping[str, Any]] = []
-    for event in BACKLOG_EVENTS:
-        try:
-            _, rows = backlog_listing(client, "cancelled", event, start, now)
-        except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
-            lines.append(f"could not list cancelled {event} runs ({error})")
-            continue
-        for run in rows:
-            workflow = workflow_file(run)
-            created, updated = parse_time(run.get("created_at")), parse_time(run.get("updated_at"))
-            if (not isinstance(run.get("id"), int) or run.get("run_attempt") != 1 or run.get("status") != "completed"
-                    or run.get("conclusion") != "cancelled" or workflow is None or workflow in EXCLUDED_WORKFLOWS
-                    or created is None or updated is None or updated < recent
-                    or (repo and str((run.get("head_repository") or {}).get("full_name") or "") != repo)):
-                continue
-            # The minute pass re-runs its own cancels from its journal.
-            if created >= now - WINDOW and (declared is None or workflow in declared):
-                continue
-            found.append({**run, "_workflow": workflow})
-    for run in sorted(found, key=run_key)[:BACKLOG_RECOVER_READS]:
-        # Recovery spends at most a third of the pass's reads; the rest are for stalled runs.
-        if reads_left(client) <= BACKLOG_READS * 2 // 3:
-            lines.append("recovery stopped: a third of the pass's reads are spent")
-            break
-        where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
-        try:
-            if not backlog_cancelled_mark(client.jobs(run["id"])):
-                continue
-            others = client.request("GET", f"/actions/runs?head_sha={run.get('head_sha')}&per_page=100")
-            if any(isinstance(other, Mapping) and other.get("path") == run.get("path")
-                   and int(other.get("id") or 0) > run["id"] for other in others.get("workflow_runs") or ()):
-                continue
-            if backlog_head(client, run) != "current":
-                continue
-            if dry_run:
-                lines.append(f"{where}: cancelled by a backlog pass and never re-run; would re-run (dry run)")
-                continue
-            client.rerun_failed(run["id"])
-        except Exception as error:  # noqa: BLE001 - unread or refused: the next pass looks again
-            lines.append(f"{where}: cancelled by a backlog pass and never re-run; not re-run now ({error})")
-            continue
-        counts["recovered"] += 1
-        lines.append(f"{where}: cancelled by a backlog pass and never re-run; re-ran its failed jobs")
-
-
 def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
-                  actions: int = BACKLOG_ACTIONS, sleep: Callable[[float], None] = time.sleep,
+                  actions: int = BACKLOG_ACTIONS, since: dt.datetime | None = None,
+                  echo: Callable[[str], None] | None = None, sleep: Callable[[float], None] = time.sleep,
                   clock: Callable[[], float] = time.monotonic) -> tuple[list[str], dict[str, int]]:
-    """One bounded backlog pass. Returns its log lines and counts (cancelled, superseded, rerun, ...)."""
-    lines: list[str] = []
-    counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "rerun": 0,
-              "recovered": 0}
+    """One bounded backlog pass. Returns its log lines (the journal last) and counts (cancelled, recovered, ...).
+
+    A pass never waits for a cancel to settle (the next pass re-runs it), so `sleep` and `clock` go unused."""
+    del sleep, clock
+    lines: list[str] = EchoLines(echo)
+    counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "journalled": 0,
+              "recovered": 0, "expired": 0, "pending": 0, "requests": 0}
     actions = max(0, min(int(actions), BACKLOG_ACTIONS_MAX))
+    client = BacklogReads(client, BACKLOG_READS)
+    if budget_short(client, lines) or pool_low(client, now):
+        if not lines:
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
+        counts["requests"] = client.spent
+        return lines, counts
+    journal = read_journal(client, now=now, since=since, lines=lines)
+    if journal is None:
+        lines.append("::warning title=Hosted backlog rescue::no earlier pass's journal could be read; no current-head "
+                     "run is cancelled this pass")
+    else:
+        backlog_recover(client, journal, now=now, dry_run=dry_run, lines=lines, counts=counts)
+    try:
+        backlog_scan(client, journal, now=now, dry_run=dry_run, declared=declared, actions=actions, lines=lines,
+                     counts=counts)
+    except Exception as error:  # noqa: BLE001 - the journal below still goes out for the next pass
+        lines.append(f"the pass stopped early ({error})")
+    counts["pending"] = len(journal or {})
+    counts["requests"] = client.spent
+    lines.append(f"{counts['candidates']} candidate runs, {counts['read']} read, {counts['stalled']} stalled, "
+                 f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['recovered']} "
+                 f"earlier cancels re-run, {counts['pending']} wait for their re-run; {client.spent} of "
+                 f"{BACKLOG_READS} API calls")
+    if journal is not None:
+        lines.extend(journal_lines(journal))
+    return lines, counts
+
+
+def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.datetime, dry_run: bool,
+                 declared: Sequence[str] | None, actions: int, lines: list[str], counts: dict[str, int]) -> None:
+    """Find stalled runs and cancel them: a current-head one into the journal, a superseded one for good."""
     start, end = now - BACKLOG_WINDOW, now - BACKLOG_STALL
     minute_pass_from = now - WINDOW
     repo = getattr(client, "repo", "")
-    if pool_low(client, now):
-        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
-        return lines, counts
-    client = BacklogReads(client, BACKLOG_READS)
-    backlog_recover(client, now=now, dry_run=dry_run, declared=declared, lines=lines, counts=counts)
     listed: dict[int, Mapping[str, Any]] = {}
     for status in ("queued", "in_progress"):
         for event in BACKLOG_EVENTS:
@@ -1121,13 +1343,13 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     # Queued runs first (nothing of theirs started), then the rest; oldest first within each.
     order = sorted(listed.values(), key=lambda run: (run.get("status") != "queued",) + run_key(run))
     counts["candidates"] = len(order)
-    chosen: list[tuple[Mapping[str, Any], str, str]] = []
     in_progress_reads = 0
+    held = False
     for run in order:
         if counts["cancelled"] >= actions:
             break
-        if client.reads_left < BACKLOG_RUN_READS + BACKLOG_SETTLE_READS * (len(chosen) + 1):
-            lines.append(f"stopped: the pass's {BACKLOG_READS} reads are spent or held for re-runs")
+        if reads_left(client) < BACKLOG_RUN_READS:
+            lines.append(f"stopped: the pass's {BACKLOG_READS} API calls are spent")
             break
         if run.get("status") != "queued":
             # A run that started something is usually still working: read a few a pass, not every old one.
@@ -1153,8 +1375,16 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
         if head == "unknown":
             lines.append(f"{where}: {detail}; its pull request could not be told; left alone")
             continue
+        if head == "current" and (journal is None or len(journal) >= BACKLOG_PENDING_MAX):
+            # A cancel the next pass could not re-run would leave its pull request with no checks: leave it queued.
+            if not held:
+                why = ("no journal was read" if journal is None
+                       else f"{len(journal)} earlier cancels still wait for their re-run")
+                lines.append(f"current-head runs are left queued this pass: {why}")
+                held = True
+            continue
         if dry_run:
-            verb = "cancel and re-run" if head == "current" else "cancel (superseded)"
+            verb = "cancel, and re-run next pass" if head == "current" else "cancel (superseded)"
             lines.append(f"{where}: {detail}; would {verb} (dry run)")
             continue
         # Right before the cancel: still attempt 1, in flight, and every unfinished job still a stalled hosted one.
@@ -1177,48 +1407,10 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
             counts["superseded"] += 1
             lines.append(f"{where}: {detail}; its pull request closed or moved on: cancelled, not re-run")
             continue
-        chosen.append((run, where, detail))
-    # Re-run each cancelled current-head run once its cancel settles, checking its pull request is still at that head.
-    deadline = clock() + BACKLOG_SETTLE_S
-    waiting = list(chosen)
-    while waiting:
-        left = []
-        for run, where, detail in waiting:
-            try:
-                state = client.request("GET", f"/actions/runs/{run['id']}")
-            except Exception:  # noqa: BLE001 - read again until the budget runs out
-                left.append((run, where, detail))
-                continue
-            if state.get("status") != "completed":
-                left.append((run, where, detail))
-                continue
-            if state.get("run_attempt") != 1 or state.get("conclusion") != "cancelled":
-                lines.append(f"{where}: {detail}; cancelled, but the run finished otherwise or was re-run; left alone")
-                continue
-            try:
-                head = backlog_head(client, state)
-                if head != "current":
-                    lines.append(f"{where}: {detail}; cancelled; its pull request moved on meanwhile, not re-run")
-                    continue
-                client.rerun_failed(run["id"])
-            except Exception as error:  # noqa: BLE001
-                lines.append(f"{where}: {detail}; cancelled, re-run refused ({error}); a later pass re-runs it")
-                continue
-            counts["rerun"] += 1
-            lines.append(f"{where}: {detail}; cancelled and re-ran its failed jobs on today's routes")
-        waiting = left
-        if waiting and (clock() >= deadline or client.reads_left < BACKLOG_SETTLE_READS):
-            for run, where, detail in waiting:
-                lines.append(f"{where}: {detail}; cancelled, but the cancel did not settle in "
-                             f"{BACKLOG_SETTLE_S:.0f} s or the pass's reads; a later pass re-runs it")
-            break
-        if waiting:
-            sleep(SETTLE_INTERVAL_S)
-    lines.append(f"{counts['candidates']} candidate runs, {counts['read']} read, {counts['stalled']} stalled, "
-                 f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['rerun']} re-run, "
-                 f"{counts['recovered']} earlier cancels re-run; {client.spent} of {BACKLOG_READS} GitHub reads")
-    counts["requests"] = client.spent
-    return lines, counts
+        assert journal is not None
+        journal[run["id"]] = Journalled(now)
+        counts["journalled"] += 1
+        lines.append(f"{where}: {detail}; cancelled; the next pass re-runs it once the cancel settles")
 
 
 def follow(pass_once: Callable[[], Any], *, stopped: Callable[[float], bool], seconds: float,
@@ -1291,6 +1483,11 @@ def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *,
                   f"every run under {int(WINDOW.total_seconds() // 60)} min is left to the minute pass")
     raw = (env.get("BACKLOG_ACTIONS") or "").strip()
     actions = int(raw) if raw.isdigit() else BACKLOG_ACTIONS
+    raw_since = (args.recover_since or env.get("BACKLOG_RECOVER_SINCE") or "").strip()
+    since = parse_time(raw_since) if raw_since else None
+    if raw_since and since is None:
+        print(f"could not read the recovery start {raw_since!r} (want e.g. 2026-11-18T08:50:00Z); the newest journal "
+              f"is read")
     if client is None:
         bot = (env.get("HOSTED_LIGHT_TOKEN") or "").strip()
         workflow = (env.get("GH_TOKEN") or "").strip()
@@ -1301,9 +1498,8 @@ def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *,
             client = GitHub(bot, repo, bot, fallback=workflow)
         else:
             client = GitHub(bot or workflow, repo, bot or workflow)
-    lines, _ = backlog_sweep(client, now=now, dry_run=args.dry_run, declared=declared, actions=actions, sleep=sleep)
-    for line in lines:
-        print(line)
+    lines, _ = backlog_sweep(client, now=now, dry_run=args.dry_run, declared=declared, actions=actions, since=since,
+                             echo=print, sleep=sleep)
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
@@ -1326,6 +1522,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         help="with --backlog: the .github directory whose declared workflows the minute pass owns")
     parser.add_argument("--workflows", type=Path, default=None,
                         help="the .github/workflows directory whose callers of reusable declared workflows are listed too")
+    parser.add_argument("--recover-since", default=None,
+                        help="with --backlog: read every earlier pass's journal back to this UTC time (ISO 8601), "
+                             "not just the newest, and re-run what they left")
     parser.add_argument("--dry-run", action="store_true",
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
     args = parser.parse_args(argv)
