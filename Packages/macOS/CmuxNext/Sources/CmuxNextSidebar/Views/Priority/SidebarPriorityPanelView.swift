@@ -36,10 +36,10 @@ final class SidebarPriorityPanelView: NSView {
     /// Drawn rows ranked out of view, still sliding to their place: they go when the last move ends.
     var slidingOut: Set<String> = []
     private(set) var panel = SidebarPriorityPanel(entries: []) { didSet { reindex() } }
-    /// Each row's top in rank order, then the rows' full height: `panel.entries[i]` spans `tops[i]..<tops[i + 1]`.
-    var tops: [CGFloat] = [0]
-    /// Each listed chat's place in `panel.entries`.
-    var places: [String: Int] = [:]
+    /// Each row's top in rank order (`tops`: `panel.entries[i]` spans `tops[i]..<tops[i + 1]`) and each chat's place.
+    var rowIndex = VisibleRowsIndex<String>()
+    var tops: [CGFloat] { rowIndex.tops }
+    var places: [String: Int] { rowIndex.places }
     /// `tops` and `places` at the last placement: a chat that ranks into view slides in from where it was.
     private var placed: (tops: [CGFloat], places: [String: Int]) = ([0], [:])
     let listWork = ListWorkMeter()

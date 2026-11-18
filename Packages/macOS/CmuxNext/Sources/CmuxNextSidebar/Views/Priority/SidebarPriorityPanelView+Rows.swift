@@ -25,38 +25,17 @@ extension SidebarPriorityPanelView: VisibleRowsList {
         return (Array(range) + extra).sorted()
     }
 
-    /// The rows in the clip's bounds and one viewport above and below; none while folded. Before the clip has a
-    /// height (a panel shown before its first layout) the panel's own body stands in for it.
+    /// The rows in the clip's bounds and one viewport above and below (`VisibleRowsIndex.drawnRange`); none while
+    /// folded. Before the clip has a height (a panel shown before its first layout) the panel's own body stands in.
     private func drawnRange() -> Range<Int> {
-        guard !panel.collapsed, !panel.entries.isEmpty else { return 0..<0 }
+        guard !panel.collapsed else { return 0..<0 }
         let visible = clip.bounds
         let height = visible.height > 0 ? visible.height : max(0, bounds.height - headerHeight)
-        guard height > 0 else { return 0..<0 }
-        let lower = row(below: visible.minY - height)
-        let upper = min(panel.entries.count, row(below: visible.minY + 2 * height) + 1)
-        return lower..<max(lower, upper)
+        return rowIndex.drawnRange(top: visible.minY, height: height)
     }
 
-    /// The first row whose bottom is below `y` (`entries.count` past the last): a search of `tops`, not a walk.
-    private func row(below y: CGFloat) -> Int {
-        var low = 0, high = panel.entries.count
-        while low < high {
-            let mid = (low + high) / 2
-            if tops[mid + 1] <= y { low = mid + 1 } else { high = mid }
-        }
-        return low
-    }
-
-    /// The slot a held row at `from` whose middle is at `middle` drops into: the other rows whose middle is above
-    /// it. The middles rise in rank order, so a search of `tops` finds them, not a walk of every chat.
-    func dropSlot(from: Int, middle: CGFloat) -> Int {
-        var low = 0, high = panel.entries.count
-        while low < high {
-            let mid = (low + high) / 2
-            if (tops[mid] + tops[mid + 1]) / 2 < middle { low = mid + 1 } else { high = mid }
-        }
-        return low - ((tops[from] + tops[from + 1]) / 2 < middle ? 1 : 0)
-    }
+    /// The slot a held row at `from` whose middle is at `middle` drops into (`VisibleRowsIndex.dropSlot`, a search).
+    func dropSlot(from: Int, middle: CGFloat) -> Int { rowIndex.dropSlot(from: from, middle: middle) }
 
     func slotFrame(_ index: Int, width: CGFloat) -> NSRect {
         NSRect(x: 0, y: tops[index], width: width, height: tops[index + 1] - tops[index])
@@ -67,19 +46,8 @@ extension SidebarPriorityPanelView: VisibleRowsList {
         let heights = [false, true].flatMap { preview in
             [false, true].map { SidebarPriorityRowView.height(hasPreview: preview, answerable: $0) }
         }
-        var tops: [CGFloat] = [], places: [String: Int] = [:]
-        tops.reserveCapacity(panel.entries.count + 1)
-        places.reserveCapacity(panel.entries.count)
-        var y: CGFloat = 0
-        for (index, entry) in panel.entries.enumerated() {
-            tops.append(y)
-            places[entry.id] = index
-            y += heights[(entry.preview != nil ? 2 : 0) + (entry.answerable ? 1 : 0)]
-        }
-        tops.append(y)
+        rowIndex = VisibleRowsIndex(panel.entries, id: \.id) { heights[($0.preview != nil ? 2 : 0) + ($0.answerable ? 1 : 0)] }
         listWork.walked(panel.entries.count)
-        self.tops = tops
-        self.places = places
     }
 
     /// After a scroll or a resize: the rows that came into the drawn range get views at their slots, and those
