@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextSettings
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -112,6 +113,13 @@ nonisolated public struct UpdateRelaunchHoldState: Equatable, Sendable {
 
     /// Seconds held at `now`.
     public func age(at now: Date) -> TimeInterval { max(0, now.timeIntervalSince(since)) }
+
+    /// `updates.status`'s `relaunch_hold`: the reason, whether it is surfaced, since when and for how long.
+    public func json(at now: Date) -> JSONValue {
+        .object(["reason": .string(reason.rawValue), "surfaced": .bool(surfaced),
+                 "since": .string(ISO8601DateFormatter().string(from: since)),
+                 "age_seconds": .number(age(at: now).rounded())])
+    }
 }
 
 /// Holds one automatic install until the app's ``UpdateRelaunchMoment`` clears, then runs it once.

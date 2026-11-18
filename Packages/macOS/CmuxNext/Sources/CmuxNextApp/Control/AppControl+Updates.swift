@@ -197,12 +197,7 @@ extension AppControl {
                                 "lines": .array(shown.lines.map(JSONValue.string)),
                                 "actions": .array(shown.actions.map { .string($0.rawValue) })])
             } ?? .null,
-            "badge": status.badge.map(JSONValue.string) ?? .null,
-            "relaunch_hold": status.relaunchHold.map { held in
-                .object(["reason": .string(held.reason.rawValue), "surfaced": .bool(held.surfaced),
-                         "since": .string(ISO8601DateFormatter().string(from: held.since)),
-                         "age_seconds": .number(held.age(at: Date()).rounded())])
-            } ?? .null,
+            "badge": status.badge.map(JSONValue.string) ?? .null, "relaunch_hold": status.relaunchHold?.json(at: Date()) ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

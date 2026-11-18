@@ -39,7 +39,7 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var badge: String? = nil
     /// The automatic install the moment holds: why, since when, and whether it outlived its bound
     /// (``UpdaterService/relaunchHold``), or nil.
-    public var relaunchHold: UpdateRelaunchHoldState? = nil
+    public var relaunchHold: UpdateRelaunchHoldState?
 }
 
 /// The Sparkle flow's phase as a stable name for scripts.
