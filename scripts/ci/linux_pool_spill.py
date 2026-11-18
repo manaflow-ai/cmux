@@ -34,9 +34,9 @@ Each pass it
   SPILL_RETURN_QUEUED queued, at most SPILL_RETURN_SHARE of what it ran when the pool left) after SPILL_MIN_HOLD,
   or when the target backs up while the member left does not, or after SPILL_MAX_HOLD in any case: if the member
   is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour.
-  linux_16 (gallery health's shards, compiles, large suites) spills the same way, and when both its members are
-  backed up it also spills down to main's release valve for it (DOWN_SPILL_FLOOR, has_room()): a smaller size whose
-  oldest sampled job waited at most DOWN_ROOM_OLDEST minutes and a quarter of linux_16's own oldest;
+  linux_16 (gallery health's shards, compiles, large suites) spills the same way. A spill never leaves the pool's
+  declared members (spill_candidates()): on 2026-11-18 linux_16 sat on 2 and then 4 vCPU, outside its members, and
+  memory-heavy legs there failed (rustc OOM) instead of only waiting;
 - writes RUNNER_POOLS and the LINUX_RUNNER mirror (main's mirror_writes(), so the overflow switch's record still
   wins) only when something changed.
 
@@ -67,16 +67,6 @@ UTC = dt.timezone.utc
 VARIABLE = "RUNNER_POOLS"
 SPILL_KEY = "_spill"
 QUEUE_AWARE_POOLS = ("linux", "linux_16")
-# A pool here also spills down, to main's release valve for it (runner_pools.valve_labels(): the smaller x64 sizes,
-# largest first), no smaller than this many vCPU. On 2026-11-18 at 02:58Z gallery health's shards (linux_16) waited
-# 16,431 s at p90 over 2 h with 16 and 32 vCPU both hours deep, while 8 vCPU started jobs in a p50 of 646 s. The linux
-# pool does not: its valve is 2 vCPU, the light jobs' own size.
-DOWN_SPILL_FLOOR = {"linux_16": 4}
-# A down target has room when the oldest sampled job waiting for it waited at most DOWN_ROOM_OLDEST minutes and at
-# most 1/DOWN_ROOM_RATIO of the pool's own oldest: a smaller size is slower, so it must be much sooner to start.
-DOWN_ROOM_OLDEST = 30
-DOWN_ROOM_RATIO = 4
-VCPU = re.compile(r"^blacksmith-([0-9]+)vcpu-")
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
@@ -219,28 +209,19 @@ def valid_spill(spill: object, listed: Sequence[str]) -> bool:
             and isinstance(running, int) and not isinstance(running, bool) and running >= 0)
 
 
-def spill_candidates(name: str, listed: Sequence[str], valves: Sequence[str]) -> list[str]:
-    """Where a pool may spill: its members, then (DOWN_SPILL_FLOOR pools only) main's release valve for it, largest
-    first, down to the floor."""
-    floor = DOWN_SPILL_FLOOR.get(name)
-    if floor is None:
-        return list(listed)
-    down = [label for label in valves if label not in listed
-            and (size := VCPU.match(label)) is not None and int(size.group(1)) >= floor]
-    return [*listed, *down]
+def spill_candidates(name: str, listed: Sequence[str]) -> list[str]:
+    """Where a pool may spill: its declared members only, never a size outside them.
+
+    2026-11-18 from about 13:40Z: linux_16 and linux_8 named blacksmith-2vcpu-ubuntu-2404, then linux_16 spilled down to
+    4 vCPU, neither a member. cmux-tui's thin legs took 25-44 min instead of 2-8, and 7 aarch64 legs failed with rustc
+    OOM (SIGKILL), e.g. job 134837837144: a busy size makes a job slower, a too-small one makes it fail."""
+    return list(listed)
 
 
 def has_room(member: str, members: Sequence[str], base: str, load: Mapping[str, Any]) -> bool:
     """Whether a backed-up pool on `base` may spill to `member`: a declared member with at most SPILL_ROOM_WAITED
-    waited, or a down target (main's release valve) whose oldest sampled queued job waited at most DOWN_ROOM_OLDEST
-    minutes and 1/DOWN_ROOM_RATIO of `base`'s oldest. A size with nothing queued in the sample has room."""
-    if load.get(member, ZERO)["waited"] <= SPILL_ROOM_WAITED and member in members:
-        return True
-    if member in members:
-        return False
-    oldest = load.get(OLDEST) if isinstance(load.get(OLDEST), Mapping) else {}
-    took, left = oldest.get(member, 0), oldest.get(base, 0)
-    return took <= DOWN_ROOM_OLDEST and took * DOWN_ROOM_RATIO <= left
+    waited. A size with nothing queued in the sample has room."""
+    return member in members and load.get(member, ZERO)["waited"] <= SPILL_ROOM_WAITED
 
 
 def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], base: str,
@@ -249,7 +230,7 @@ def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], 
                  members: Sequence[str] | None = None) -> tuple[str, dict[str, Any] | None, list[str]]:
     """(member, spill record or None, lines) for a pool whose first live member (main's choice) is `base`.
 
-    `candidates` is spill_candidates(): the declared `members` (all of them when None), then any down targets."""
+    `candidates` is spill_candidates(): the declared `members` (all of them when None)."""
     members = list(candidates) if members is None else list(members)
     if name not in QUEUE_AWARE_POOLS:
         return base, None, []
@@ -365,8 +346,7 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         if name not in pools or name not in value:
             continue
         members = policy.members(pools[name])
-        valves = getattr(policy, "valve_labels", lambda spec, pools: [])(pools[name], pools)
-        listed = spill_candidates(name, members, valves)
+        listed = spill_candidates(name, members)
         spill = spills.get(name)
         if spill is not None and not valid_spill(spill, listed):
             lines.append(f"{VARIABLE}.{SPILL_KEY}.{name} is not a spill between two of its members; dropped")
