@@ -51,8 +51,8 @@ public final class AgentPaneView: NSView {
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
     /// Parked out of sight while it still draws (the New Tab spare, a closed chat kept for Reopen): the
-    /// page's data work treats it as away (``setParked(_:)``, webviews pageParked.ts).
-    private(set) var parked = false
+    /// page's data work treats it as away; set only through ``setParked(_:)`` (webviews pageParked.ts).
+    internal(set) var parked = false
     /// Shown when the page's web content kept ending (``AgentPageCrashRetry`` gave up retrying).
     var crashNotice: NSView?
     /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
