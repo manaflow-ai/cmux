@@ -609,7 +609,7 @@ mod tests {
         let generation: Arc<str> = Arc::from("generation-one");
         let terminals = (0..=RETIRED_TAILS)
             .map(|index| {
-                TerminalPublicId::parse(&format!("term_{:032x}", 0x100 + index))
+                TerminalPublicId::parse(format!("term_{:032x}", 0x100 + index))
                     .expect("terminal id")
             })
             .collect::<Vec<_>>();
@@ -738,7 +738,7 @@ mod tests {
         let target = directory.join(format!("{}.snap", terminal.as_str()));
         std::fs::create_dir_all(target.join("occupied")).unwrap();
         snapshot::write_pass(&mux, &mux.output_store, false);
-        assert!(snapshot::stream_ends(&directory).get(&terminal).is_none());
+        assert!(!snapshot::stream_ends(&directory).contains_key(&terminal));
 
         std::fs::remove_dir_all(&target).unwrap();
         snapshot::write_pass(&mux, &mux.output_store, false);
