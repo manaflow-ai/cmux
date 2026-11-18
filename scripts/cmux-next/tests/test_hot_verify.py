@@ -511,6 +511,42 @@ class PlanTest(unittest.TestCase):
         self.assertIn("plan", receipt["phases"])
 
 
+class PublishedPullRequestWebTest(unittest.TestCase):
+    """look --pr N: a pull request's web layer comes from the bundles CI published for its head."""
+
+    HEAD = "92019c2684f5a22820837a020c520a9122f57b5a"  # cmux#45917's head, on no branch once it merged
+    KEY = "8c95ee2270c26fe36d1c127cdc1061570026b045223f1d160c23b4a7f9b316ff"
+
+    def pointer(self, url):
+        return {"head": self.HEAD, "key": self.KEY} if url.endswith("/pr/45917/latest.json") else None
+
+    def test_a_merged_head_on_no_branch_on_a_worker_with_no_bun_looks_from_its_published_layer(self):
+        # 2026-11-18 own looks: cmux#45917 (cmux18) ended "is on no branch of origin" and cmux#46028 (cmux21)
+        # "no bun here serves its webviews"; both heads' pointers named them. Neither check runs on that path.
+        planned = {"head": self.HEAD, "pr": 45917, "layers": ["web"]}
+        ran = []
+
+        def run(argv, **_kw):
+            ran.append(Path(argv[0]).name)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        side = unittest.mock.Mock(env=lambda: {})
+        with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
+                unittest.mock.patch.object(hv.shutil, "which", side_effect=AssertionError("asked for bun")), \
+                unittest.mock.patch.object(hv, "git", side_effect=AssertionError("checked the branches")), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run), \
+                unittest.mock.patch.object(hv.time, "sleep"):
+            done = hv.apply_web(Path("/nonexistent"), planned, None, side, Path("/nonexistent"))
+        self.assertEqual(done, {"how": "published bundles", "key": self.KEY})
+        self.assertEqual(ran, ["fetch-web-bundles.sh", "web-overlay.sh"])
+
+    def test_a_pointer_for_another_head_is_not_used(self):
+        planned = {"head": "1" * 40, "pr": 45917}
+        with unittest.mock.patch.object(hv, "fetch_json", side_effect=self.pointer), \
+                unittest.mock.patch.object(hv.hot(), "web_key", return_value="f" * 64):
+            self.assertIsNone(hv.published_web_key(Path("/nonexistent"), planned))
+
+
 class MarkerTest(unittest.TestCase):
     def test_marker_matches_hq(self):
         import re
