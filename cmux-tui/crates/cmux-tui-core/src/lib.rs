@@ -33,6 +33,7 @@ mod journal_plugin;
 mod journal_reducers;
 mod model;
 mod mux;
+mod output_store;
 mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
