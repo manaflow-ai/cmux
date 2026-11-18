@@ -191,6 +191,74 @@ struct MultiWindowRestoreTests {
         }
     }
 
+    /// Leo: "ofc reopening home if they were prev on home is fine" (ask-efe32fe90d); "fresh startup opening home is obv
+    /// fine but if it's not first time and the user was on a workspace and a tab, obv just take them there"
+    /// (ask-b7aac8d3f9). The person was last on Home, the Chief's workspace, in the front window (alone, or with a
+    /// second window behind it that the launch makes after the front one is live): the relaunch's front window shows
+    /// Home, and the launch makes no workspace of its own, before or after the windows behind it come back.
+    @Test(arguments: [1, 2]) func aRelaunchLastOnHomeReopensHome(windows: Int) async throws {
+        try await Self.withDaemon { launcher in
+            let before = try await Self.launch(launcher)
+            var front = ""
+            var homeID = ""
+            var listed: Set<String> = []
+            let seeded = await Self.capture {
+                let first = try #require(before.windows.active)
+                front = first.state.id
+                let connection = try #require(before.daemon.connection)
+                before.home.ensureHomeWorkspace(connection)
+                try await Self.until({ before.home.homeWorkspace != nil }, within: .seconds(60), report: { before.home.homeWorkspaceStep })
+                homeID = try #require(before.home.homeWorkspace?.id)
+                // A workspace of the person's own in the front window, and one in each window behind it.
+                _ = try #require(await before.windows.createWorkspace(into: front))
+                for _ in 1..<windows {
+                    let id = UUID().uuidString.lowercased()
+                    _ = try #require(await before.windows.createWorkspace(into: id))
+                    try await Self.until({ before.windows.controller(for: id)?.workspaceContent != nil }, report: { Self.report(before, [id]) })
+                }
+                // The person's last pick: Home, in the front window.
+                try #require(first.window).makeKeyAndOrderFront(nil)
+                before.windows.didActivate(first)
+                before.windows.show(workspaceID: homeID, in: first.state, from: .thisWindow)
+                try await Self.until({ first.workspaceContent?.workspace.id == homeID }, report: { Self.report(before, [front]) })
+                before.windows.didActivate(first)
+                #expect(before.windows.registry.value.recency.first == front)
+                listed = Set(before.daemon.store.workspaces.map(\.id))
+                await before.windows.prepareForTermination()
+            }
+            await Self.quit(before, endingDaemon: (try? seeded.get()) == nil)
+            try seeded.get()
+
+            let after = try await Self.launch(launcher)
+            let restored = await Self.capture {
+                if let connection = after.daemon.connection { after.home.ensureHomeWorkspace(connection) } // as the app's Home service does on connect
+                @MainActor func wrong() -> String? {
+                    let made = after.daemon.store.workspaces.filter { !listed.contains($0.id) }
+                    let window = after.windows.controller(for: front)
+                    let frontID = after.windows.registry.value.recency.first
+                    guard !made.isEmpty || frontID != front || window?.state.workspaceID != homeID || window?.workspaceContent?.workspace.id != homeID else { return nil }
+                    return "front \(String(describing: frontID)) (was \(front)), shows \(String(describing: window?.state.workspaceID)) content "
+                        + "\(String(describing: window?.workspaceContent?.workspace.id)) (Home \(homeID)), new workspaces "
+                        + "\(made.map { "\($0.id) \($0.name) kind \(String(describing: $0.kind))" }), deferred empty \(after.windows.deferredWindows.isEmpty)\n"
+                        + Self.report(after, after.windows.registry.value.openRecency)
+                }
+                // Every saved window back, then a few seconds more (the spare workspace view fills after the last one).
+                try await Self.until({ after.windows.deferredWindows.isEmpty && after.windows.controllers.count == windows }, within: .seconds(60),
+                                     report: { Self.report(after, after.windows.registry.value.openRecency) })
+                let settled = ContinuousClock.now + .seconds(4)
+                var seen: String?
+                // test-poll: what the launch fronts can change in any later turn; each turn is checked for 4 s
+                while seen == nil, ContinuousClock.now < settled {
+                    seen = wrong()
+                    try await Task.sleep(for: .milliseconds(50))
+                }
+                #expect(seen == nil, "the relaunch did not reopen Home: \(seen ?? "")")
+            }
+            await Self.quit(after, endingDaemon: true)
+            try restored.get()
+        }
+    }
+
     /// "Closed workspaces reappear after relaunch" (#31514): the person closes the last window (Close
     /// Window), then quits keeping sessions and relaunches. A relaunch restores only what was open at
     /// quit: that window and its workspaces stay closed (still registered, so Reopen Closed Window
