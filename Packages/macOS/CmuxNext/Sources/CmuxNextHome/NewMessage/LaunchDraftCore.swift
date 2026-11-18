@@ -28,13 +28,14 @@ final class LaunchDraftCore {
         let parts: [MessagePart]
     }
 
-    private let handle: OpaquePointer
+    private nonisolated let handle: OpaquePointer
 
     init() {
         handle = cmux_launch_draft_new()
     }
 
-    deinit {
+    // cx-t7hu: not an isolated deinit; the last reference can go on any thread, and freeing the handle is thread-safe.
+    nonisolated deinit {
         cmux_launch_draft_free(handle)
     }
 
