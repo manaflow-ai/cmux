@@ -134,6 +134,7 @@ class World:
         # With `home-has-no-pane` the Home workspace is there and has no pane. With `home-show-shows-nothing` the app
         # takes `home.show` with no error and the window shows what it showed before.
         self.opened = []
+        self.splits = []  # each split that the script asked for: (the pane that it split, the verb, the new pane)
         if faults & {"home-workspace", "chief-tab"}:
             kind = "conversation" if "chief-tab" in faults else "terminal"
             self.spaces[HOME] = {"panes": [{"id": "pane-of-home", "tabs": [{"id": "tab-of-home", "kind": kind, "title": "Chief"}]}], "zoomed": None}
@@ -510,6 +511,7 @@ class FakeStress:
 
     def split(self, workspace, pane, verb):
         self.world.spaces[workspace]["panes"].append(self.world.pane())
+        self.world.splits.append((pane, verb, self.world.spaces[workspace]["panes"][-1]["id"]))
         return self.world.spaces[workspace]["panes"][-1]["id"]
 
     def add_tab(self, workspace, pane, kind):
@@ -921,10 +923,10 @@ class FilmsCase(unittest.TestCase):
     def test_the_group_cap_is_the_6_films_with_a_speed_and_the_group_kinds_stays_the_9(self):
         ids = [spec["id"] for spec in M.FILMS]
         self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
-        # (The 8 films of the group `pages` and the 2 new films of the group `close` have a speed too, and they are no
-        # films of the group `cap`.)
+        # (The 8 films of the group `pages`, the 2 new films of the group `close` and the 2 of the group `nodock` have a
+        # speed too, and they are no films of the group `cap`.)
         self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS
-                          if spec.get("speed") and not M.GROUPS["pages"](spec["id"]) and spec["id"] not in ("B-C", "A-C")},
+                          if spec.get("speed") and not M.GROUPS["pages"](spec["id"]) and spec["id"] not in ("B-C", "A-C", *M.NO_DOCK)},
                          {"T-C": "fast", "T-Z.2": "fast", "T-ZT": "fast", "T-C.N": "normal", "T-Z.N": "normal", "T-ZT.N": "normal"})
         self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
         self.assertEqual(len(ids), len(set(ids)))
@@ -1737,6 +1739,38 @@ class FilmsCase(unittest.TestCase):
                          (1, [(i, "not_made", ["Cmd-D", "read: the tabs of the pane with the focus"]) for i in ("B-C", "A-C")]))
         for row in rows:
             self.assertIn(M.NO_NEW_PANE, row.get("reason", ""), row["id"])
+
+    def test_the_group_nodock_is_a_zoom_with_no_docked_column_on_each_pane_of_a_row_of_2_terminals(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        nodock = [i for i in ids if M.GROUPS["nodock"](i)]
+        self.assertEqual(nodock, ["T-Z0", "T-Z1"])
+        # One film for each pane of the row: the same set-up and act as `T-Z`, no docked column, and the app's spans.
+        self.assertEqual([(specs[i]["setup"], specs[i]["acts"], specs[i]["focus"], specs[i]["dock"], specs[i]["speed"], specs[i]["springs"],
+                           specs[i]["layout"]) for i in nodock],
+                         [("T", M.ZOOM, index, False, "fast", ("zoom", "unzoom"), (2, 2)) for index in (0, 1)])
+        self.assertEqual([specs[i]["title"] for i in nodock],
+                         ["Zoom in and out on the first of 2 terminals with a program, no docked column, speed fast",
+                          "Zoom in and out on the second of 2 terminals with a program, no docked column, speed fast"])
+        # The 2 films are films of no older group, and each older group keeps its films.
+        self.assertFalse([i for i in nodock if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap", "pages", "close"))])
+        self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_a_film_of_the_group_nodock_zooms_its_own_pane_and_no_pane_is_docked_for_it(self):
+        # The step asks for a docked column in each film's window (`--dock 1`, the tool's default).
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "nodock,T-Z", "--dock", "1")
+        rows, world = report["films"], launches[0].world
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"]) for row in rows]),
+                         (0, [(i, "made", ["redraw", "stream"]) for i in ("T-Z0", "T-Z1", "T-Z")]))
+        self.assertEqual([(row["dock"], row.get("layout_spans")) for row in rows[:2]], [("not asked", 2)] * 2)
+        # `T-Z` alone asks for a docked column: one split more, and the one dock call of the launch.
+        self.assertNotEqual(rows[2]["dock"], "not asked")
+        self.assertEqual(len([name for name, _ in world.actions if name == "column.dock"]), 1)
+        first, second, third, docked = world.splits[-4:]
+        self.assertEqual([verb for _, verb, _ in world.splits[-4:]], ["splitRight"] * 4)
+        # Each film zooms the pane of its own number: the pane that the split took, then the pane that the split made.
+        self.assertEqual(world.zoom_states[-6:], [first[0], None, second[2], None, third[0], None])
 
 
 if __name__ == "__main__":
