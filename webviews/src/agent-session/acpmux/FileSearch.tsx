@@ -15,6 +15,7 @@ import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// How long typing settles before the palette asks again.
+// motion-allow: a typing debounce
 const SEARCH_DEBOUNCE_MS = 80;
 
 type State =
