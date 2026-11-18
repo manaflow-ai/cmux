@@ -3,7 +3,7 @@
 // worst part (oldest first among equals), its tone, and the one line, or the queued action's line.
 import { describe, expect, test } from "bun:test";
 import { createStrings } from "../pages/shared/i18n";
-import { headline, indicatorHeadline, isQuiet, otherParts, toneOf, worstPart } from "./model";
+import { indicatorHeadline, isQuiet, toneOf, worstPart } from "./model";
 import type { HealthPart, HealthSnapshot } from "./types";
 
 const strings = createStrings(
@@ -38,7 +38,7 @@ const part = (id: string, state: HealthPart["state"], sinceMs = 0): HealthPart =
 describe("app health model", () => {
   test("healthy with nothing queued is quiet", () => {
     expect(isQuiet({ worst: "healthy", parts: [], receipts: [] })).toBe(true);
-    expect(headline({ worst: "healthy", parts: [], receipts: [] }, strings)).toBeNull();
+    expect(indicatorHeadline({ worst: "healthy", parts: [], receipts: [] }, strings)).toBeNull();
   });
 
   test("a queued action shows even when every part is healthy", () => {
@@ -49,7 +49,7 @@ describe("app health model", () => {
       pending: [{ id: "i", label: "close Background task", sinceMs: 1 }],
     };
     expect(isQuiet(snapshot)).toBe(false);
-    expect(headline(snapshot, strings)).toEqual({
+    expect(indicatorHeadline(snapshot, strings)).toEqual({
       tone: "muted",
       text: "Reconnecting; will close Background task when back",
       part: null,
@@ -64,17 +64,15 @@ describe("app health model", () => {
     };
     const worst = worstPart(snapshot);
     expect(worst?.id).toBe("Old");
-    expect(otherParts(snapshot, worst).map((p) => p.id)).toEqual(["New", "Slow page"]);
-    expect(headline(snapshot, strings)?.text).toBe("Old: Needs a repair");
+    expect(indicatorHeadline(snapshot, strings)?.text).toBe("Old needs a repair");
     expect(toneOf("failed")).toBe("danger");
     expect(toneOf("slow")).toBe("attention");
   });
 
   // Leo, 2026-11-11: "slow indicator on the bottom left is uselsss and layout shifts the space. it's bad".
-  test("the indicator says nothing for a part that is only slow; the popover still names it", () => {
+  test("the indicator says nothing for a part that is only slow", () => {
     const snapshot: HealthSnapshot = { worst: "slow", parts: [part("Agent chat", "slow")], receipts: [] };
     expect(indicatorHeadline(snapshot, strings)).toBeNull();
-    expect(headline(snapshot, strings)?.text).toBe("Agent chat: Slow");
   });
 
   test("the indicator names the part and what is happening to it", () => {
