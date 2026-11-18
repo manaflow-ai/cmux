@@ -1,4 +1,5 @@
-// The real Settings page with N shared links or N keys (`#card=shares&n=10000`, or `card=keys`), for
+// The real Settings page with N shared links, keys or library entries (`#card=shares&n=10000`, or
+// `card=keys`, `card=library`), for
 // bench/settings-cards-visible-only.bench.ts: the in-memory mock host answers the card's list with
 // all N, and the bench can change one row. `benchRowRenders` counts the mounted rows whose element
 // React committed again since its last mark (test/support/rowPropsRenders.ts), so the page carries
@@ -11,7 +12,8 @@ import { createRoot } from "react-dom/client";
 import strings from "../../src/pages/settings/generated/strings.json";
 import { SettingsPage } from "../../src/pages/settings/components/SettingsPage";
 import { createMockClient } from "../../src/pages/settings/mockProvider";
-import { KEYS_KEY, SHARES_KEY } from "../../src/pages/settings/sectionQueries";
+import { KEYS_KEY, LIBRARY_KEY, SHARES_KEY } from "../../src/pages/settings/sectionQueries";
+import { mockLongLibrary, runLibrary } from "../../src/pages/settings/mockLibrary";
 import { SettingsStore } from "../../src/pages/settings/store";
 import { installCatalog, setLocale } from "../../src/pages/settings/strings";
 import { manyKeys, manyShares } from "../support/settingsCardFixtures";
@@ -28,7 +30,7 @@ declare global {
 }
 
 const params = new URLSearchParams(location.hash.slice(1));
-const card = params.get("card") === "keys" ? "keys" : "shares";
+const card = (["keys", "library"] as const).find((name) => name === params.get("card")) ?? "shares";
 const n = Number(params.get("n") ?? 1000);
 const NOW = Date.now();
 
@@ -37,16 +39,24 @@ setLocale("en");
 document.documentElement.dataset.settingsLook = "refined";
 const { client, provider } = createMockClient();
 if (card === "keys") provider.keys = manyKeys(n, NOW);
+else if (card === "library") provider.library = mockLongLibrary(n);
 else provider.shares = manyShares(n, NOW);
 // The route the page reads: the card's section.
-location.hash = card === "keys" ? "#/settings/keys" : "#/settings/privacy";
+location.hash = { keys: "#/settings/keys", library: "#/settings/personalization", shares: "#/settings/privacy" }[card];
 const store = new SettingsStore(client);
 createRoot(document.getElementById("root")!).render(<SettingsPage store={store} />);
-window.benchRowSelector =
-  card === "keys" ? '[data-card="keys"] [data-key]' : '[data-card="sharedLinks"] [data-shared-link]';
+window.benchRowSelector = {
+  keys: '[data-card="keys"] [data-key]',
+  library: '[data-card="customizeLibrary"] [data-library-entry]',
+  shares: '[data-card="sharedLinks"] [data-shared-link]',
+}[card];
 window.benchRowRenders = rowPropsRenders(() => document.querySelectorAll(window.benchRowSelector));
 window.benchChangeOne = async (index) => {
-  if (card === "keys") {
+  if (card === "library") {
+    const entry = provider.library.entries[index]!;
+    provider.library = runLibrary(provider.library, { verb: entry.on ? "off" : "on", name: entry.name })!;
+    await store.queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
+  } else if (card === "keys") {
     const keys = provider.keys.keys.map((key, at) =>
       at === index ? { ...key, uses: [{ target: `changed-${Date.now()}.example.com`, count: 1 }] } : key,
     );

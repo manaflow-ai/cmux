@@ -10,6 +10,7 @@ import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import {
   installCardRects,
   KEY_HEIGHT,
+  LIBRARY_HEIGHT,
   SHARED_LINK_HEIGHT,
   settingsCardSizes,
 } from "../../../test/support/settingsCardSizes";
@@ -24,7 +25,8 @@ afterAll(() => {
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage, settle, click } = await import("./testing");
-const { SHARES_KEY, KEYS_KEY } = await import("./sectionQueries");
+const { SHARES_KEY, KEYS_KEY, LIBRARY_KEY } = await import("./sectionQueries");
+const { mockLongLibrary, runLibrary } = await import("./mockLibrary");
 
 // 10:00 local time: a minute later is the same day.
 const NOW = new Date(2026, 10, 18, 10, 0).getTime();
@@ -75,6 +77,23 @@ const cards = [
     },
     // Revoke on the first row asks first: the row's own state, the card's list unchanged.
     redraw: () => click(page!.container.querySelector('[data-card="keys"] [data-key-action="revoke"]')!),
+  },
+  {
+    // The engine holds at most 500 entries (cmux-customize library.rs MAX_ENTRIES), past the 100 a
+    // list may draw whole; the window is checked here at any length.
+    name: "Customization Library",
+    path: "/settings/personalization",
+    rows: () => page!.container.querySelectorAll('[data-card="customizeLibrary"] [data-library-entry]'),
+    height: LIBRARY_HEIGHT,
+    key: LIBRARY_KEY,
+    fill: (count: number) => (provider: Rendered["provider"]) => (provider.library = mockLongLibrary(count)),
+    // Entry 5 (every third entry is off) turns on, as another window's `cmux customize library on` would.
+    changeOne: (provider: Rendered["provider"]) => {
+      provider.library = runLibrary(provider.library, { verb: "on", name: provider.library.entries[5]!.name })!;
+    },
+    // Remove on the first row asks first: the card draws again on its own state.
+    redraw: () =>
+      click(page!.container.querySelector('[data-card="customizeLibrary"] [data-library-action="remove"]')!),
   },
 ];
 
@@ -127,3 +146,21 @@ for (const card of cards) {
     setSystemTime(new Date(NOW));
   });
 }
+
+test("Customization Library: a toggle draws its own row again and no other, while the change runs and after", async () => {
+  page = await renderPage({
+    path: "/settings/personalization",
+    setup: (provider) => (provider.library = mockLongLibrary(1_000)),
+  });
+  await settle();
+  const rows = () => page!.container.querySelectorAll('[data-card="customizeLibrary"] [data-library-entry]');
+  const renders = rowPropsRenders(rows);
+  renders.mark();
+  await click(page.container.querySelector('[data-card="customizeLibrary"] [data-index="5"] [role="switch"]')!);
+  await settle();
+  // Entry 5 was off (every third entry is).
+  expect(page.container.querySelector('[data-card="customizeLibrary"] [data-index="5"]')!.hasAttribute("data-on")).toBe(
+    true,
+  );
+  expect(renders.since()).toBe(1);
+});

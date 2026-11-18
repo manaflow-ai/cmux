@@ -65,11 +65,13 @@ export function useCardWindow(
     setScroller(next ? scrollParent(next) : undefined);
   }, []);
   const [scrollMargin, setScrollMargin] = useState(0);
-  // The list's top in the scroller's content: read once per render of the card and when the page's
+  // The first row's top in the scroller's content (the first row always stays mounted; a card may
+  // draw a line of help above its rows): read once per render of the card and when the page's
   // column changes size (a card above it opening), one rect each, never per row.
   const measureMargin = useCallback(() => {
     if (!node || !scroller) return;
-    const next = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    const first = node.querySelector<HTMLElement>(':scope > [data-index="0"]') ?? node;
+    const next = first.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
     setScrollMargin((previous) => (Math.abs(previous - next) < 0.5 ? previous : next));
   }, [node, scroller]);
   useLayoutEffect(measureMargin);

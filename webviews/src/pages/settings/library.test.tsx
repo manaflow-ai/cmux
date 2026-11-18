@@ -6,9 +6,13 @@ import { afterAll, afterEach, expect, setSystemTime, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockOptions } from "./mockProvider";
 import type { Rendered } from "./testing";
+import { installVirtualSizes } from "../../../test/support/virtualSizes";
+import { settingsCardSizes } from "../../../test/support/settingsCardSizes";
 
 const restore = installDom();
 afterAll(() => restore());
+// The card's rows are windowed: give the page a viewport and its rows a height, as a browser would.
+installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 const { renderPage, settle, click, run } = await import("./testing");
 const { mockEmptyLibrary, mockLongLibrary, relist, runLibrary, mockLibrary } = await import("./mockLibrary");
 const { beatenByEntry } = await import("./customizeLibrary");
@@ -117,11 +121,19 @@ test("nothing applied yet: the library was read and no card draws (the person ha
   expect(card()).toBeNull();
 });
 
-test("fifty entries draw as fifty rows in order", async () => {
+test("fifty entries draw in order, each row with its place among all fifty", async () => {
   await open({ library: mockLongLibrary(50) });
-  expect(names()).toHaveLength(50);
+  // The rows near the viewport mount (cardWindow.ts), and the first and last always.
+  const rows = [...card()!.querySelectorAll<HTMLElement>("[data-library-entry]")];
+  expect(rows.length).toBeLessThan(50);
   expect(names()[0]).toBe("look-01");
-  expect(names()[49]).toBe("look-50");
+  expect(names().at(-1)).toBe("look-50");
+  const places = rows.map((row) => Number(row.getAttribute("aria-posinset")));
+  expect(places).toEqual([...places].sort((a, b) => a - b));
+  expect(rows.map((row) => row.dataset.libraryEntry)).toEqual(
+    places.map((at) => `look-${String(at).padStart(2, "0")}`),
+  );
+  expect(rows.every((row) => row.getAttribute("aria-setsize") === "50")).toBe(true);
 });
 
 test("a host with no CLI draws no card and no error", async () => {

@@ -16,6 +16,7 @@ afterAll(() => restore());
 installVirtualSizes({ HTMLElement: globalThis.window.HTMLElement }, settingsCardSizes);
 installCardRects({ HTMLElement: globalThis.window.HTMLElement });
 const { renderPage, settle, click } = await import("./testing");
+const { mockLongLibrary } = await import("./mockLibrary");
 
 const NOW = Date.now();
 const COUNT = 1_000;
@@ -31,7 +32,8 @@ const FOCUSABLE =
 
 /** The browser's Tab (or Shift-Tab): focus moves to the next (previous) focusable element in DOM order. */
 async function tab(back = false) {
-  const stops = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  // A control's own tabindex="-1" (a switch's hidden checkbox) is no tab stop.
+  const stops = [...document.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => element.tabIndex >= 0);
   const at = stops.indexOf(document.activeElement as HTMLElement);
   const next = stops[at + (back ? -1 : 1)];
   if (!next) throw new Error("no tab stop there");
@@ -55,26 +57,38 @@ const cards = [
     name: "Shared Links",
     path: "/settings/privacy",
     card: '[data-card="sharedLinks"]',
-    revoke: "[data-shared-link-action=revoke]",
+    first: "[data-shared-link-action=revoke]",
+    last: "[data-shared-link-action=revoke]",
     fill: (provider: Rendered["provider"]) => (provider.shares = manyShares(COUNT, NOW)),
   },
   {
     name: "Keys",
     path: "/settings/keys",
     card: '[data-card="keys"]',
-    revoke: '[data-key-action="revoke"]',
+    first: '[data-key-action="revoke"]',
+    last: '[data-key-action="revoke"]',
     fill: (provider: Rendered["provider"]) => provider.setKeys(manyKeys(COUNT, NOW)),
+  },
+  {
+    name: "Customization Library",
+    path: "/settings/personalization",
+    card: '[data-card="customizeLibrary"]',
+    // A row's tab stops: Move Up, Move Down, Remove, then its switch.
+    first: '[data-library-action="up"]',
+    last: '[role="switch"]',
+    fill: (provider: Rendered["provider"]) => (provider.library = mockLongLibrary(COUNT)),
   },
 ];
 
 for (const card of cards) {
-  const revokeOf = (index: number) =>
-    page!.container.querySelector<HTMLButtonElement>(`${card.card} [data-index="${index}"] ${card.revoke}`)!;
+  const stop = (index: number, which: string) =>
+    page!.container.querySelector<HTMLElement>(`${card.card} [data-index="${index}"] ${which}`)!;
 
-  async function focusThenScrollAway(index: number) {
+  /** Focuses the row's last tab stop (Tab goes on from it) or its first (Shift-Tab goes back from it). */
+  async function focusThenScrollAway(index: number, which: string) {
     page = await renderPage({ path: card.path, setup: card.fill });
     await settle();
-    await act(async () => revokeOf(index).focus());
+    await act(async () => stop(index, which).focus());
     expect(focusedRow()).toBe(index);
     await scrollTo(40_000);
     // The window is far from the focused row now.
@@ -82,13 +96,13 @@ for (const card of cards) {
   }
 
   test(`${card.name}: Tab from a focused row the page scrolled away from lands on the next row`, async () => {
-    await focusThenScrollAway(3);
+    await focusThenScrollAway(3, card.last);
     await tab();
     expect(focusedRow()).toBe(4);
   });
 
   test(`${card.name}: Shift-Tab from a focused row the page scrolled away from lands on the previous row`, async () => {
-    await focusThenScrollAway(3);
+    await focusThenScrollAway(3, card.first);
     await tab(true);
     expect(focusedRow()).toBe(2);
   });

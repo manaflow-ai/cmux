@@ -1,5 +1,5 @@
 // l10n-allow-file: benchmark output, not shipped UI.
-// Settings > Shared Links and Settings > Keys at N rows on Chromium, a production build (React
+// Settings > Shared Links, Keys and Customization Library at N rows on Chromium, a production build (React
 // Compiler, minified) of test/browser/settings-cards-visible-only.html: the real page over the
 // in-memory mock host, which answers the card's list with all N. The visible-only rule's numbers,
 // per card and N:
@@ -10,6 +10,7 @@
 //                   page scrolls one row a frame for FRAMES frames;
 //   resize          main-thread ms per frame (p95) while the window narrows 4 px a frame for FRAMES frames.
 //   bun bench/settings-cards-visible-only.bench.ts [n...]   (default 1000 10000)
+//   BENCH_CARDS=library,keys picks the cards (default all).
 /// <reference types="bun" />
 import type { Page } from "playwright";
 import { chromium } from "./browsers";
@@ -31,8 +32,13 @@ const NS = SIZES.length ? SIZES : [1_000, 10_000];
 const FRAMES = 120;
 const CARDS = [
   { card: "shares", name: "sharedLinks", redraw: '[data-shared-links-action="revokeAll"]' },
-  { card: "keys", name: "keys", redraw: null },
-] as const;
+  { card: "keys", name: "keys", redraw: '[data-card="keys"] [data-key-action="revoke"]' },
+  {
+    card: "library",
+    name: "customizeLibrary",
+    redraw: '[data-card="customizeLibrary"] [data-library-action="remove"]',
+  },
+].filter(({ card }) => !process.env.BENCH_CARDS || process.env.BENCH_CARDS.split(",").includes(card));
 
 const pct = (values: number[], p: number) =>
   values.length ? [...values].sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * p) - 1)]! : 0;
@@ -103,17 +109,14 @@ try {
       const change = await page.evaluate(() => window.benchRowRenders.since());
 
       // A minute on the clock, then the card draws again on its own state (Shared Links: Revoke All
-      // asks first; Keys: the first row's Revoke asks first, its own state).
+      // asks first; Keys: the first row's Revoke asks first, its own state; the library: Remove asks first).
       await page.evaluate(() => {
         const real = Date.now;
         const later = real() + 60_000;
         Date.now = () => later;
       });
       await page.evaluate(() => window.benchRowRenders.mark());
-      await page
-        .locator(redraw ?? '[data-card="keys"] [data-key-action="revoke"]')
-        .first()
-        .click();
+      await page.locator(redraw).first().click();
       await page.evaluate(() => window.cmuxPaintFrame());
       const tick = await page.evaluate(() => window.benchRowRenders.since());
       await page.keyboard.press("Escape");
