@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
-"""Languages download on first use (CMUX-570): split an app's non-English strings into packs.
+"""Languages download on first use (CMUX-570): split an app's non-English strings and Chromium
+locale paks into packs.
 
 Usage (stdlib only; run with `python3 -I`):
   language-packs.py split APP OUT --base-url https://files-next.cmux.com/language-packs [--keep LANG ...]
   language-packs.py measure APP [--keep LANG ...]
 
-Languages are APP/Contents/Info.plist CFBundleLocalizations minus "en" (and minus --keep). Only the
-CmuxNext package's SwiftPM resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) are split;
-every other bundle, framework, Sparkle, Chromium, uBlock and web page stays in the app.
+Languages are APP/Contents/Info.plist CFBundleLocalizations minus "en", plus one per Chromium locale
+pak in APP/Contents/Resources/ChromiumLocales (minus --keep). Only the CmuxNext package's SwiftPM
+resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) and those paks are split; every other
+bundle, framework, Sparkle, uBlock and web page stays in the app.
+
+Chromium locale paks: scripts/cmux-next/embed-cef.sh moves every Chromium locale but en (en-US, the
+fallback, stays in the framework) out of the framework to ChromiumLocales/<catalog>.lproj/locale.pak
+when the pinned CEF loads locale paks from outside its framework (cef-manifest.json
+"locale_paks_outside_framework"). A catalog joins the pack of the cmux language it serves
+(zh_CN -> zh-Hans, zh_TW -> zh-Hant, pt_BR -> pt-BR, de -> de); a catalog with no cmux strings
+(en_GB, es_419, pt_PT, sv, ...) is a pack of its own, named with its BCP 47 tag (en-GB, es-419,
+pt-PT, sv). The pin says what a pack carries: "chromium" is its catalog, "strings" whether it has
+cmux strings (a language without them shows Chromium's pages translated and cmux in English).
 
 split moves each B/Contents/Resources/L.lproj into OUT/stage/L/B/Contents/Resources/L.lproj (with a
 copy of B/Contents/Info.plist), packs each language deterministically (sorted tar entries, mtime 0,
@@ -15,7 +26,8 @@ uid/gid 0, mode 0644 files and 0755 dirs, no symlinks, paths relative to Content
 zstd -19 with no long-distance window, so any zstd decoder with its default window reads it) into
 OUT/L.tar.zst, and writes the pins, content addressed (<base-url>/<sha256>/L.tar.zst), to
 APP/Contents/Resources/language-packs.json and OUT/language-packs.json:
-  {"version": 1, "packs": {"de": {"sha256": ..., "size": ..., "url": ...}, ...}}
+  {"version": 1, "packs": {"de": {"chromium": "de", "sha256": ..., "size": ..., "strings": true,
+                               "url": ...}, ...}}
 Run it after the app's inner code is signed and before the app itself is sealed
 (scripts/sign-cmux-bundle.sh step 4, CMUX_NEXT_LANGUAGE_PACKS=1); the resource bundles carry no
 signature of their own, so the outer seal covers what is left. scripts/cmux-next/publish-language-packs.sh
@@ -40,6 +52,10 @@ import sys
 import tarfile
 
 BUNDLE_GLOB = "CmuxNext_*.bundle"
+CHROMIUM_DIR = "ChromiumLocales"
+# The cmux languages whose Chromium catalog is not their own tag with "_" for "-".
+CHROMIUM_CATALOG = {"zh-Hans": "zh_CN", "zh-Hant": "zh_TW"}
+CATALOG_RE = re.compile(r"[a-z]{2,3}(_[A-Z0-9][A-Za-z0-9]{1,7})?")
 PIN_NAME = "language-packs.json"
 ZSTD_LEVEL = 19
 LANG_RE = re.compile(r"[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*")
@@ -64,6 +80,32 @@ def languages(app: Path, keep: list[str]) -> list[str]:
         if not LANG_RE.fullmatch(lang):
             die(f"{info}: unexpected localization name {lang!r}")
     return chosen
+
+
+def catalog_for(lang: str) -> str:
+    """The Chromium catalog that serves the cmux language `lang` (pt-BR -> pt_BR)."""
+    return CHROMIUM_CATALOG.get(lang, lang.replace("-", "_"))
+
+
+def chromium_catalogs(app: Path) -> dict[str, Path]:
+    """{catalog: its .lproj} under Contents/Resources/ChromiumLocales: one locale.pak each, never en."""
+    root = app / "Contents" / "Resources" / CHROMIUM_DIR
+    if not root.exists():
+        return {}
+    if root.is_symlink() or not root.is_dir():
+        die(f"{root} is not a directory")
+    found = {}
+    for entry in sorted(root.iterdir()):
+        name = entry.name[: -len(".lproj")] if entry.name.endswith(".lproj") else ""
+        if not CATALOG_RE.fullmatch(name) or name == "en":
+            die(f"{entry}: not a Chromium locale catalog that downloads (en stays in the framework)")
+        if entry.is_symlink() or not entry.is_dir():
+            die(f"{entry} is not a directory")
+        files = lproj_files(entry)
+        if [f.name for f in files] != ["locale.pak"]:
+            die(f"{entry} holds {[f.name for f in files]}, not one locale.pak")
+        found[name] = entry
+    return found
 
 
 def bundles(app: Path) -> list[Path]:
@@ -96,9 +138,20 @@ def lproj_files(lproj: Path) -> list[Path]:
 
 
 def selection(app: Path, keep: list[str]):
-    """{lang: [(bundle, lproj, [files])]} and the .lproj names no pack takes (for the summary)."""
+    """{lang: [(bundle, lproj, [files])]}, {lang: its Chromium .lproj} and the .lproj names no pack
+    takes (for the summary)."""
     langs = languages(app, keep)
     chosen: dict[str, list] = {lang: [] for lang in langs}
+    chromium: dict[str, Path] = {}
+    serves = {catalog_for(lang): lang for lang in langs}
+    for catalog, lproj in chromium_catalogs(app).items():
+        lang = serves.get(catalog, catalog.replace("_", "-"))
+        if lang in keep:
+            continue
+        if not LANG_RE.fullmatch(lang):
+            die(f"{lproj}: unexpected Chromium locale name {catalog!r}")
+        chosen.setdefault(lang, [])
+        chromium[lang] = lproj
     left: set[str] = set()
     for bundle in bundles(app):
         resources = bundle / "Contents" / "Resources"
@@ -112,7 +165,7 @@ def selection(app: Path, keep: list[str]):
                 chosen[lang].append((bundle, lproj, lproj_files(lproj)))
             else:
                 left.add(lang)
-    return chosen, sorted(left)
+    return dict(sorted(chosen.items())), chromium, sorted(left)
 
 
 def tar_bytes(entries: list[tuple[str, Path | None]]) -> bytes:
@@ -137,10 +190,15 @@ def tar_bytes(entries: list[tuple[str, Path | None]]) -> bytes:
     return buffer.getvalue()
 
 
-def pack_entries(items) -> list[tuple[str, Path | None]]:
+def pack_entries(items, chromium: Path | None = None) -> list[tuple[str, Path | None]]:
     """One language's tar entries, named relative to Contents/Resources of the app:
-    each bundle's directories down to its .lproj, its Info.plist, and the .lproj's contents."""
+    each bundle's directories down to its .lproj, its Info.plist, and the .lproj's contents;
+    and ChromiumLocales/<catalog>.lproj/locale.pak."""
     entries: dict[str, Path | None] = {}
+    if chromium is not None:
+        entries[CHROMIUM_DIR] = None
+        entries[f"{CHROMIUM_DIR}/{chromium.name}"] = None
+        entries[f"{CHROMIUM_DIR}/{chromium.name}/locale.pak"] = chromium / "locale.pak"
     for bundle, lproj, files in items:
         base = bundle.parent
         for directory in (bundle, bundle / "Contents", bundle / "Contents" / "Resources", lproj,
@@ -176,20 +234,23 @@ def mb(size: int) -> str:
 
 def measure(args) -> None:
     app = Path(args.app)
-    chosen, left = selection(app, args.keep)
-    total_files = total_bytes = total_packed = 0
-    print(f"{'lang':<8} {'bundles':>7} {'files':>6} {'installed':>12} {'packed':>12}")
+    chosen, chromium, left = selection(app, args.keep)
+    total_files = total_bytes = total_packed = total_chromium = 0
+    print(f"{'lang':<8} {'bundles':>7} {'files':>6} {'chromium':>9} {'installed':>12} {'packed':>12}")
     for lang, items in chosen.items():
-        files = [f for _, _, fs in items for f in fs]
+        pak = chromium.get(lang)
+        files = [f for _, _, fs in items for f in fs] + ([pak / "locale.pak"] if pak else [])
         size = sum(f.stat().st_size for f in files)
-        packed = len(zstd_compress(tar_bytes(pack_entries(items)))) if files else 0
-        print(f"{lang:<8} {len(items):>7} {len(files):>6} {size:>12} {packed:>12}")
+        total_chromium += (pak / "locale.pak").stat().st_size if pak else 0
+        packed = len(zstd_compress(tar_bytes(pack_entries(items, pak)))) if files else 0
+        catalog = pak.name[: -len(".lproj")] if pak else "-"
+        print(f"{lang:<8} {len(items):>7} {len(files):>6} {catalog:>9} {size:>12} {packed:>12}")
         total_files += len(files)
         total_bytes += size
         total_packed += packed
-    print(f"{'total':<8} {'':>7} {total_files:>6} {total_bytes:>12} {total_packed:>12}")
-    print(f"{len(chosen)} languages: {total_files} files, {mb(total_bytes)} installed bytes removed, "
-          f"{mb(total_packed)} of packs")
+    print(f"{'total':<8} {'':>7} {total_files:>6} {len(chromium):>9} {total_bytes:>12} {total_packed:>12}")
+    print(f"{len(chosen)} languages: {total_files} files, {mb(total_bytes)} installed bytes removed "
+          f"({mb(total_chromium)} of them {len(chromium)} Chromium locale paks), {mb(total_packed)} of packs")
     if left:
         print(f"kept in the app: {', '.join(name + '.lproj' for name in left)}")
 
@@ -209,19 +270,25 @@ def split(args) -> None:
         die(f"{app_pin} exists: this app was split already")
     if out.exists() and any(out.iterdir()):
         die(f"{out} is not empty")
-    chosen, left = selection(app, args.keep)
+    chosen, chromium, left = selection(app, args.keep)
     stage = out / "stage"
     stage.mkdir(parents=True)
     packs = {}
     total_bytes = total_files = 0
     for lang, items in chosen.items():
-        if not items:
-            print(f"==> {lang}: no {lang}.lproj in any {BUNDLE_GLOB}; no pack")
+        pak = chromium.get(lang)
+        if not items and pak is None:
+            print(f"==> {lang}: no {lang}.lproj in any {BUNDLE_GLOB} and no Chromium pak; no pack")
             continue
         # Packed from the app (the same entries measure reads), then moved out of it.
-        data = zstd_compress(tar_bytes(pack_entries(items)))
+        data = zstd_compress(tar_bytes(pack_entries(items, pak)))
         stage_lang = stage / lang
         moved = 0
+        if pak is not None:
+            moved += (pak / "locale.pak").stat().st_size
+            total_files += 1
+            (stage_lang / CHROMIUM_DIR).mkdir(parents=True, exist_ok=True)
+            shutil.move(str(pak), str(stage_lang / CHROMIUM_DIR / pak.name))
         for bundle, lproj, files in items:
             moved += sum(f.stat().st_size for f in files)
             total_files += len(files)
@@ -232,9 +299,16 @@ def split(args) -> None:
         asset = out / f"{lang}.tar.zst"
         asset.write_bytes(data)
         sha = hashlib.sha256(data).hexdigest()
-        packs[lang] = {"sha256": sha, "size": len(data), "url": f"{base_url}/{sha}/{lang}.tar.zst"}
+        packs[lang] = {"sha256": sha, "size": len(data), "strings": bool(items),
+                       "url": f"{base_url}/{sha}/{lang}.tar.zst"}
+        if pak is not None:
+            packs[lang]["chromium"] = pak.name[: -len(".lproj")]
         total_bytes += moved
-        print(f"==> {lang}: {len(items)} bundles, {moved} bytes moved, pack {len(data)} bytes ({sha[:12]})")
+        print(f"==> {lang}: {len(items)} bundles, Chromium {packs[lang].get('chromium', '-')}, "
+              f"{moved} bytes moved, pack {len(data)} bytes ({sha[:12]})")
+    chromium_dir = app / "Contents" / "Resources" / CHROMIUM_DIR
+    if chromium_dir.is_dir() and not any(chromium_dir.iterdir()):
+        chromium_dir.rmdir()
     pin = json.dumps({"version": 1, "packs": packs}, indent=2, sort_keys=True) + "\n"
     (out / PIN_NAME).write_text(pin)
     app_pin.write_text(pin)

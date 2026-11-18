@@ -132,7 +132,11 @@ fn a_manifest_is_version_1_with_well_formed_packs() {
     };
     let url = "https://files-next.cmux.com/language-packs/x/de.tar.zst";
     let manifest = parse_manifest(&good(url, SHA_A, 10)).unwrap();
-    assert_eq!(manifest.packs["de"], Pack { url: url.into(), sha256: SHA_A.into(), size: 10 });
+    // The first manifests had no `chromium` or `strings`: a strings-only pack.
+    assert_eq!(
+        manifest.packs["de"],
+        Pack { url: url.into(), sha256: SHA_A.into(), size: 10, chromium: None, strings: true }
+    );
     assert!(parse_manifest(br#"{"version": 1, "packs": {}}"#).is_ok());
 
     let bad = [
@@ -157,6 +161,88 @@ fn a_manifest_is_version_1_with_well_formed_packs() {
             String::from_utf8_lossy(&bytes)
         );
     }
+}
+
+#[test]
+fn a_pack_names_a_downloadable_chromium_locale_and_carries_something() {
+    let pack = |extra: serde_json::Value| {
+        let mut pack = json!({"url": "https://files-next.cmux.com/language-packs/x/sv.tar.zst",
+            "sha256": SHA_A, "size": 10});
+        pack.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::to_vec(&json!({"version": 1, "packs": {"sv": pack}})).unwrap()
+    };
+    for good in [
+        json!({"chromium": "sv", "strings": false}),
+        json!({"chromium": "zh_CN", "strings": true}),
+        json!({"chromium": "es_419", "strings": false}),
+        json!({"chromium": "pt_PT", "strings": false}),
+        json!({"chromium": "en_GB", "strings": false}),
+        json!({"strings": true}),
+    ] {
+        assert!(parse_manifest(&pack(good.clone())).is_ok(), "{good}");
+    }
+    for bad in [
+        // en-US is the app's fallback, never a download.
+        json!({"chromium": "en", "strings": false}),
+        // Not a pak Chromium builds for macOS (an extended locale, a gendered or pseudo one).
+        json!({"chromium": "cy", "strings": false}),
+        json!({"chromium": "de_FEMININE", "strings": false}),
+        json!({"chromium": "en_XA", "strings": false}),
+        json!({"chromium": "../de", "strings": false}),
+        // A pack that carries nothing.
+        json!({"strings": false}),
+    ] {
+        assert_eq!(parse_manifest(&pack(bad.clone())).unwrap_err(), Code::BadManifest, "{bad}");
+    }
+}
+
+#[test]
+fn chromium_locales_are_chromiums_macos_paks() {
+    assert_eq!(CHROMIUM_LOCALES.len(), 55);
+    let mut sorted = CHROMIUM_LOCALES.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, CHROMIUM_LOCALES.to_vec(), "sorted, each once");
+    // The 22 the app shipped before, the regional ones Leo kept (2026-11-12) among them.
+    for shipped in [
+        "ar", "da", "de", "en", "en_GB", "es", "es_419", "fr", "it", "ja", "ko", "nb", "pl",
+        "pt_BR", "pt_PT", "ru", "th", "tr", "uk", "vi", "zh_CN", "zh_TW",
+    ] {
+        assert!(CHROMIUM_LOCALES.contains(&shipped), "{shipped}");
+    }
+    assert!(!is_downloadable_chromium_locale("en"));
+    assert_eq!(CHROMIUM_LOCALES.iter().filter(|c| is_downloadable_chromium_locale(c)).count(), 54);
+}
+
+#[test]
+fn a_pack_with_a_chromium_pak_answers_its_path() {
+    let folder = Folder::new("chromium-pak");
+    let cache = folder.path().join("cache");
+    let body = archive(&[("ChromiumLocales/sv.lproj/locale.pak", Some(b"pak"))]);
+    let sha256 = sha(&body);
+    let server = Server::start(body.clone());
+    let manifest = manifest_file(
+        folder.path(),
+        json!({"sv": {"url": server.url, "sha256": sha256, "size": body.len(),
+            "chromium": "sv", "strings": false}}),
+    );
+    let root = cache.join(&sha256);
+    let pak = root.join("ChromiumLocales/sv.lproj/locale.pak");
+    let outcome = ensure(&request("sv", manifest.clone(), cache.clone()));
+    assert_eq!(outcome, Outcome::Ready { root: root.clone(), chromium_pak: Some(pak.clone()) });
+    assert_eq!(
+        outcome.to_json(),
+        json!({"state": "ready", "root": root.to_string_lossy(),
+            "chromium_pak": pak.to_string_lossy()})
+    );
+    assert_eq!(std::fs::read(&pak).unwrap(), b"pak");
+
+    // A whole folder without its pinned pak was changed on disk: it is downloaded again.
+    std::fs::remove_file(&pak).unwrap();
+    let again = ensure(&request("sv", manifest, cache));
+    assert_eq!(again, Outcome::Ready { root, chromium_pak: Some(pak.clone()) });
+    assert_eq!(std::fs::read(&pak).unwrap(), b"pak");
+    assert_eq!(server.requests.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -205,7 +291,7 @@ fn a_complete_pack_is_ready_without_network() {
         json!({"de": {"url": "http://127.0.0.1:9/de.tar.zst", "sha256": SHA_A, "size": 10}}),
     );
     let outcome = ensure(&request("de", manifest, cache));
-    assert_eq!(outcome, Outcome::Ready(root.clone()));
+    assert_eq!(outcome, Outcome::Ready { root: root.clone(), chromium_pak: None });
     assert_eq!(outcome.to_json(), json!({"state": "ready", "root": root.to_string_lossy()}));
 }
 
@@ -222,7 +308,7 @@ fn a_pack_without_its_marker_is_downloaded_again() {
         json!({"de": {"url": server.url, "sha256": sha256, "size": body.len()}}),
     );
     let outcome = ensure(&request("de", manifest, cache.clone()));
-    assert_eq!(outcome, Outcome::Ready(cache.join(&sha256)));
+    assert_eq!(outcome, Outcome::Ready { root: cache.join(&sha256), chromium_pak: None });
     assert!(cache.join(&sha256).join("de.lproj/Localizable.strings").is_file());
     assert_eq!(server.requests.load(Ordering::SeqCst), 1);
 }
@@ -265,7 +351,10 @@ fn a_pack_downloads_once_unpacks_and_prunes_the_old_ones() {
         .collect();
     let root = cache.join(&sha256);
     for thread in threads {
-        assert_eq!(thread.join().unwrap(), Outcome::Ready(root.clone()));
+        assert_eq!(
+            thread.join().unwrap(),
+            Outcome::Ready { root: root.clone(), chromium_pak: None }
+        );
     }
     assert_eq!(server.requests.load(Ordering::SeqCst), 1, "one download for every request");
     assert_eq!(

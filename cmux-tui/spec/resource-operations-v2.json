@@ -15732,6 +15732,15 @@
           },
           "description": "ready: the pack's folder, <cache>/<sha256>."
         },
+        "chromium_pak": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready, when the pack carries a Chromium locale: its locale.pak, <root>/ChromiumLocales/<catalog>.lproj/locale.pak."
+        },
         "code": {
           "required": false,
           "type": {
@@ -30072,7 +30081,7 @@
       ],
       "constraints": [
         "Only the verified app connection sends it (origin user, a local socket): it reads and writes folders by path and downloads. A page, an agent, an app and a link connection are refused.",
-        "The manifest is {version: 1, packs: {<language>: {url, sha256, size}}}; another version, a sha256 that is not 64 lowercase hex digits, a size of 0 or above 128 MiB, or a url that is not https://files-next.cmux.com/... is bad_manifest (debug builds also take http on 127.0.0.1 or localhost).",
+        "The manifest is {version: 1, packs: {<language>: {url, sha256, size, strings?, chromium?}}}; chromium, when present, is one of the 54 Chromium locale paks for macOS other than en (en-US stays in the app), and a pack with strings false carries a chromium;  another version, a sha256 that is not 64 lowercase hex digits, a size of 0 or above 128 MiB, or a url that is not https://files-next.cmux.com/... is bad_manifest (debug builds also take http on 127.0.0.1 or localhost).",
         "A pack whose folder <cache>/<sha256> holds .complete answers ready with no network. Otherwise the daemon downloads the url once (120 s in all, no redirect), refuses a body of another size or SHA-256 (verify), unpacks the zstd tar into a private .partial folder (only files and folders with relative names and no .., else verify), writes .complete last and renames the folder into place.",
         "Requests for one pack share one download. After a ready answer the daemon removes the pack folders of <cache> the manifest no longer names and .partial folders older than an hour.",
         "A failure is a reply, never an error: unavailable with code language_packs.offline (network), language_packs.verify (size, hash or archive), language_packs.bad_manifest or language_packs.io (the file system), and one sentence for a person."

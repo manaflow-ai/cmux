@@ -5,12 +5,21 @@
 //! ```json
 //! {"version": 1, "packs": {"de": {
 //!   "url": "https://files-next.cmux.com/language-packs/<sha>/de.tar.zst",
-//!   "sha256": "<64 lowercase hex>", "size": 412345}}}
+//!   "sha256": "<64 lowercase hex>", "size": 412345, "strings": true, "chromium": "de"}}}
 //! ```
+//!
+//! Every language Chromium has a locale pak for is a pack (CMUX-570, Leo 2026-11-18: "if we're
+//! doing it for 21, we might as well for the other 200"): `chromium` names the Chromium catalog
+//! the pack carries at `ChromiumLocales/<catalog>.lproj/locale.pak` ([`CHROMIUM_LOCALES`], en-US
+//! stays in the app as the fallback), `strings` whether it also carries cmux's own strings. A
+//! language with a pak and no cmux strings (sv, en-GB, es-419, pt-PT, ...) translates Chromium's
+//! pages and leaves cmux's own UI in English. Both fields are optional: a manifest without them
+//! (the first one) is strings only.
 //!
 //! The app asks for the language it shows; the daemon answers one of
 //! - `{state: "bundled"}`: English or empty, no manifest file, or no pack for the language;
-//! - `{state: "ready", root}`: the pack is extracted at `<cache>/<sha256>`;
+//! - `{state: "ready", root, chromium_pak?}`: the pack is extracted at `<cache>/<sha256>`, and
+//!   when it carries a Chromium catalog, `chromium_pak` is that `locale.pak`;
 //! - `{state: "unavailable", code, message}`: `language_packs.offline` (the download failed),
 //!   `.verify` (size, hash or archive), `.bad_manifest` or `.io` (the cache folder).
 //!
@@ -67,6 +76,26 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const STALE_PARTIAL: Duration = Duration::from_secs(60 * 60);
 /// The one host a release build downloads packs from.
 const PACK_HOST: &str = "files-next.cmux.com";
+/// The folder of a pack that holds its Chromium locale pak, `<catalog>.lproj/locale.pak`.
+const CHROMIUM_DIR: &str = "ChromiumLocales";
+
+/// Every locale pak Chromium 157 builds for macOS (build/config/locales.gni
+/// `platform_pak_locales`: `all_chrome_locales` without the extended and pseudo locales), as the
+/// framework's `.lproj` names. Each has four files upstream, one per grammatical gender
+/// (`_MASCULINE`, `_FEMININE`, `_NEUTER`): 220 folders, the count people see; cmux ships none of
+/// the gendered ones. `en` (en-US) stays in the app; every other one is a download.
+pub(crate) const CHROMIUM_LOCALES: [&str; 55] = [
+    "af", "am", "ar", "bg", "bn", "ca", "cs", "da", "de", "el", "en", "en_GB", "es", "es_419",
+    "et", "fa", "fi", "fil", "fr", "gu", "he", "hi", "hr", "hu", "id", "it", "ja", "kn", "ko",
+    "lt", "lv", "ml", "mr", "ms", "nb", "nl", "pl", "pt_BR", "pt_PT", "ro", "ru", "sk", "sl", "sr",
+    "sv", "sw", "ta", "te", "th", "tr", "uk", "ur", "vi", "zh_CN", "zh_TW",
+];
+
+/// Whether `catalog` is a Chromium locale pak a pack may carry: one of [`CHROMIUM_LOCALES`] but
+/// `en`, which the app keeps.
+pub(crate) fn is_downloadable_chromium_locale(catalog: &str) -> bool {
+    catalog != "en" && CHROMIUM_LOCALES.contains(&catalog)
+}
 
 /// One request's fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +161,11 @@ impl Code {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Bundled,
-    Ready(PathBuf),
+    /// The pack's folder, and its Chromium locale pak when it carries one.
+    Ready {
+        root: PathBuf,
+        chromium_pak: Option<PathBuf>,
+    },
     Unavailable(Code),
 }
 
@@ -141,7 +174,13 @@ impl Outcome {
     pub(crate) fn to_json(&self) -> Value {
         match self {
             Self::Bundled => json!({"state": "bundled"}),
-            Self::Ready(root) => json!({"state": "ready", "root": root.to_string_lossy()}),
+            Self::Ready { root, chromium_pak } => {
+                let mut reply = json!({"state": "ready", "root": root.to_string_lossy()});
+                if let Some(pak) = chromium_pak {
+                    reply["chromium_pak"] = Value::from(pak.to_string_lossy());
+                }
+                reply
+            }
             Self::Unavailable(code) => json!({"state": "unavailable", "code": code.wire_name(),
                 "message": code.message()}),
         }
@@ -162,6 +201,24 @@ pub(crate) struct Pack {
     pub(crate) url: String,
     pub(crate) sha256: String,
     pub(crate) size: u64,
+    /// The Chromium catalog the pack carries (`ChromiumLocales/<catalog>.lproj/locale.pak`).
+    #[serde(default)]
+    pub(crate) chromium: Option<String>,
+    /// Whether the pack carries cmux's own strings; the first manifests' packs all did.
+    #[serde(default = "carries_strings")]
+    pub(crate) strings: bool,
+}
+
+const fn carries_strings() -> bool {
+    true
+}
+
+impl Pack {
+    /// Where the pack's Chromium locale pak is once it is extracted at `root`.
+    fn chromium_pak(&self, root: &Path) -> Option<PathBuf> {
+        let catalog = self.chromium.as_deref()?;
+        Some(root.join(CHROMIUM_DIR).join(format!("{catalog}.lproj")).join("locale.pak"))
+    }
 }
 
 /// `text` when it is 64 lowercase hex digits.
@@ -182,6 +239,11 @@ pub(crate) fn parse_manifest(bytes: &[u8]) -> Result<Manifest, Code> {
             || pack.size == 0
             || pack.size > PACK_SIZE_LIMIT
             || !allowed_url(&pack.url)
+            || pack
+                .chromium
+                .as_deref()
+                .is_some_and(|catalog| !is_downloadable_chromium_locale(catalog))
+            || (!pack.strings && pack.chromium.is_none())
         {
             return Err(Code::BadManifest);
         }
@@ -228,12 +290,24 @@ pub(crate) fn ensure(request: &Request) -> Outcome {
         return Outcome::Bundled;
     };
     let outcome = shared(&request.cache, pack);
-    if matches!(outcome, Outcome::Ready(_)) {
+    if matches!(outcome, Outcome::Ready { .. }) {
         let keep: HashSet<&str> =
             manifest.packs.values().map(|pack| pack.sha256.as_str()).collect();
         prune(&request.cache, &keep, SystemTime::now());
     }
     outcome
+}
+
+/// The answer for a pack whose folder is `root`: ready, naming its Chromium locale pak when it
+/// carries one. A folder whose pinned pak is not a regular file is not this pack: verify.
+fn ready(pack: &Pack, root: PathBuf) -> Outcome {
+    let chromium_pak = pack.chromium_pak(&root);
+    if let Some(pak) = &chromium_pak {
+        if !std::fs::symlink_metadata(pak).is_ok_and(|meta| meta.is_file()) {
+            return Outcome::Unavailable(Code::Verify);
+        }
+    }
+    Outcome::Ready { root, chromium_pak }
 }
 
 /// The manifest's bytes, `None` when there is no manifest file.
@@ -268,7 +342,13 @@ fn jobs() -> &'static Mutex<HashMap<PathBuf, Arc<Job>>> {
 fn shared(cache: &Path, pack: &Pack) -> Outcome {
     let root = cache.join(&pack.sha256);
     if is_complete(&root) {
-        return Outcome::Ready(root);
+        match ready(pack, root.clone()) {
+            Outcome::Unavailable(_) => {
+                // A whole folder whose pinned pak is gone was changed on disk: it is made again.
+                let _ = std::fs::remove_dir_all(&root);
+            }
+            outcome => return outcome,
+        }
     }
     let (job, leader) = {
         let mut jobs = jobs().lock().unwrap_or_else(PoisonError::into_inner);
@@ -298,7 +378,7 @@ fn shared(cache: &Path, pack: &Pack) -> Outcome {
         }
         let mut publish = Publish { root: &root, job: &job, outcome: None };
         let outcome = match install(cache, pack) {
-            Ok(root) => Outcome::Ready(root),
+            Ok(root) => ready(pack, root),
             Err(code) => Outcome::Unavailable(code),
         };
         publish.outcome = Some(outcome.clone());

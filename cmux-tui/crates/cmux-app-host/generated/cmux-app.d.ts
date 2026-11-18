@@ -299,7 +299,7 @@ declare namespace Cmux {
   type KeybindingEntry = { index: number; keys: Array<string>; command: string; when: string | null; args: Record<string, Cmux.JsonValue> | null; removal: boolean }
   type KeybindingsSnapshot = { path: string; revision: string; entries: Array<Cmux.KeybindingEntry>; diagnostics: Array<Cmux.KeybindingDiagnostic> }
   type KeybindingTarget = { key: string; when?: string; command?: string }
-  type LanguagePackState = { state: "bundled" | "ready" | "unavailable"; root?: string; code?: "language_packs.offline" | "language_packs.verify" | "language_packs.bad_manifest" | "language_packs.io"; message?: string }
+  type LanguagePackState = { state: "bundled" | "ready" | "unavailable"; root?: string; chromium_pak?: string; code?: "language_packs.offline" | "language_packs.verify" | "language_packs.bad_manifest" | "language_packs.io"; message?: string }
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
   type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId>; gone_ids?: Array<string> }
