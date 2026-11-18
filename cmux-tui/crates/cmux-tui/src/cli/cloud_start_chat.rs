@@ -1770,7 +1770,7 @@ fn send_prompt(
         (
             format!("e=$(( $(date +%s) + {budget} )); "),
             format!(
-                "s=$(( e - $(date +%s) )); if [ \"$x\" = 0 ] && [ \"$s\" -ge 1 ]; then {}fi",
+                "s=$(( e - $(date +%s) )); if [ \"$x\" = 0 ] && [ \"$s\" -ge 1 ]; then {}; fi",
                 sent_turn_wait_script(session)
             ),
         )

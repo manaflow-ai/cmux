@@ -106,7 +106,8 @@ fn run_send_exec(script: &str, send_cost: u64) -> (String, String) {
         .output()
         .unwrap();
     let log = std::fs::read_to_string(dir.path().join("log")).unwrap_or_default();
-    (log, String::from_utf8_lossy(&ran.stdout).into_owned())
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    (log, format!("{}\n@@stderr\n{stderr}", String::from_utf8_lossy(&ran.stdout)))
 }
 
 /// The send's exec is bounded from its first command: a slow send leaves the wait only what is left of the slice,
@@ -122,7 +123,7 @@ fn a_slow_send_leaves_its_exec_s_wait_only_what_is_left_of_the_slice() {
     let sent = script(&fake.ran[0]).to_owned();
 
     let (log, stdout) = run_send_exec(&sent, 4);
-    assert!(log.contains("acp wait sess-1 --timeout 16 --until running"), "{log}");
+    assert!(log.contains("acp wait sess-1 --timeout 16 --until running"), "{log}{stdout}");
     assert!(log.contains("acp wait sess-1 --timeout 16\n"), "{log}");
     assert!(stdout.contains("@@wait 0"), "{stdout}");
 
