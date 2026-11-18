@@ -221,3 +221,88 @@ test("the row whose `when` is being edited stays mounted, and keeps focus, howev
   expect(host.querySelector(".keys-row .keys-command-title")?.textContent).toBe("Action 00002");
   expect(rows()).toBeLessThanOrEqual(61);
 });
+
+/** Tab as a browser does it: the keydown goes to the focused element, and unless a handler takes
+ *  it, focus moves to the next (or, with Shift, the previous) control in document order. */
+async function tab(shift = false) {
+  const document = dom.window.document;
+  const from = (document.activeElement ?? document.body) as HTMLElement;
+  await act(async () => {
+    const event = new dom.window.KeyboardEvent("keydown", {
+      key: "Tab",
+      shiftKey: shift,
+      bubbles: true,
+      cancelable: true,
+    });
+    if (!from.dispatchEvent(event)) return;
+    const order = [...document.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter(
+      (control) => !control.matches(":disabled") && control.tabIndex >= 0,
+    );
+    const at = order.indexOf(from);
+    const to = order[at + (shift ? -1 : 1)];
+    if (to) to.focus();
+    else from.blur();
+  });
+}
+
+/** The index of the row that holds focus, or -1 when focus is not in a row. */
+const focusedIndex = () => {
+  const row = (dom.window.document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".keys-row");
+  return row ? Number(row.dataset.index) : -1;
+};
+
+test("Tab walks every row's controls, past the mounted rows, and Shift-Tab walks back the same way", async () => {
+  const { scroller } = await mount(1_000);
+  // As a browser scrolls a row into view: the nearest edge of the 600 px viewport moves to it.
+  const original = dom.window.HTMLElement.prototype.scrollIntoView;
+  dom.window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+    if (!this.classList.contains("keys-row")) return;
+    const top = 4 + Number(this.dataset.index) * 41;
+    const next =
+      top < scroller.scrollTop ? top : top + 41 > scroller.scrollTop + 600 ? top + 41 - 600 : scroller.scrollTop;
+    if (next === scroller.scrollTop) return;
+    scroller.scrollTop = next;
+    scroller.dispatchEvent(new dom.window.Event("scroll"));
+  };
+  try {
+    const first = host.querySelector<HTMLElement>('.keys-row[data-index="0"] .keys-key-button')!;
+    await act(async () => first.focus());
+    // Row 500 of 1,000 (aria-rowindex 501): each row has three controls (keys, `when`, Remove).
+    let presses = 0;
+    const visited = [0];
+    while (focusedIndex() !== 499 && presses < 1_600) {
+      await tab();
+      presses++;
+      visited.push(focusedIndex());
+      if (focusedIndex() < 0) break;
+    }
+    expect({ row: focusedIndex(), presses }).toEqual({ row: 499, presses: 499 * 3 });
+    // In order, one row at a time: no row's controls skipped.
+    expect(visited.every((index, at) => at === 0 || index - visited[at - 1]! <= 1)).toBe(true);
+    const focused = dom.window.document.activeElement!.closest(".keys-row")!;
+    expect(focused.getAttribute("aria-rowindex")).toBe("501");
+    expect(focused.querySelector(".keys-key-button")).toBe(dom.window.document.activeElement);
+    // It scrolled in, and the table still mounts about a window of rows, in order.
+    expect(scroller.scrollTop).toBeGreaterThan(41 * 470);
+    expect(rows()).toBeLessThanOrEqual(62);
+    const order = [...host.querySelectorAll<HTMLElement>(".keys-row")].map((row) => Number(row.dataset.index));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order).toContain(480);
+
+    // Shift-Tab: back up 100 rows, past the window, the same way.
+    const back = [499];
+    for (presses = 0; focusedIndex() !== 399 && presses < 400; presses++) {
+      await tab(true);
+      back.push(focusedIndex());
+      if (focusedIndex() < 0) break;
+    }
+    // From the keys of row 500 to the Remove of row 400 (its last control): three controls a row.
+    expect({ row: focusedIndex(), presses }).toEqual({ row: 399, presses: 99 * 3 + 1 });
+    expect(back.every((index, at) => at === 0 || (index <= back[at - 1]! && back[at - 1]! - index <= 1))).toBe(true);
+    expect(dom.window.document.activeElement?.classList.contains("keys-remove")).toBe(true);
+    expect(scroller.scrollTop).toBeLessThanOrEqual(4 + 399 * 41);
+    expect(rows()).toBeLessThanOrEqual(62);
+  } finally {
+    dom.window.HTMLElement.prototype.scrollIntoView = original;
+  }
+}, 60_000);
