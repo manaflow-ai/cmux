@@ -1044,14 +1044,11 @@ fn read_watch(
             for at in [cursor.as_mut(), pending.as_mut()].into_iter().flatten() {
                 at.seq = OwedRows::cap(owed, at.seq);
             }
-            match (page, cursor.as_ref()) {
-                (None, Some(at)) => {
-                    asked_from = at.seq;
-                    page = Some(ask_follow(&mut writer, &mut last_id, at)?);
-                    page_is_watch = true;
-                }
-                // A list or follow is out: the follow after it reads them (`owed`).
-                _ => {}
+            // A list or follow out now: the follow after it reads them (`owed`).
+            if let (None, Some(at)) = (page, cursor.as_ref()) {
+                asked_from = at.seq;
+                page = Some(ask_follow(&mut writer, &mut last_id, at)?);
+                page_is_watch = true;
             }
         } else if message["method"] == "_acpmux/lagged" && message["params"]["watch"] == true {
             // acpmux dropped pushes this watch needed. Before it could follow, the watch read on
