@@ -390,7 +390,8 @@ async fn a_held_chat_past_200k_compacts_before_it_resumes() {
     // Give a fourth turn the time to start if one were coming.
     tokio::time::sleep(Duration::from_millis(800)).await;
     let started = of_kind(&hub, &id, "turn_started");
-    assert_eq!(started.len(), 3, "the compaction, then one turn: {k:?}");
+    let skipped = of_kind(&hub, &id, "auto_resume_skipped");
+    assert_eq!(started.len(), 3, "the compaction, then one turn: {k:?} {skipped:?}");
     assert!(started[1].at >= reset, "it compacted at the reset: {} < {reset}", started[1].at);
     let messages = user_messages(&hub, &id);
     assert_eq!(messages.len(), 3, "{messages:?}");

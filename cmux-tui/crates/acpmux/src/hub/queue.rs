@@ -370,11 +370,15 @@ impl Hub {
                     // not hold up a new one. A prompt that waits for the owner (its provenance's
                     // `approval`, `author.rs`) always queues.
                     let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                    // A rate limit's compaction goes ahead of what the hold queued: those go in
+                    // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
+                    let rate_compaction =
+                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
                     let waiting = stop_held
-                        || session.queued() > held
+                        || (session.queued() > held && !rate_compaction)
                         || (session.turn_claimed() && !p.after_turn)
                         || session.turn().is_some()
                         || awaiting_owner;
@@ -450,8 +454,13 @@ impl Hub {
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
                     // turn.
-                    // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues.
-                    if queue_waits(session) || Self::rate_holds(session, p.provenance) {
+                    // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
+                    // only its compaction goes ahead of what the hold queued.
+                    let rate_compaction =
+                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    if (queue_waits(session) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance)
+                    {
                         drop(guard);
                         // Its `queued` reservation is still counted.
                         let (waits, position) =

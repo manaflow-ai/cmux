@@ -377,10 +377,20 @@ pub(super) fn check_cut(
     after: Option<&str>,
     waiting: bool,
 ) -> Result<(), RpcError> {
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
+    let rate_held = rate_compaction_runs(session);
     match after {
-        Some(cut) if waiting || !still_cut(session, cut) => Err(superseded()),
+        Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
     }
+}
+
+/// Whether `session`'s account rate limit holds it while its compaction runs (`rate_hold.rs`):
+/// that one prompt goes ahead of what the hold queued, which goes in after it with the
+/// continuation.
+pub(super) fn rate_compaction_runs(session: &Session) -> bool {
+    Hub::rate_held(session)
+        && session.auto_resume.compacting.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 /// Up to a fifth more than `delay`, the same for a chat each time.
