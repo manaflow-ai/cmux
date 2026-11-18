@@ -27,6 +27,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
+| workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 
 
 ## Launch and update
@@ -61,6 +62,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
+| `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
@@ -183,6 +185,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `chromium-host-bench.sh` | Chromium host input hop time (hop_us). | cef-host-input | 2026-11-03 | active |
 | `cef-app-size.sh` | Installed-size proof for CEF binary with V8 snapshots. | CMUX-570 | 2026-11-14 | active |
 | `cef-snapshot-resources.py` | Pairs a CEF binary with its generated V8 snapshots. | CMUX-570 | 2026-11-14 | active |
+| `clear-cache-look.sh` | Clear Browsing Data's cache option on a real Chromium engine: a service worker's Cache Storage before and after (correctness). | - | 2026-11-17 | active |
+| `floating-pane-look.sh` | Pictures of a floating pane with the Debug Settings knob `Background opacity` at 1 and below 1: a terminal pane and a page pane, with a background picture and without (a look for a person; judges nothing). | - | 2026-11-18 | active |
 
 ## Build and dev loop
 
@@ -230,6 +234,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `workspace-factory.sh` | Throwaway per-job workspace from a read-only seed vs today's step workspaces, one real SwiftPM prebuild (bench workspace-factory). | hq RFD 0005 | 2026-11-17 | active |
+| `workspace-factory` | `wsfactory`, the std-only Rust factory the script builds: seed publish/verify, create, destroy, reconcile. | hq RFD 0005 | 2026-11-17 | active |
 | `quiet-host.sh` | Runs one measurement on a quiet host and records other CPU use. | - | 2026-10-31 | active |
 | `require-chromium.sh` | Sourced by an entry that builds its app: the build requires the Chromium engine unless `--allow-no-chromium`. Measures nothing. | - | 2026-11-16 | active |
 | `bench-ab` | Interleaved A/B driver for fleet benches with A/A self-test and intervals. | - | 2026-11-06 | active |
@@ -240,6 +246,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `blocking-probe-report.py` | Ranks the main-thread blocking the probe recorded. | - | 2026-10-24 | active |
 | `ios-sim-density.sh` | iOS simulators per fleet Mac: N clones of one booted base running the same UI suites at once, jobs per hour, failures, memory per simulator, CPU, swap, pressure. | Leo 2026-11-16, simulator density | 2026-11-17 | active |
 | `ios-sim-density.py` | Python driver for ios-sim-density.sh. | Leo 2026-11-16 | 2026-11-17 | active |
+| `gui-user-per-job.sh` | One macOS account per GUI job: whether a pool account with no login of its own gets WindowServer, capture and AX input, TCC routes, cost per account, setup and teardown times. Pool stages need root (fleet-sudo). | Leo 2026-11-17, GUI CI partitioning | 2026-11-17 | active |
+| `gui-user-isolation.sh` | Isolation test for the GUI user pool: N jobs at once, each as its own pool account, plus a simulator in its own device set; fails if any job sees another job's defaults, keychain, clicks or pixels, or a job touches the general pasteboard. | Leo 2026-11-17, GUI CI partitioning | 2026-11-17 | active |
 | `tui-kit-selftest.sh` | Self-test of the journeys TUI load kit on a Mac. | - | 2026-11-11 | active |
 | `tests` | Shell and Python tests for the harnesses in this directory (28 files). | - | 2026-11-15 | active |
 | `export-action-catalog-dump.sh` | Regenerates action-catalog.json from the Swift catalog (generator). | CMUX-383 | 2026-11-14 | active |
