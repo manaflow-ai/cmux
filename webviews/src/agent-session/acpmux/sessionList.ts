@@ -52,6 +52,10 @@ export type AcpmuxSessionEntry = {
   archived?: boolean;
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
+  /** How the chat got its machine (the tag `placement`, set by the host's `chat.placement`;
+   *  design/auto-chat-placement.md): `auto` when Auto picked it and may move it, `pinned` once the
+   *  person pinned it there. Absent for a chat whose place the person picked. */
+  placement?: ChatPlacement;
   pullRequest?: SessionPullRequest;
   /** The pull request URLs the session's `gh pr create` calls printed (acpmux `pullRequests`),
    *  oldest first; absent from an acpmux that does not record them. */
@@ -186,6 +190,21 @@ export const hostKind = (value: unknown) => (value === "local" || value === "clo
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
 export const ARCHIVED_TAG = "archived";
+/** The tag the host's `chat.placement` sets: `auto` or `pinned` (design/auto-chat-placement.md). */
+export const PLACEMENT_TAG = "placement";
+export type ChatPlacement = "auto" | "pinned";
+/** The chat's placement from its tags; any other value reads as none. */
+export function chatPlacement(tags: unknown): ChatPlacement | undefined {
+  const value = tagValue(tags, PLACEMENT_TAG);
+  return value === "auto" || value === "pinned" ? value : undefined;
+}
+/** Where a chat runs, for its row's place: this Mac, a joined machine (its name), or Cloud. */
+export type ChatPlace = { kind: "local" } | { kind: "peer"; machine: string } | { kind: "cloud" };
+export function chatPlace(session: Pick<AcpmuxSessionEntry, "peer" | "host" | "hostKind">): ChatPlace {
+  if (session.hostKind === "cloud") return { kind: "cloud" };
+  if (session.peer) return { kind: "peer", machine: session.host || session.peer };
+  return { kind: "local" };
+}
 /** The tag New side chat sets on its fork (the value is the chat's session). */
 export const SIDE_TAG = "side";
 /** acpmux's tag on the fork a side question (`/btw`) is asked in, while it lives. */
@@ -334,6 +353,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
+    placement: chatPlacement(session.tags),
     pullRequest: pullRequest(session.pullRequest),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
     // A relayed message's text holds the broker's label for the agent (conversation/relayEnvelope.ts):

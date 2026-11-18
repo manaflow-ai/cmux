@@ -92,6 +92,13 @@ nonisolated extension AcpmuxPaneMethods {
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
         "_acpmux/prewarm": (["harness", "cwd", "release"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
+        // Auto chat placement (acpmux server/place.rs chat_place): the new chat's folder (checked like
+        // every cwd), what its work needs, the signed-in Cloud plan, and for a running chat Auto
+        // placed, where it runs now (`running`, a rejudge: a verdict, no move). Never `folder`
+        // (`{bytes, peersWithCopy}`): the path policy reads every `folder` key as a path and refuses
+        // an object there, and acpmux measures `cwd` itself when the request names no size.
+        "_acpmux/place_chat": (["cwd", "needs", "cloud", "running"], []),
+        "_acpmux/place_chat_event": (["kind"], []),
         // New project (direct.ts newProject): the folder's name only, never a path or a root.
         "_acpmux/project_new": (["name"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).

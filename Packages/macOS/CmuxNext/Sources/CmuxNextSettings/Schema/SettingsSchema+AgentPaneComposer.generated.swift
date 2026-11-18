@@ -31,7 +31,7 @@ extension AgentPaneComposerSetting {
     public nonisolated static let showMachineLoadWarningsDefault = true
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
-    public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .auto
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -151,11 +151,12 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.newChatsIn", "Start New Chats In"),
                 help: SettingsText.keyed("settings.agentPane.newChatsIn.help", "Cloud copies your project to your Cloud machine. A chat's composer can change it."),
                 kind: .choice([
+                    SettingChoice(AgentPaneNewChatPlace.auto.rawValue, SettingsText.keyed("settings.choice.newChatsInAuto", "Auto")),
                     SettingChoice(AgentPaneNewChatPlace.local.rawValue, SettingsText.keyed("settings.choice.newChatsInLocal", "This Mac")),
                     SettingChoice(AgentPaneNewChatPlace.cloud.rawValue, SettingsText.keyed("settings.choice.newChatsInCloud", "Cloud")),
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
-                keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+                keywords: ["auto", "cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
             ),
         ]
     }

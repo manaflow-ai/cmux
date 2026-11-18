@@ -36,8 +36,11 @@
 // (dictationSources.ts, design/composer-dictation.md). The mic's right-click picks it
 // (`pane.setDictationSource {source}`). `dictationShortcut` (`agentPane.dictationShortcut`) is only
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
-// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
-// new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "auto" by default): "auto" lets acpmux
+// pick This Mac, a joined machine or Cloud on the first send (`_acpmux/chat_place`, autoPlace.ts;
+// Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself. so it just goes."),
+// "local" is This Mac as before Auto, and "cloud" makes a new chat's run location Cloud; the composer's
+// own pick always wins (runLocationDefault.ts). Anything else reads as the default.
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new
@@ -51,7 +54,7 @@ export type { HarnessPlacement } from "../../ui/harnessPlacement";
 import type { HarnessPlacement } from "../../ui/harnessPlacement";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
-export type NewChatPlace = "local" | "cloud";
+export type NewChatPlace = "auto" | "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
 export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
 export type DictationSource = (typeof DICTATION_SOURCES)[number];
@@ -88,7 +91,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessPlacement: "symbols",
   harnessSwitch: false,
   showMachineLoadWarnings: true,
-  newChatsIn: "local",
+  newChatsIn: "auto",
   composerRing: "context",
   cloudEnvironments: false,
 };
@@ -130,7 +133,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
-    newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
+    newChatsIn: raw.newChatsIn === "cloud" || raw.newChatsIn === "local" ? raw.newChatsIn : "auto",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     cloudEnvironments: flag("cloudEnvironments"),
   };

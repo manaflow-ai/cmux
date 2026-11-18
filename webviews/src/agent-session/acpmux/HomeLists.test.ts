@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { minutesAgo } from "../../gallery/clock";
 import { session } from "../../gallery/fixtures/acpmux";
 import { homeLists } from "./homeListsModel";
-import { withoutChildren } from "./sessionList";
+import { chatPlace, chatPlacement, sessionEntry, withoutChildren } from "./sessionList";
 
 test("homeLists excludes unlisted and not-ready sessions, then caps each section", () => {
   const current = session({ sessionId: "current", status: "waiting", updatedAt: minutesAgo(0) });
@@ -131,4 +131,23 @@ test("a nested child waiting for a question remains discoverable before its indi
     "question",
     "waiting",
   ]);
+});
+
+// Auto chat placement (design/auto-chat-placement.md): the host's `chat.placement` tag, and the place a row names.
+test("a chat's placement tag reads as auto or pinned, anything else as none", () => {
+  const entry = (tags: unknown) => sessionEntry({ sessionId: "s", tags });
+  expect(entry({ placement: "auto" }).placement).toBe("auto");
+  expect(entry({ placement: "pinned" }).placement).toBe("pinned");
+  expect(entry({ placement: "Auto" }).placement).toBeUndefined();
+  expect(entry({ placement: "" }).placement).toBeUndefined();
+  expect(entry(["placement"]).placement).toBeUndefined();
+  expect(entry(undefined).placement).toBeUndefined();
+  expect(chatPlacement({ placement: "auto", side: "x" })).toBe("auto");
+});
+
+test("a chat's place is Cloud for a Cloud machine, the machine for a peer, else this Mac", () => {
+  expect(chatPlace({ hostKind: "cloud", peer: "cloud-7f2a", host: "cloud-7f2a" })).toEqual({ kind: "cloud" });
+  expect(chatPlace({ peer: "build-box" })).toEqual({ kind: "peer", machine: "build-box" });
+  expect(chatPlace({ peer: "hb", host: "build-box" })).toEqual({ kind: "peer", machine: "build-box" });
+  expect(chatPlace({ hostKind: "local", host: "This Mac" })).toEqual({ kind: "local" });
 });

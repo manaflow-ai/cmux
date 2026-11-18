@@ -38,6 +38,9 @@ import {
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
 const CLOUD_RUN = "\u0000cloud-run";
+/// The Auto row's value (autoPlace.ts): acpmux picks This Mac, a joined machine or Cloud on the first
+/// send (Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself. so it just goes.").
+const AUTO_RUN = "\u0000auto-run";
 
 /// A machine's kind, which the search also matches ("ssh", "cloud").
 const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
@@ -61,7 +64,7 @@ export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 export type EnvironmentRows = "combined" | "where" | "machines" | "run";
 /// The cloud toggle's rows' second lines (a gallery arm copying ChatGPT Work; the shipped picker
 /// has none, design/environment-picker.md rule 0).
-export type RunRowDetails = { local: string; cloud: string };
+export type RunRowDetails = { local: string; cloud: string; auto?: string };
 
 /// The New Tab page's saved environments in the picker: in Machines… after This Mac, Create
 /// environment on the right-click menu, and Edit environment there while one is picked. One that is
@@ -252,7 +255,8 @@ export function EnvironmentPicker({
   // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
   const clouded = runMode?.mode === "cloud";
-  const checkedRow = sandboxed || clouded ? undefined : currentRow;
+  const autoed = runMode?.mode === "auto";
+  const checkedRow = sandboxed || clouded || autoed ? undefined : currentRow;
   const persistent = () => {
     if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
   };
@@ -431,6 +435,8 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
+  // Auto heads a new chat's main, Where and Run lists (never a machine list or a started chat's).
+  const autoRow = runMode !== undefined && runMode.auto !== false ? AUTO_RUN : undefined;
   // Which machine's list, and Other devices' list, end with Add Machine….
   const addMachine: Action | undefined =
     (listRows === "machines" || offersDevices) && onConnect
@@ -508,6 +514,7 @@ export function EnvironmentPicker({
   const main = card
     ? [...cardActions, ...continueOn].map((action) => action.value)
     : [
+        ...(autoRow ? [autoRow] : []),
         ...ordered.filter(isLocal).map((environment) => environment.id),
         ...(pickedOther ? [pickedOther] : []),
         ...(move ? [move.value] : []),
@@ -554,6 +561,7 @@ export function EnvironmentPicker({
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked && !savedLocal;
   const where = [
+    ...(autoRow ? [autoRow] : []),
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...(cloudRow ? [cloudRow] : []),
     ...(devicesMenu ? [devicesMenu.value] : []),
@@ -599,7 +607,11 @@ export function EnvironmentPicker({
             ? machines
             : listRows === "where" || listRows === "run"
               ? listRows === "run"
-                ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+                ? [
+                    ...(autoRow ? [autoRow] : []),
+                    ...ordered.filter(isLocal).map((environment) => environment.id),
+                    ...(cloudRow ? [cloudRow] : []),
+                  ]
                 : where
               : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,
@@ -616,8 +628,8 @@ export function EnvironmentPicker({
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
   const sandboxFace = offersSandbox && sandboxed !== alternate;
 
-  const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
-  latest.current = { ordered, current: checkedRow, onPick, persistent };
+  const latest = useRef({ ordered, current: checkedRow, onPick, persistent, runMode, autoRow });
+  latest.current = { ordered, current: checkedRow, onPick, persistent, runMode, autoRow };
   useMachineRefresh(open, onOpen);
 
   const close = () => {
@@ -636,7 +648,8 @@ export function EnvironmentPicker({
   focusPromptRef.current = focusPrompt;
   const closeRef = useRef(close);
   closeRef.current = close;
-  // ⌥⌘1–9: while the list is open, or while focus is in the composer this picker heads.
+  // ⌥⌘1–9: while the list is open, or while focus is in the composer this picker heads. ⌥⌘0 is
+  // Auto, so the digits keep naming the same machines.
   const openRef = useRef(open);
   openRef.current = open;
   useEffect(() => {
@@ -647,6 +660,16 @@ export function EnvironmentPicker({
       const scope = control.current?.closest(".acpmux-composer, .nt-composer");
       const active = document.activeElement;
       if (!openRef.current && !(scope && active && scope.contains(active))) return;
+      if (digit === 0) {
+        const rows = latest.current.runMode;
+        if (!latest.current.autoRow || !rows || (!openRef.current && rows.mode === "auto")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (openRef.current) closeRef.current();
+        if (rows.mode !== "auto") rows.onMode("auto");
+        focusPromptRef.current();
+        return;
+      }
       const environment = environmentForDigit(latest.current.ordered, digit);
       // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9).
       if (!environment || (!openRef.current && environment.id === latest.current.current)) return;
@@ -693,6 +716,11 @@ export function EnvironmentPicker({
       return;
     }
     close();
+    if (value === AUTO_RUN) {
+      if (!autoed) runMode?.onMode("auto");
+      focusPrompt();
+      return;
+    }
     if (value === CLOUD_RUN) {
       // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
       if (sandboxFace) {
@@ -758,6 +786,30 @@ export function EnvironmentPicker({
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
+          </span>
+        </span>
+      );
+    }
+    // Auto: acpmux picks where the chat starts on its first send; its reasons are the chip's, after.
+    if (value === AUTO_RUN) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new"
+          data-kind="auto"
+          data-mode="auto"
+          data-current={autoed ? "" : undefined}
+          title={t("composer.autoRunDetail")}
+        >
+          <AutoIcon />
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("composer.auto")}</span>
+            {listRows === "run" && runDetails?.auto && (
+              <span className="acpmux-menu-description">{runDetails.auto}</span>
+            )}
+          </span>
+          {digits && listRows !== "run" && <kbd className="acpmux-env-key">⌥⌘0</kbd>}
+          <span className="acpmux-location-check" aria-hidden="true">
+            {autoed && <CheckIcon />}
           </span>
         </span>
       );
@@ -1096,6 +1148,28 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
       ) : (
         <path d="M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15 0 0 0 4.6 12.5Z" />
       )}
+    </svg>
+  );
+}
+
+/// Auto (AUTO_RUN): a spark, where acpmux picks the place.
+export function AutoIcon() {
+  return (
+    <svg
+      className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
+      data-kind="auto"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M8 2.5v2.25M8 11.25v2.25M2.5 8h2.25M11.25 8h2.25M4.1 4.1l1.6 1.6M10.3 10.3l1.6 1.6M11.9 4.1l-1.6 1.6M5.7 10.3l-1.6 1.6" />
     </svg>
   );
 }

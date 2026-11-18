@@ -1,3 +1,4 @@
+import type { AutoPlaced } from "./autoPlace";
 import type { CloudEnvironmentPick } from "./cloudEnvironmentChoice";
 import type { StringKey } from "./i18n";
 
@@ -6,9 +7,10 @@ import type { StringKey } from "./i18n";
 /// (`sandbox.run`, AgentPaneModel.onSandboxRun) and answers the Run's receipt
 /// (`cmux.run.receipt/v1`, web/services/runs/model.ts); nothing of the VM is kept.
 
-/// Where a new chat's first message runs: as a chat (the existing behavior), once in a sandbox, or
-/// as a chat on a Cloud machine picked for it (cloudRun.ts).
-export type RunMode = "persistent" | "sandboxed" | "cloud";
+/// Where a new chat's first message runs: as a chat (the existing behavior), once in a sandbox, as a
+/// chat on a Cloud machine picked for it (cloudRun.ts), or where acpmux puts it on that send (Auto,
+/// autoPlace.ts: This Mac, a joined machine or Cloud). Until that send Auto reads as a chat here.
+export type RunMode = "persistent" | "sandboxed" | "cloud" | "auto";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
 export type RunModeRows = {
@@ -18,6 +20,11 @@ export type RunModeRows = {
   environment?: CloudEnvironmentPick;
   /// false: Cloud alone, with no Sandboxed face (a new chat whose empty local session already opened).
   sandbox?: false;
+  /// false: no Auto row (EnvironmentPicker AUTO_RUN).
+  auto?: false;
+  /// Auto's place once acpmux answered this chat's first send (autoPlace.ts): the picker says
+  /// "Auto · <place>", and acpmux's reason in its tooltip.
+  autoPlaced?: AutoPlaced;
 };
 
 /// The parts of a receipt the chat shows; every field may be missing from an older server.

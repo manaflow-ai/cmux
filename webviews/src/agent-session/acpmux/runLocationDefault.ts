@@ -11,17 +11,21 @@
 /// (CmuxNextCloud CloudMoveFolder `remoteName` and `remote(under:)`, under CloudMoveSetup
 /// `workRoots`). The page can't see which folder holds `.git`, so every folder from the chat's up to
 /// the disk's root is a candidate; only one is the copy's name.
+import type { NewChatPlace } from "./composerSettings";
 import { listed, type AcpmuxSessionEntry } from "./sessionList";
 
 export type RunLocation = "local" | "cloud";
 
-/// Where a new chat runs when its composer picks nothing: Cloud when Settings' Start New Chats In
-/// (`agentPane.newChatsIn`) says Cloud, else where its folder's newest chat ran (folderRunLocation),
-/// else undefined (this Mac, as before). The composer's own pick always wins over this (App.tsx).
+/// Where a new chat runs when its composer picks nothing: Auto when Settings' Start New Chats In
+/// (`agentPane.newChatsIn`) says Auto (the default: acpmux picks the place on the first send,
+/// autoPlace.ts), Cloud when it says Cloud, else where its folder's newest chat ran
+/// (folderRunLocation), else undefined (this Mac, as before). The composer's own pick always wins
+/// over this (App.tsx).
 export function newChatRunLocation(
-  newChatsIn: "local" | "cloud",
+  newChatsIn: NewChatPlace,
   folderDefault: RunLocation | undefined,
-): RunLocation | undefined {
+): RunLocation | "auto" | undefined {
+  if (newChatsIn === "auto") return "auto";
   return newChatsIn === "cloud" ? "cloud" : folderDefault;
 }
 

@@ -54,6 +54,11 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// first send, webviews App.tsx `emptyLocalChat`): the start is taken from a pane that shows that
     /// chat, and the App closes the tab with it once the Cloud chat opens. Nil: a pane with no chat.
     public var replacesChat: String?
+    /// How the page chose Cloud for this chat (``AgentPaneChatPlacement``): `auto` when Auto picked it
+    /// on the first send (`_acpmux/place_chat`), nil when the person picked Cloud. Kept with the start
+    /// (``AgentPaneCloudStarted``) for the session tag `placement` on the machine's acpmux; any other
+    /// value reads as nil, never a refused start.
+    public var placement: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -117,6 +122,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let signedIn, !(signedIn is Bool) { return nil }
         self.signedIn = signedIn as? Bool ?? false
         self.planMax = (params?["planMax"] as? String).flatMap(CloudChatSize.init(rawValue:)) // a size this app does not know: none
+        self.placement = (params?["placement"] as? String).flatMap { AgentPaneChatPlacement.values.contains($0) ? $0 : nil }
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's

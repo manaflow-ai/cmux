@@ -44,6 +44,7 @@ import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } f
 import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
+import type { AutoPlaced } from "../autoPlace";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import {
@@ -242,7 +243,13 @@ export type NewTabScreenActions = NewTabCommandActions & {
     cwd: string | undefined,
     model: string | undefined,
     attachments: ComposerAttachment[],
+    /// Auto put the chat on Cloud (autoPlace.ts): its session is tagged `placement: auto`.
+    placement?: "auto",
   ): boolean | string;
+  /// Auto is the mode (autoPlace.ts): Enter asks acpmux where the chat starts (`_acpmux/place_chat`)
+  /// with the folder the chip names, then starts it there: This Mac, a joined machine, or Cloud through
+  /// `onCloud`. Never rejects: acpmux unreachable answers This Mac, marked `fallback`.
+  onAuto?(cwd: string | undefined): Promise<AutoPlaced>;
   /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
   cloudStatus?: React.ReactNode;
   /// A Cloud start from here is out: the box takes no input until it ends (inert), since the tab
@@ -685,8 +692,9 @@ export function NewTabScreen(props: Props) {
   const runMode = props.runMode && {
     ...props.runMode,
     onMode: (mode: RunMode) => {
-      // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
-      if (mode !== "persistent") {
+      // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends. Auto may start
+      // it here, so it keeps New project.
+      if (mode !== "persistent" && mode !== "auto") {
         // A folder still on its way, or made for a start that failed, is no longer this draft's.
         projectChoice.current += 1;
         setNewProject(undefined);
@@ -779,6 +787,8 @@ export function NewTabScreen(props: Props) {
       done();
     }
   };
+  /// Auto's request to acpmux is out: another Enter waits for it.
+  const autoAsking = useRef(false);
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars),
@@ -825,6 +835,41 @@ export function NewTabScreen(props: Props) {
       const started = props.onSandbox(agent, sent.text, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
+    }
+    // Auto (autoPlace.ts): acpmux says where the chat starts; the page starts it there. Not over a
+    // saved environment, New project or a machine the person picked: those are their own pick.
+    if (props.runMode?.mode === "auto" && props.onAuto && !environment && !newProject && !machine) {
+      if (autoAsking.current) return false;
+      autoAsking.current = true;
+      setStarting(agent);
+      const onAuto = props.onAuto;
+      void onAuto(envFolder).then((placed) => {
+        autoAsking.current = false;
+        setStarting(undefined);
+        if (placed.place === "cloud" && props.onCloud) {
+          const started = props.onCloud(agent, sent.text, envFolder, model, sentAttachments, "auto");
+          setSandboxRefusal(typeof started === "string" ? started : undefined);
+          return;
+        }
+        if (placed.place === "peer" && placed.peer) {
+          requestChat(
+            agent,
+            sent.text,
+            envFolder,
+            model,
+            undefined,
+            sentAttachments.length ? sentAttachments : undefined,
+            {
+              peer: placed.peer,
+            },
+          );
+          return;
+        }
+        if (sentAttachments.length > 0) requestChat(agent, sent.text, cwd, model, none || undefined, sentAttachments);
+        else if (none) requestChat(agent, sent.text, cwd, model, true);
+        else requestChat(agent, sent.text, cwd, model);
+      });
+      return true;
     }
     if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
     if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
@@ -996,7 +1041,7 @@ export function NewTabScreen(props: Props) {
       !shell &&
       !machine &&
       !environment &&
-      (props.runMode?.mode ?? "persistent") === "persistent" &&
+      ["persistent", "auto"].includes(props.runMode?.mode ?? "persistent") &&
       attachments.length === 0
         ? githubIssueLink(typed)
         : undefined,
@@ -1792,7 +1837,8 @@ export function NewTabScreen(props: Props) {
     touch();
     setNone(false);
     // A new folder is this Mac's: a Cloud or Sandboxed pick goes back to this Mac.
-    if (props.runMode && props.runMode.mode !== "persistent") runMode?.onMode("persistent");
+    if (props.runMode && props.runMode.mode !== "persistent" && props.runMode.mode !== "auto")
+      runMode?.onMode("persistent");
     // A folder kept from a failed start belongs to that choice; a new choice makes its own.
     newProjectMade.current = undefined;
     setNewProject((before) => before ?? {});

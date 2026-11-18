@@ -793,6 +793,7 @@ public final class AgentPaneModel {
                 return Self.transportFailure(.gestureRequired)
             }
             return await onIMessage(action)
+        case .chatPlacement(let request): return await respondToChatPlacement(request)
         case .tryAnotherApproach(let request):
             guard remoteChat, newTab == nil, let session = sessionId, let onTryAnotherApproach else {
                 return Self.unsupported(AgentPaneTryAnotherApproach.method)

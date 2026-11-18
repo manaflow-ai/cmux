@@ -576,6 +576,14 @@
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 /* A long folder name cuts with an ellipsis (its whole path is the tooltip) instead of pushing the age and chevron off the row (#28079). */
 .acpmux-home-project{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Auto chat placement: the row's place, and its pin beside the row (HomeLists.tsx rowPlace). */
+.acpmux-home-item{display:flex;align-items:center;gap:var(--grid-half-step)}
+.acpmux-home-item>.acpmux-home-row{flex:1;min-width:0}
+.acpmux-home-place{display:inline-flex;align-items:center;gap:var(--ds-space-1);flex:0 1 auto;min-width:0;max-width:30%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-home-place>.acpmux-icon{flex:none;width:12px;height:12px}
+.acpmux-home-pin{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--ds-control-compact);height:var(--ds-control-compact);padding:0;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);cursor:default}
+.acpmux-home-pin:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-home-pin:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 /* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
 .acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:var(--ds-space-1)}
 .acpmux-home-inbox-count{color:var(--agent-muted);font-variant-numeric:tabular-nums}

@@ -1281,6 +1281,74 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]'));
       },
     },
+    // Auto (autoPlace.ts; Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself.
+    // so it just goes."): first in the list, ⌥⌘0, and the face says where acpmux put the chat.
+    "environment-picker-auto-row": {
+      note: "Auto, the default for new chats: first in the list with ⌥⌘0 (⌥⌘1–9 keep their machines), checked; the face says Auto until the first send.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" as const },
+        peerConnected: { "gpu-box": true },
+        runMode: { mode: "auto" as const, onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="auto"][data-current]'));
+      },
+    },
+    "environment-picker-auto-placed-machine": {
+      note: "Auto placed the first send on a joined machine: the face reads Auto · gpu-box, acpmux's reason in its tooltip.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" as const },
+        peerConnected: { "gpu-box": true },
+        runMode: {
+          mode: "persistent" as const,
+          onMode: () => undefined,
+          autoPlaced: { place: "peer" as const, peer: "gpu-box", why: "gpu-box: This Mac is busy" },
+        },
+      },
+    },
+    "environment-picker-auto-placed-cloud": {
+      note: "Auto placed the first send on Cloud: the face reads Auto · Cloud while the Cloud start runs.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        runMode: {
+          mode: "cloud" as const,
+          onMode: () => undefined,
+          autoPlaced: { place: "cloud" as const, why: "Cloud: no machine has room" },
+        },
+      },
+    },
+    "environment-picker-auto-fallback": {
+      note: "acpmux could not be asked (an older daemon): the chat starts on This Mac and the face says Auto was unavailable.",
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: {
+          mode: "persistent" as const,
+          onMode: () => undefined,
+          autoPlaced: { place: "local" as const, fallback: true as const },
+        },
+      },
+    },
+    "strip-where-machine-auto": {
+      height: 280,
+      note: "The Where chip on Auto: Auto heads its rows, then This Mac, Cloud and Other devices; no machine chip while Auto is the pick.",
+      props: {
+        ...stripMachines,
+        stripLayout: "where-machine" as const,
+        runMode: { mode: "auto" as const, onMode: () => undefined },
+      },
+      play: openWhere,
+    },
     "folder-cloud-start-out": {
       note: "A Cloud start is out (the composer takes typing as a draft): the folder chip is a plain label of what the start carries, never this Mac's folder menu.",
       props: {

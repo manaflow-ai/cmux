@@ -84,6 +84,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
     /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
     public let usageWarnings: [String]
+    /// How the chat's place was chosen: `auto` when Auto picked it (and may move it), `pinned` when
+    /// the person pinned it there; nil for a chat started on a place the person picked. The session
+    /// tag `placement` (``placementTag``, the pane's `chat.placement`; design/auto-chat-placement.md).
+    public let placement: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
@@ -92,8 +96,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, placement: String? = nil) {
         self.id = id
+        self.placement = placement
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -130,6 +135,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
 
     /// The `mux.parent` tag acpmux sessions started by a coordinator carry.
     public static let parentTag = "mux.parent"
+    /// The session tag that says how the chat's place was chosen (``placement``).
+    public static let placementTag = "placement"
 
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
     /// (a closed session, or an acpmux from before `lane`). `id` names the session when the
@@ -165,7 +172,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
-                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))
+                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 placement: nonEmpty((summary["tags"] as? [String: Any])?[placementTag]).flatMap { ["auto", "pinned"].contains($0) ? $0 : nil })
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

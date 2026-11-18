@@ -224,6 +224,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case cloudEnvironment(AgentPaneCloudEnvironmentRequest)
     /// Fork a Cloud machine as it is now and its latest completed transcript turn into one sibling.
     case tryAnotherApproach(AgentPaneTryAnotherApproach)
+    /// How a chat's place was chosen (Auto or pinned), kept as its acpmux session tag (``AgentPaneChatPlacement``).
+    case chatPlacement(AgentPaneChatPlacement)
     /// A Cloud chat's whole-machine turn checkpoint, or a rewind to one (`cloud.turnCheckpoints`).
     case cloudTurnRewind(AgentPaneCloudTurnRewind)
     /// The new-tab omnibar invoked a host-owned action id.

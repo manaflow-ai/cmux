@@ -3,6 +3,8 @@
 
 /// Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
 public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseIterable {
+    /// cmux picks This Mac, a joined machine or Cloud for each chat (acpmux _acpmux/chat_place, design/auto-chat-placement.md) and may move it while it runs until the person pins it. Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself. so it just goes."
+    case auto
     /// This Mac, as before.
     case local
     /// The person's own Cloud machine (a free one of theirs, else a new one).

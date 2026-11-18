@@ -605,6 +605,8 @@ extension AgentPaneRequest {
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case AgentPaneChatPlacement.method:
+            self = AgentPaneChatPlacement(params: params).map(AgentPaneRequest.chatPlacement) ?? .unsupported(method)
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
         case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:

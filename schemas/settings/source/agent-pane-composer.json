@@ -350,6 +350,14 @@
           "kind": "choice",
           "choices": [
             {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.newChatsInAuto",
+                "text": "Auto"
+              },
+              "note": "cmux picks This Mac, a joined machine or Cloud for each chat (acpmux _acpmux/chat_place, design/auto-chat-placement.md) and may move it while it runs until the person pins it. Leo, 2026-11-18: \"an auto mode as an umbrella over remote/local/cloud itself. so it just goes.\""
+            },
+            {
               "value": "local",
               "title": {
                 "key": "settings.choice.newChatsInLocal",
@@ -366,8 +374,9 @@
               "note": "The person's own Cloud machine (a free one of theirs, else a new one)."
             }
           ],
-          "default": "local",
+          "default": "auto",
           "keywords": [
+            "auto",
             "cloud",
             "new chat",
             "start",

@@ -225,12 +225,13 @@ export function environmentForDigit(environments: readonly Environment[], digit:
   return numberedEnvironments(environments)[digit - 1];
 }
 
-/// The digit of an ⌥⌘1–9 key event, from its physical key (Option changes `key` on a Mac).
+/// The digit of an ⌥⌘0–9 key event, from its physical key (Option changes `key` on a Mac). 0 is a new
+/// chat's Auto (EnvironmentPicker AUTO_RUN), never a machine.
 export function environmentDigit(
   event: Pick<KeyboardEvent, "altKey" | "metaKey" | "ctrlKey" | "shiftKey" | "code">,
 ): number | undefined {
   if (!event.altKey || !event.metaKey || event.ctrlKey || event.shiftKey) return undefined;
-  const match = /^Digit([1-9])$/.exec(event.code);
+  const match = /^Digit([0-9])$/.exec(event.code);
   return match ? Number(match[1]) : undefined;
 }
 

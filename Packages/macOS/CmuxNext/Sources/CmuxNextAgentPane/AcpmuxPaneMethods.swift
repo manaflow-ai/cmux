@@ -125,6 +125,13 @@ nonisolated enum AcpmuxPaneMethods {
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",
+        // Auto chat placement (direct.ts chatPlace; acpmux server/place.rs, design/auto-chat-placement.md;
+        // Leo, 2026-11-18: "an auto mode as an umbrella over remote/local/cloud itself. so it just
+        // goes."). `_acpmux/place_chat` reads where a new chat on Auto would start (this Mac, a joined
+        // machine or Cloud) and why: a verdict only, it starts and moves nothing, so no gesture.
+        // `_acpmux/place_chat_event` tells acpmux this Mac will sleep or woke (`kind` only), which
+        // only changes what the next verdict weighs.
+        "_acpmux/place_chat", "_acpmux/place_chat_event",
         // Stop a running Claude subagent or workflow of a chat in the pane's scope (direct.ts
         // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
