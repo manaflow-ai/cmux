@@ -159,7 +159,8 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
                 let request = ProcessRequest(run.executable, run.arguments, timeout: timeout)
                 let outcome = try await withThrowingTaskGroup(of: ProcessOutcome.self) { group in
                     group.addTask(priority: urgency.priority) { try await processes.run(request) }
-                    return try await group.next()!
+                    guard let outcome = try await group.next() else { throw CancellationError() }
+                    return outcome
                 }
                 // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
                 status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
