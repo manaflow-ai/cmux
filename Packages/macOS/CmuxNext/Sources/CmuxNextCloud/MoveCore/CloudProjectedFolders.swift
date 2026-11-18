@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 import os
@@ -235,16 +236,16 @@ public final class CloudProjectedFolders {
 
     /// Every readable record under `folder` (one folder per mount), off the main actor.
     @concurrent nonisolated static func records(in folder: URL) async -> [Record] {
-        let mounts = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let mounts = (try? FileManager.checked.contentsOfDirectory(atPath: folder.path)) ?? []
         return mounts.filter(plain).compactMap { mount in
             let file = folder.appendingPathComponent(mount, isDirectory: true).appendingPathComponent("record.json", isDirectory: false)
-            guard let data = try? Data(contentsOf: file), let record = try? JSONDecoder().decode(Record.self, from: data), record.mount == mount else { return nil }
+            guard let data = try? Data(blockingContentsOf: file), let record = try? JSONDecoder().decode(Record.self, from: data), record.mount == mount else { return nil }
             return record
         }
     }
 
     /// Removes the record folders of `mounts` under `folder`, off the main actor.
     @concurrent nonisolated static func remove(_ mounts: [String], in folder: URL) async {
-        for mount in mounts where plain(mount) { try? FileManager.default.removeItem(at: folder.appendingPathComponent(mount, isDirectory: true)) }
+        for mount in mounts where plain(mount) { try? FileManager.checked.removeItem(at: folder.appendingPathComponent(mount, isDirectory: true)) }
     }
 }
