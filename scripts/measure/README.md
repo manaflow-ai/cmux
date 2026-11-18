@@ -230,7 +230,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `app-ffi-size.sh` | Size the app FFI Rust library adds per LTO mode. | #42471 | 2026-11-13 | active |
-| `cli-size.sh` | CLI size per compiler optimization mode. | CMUX-570 | 2026-11-14 | active |
+| `cli-size.sh` | CLI size per compiler optimization mode; `toolchain BASE [HEAD]` builds two commits and HEAD with acpmux + cmux-tui-core at opt-level s and z, with speed. | CMUX-570 | 2026-11-18 | active |
+| `cli-size-speed.py` | Bytes plus interleaved CLI and headless-daemon p50 for the builds `cli-size.sh toolchain` makes. | CMUX-570 | 2026-11-18 | active |
 | `panic-abort-size.sh` | Size saved by panic=abort on the shipped Rust helpers. | CMUX-570 | 2026-11-15 | active |
 | `macos-floor.sh` | How much CmuxNext code needs a newer macOS than a given floor. | - | 2026-11-07 | active |
 | `macho-filter-parity.sh` | Thin-bundle Mach-O filter: old file scan vs new list, with timings. | - | 2026-10-20 | active |
