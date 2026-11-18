@@ -124,9 +124,12 @@ mod linux {
             .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?;
         let listen =
             args.listen.clone().ok_or_else(|| anyhow::anyhow!("--listen is required\n{USAGE}"))?;
+        let addr: std::net::SocketAddr = listen
+            .parse()
+            .map_err(|_| anyhow::anyhow!("--listen takes IP:PORT, got {listen}\n{USAGE}"))?;
         anyhow::ensure!(
-            !listen.starts_with("0.0.0.0") && !listen.starts_with("[::]"),
-            "--listen takes the tailnet or VPC address, never every interface"
+            !addr.ip().is_unspecified(),
+            "--listen takes the tailnet or VPC address, never every interface (0.0.0.0, 0, [::])"
         );
         let mut limits = SeedLimits::default();
         if let Some(rate) = args.rate {
