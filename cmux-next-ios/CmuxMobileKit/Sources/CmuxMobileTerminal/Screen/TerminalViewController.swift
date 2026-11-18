@@ -1564,7 +1564,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let screen = surface.screenRows()
         let session = model.session
         guard let anchor = restore.replayed(totalRows: total, rowText: { row in
-            TerminalReadingMark.text(row, screen: screen) { reader.text(TerminalAbsoluteRow($0)) }
+            if let screen, row < screen.count { return screen.rows[row] }
+            return reader.text(TerminalAbsoluteRow(row))
         }, loadOlder: { session.loadOlderHistory() }) else {
             // The reader is above the rows replayed: the older rows' replay
             // (a reset) comes back here.
@@ -1657,7 +1658,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if let readingMark { return TerminalScrollPlace(mark: readingMark) }
         guard !model.isTUI, cell.height > 0, let anchor = readingAnchor() else { return nil }
         let reader = rowReader
-        return TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total, screen: surface.screenRows()) { reader.text(TerminalAbsoluteRow($0)) }
+        return TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
             .map { TerminalScrollPlace(mark: $0) }
     }
 
@@ -1741,12 +1742,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // ones a misplaced restore put on screen.
             readingMark = restored.mark
         } else {
-            // Every row of the screen, as the restore reads them: one by one,
-            // Ghostty addresses only its viewport, the active area and the
-            // first rows, and a fling ahead of the viewport read nil and left
-            // no mark (#43189, step 4b1ace37e645e27da805eb83).
             let reader = rowReader
-            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total, screen: surface.screenRows()) { reader.text(TerminalAbsoluteRow($0)) }
+            readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { reader.text(TerminalAbsoluteRow($0)) }
         }
         restoredMark = nil
         readingMarkOffsetY = readingMark == nil ? nil : scrollView.contentOffset.y

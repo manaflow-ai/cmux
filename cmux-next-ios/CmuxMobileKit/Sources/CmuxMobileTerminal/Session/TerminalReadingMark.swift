@@ -74,18 +74,9 @@ struct TerminalReadingMark: Equatable {
     /// The reader's rows at a mirror reset, from the rows on screen: the
     /// whole-screen read (`screen`, rows numbered like the scrollbar) and
     /// Ghostty's addressable rows (`reader`: the viewport, the active area
-    /// and the first rows). The screen's read goes first: one by one, the rows
-    /// a fling ran past Ghostty's viewport read nil, and the reset marked
-    /// nothing (#43189, step 4b1ace37e645e27da805eb83).
+    /// and the first rows).
     init?(anchor: TerminalScrollModel.Anchor, totalRows: Int, screen: TerminalScreenRows?, reader: (Int) -> String?) {
-        self.init(anchor: anchor, totalRows: totalRows) { Self.text($0, screen: screen, reader: reader) }
-    }
-
-    /// A row's text from the whole-screen read when it holds the row, else
-    /// from Ghostty's addressable rows. The mark and the restore read alike.
-    static func text(_ row: Int, screen: TerminalScreenRows?, reader: (Int) -> String?) -> String? {
-        if let screen, row >= 0, row < screen.count { return screen.rows[row] }
-        return reader(row)
+        self.init(anchor: anchor, totalRows: totalRows, rowText: reader)
     }
 
     /// The same rows, expected at the same distance from the end of a
