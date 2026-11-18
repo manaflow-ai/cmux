@@ -2,27 +2,27 @@ import Foundation
 
 /// Strings of palette scopes. Keys live in the module's Localizable.xcstrings.
 nonisolated extension PaletteStrings {
-    static var scopesTitle: String { String(localized: "palette.scope.scopes.title", defaultValue: "Scopes", bundle: .module) }
+    static var scopesTitle: String { String(localized: "palette.scope.scopes.title", defaultValue: "Scopes", bundle: .l10n) }
     static var scopesPlaceholder: String {
-        String(localized: "palette.scope.scopes.placeholder", defaultValue: "Search scopes…", bundle: .module)
+        String(localized: "palette.scope.scopes.placeholder", defaultValue: "Search scopes…", bundle: .l10n)
     }
-    static var sectionScopes: String { String(localized: "palette.section.scopes", defaultValue: "Search In", bundle: .module) }
-    static var allScopes: String { String(localized: "palette.scope.all", defaultValue: "All Scopes", bundle: .module) }
+    static var sectionScopes: String { String(localized: "palette.section.scopes", defaultValue: "Search In", bundle: .l10n) }
+    static var allScopes: String { String(localized: "palette.scope.all", defaultValue: "All Scopes", bundle: .l10n) }
 
     static func scopeHintKeyword(_ keyword: String) -> String {
-        String(localized: "palette.scope.hint.keyword", defaultValue: "Type \(keyword) and Tab", bundle: .module)
+        String(localized: "palette.scope.hint.keyword", defaultValue: "Type \(keyword) and Tab", bundle: .l10n)
     }
     /// Right of the field when the query is a scope's keyword.
     static func keywordHint(_ title: String) -> String {
-        String(localized: "palette.scope.keywordHint", defaultValue: "Search \(title)", bundle: .module)
+        String(localized: "palette.scope.keywordHint", defaultValue: "Search \(title)", bundle: .l10n)
     }
     /// VoiceOver label of a chip.
     static func chipAccessibility(_ title: String) -> String {
-        String(localized: "palette.scope.chip.accessibility", defaultValue: "\(title) scope. Press Delete to leave.", bundle: .module)
+        String(localized: "palette.scope.chip.accessibility", defaultValue: "\(title) scope. Press Delete to leave.", bundle: .l10n)
     }
     /// Tooltip of a chip below the top one.
     static func backTo(_ title: String) -> String {
-        String(localized: "palette.scope.backTo", defaultValue: "Back to \(title)", bundle: .module)
+        String(localized: "palette.scope.backTo", defaultValue: "Back to \(title)", bundle: .l10n)
     }
 }
 
@@ -37,9 +37,9 @@ public nonisolated enum PaletteOpenRefusal: Error, Sendable, Equatable {
         switch self {
         case .needsFocus:
             String(localized: "palette.scope.refusal.needsFocus",
-                   defaultValue: "A palette scope opens only when focus is requested; read rows with palette.query", bundle: .module)
+                   defaultValue: "A palette scope opens only when focus is requested; read rows with palette.query", bundle: .l10n)
         case .unknownScope(let id):
-            String(localized: "palette.scope.refusal.unknown", defaultValue: "No palette scope \(id)", bundle: .module)
+            String(localized: "palette.scope.refusal.unknown", defaultValue: "No palette scope \(id)", bundle: .l10n)
         }
     }
 }
@@ -63,11 +63,11 @@ public nonisolated enum PaletteRunRefusal: Error, Sendable, Equatable {
     public var message: String {
         switch self {
         case .unknownItem(let scope, let item):
-            String(localized: "palette.run.refusal.noItem", defaultValue: "No row \(item) in palette scope \(scope)", bundle: .module)
+            String(localized: "palette.run.refusal.noItem", defaultValue: "No row \(item) in palette scope \(scope)", bundle: .l10n)
         case .untyped(let title):
-            String(localized: "palette.run.refusal.untyped", defaultValue: "The row \(title) has no typed action; it runs only in the palette", bundle: .module)
+            String(localized: "palette.run.refusal.untyped", defaultValue: "The row \(title) has no typed action; it runs only in the palette", bundle: .l10n)
         case .unknownAction(let item, let action):
-            String(localized: "palette.run.refusal.noAction", defaultValue: "The row \(item) has no action \(action)", bundle: .module)
+            String(localized: "palette.run.refusal.noAction", defaultValue: "The row \(item) has no action \(action)", bundle: .l10n)
         }
     }
 }

@@ -114,7 +114,7 @@ public struct CloudMachineRoute: Sendable {
     public nonisolated static var tooOld: String {
         String(localized: "cloud.machineRoute.tooOld",
                defaultValue: "This Cloud machine's software is too old for this cmux and couldn't be updated. Try again in a few minutes, or update cmux.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .l10n)
     }
 
     nonisolated static func message(_ verdict: Verdict) -> String {
@@ -124,19 +124,19 @@ public struct CloudMachineRoute: Sendable {
         case .unsupported, .invalid:
             String(localized: "cloud.machineRoute.outdated",
                    defaultValue: "This Cloud machine's software couldn't be updated to match this app, so its agents can't reach models. Try again, or use a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .l10n)
         case .noDaemon:
             String(localized: "cloud.machineRoute.noDaemon",
                    defaultValue: "The agent service on this Cloud machine didn't start. Try again in a moment.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .l10n)
         case .holdsCredential:
             String(localized: "cloud.machineRoute.holdsCredential",
                    defaultValue: "This Cloud machine holds its own provider sign-in, so its agents skip the Cloud service's model route. Start the chat on a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .l10n)
         case .notEdge:
             String(localized: "cloud.machineRoute.notEdge",
                    defaultValue: "This Cloud machine's agents aren't routed through the Cloud service yet. Try again, or start the chat on a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .l10n)
         }
     }
 }

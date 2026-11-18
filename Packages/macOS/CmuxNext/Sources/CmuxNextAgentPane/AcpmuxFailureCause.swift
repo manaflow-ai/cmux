@@ -30,9 +30,9 @@ public nonisolated enum AcpmuxFailureCause: Equatable, Sendable {
     var userText: String? {
         switch self {
         case .noWebSocket:
-            String(localized: "agentPane.error.cause.noWebSocket", defaultValue: "it reported no chat address", bundle: .module)
+            String(localized: "agentPane.error.cause.noWebSocket", defaultValue: "it reported no chat address", bundle: .l10n)
         case .exited:
-            String(localized: "agentPane.error.cause.exited", defaultValue: "it stopped before it was ready", bundle: .module)
+            String(localized: "agentPane.error.cause.exited", defaultValue: "it stopped before it was ready", bundle: .l10n)
         case .refused(let why):
             why
         case .replacedBundle, .foreignHome, .peerRefused, .personRestart, .other:

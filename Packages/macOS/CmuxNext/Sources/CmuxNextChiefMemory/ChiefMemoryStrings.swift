@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the Memory Inspector (Resources/Localizable.xcstrings).
 nonisolated struct ChiefMemoryStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .l10n)
     }
 
     static var search: String { t("chiefMemory.search", "Search memory") }

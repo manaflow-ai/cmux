@@ -64,37 +64,37 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     /// The row's caption in the playground.
     var title: String {
         switch self {
-        case .idle: String(localized: "sidebar.statesPlayground.state.idle", defaultValue: "Idle", bundle: .module)
-        case .busy: String(localized: "sidebar.statesPlayground.state.busy", defaultValue: "Busy (spinner)", bundle: .module)
-        case .unread: String(localized: "sidebar.statesPlayground.state.unread", defaultValue: "Unread (blue dot)", bundle: .module)
-        case .needsYou: String(localized: "sidebar.statesPlayground.state.needsYou", defaultValue: "Needs you (orange)", bundle: .module)
-        case .error: String(localized: "sidebar.statesPlayground.state.error", defaultValue: "Error (red warning)", bundle: .module)
+        case .idle: String(localized: "sidebar.statesPlayground.state.idle", defaultValue: "Idle", bundle: .l10n)
+        case .busy: String(localized: "sidebar.statesPlayground.state.busy", defaultValue: "Busy (spinner)", bundle: .l10n)
+        case .unread: String(localized: "sidebar.statesPlayground.state.unread", defaultValue: "Unread (blue dot)", bundle: .l10n)
+        case .needsYou: String(localized: "sidebar.statesPlayground.state.needsYou", defaultValue: "Needs you (orange)", bundle: .l10n)
+        case .error: String(localized: "sidebar.statesPlayground.state.error", defaultValue: "Error (red warning)", bundle: .l10n)
         case .needsInput:
-            String(localized: "sidebar.statesPlayground.state.needsInput", defaultValue: "Needs input (question)", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.needsInput", defaultValue: "Needs input (question)", bundle: .l10n)
         case .usageWarning:
-            String(localized: "sidebar.statesPlayground.state.usageWarning", defaultValue: "Usage warning", bundle: .module)
-        case .pinned: String(localized: "sidebar.statesPlayground.state.pinned", defaultValue: "Pinned", bundle: .module)
-        case .selected: String(localized: "sidebar.statesPlayground.state.selected", defaultValue: "Selected", bundle: .module)
-        case .hovered: String(localized: "sidebar.statesPlayground.state.hovered", defaultValue: "Hovered", bundle: .module)
-        case .renaming: String(localized: "sidebar.statesPlayground.state.renaming", defaultValue: "Renaming", bundle: .module)
-        case .archived: String(localized: "sidebar.statesPlayground.state.archived", defaultValue: "Archived", bundle: .module)
-        case .remote: String(localized: "sidebar.statesPlayground.state.remote", defaultValue: "Remote (SSH)", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.usageWarning", defaultValue: "Usage warning", bundle: .l10n)
+        case .pinned: String(localized: "sidebar.statesPlayground.state.pinned", defaultValue: "Pinned", bundle: .l10n)
+        case .selected: String(localized: "sidebar.statesPlayground.state.selected", defaultValue: "Selected", bundle: .l10n)
+        case .hovered: String(localized: "sidebar.statesPlayground.state.hovered", defaultValue: "Hovered", bundle: .l10n)
+        case .renaming: String(localized: "sidebar.statesPlayground.state.renaming", defaultValue: "Renaming", bundle: .l10n)
+        case .archived: String(localized: "sidebar.statesPlayground.state.archived", defaultValue: "Archived", bundle: .l10n)
+        case .remote: String(localized: "sidebar.statesPlayground.state.remote", defaultValue: "Remote (SSH)", bundle: .l10n)
         case .groupExpanded:
-            String(localized: "sidebar.statesPlayground.state.groupExpanded", defaultValue: "Group header, open", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.groupExpanded", defaultValue: "Group header, open", bundle: .l10n)
         case .groupCollapsed:
-            String(localized: "sidebar.statesPlayground.state.groupCollapsed", defaultValue: "Group header, collapsed", bundle: .module)
-        case .home: String(localized: "sidebar.statesPlayground.state.home", defaultValue: "Home", bundle: .module)
-        case .emptyGroup: String(localized: "sidebar.statesPlayground.state.emptyGroup", defaultValue: "Empty group (+)", bundle: .module)
-        case .accentBar: String(localized: "sidebar.statesPlayground.state.accentBar", defaultValue: "Left accent bar", bundle: .module)
-        case .groupRail: String(localized: "sidebar.statesPlayground.state.groupRail", defaultValue: "Group rail", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.groupCollapsed", defaultValue: "Group header, collapsed", bundle: .l10n)
+        case .home: String(localized: "sidebar.statesPlayground.state.home", defaultValue: "Home", bundle: .l10n)
+        case .emptyGroup: String(localized: "sidebar.statesPlayground.state.emptyGroup", defaultValue: "Empty group (+)", bundle: .l10n)
+        case .accentBar: String(localized: "sidebar.statesPlayground.state.accentBar", defaultValue: "Left accent bar", bundle: .l10n)
+        case .groupRail: String(localized: "sidebar.statesPlayground.state.groupRail", defaultValue: "Group rail", bundle: .l10n)
         case .faviconMono:
-            String(localized: "sidebar.statesPlayground.state.faviconMono", defaultValue: "Favicon, dark mono", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.faviconMono", defaultValue: "Favicon, dark mono", bundle: .l10n)
         case .faviconColorful:
-            String(localized: "sidebar.statesPlayground.state.faviconColorful", defaultValue: "Favicon, colorful", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.faviconColorful", defaultValue: "Favicon, colorful", bundle: .l10n)
         case .faviconMissing:
-            String(localized: "sidebar.statesPlayground.state.faviconPlaceholder", defaultValue: "No favicon, globe placeholder", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.faviconPlaceholder", defaultValue: "No favicon, globe placeholder", bundle: .l10n)
         case .pinnedHoverCard:
-            String(localized: "sidebar.statesPlayground.state.pinnedHoverCard", defaultValue: "Pinned row and its hover card", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.pinnedHoverCard", defaultValue: "Pinned row and its hover card", bundle: .l10n)
         }
     }
 }

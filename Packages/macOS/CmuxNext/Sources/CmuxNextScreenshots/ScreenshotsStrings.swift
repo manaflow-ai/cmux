@@ -4,7 +4,7 @@ import Foundation
 /// Strings of the Screenshots pane (Resources/Localizable.xcstrings).
 nonisolated struct ScreenshotsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .l10n)
     }
 
     static var title: String { t("screenshots.title", "Screenshots") }

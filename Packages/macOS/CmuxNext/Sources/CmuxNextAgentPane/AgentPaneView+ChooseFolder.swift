@@ -19,11 +19,11 @@ extension AgentPaneView {
     }
 
     static var chooseFolderPrompt: String {
-        String(localized: "agentPane.chooseFolder.prompt", defaultValue: "Choose", bundle: .module)
+        String(localized: "agentPane.chooseFolder.prompt", defaultValue: "Choose", bundle: .l10n)
     }
 
     static var chooseFolderMessage: String {
         String(localized: "agentPane.chooseFolder.message",
-               defaultValue: "New agent chats in this workspace start in the folder you choose.", bundle: .module)
+               defaultValue: "New agent chats in this workspace start in the folder you choose.", bundle: .l10n)
     }
 }

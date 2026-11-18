@@ -55,11 +55,11 @@ public nonisolated enum SidebarTaskStatus: String, CaseIterable, Hashable, Senda
     /// The localized lane name.
     public var title: String {
         switch self {
-        case .todo: String(localized: "sidebar.taskStatus.todo", defaultValue: "To Do", bundle: .module)
-        case .working: String(localized: "sidebar.taskStatus.working", defaultValue: "Working", bundle: .module)
-        case .needsAttention: String(localized: "sidebar.taskStatus.needsAttention", defaultValue: "Needs Attention", bundle: .module)
-        case .review: String(localized: "sidebar.taskStatus.review", defaultValue: "In Review", bundle: .module)
-        case .done: String(localized: "sidebar.taskStatus.done", defaultValue: "Done", bundle: .module)
+        case .todo: String(localized: "sidebar.taskStatus.todo", defaultValue: "To Do", bundle: .l10n)
+        case .working: String(localized: "sidebar.taskStatus.working", defaultValue: "Working", bundle: .l10n)
+        case .needsAttention: String(localized: "sidebar.taskStatus.needsAttention", defaultValue: "Needs Attention", bundle: .l10n)
+        case .review: String(localized: "sidebar.taskStatus.review", defaultValue: "In Review", bundle: .l10n)
+        case .done: String(localized: "sidebar.taskStatus.done", defaultValue: "Done", bundle: .l10n)
         }
     }
 }

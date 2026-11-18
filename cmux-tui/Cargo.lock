@@ -2492,6 +2492,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",

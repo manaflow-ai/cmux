@@ -2,67 +2,67 @@ import Foundation
 
 /// Localized strings for CmuxNextTabs. Keys live in Resources/Localizable.xcstrings (en, ja).
 enum Strings {
-    static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
-    static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
+    static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .l10n) }
+    static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .l10n) }
     /// The + button's tooltip: a click opens a tab, holding it opens the new tab menu.
     static var newTabHoldHint: String {
-        String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .module)
+        String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .l10n)
     }
     /// "More": the tab group editor's overflow row.
-    static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
-    static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
+    static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .l10n) }
+    static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .l10n) }
     static func axOnMachine(_ name: String) -> String {
-        String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)
+        String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .l10n)
     }
     /// A tab's browser profile (hover card, VoiceOver).
     static func browserProfile(_ name: String) -> String {
-        String(localized: "tabs.browserProfile", defaultValue: "Browser profile: \(name)", bundle: .module)
+        String(localized: "tabs.browserProfile", defaultValue: "Browser profile: \(name)", bundle: .l10n)
     }
     /// The terminal-theme dot, spoken (and shown in the hover card).
     static func axTheme(_ name: String) -> String {
-        String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
+        String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .l10n)
     }
-    static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
+    static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .l10n) }
     /// A zoomed pane's indicator's tooltip and VoiceOver label (cmux classic's wording).
-    static var exitZoom: String { String(localized: "tabs.zoom.exit", defaultValue: "Exit Zoom", bundle: .module) }
+    static var exitZoom: String { String(localized: "tabs.zoom.exit", defaultValue: "Exit Zoom", bundle: .l10n) }
     /// VoiceOver: the tab's pane is zoomed.
-    static var axZoomed: String { String(localized: "tabs.ax.zoomed", defaultValue: "Zoomed", bundle: .module) }
+    static var axZoomed: String { String(localized: "tabs.ax.zoomed", defaultValue: "Zoomed", bundle: .l10n) }
     /// The speaker button's tooltip and VoiceOver action (Chrome's wording).
-    static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .module) }
-    static var unmuteTab: String { String(localized: "tabs.audio.unmute", defaultValue: "Unmute tab", bundle: .module) }
-    static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .module) }
-    static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
-    static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
-    static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }
-    static var axBusy: String { String(localized: "tabs.ax.busy", defaultValue: "Running", bundle: .module) }
-    static var axWorking: String { String(localized: "tabs.ax.working", defaultValue: "Agent working", bundle: .module) }
-    static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .module) }
-    static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }
-    static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
-    static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
-    static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
+    static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .l10n) }
+    static var unmuteTab: String { String(localized: "tabs.audio.unmute", defaultValue: "Unmute tab", bundle: .l10n) }
+    static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .l10n) }
+    static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .l10n) }
+    static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .l10n) }
+    static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .l10n) }
+    static var axBusy: String { String(localized: "tabs.ax.busy", defaultValue: "Running", bundle: .l10n) }
+    static var axWorking: String { String(localized: "tabs.ax.working", defaultValue: "Agent working", bundle: .l10n) }
+    static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .l10n) }
+    static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .l10n) }
+    static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .l10n) }
+    static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .l10n) }
+    static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .l10n) }
     /// A shell at its prompt that printed in the last minute ("Output · 12s").
-    static var hoverOutput: String { String(localized: "tabs.hoverCard.output", defaultValue: "Output", bundle: .module) }
-    static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }
+    static var hoverOutput: String { String(localized: "tabs.hoverCard.output", defaultValue: "Output", bundle: .l10n) }
+    static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .l10n) }
     static func hoverHibernatedWasUsing(_ memory: String) -> String {
-        String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .module), memory)
+        String(format: String(localized: "tabs.hoverCard.hibernatedWasUsing", defaultValue: "Hibernated · was using %@", bundle: .l10n), memory)
     }
     static func hoverMemory(_ memory: String) -> String {
-        String(format: String(localized: "tabs.hoverCard.memory", defaultValue: "Memory %@", bundle: .module), memory)
+        String(format: String(localized: "tabs.hoverCard.memory", defaultValue: "Memory %@", bundle: .l10n), memory)
     }
     static func hoverMemoryCPU(_ memory: String, _ cpu: String) -> String {
-        String(format: String(localized: "tabs.hoverCard.memoryCPU", defaultValue: "Memory %1$@ · CPU %2$@", bundle: .module), memory, cpu)
+        String(format: String(localized: "tabs.hoverCard.memoryCPU", defaultValue: "Memory %1$@ · CPU %2$@", bundle: .l10n), memory, cpu)
     }
-    static var untitled: String { String(localized: "tabs.untitled", defaultValue: "Untitled", bundle: .module) }
-    static var renameField: String { String(localized: "tabs.renameField", defaultValue: "Tab name", bundle: .module) }
-    static var demoWindowTitle: String { String(localized: "tabs.demo.windowTitle", defaultValue: "Tab Strip Demo", bundle: .module) }
-    static var demoAddTab: String { String(localized: "tabs.demo.addTab", defaultValue: "Add Tab", bundle: .module) }
-    static var demoAddMany: String { String(localized: "tabs.demo.addMany", defaultValue: "Add 10 Tabs", bundle: .module) }
-    static var demoToggleBusy: String { String(localized: "tabs.demo.toggleBusy", defaultValue: "Toggle Busy", bundle: .module) }
-    static var demoToggleUnread: String { String(localized: "tabs.demo.toggleUnread", defaultValue: "Toggle Unread", bundle: .module) }
-    static var demoCycleStatus: String { String(localized: "tabs.demo.cycleStatus", defaultValue: "Cycle Status", bundle: .module) }
-    static var demoCompact: String { String(localized: "tabs.demo.compact", defaultValue: "Compact Style", bundle: .module) }
+    static var untitled: String { String(localized: "tabs.untitled", defaultValue: "Untitled", bundle: .l10n) }
+    static var renameField: String { String(localized: "tabs.renameField", defaultValue: "Tab name", bundle: .l10n) }
+    static var demoWindowTitle: String { String(localized: "tabs.demo.windowTitle", defaultValue: "Tab Strip Demo", bundle: .l10n) }
+    static var demoAddTab: String { String(localized: "tabs.demo.addTab", defaultValue: "Add Tab", bundle: .l10n) }
+    static var demoAddMany: String { String(localized: "tabs.demo.addMany", defaultValue: "Add 10 Tabs", bundle: .l10n) }
+    static var demoToggleBusy: String { String(localized: "tabs.demo.toggleBusy", defaultValue: "Toggle Busy", bundle: .l10n) }
+    static var demoToggleUnread: String { String(localized: "tabs.demo.toggleUnread", defaultValue: "Toggle Unread", bundle: .l10n) }
+    static var demoCycleStatus: String { String(localized: "tabs.demo.cycleStatus", defaultValue: "Cycle Status", bundle: .l10n) }
+    static var demoCompact: String { String(localized: "tabs.demo.compact", defaultValue: "Compact Style", bundle: .l10n) }
     static func demoLog(_ intent: String) -> String {
-        String(localized: "tabs.demo.log", defaultValue: "Last intent: \(intent)", bundle: .module)
+        String(localized: "tabs.demo.log", defaultValue: "Last intent: \(intent)", bundle: .l10n)
     }
 }

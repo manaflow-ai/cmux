@@ -528,7 +528,7 @@ extension CloudHandlers {
 
     private static var operationUnavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.strings))
     }
 
     /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's run waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal; a person's own run goes as before, `sheet` showing its answer.

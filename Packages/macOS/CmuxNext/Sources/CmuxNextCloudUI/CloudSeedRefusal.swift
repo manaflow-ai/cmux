@@ -65,8 +65,8 @@ public nonisolated struct CloudSeedRefusal: Equatable, Sendable {
     /// GitHub only when that helps (``gitHubHelps``).
     public var tooLarge: String {
         let words = gitHubHelps
-            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .module)
-            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .module)
+            ? String(localized: "cloud.seedRefused.tooLarge", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder, or connect GitHub to clone it.", table: "Cloud", bundle: .l10n)
+            : String(localized: "cloud.seedRefused.tooLargeNoGitHub", defaultValue: "This folder is %1$@, more than %2$@ has room for. Choose a smaller folder.", table: "Cloud", bundle: .l10n)
         return String(format: words, ByteCountFormatter.string(fromByteCount: copyBytes ?? 0, countStyle: .file), machine)
     }
 

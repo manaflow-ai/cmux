@@ -118,8 +118,8 @@ extension KeyRequests.Request {
     /// "<agent> asks for a key".
     package var bannerTitle: String {
         let agent = KeyRequests.actorLabel(requester)
-            ?? String(localized: "keys.request.someone", defaultValue: "An agent", table: "Keys", bundle: .module)
-        return String(format: String(localized: "keys.request.title", defaultValue: "%@ asks for a key", table: "Keys", bundle: .module), agent)
+            ?? String(localized: "keys.request.someone", defaultValue: "An agent", table: "Keys", bundle: .l10n)
+        return String(format: String(localized: "keys.request.title", defaultValue: "%@ asks for a key", table: "Keys", bundle: .l10n), agent)
     }
 
     /// "NAME: purpose", the purpose cut at 200 characters.

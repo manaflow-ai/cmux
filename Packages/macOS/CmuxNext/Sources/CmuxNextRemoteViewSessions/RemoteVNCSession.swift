@@ -215,7 +215,7 @@ public final class RemoteVNCSession {
 @MainActor
 struct RemoteVNCStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .module)
+        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .l10n)
     }
 
     static func signInTitle(_ host: String) -> String {

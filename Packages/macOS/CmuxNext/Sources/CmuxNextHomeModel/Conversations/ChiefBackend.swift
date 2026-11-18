@@ -45,10 +45,10 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     /// The name the app shows for this engine.
     public var title: String {
         switch id {
-        case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .module)
-        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .module)
-        case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .module)
-        default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .module)
+        case "codex": String(localized: "home.chief.backend.codex", defaultValue: "Codex", bundle: .l10n)
+        case "muse": String(localized: "home.chief.backend.muse", defaultValue: "Muse Code", bundle: .l10n)
+        case "unii": String(localized: "home.chief.backend.unii", defaultValue: "UniiChat", bundle: .l10n)
+        default: String(localized: "home.chief.backend.claude", defaultValue: "Claude", bundle: .l10n)
         }
     }
 
@@ -57,14 +57,14 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         switch id {
         case "unii":
             String(localized: "home.chief.backend.uniiHint",
-                   defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .module)
+                   defaultValue: "Runs on your UniiChat account. Sign in first with `unii login`.", bundle: .l10n)
         case "muse":
             String(localized: "home.chief.backend.museHint",
                    defaultValue: "Runs on this Mac with your Muse sign-in (`muse login`) through the muse-acp adapter.",
-                   bundle: .module)
+                   bundle: .l10n)
         case "codex":
             String(localized: "home.chief.backend.codexHint",
-                   defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .module)
+                   defaultValue: "Runs on this Mac with your Codex sign-in.", bundle: .l10n)
         default: nil
         }
     }

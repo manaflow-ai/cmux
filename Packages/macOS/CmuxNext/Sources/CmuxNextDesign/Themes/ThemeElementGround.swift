@@ -22,14 +22,14 @@ public enum ThemeElementGround: String, CaseIterable, Sendable {
     /// The ground's name in the playground.
     public var title: String {
         switch self {
-        case .window: String(localized: "theme.audit.ground.window", defaultValue: "window", bundle: .module)
-        case .hoveredRow: String(localized: "theme.audit.ground.hoveredRow", defaultValue: "hovered row", bundle: .module)
-        case .selectedRow: String(localized: "theme.audit.ground.selectedRow", defaultValue: "selected row", bundle: .module)
-        case .pressedRow: String(localized: "theme.audit.ground.pressedRow", defaultValue: "pressed row", bundle: .module)
-        case .popover: String(localized: "theme.audit.ground.popover", defaultValue: "popover", bundle: .module)
-        case .highlightedRow: String(localized: "theme.audit.ground.highlightedRow", defaultValue: "highlighted row", bundle: .module)
-        case .accentButton: String(localized: "theme.audit.ground.accentButton", defaultValue: "accent button", bundle: .module)
-        case .updateButton: String(localized: "theme.audit.ground.updateButton", defaultValue: "update button", bundle: .module)
+        case .window: String(localized: "theme.audit.ground.window", defaultValue: "window", bundle: .l10n)
+        case .hoveredRow: String(localized: "theme.audit.ground.hoveredRow", defaultValue: "hovered row", bundle: .l10n)
+        case .selectedRow: String(localized: "theme.audit.ground.selectedRow", defaultValue: "selected row", bundle: .l10n)
+        case .pressedRow: String(localized: "theme.audit.ground.pressedRow", defaultValue: "pressed row", bundle: .l10n)
+        case .popover: String(localized: "theme.audit.ground.popover", defaultValue: "popover", bundle: .l10n)
+        case .highlightedRow: String(localized: "theme.audit.ground.highlightedRow", defaultValue: "highlighted row", bundle: .l10n)
+        case .accentButton: String(localized: "theme.audit.ground.accentButton", defaultValue: "accent button", bundle: .l10n)
+        case .updateButton: String(localized: "theme.audit.ground.updateButton", defaultValue: "update button", bundle: .l10n)
         }
     }
 }

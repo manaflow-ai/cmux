@@ -23,15 +23,15 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .crowdedTabs: String(localized: "tabs.playground.section.crowded", defaultValue: "Crowded Tabs", bundle: .module)
-        case .newTabControl: String(localized: "tabs.playground.section.newTab", defaultValue: "New Tab Control", bundle: .module)
-        case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .module)
-        case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .module)
-        case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .module)
-        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .module)
-        case .busyUnread: String(localized: "tabs.playground.section.busyUnread", defaultValue: "Busy + Unread", bundle: .module)
-        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .module)
-        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .module)
+        case .crowdedTabs: String(localized: "tabs.playground.section.crowded", defaultValue: "Crowded Tabs", bundle: .l10n)
+        case .newTabControl: String(localized: "tabs.playground.section.newTab", defaultValue: "New Tab Control", bundle: .l10n)
+        case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .l10n)
+        case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .l10n)
+        case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .l10n)
+        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .l10n)
+        case .busyUnread: String(localized: "tabs.playground.section.busyUnread", defaultValue: "Busy + Unread", bundle: .l10n)
+        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .l10n)
+        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .l10n)
         }
     }
 

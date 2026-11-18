@@ -118,12 +118,12 @@ final class SandboxRunNotices {
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
         let body = switch end.outcome {
-        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module)
-        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
-        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module)
-        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module)
+        case .succeeded: String(localized: "runs.notification.succeeded", defaultValue: "Run finished", table: "Runs", bundle: .module.strings)
+        case .failed: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.strings)
+        case .timedOut: String(localized: "runs.notification.timedOut", defaultValue: "Run timed out", table: "Runs", bundle: .module.strings)
+        case .cancelled: String(localized: "runs.notification.cancelled", defaultValue: "Run cancelled", table: "Runs", bundle: .module.strings)
         // A Run never stops for the person (only a hand-off does, HandoffNotices).
-        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module)
+        case .needsYou: String(localized: "runs.notification.failed", defaultValue: "Run failed", table: "Runs", bundle: .module.strings)
         }
         return (title, body)
     }

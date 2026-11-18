@@ -107,7 +107,7 @@ def render_swift(works: list[dict]) -> str:
     for work in works:
         key = f"backdrop.{work['id']}.title"
         lines.append(f"        case .{case_name(work['id'])}: String(localized: {swift_string(key)}, "
-                     f"defaultValue: {swift_string(work['title'])}, bundle: .module)")
+                     f"defaultValue: {swift_string(work['title'])}, bundle: .l10n)")
     lines += ["        }", "    }", "}", ""]
     return "\n".join(lines)
 

@@ -9,13 +9,13 @@ struct BusyUnreadPlaygroundVariants {
     var all: [TabBarPlaygroundVariant] {
         [
             variant(String(localized: "tabs.playground.busyUnread.spinner", defaultValue: "One mark: the spinner, then the dot in its place",
-                           bundle: .module), .spinner, shipped: true),
+                           bundle: .l10n), .spinner, shipped: true),
             variant(String(localized: "tabs.playground.busyUnread.tinted", defaultValue: "One mark: the spinner in the unread blue",
-                           bundle: .module), .tintedSpinner),
+                           bundle: .l10n), .tintedSpinner),
             variant(String(localized: "tabs.playground.busyUnread.dotInRing", defaultValue: "One mark: the spinner ringing the unread dot",
-                           bundle: .module), .dotInRing),
+                           bundle: .l10n), .dotInRing),
             variant(String(localized: "tabs.playground.busyUnread.pair", defaultValue: "Before: the dot and the spinner side by side",
-                           bundle: .module), .pair),
+                           bundle: .l10n), .pair),
         ]
     }
 

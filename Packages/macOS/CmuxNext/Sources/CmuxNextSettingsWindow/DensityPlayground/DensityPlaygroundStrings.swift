@@ -43,7 +43,7 @@ public nonisolated struct DensityPlaygroundStrings {
     }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .l10n)
     }
 
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ argument: String) -> String {

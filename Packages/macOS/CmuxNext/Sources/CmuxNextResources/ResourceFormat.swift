@@ -41,33 +41,33 @@ public struct ResourceFormat {
 
 /// Localized strings of CmuxNextResources (Resources/Localizable.xcstrings).
 enum Strings {
-    static var pending: String { String(localized: "resources.pending", defaultValue: "–", bundle: .module) }
+    static var pending: String { String(localized: "resources.pending", defaultValue: "–", bundle: .l10n) }
     static var unavailable: String {
-        String(localized: "resources.unavailable", defaultValue: "Resource usage unavailable", bundle: .module)
+        String(localized: "resources.unavailable", defaultValue: "Resource usage unavailable", bundle: .l10n)
     }
-    static var listSeparator: String { String(localized: "resources.listSeparator", defaultValue: ", ", bundle: .module) }
+    static var listSeparator: String { String(localized: "resources.listSeparator", defaultValue: ", ", bundle: .l10n) }
 
     static func cpuMemory(cpu: String, memory: String) -> String {
-        String(format: String(localized: "resources.line", defaultValue: "CPU %1$@ · Memory %2$@", bundle: .module), cpu, memory)
+        String(format: String(localized: "resources.line", defaultValue: "CPU %1$@ · Memory %2$@", bundle: .l10n), cpu, memory)
     }
 
     static func compact(cpu: String, memory: String) -> String {
-        String(format: String(localized: "resources.compact", defaultValue: "%1$@ · %2$@", bundle: .module), cpu, memory)
+        String(format: String(localized: "resources.compact", defaultValue: "%1$@ · %2$@", bundle: .l10n), cpu, memory)
     }
 
     static func shared(roles: String, usage: String) -> String {
-        String(format: String(localized: "resources.shared", defaultValue: "Shared (%1$@): %2$@", bundle: .module), roles, usage)
+        String(format: String(localized: "resources.shared", defaultValue: "Shared (%1$@): %2$@", bundle: .l10n), roles, usage)
     }
 
     static func role(_ role: SharedRole) -> String {
         switch role {
-        case .app: String(localized: "resources.role.app", defaultValue: "cmux", bundle: .module)
-        case .gpu: String(localized: "resources.role.gpu", defaultValue: "GPU", bundle: .module)
-        case .network: String(localized: "resources.role.network", defaultValue: "Network", bundle: .module)
-        case .utility: String(localized: "resources.role.utility", defaultValue: "Utilities", bundle: .module)
-        case .extensions: String(localized: "resources.role.extensions", defaultValue: "Extensions", bundle: .module)
+        case .app: String(localized: "resources.role.app", defaultValue: "cmux", bundle: .l10n)
+        case .gpu: String(localized: "resources.role.gpu", defaultValue: "GPU", bundle: .l10n)
+        case .network: String(localized: "resources.role.network", defaultValue: "Network", bundle: .l10n)
+        case .utility: String(localized: "resources.role.utility", defaultValue: "Utilities", bundle: .l10n)
+        case .extensions: String(localized: "resources.role.extensions", defaultValue: "Extensions", bundle: .l10n)
         }
     }
 
-    static var untitled: String { String(localized: "resources.untitled", defaultValue: "Untitled", bundle: .module) }
+    static var untitled: String { String(localized: "resources.untitled", defaultValue: "Untitled", bundle: .l10n) }
 }

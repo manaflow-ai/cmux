@@ -42,30 +42,30 @@ public nonisolated struct SessionMoveOutcome: Equatable {
 
     /// Localized text: none.
     public static var none: String {
-        String(localized: "sessionMove.toast.none", defaultValue: "No other cmux build has sessions to move.", bundle: .module)
+        String(localized: "sessionMove.toast.none", defaultValue: "No other cmux build has sessions to move.", bundle: .l10n)
     }
     /// Localized text: movedAll.
     public static var movedAll: String {
-        String(localized: "sessionMove.toast.moved", defaultValue: "The sessions moved here.", bundle: .module)
+        String(localized: "sessionMove.toast.moved", defaultValue: "The sessions moved here.", bundle: .l10n)
     }
     /// Localized text: movedOthers.
     public static var movedOthers: String {
-        String(localized: "sessionMove.toast.movedOthers", defaultValue: "The other sessions moved here.", bundle: .module)
+        String(localized: "sessionMove.toast.movedOthers", defaultValue: "The other sessions moved here.", bundle: .l10n)
     }
     /// Localized text: nothingMoved.
     public static var nothingMoved: String {
-        String(localized: "sessionMove.toast.nothingMoved", defaultValue: "No sessions moved.", bundle: .module)
+        String(localized: "sessionMove.toast.nothingMoved", defaultValue: "No sessions moved.", bundle: .l10n)
     }
     /// Localized text: failed.
     public static var failed: String {
-        String(localized: "sessionTransfer.error.failed", defaultValue: "Could not move sessions from the other cmux build.", bundle: .module)
+        String(localized: "sessionTransfer.error.failed", defaultValue: "Could not move sessions from the other cmux build.", bundle: .l10n)
     }
     /// Localized text: a session or build that did not move, and why.
     public static func couldNotMove(_ title: String, _ reason: String) -> String {
-        String(localized: "sessionMove.toast.failedSession", defaultValue: "Couldn’t move “\(title)”: \(reason)", bundle: .module)
+        String(localized: "sessionMove.toast.failedSession", defaultValue: "Couldn’t move “\(title)”: \(reason)", bundle: .l10n)
     }
     /// Localized text: a session or build that did not move, and why.
     public static func couldNotMove(from build: String, _ reason: String) -> String {
-        String(localized: "sessionMove.toast.failedBuild", defaultValue: "Couldn’t move sessions from \(build): \(reason)", bundle: .module)
+        String(localized: "sessionMove.toast.failedBuild", defaultValue: "Couldn’t move sessions from \(build): \(reason)", bundle: .l10n)
     }
 }

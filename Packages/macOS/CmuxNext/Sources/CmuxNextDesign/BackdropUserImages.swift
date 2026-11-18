@@ -13,7 +13,7 @@ public nonisolated struct BackdropUserImages: Sendable {
 
     /// The picker's title for them.
     public static var collectionTitle: String {
-        String(localized: "backdrop.collection.yours", defaultValue: "Your images", bundle: .module)
+        String(localized: "backdrop.collection.yours", defaultValue: "Your images", bundle: .l10n)
     }
 
     /// The backgrounds folder (``BackdropArtDownloads/defaultFolder``).

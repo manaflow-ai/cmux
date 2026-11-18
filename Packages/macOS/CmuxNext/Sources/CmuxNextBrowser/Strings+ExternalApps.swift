@@ -4,12 +4,12 @@ import Foundation
 extension Strings {
     static func externalAppPrompt(origin: String, app: String) -> String {
         guard !origin.isEmpty else {
-            return String(localized: "browser.externalApp.prompt.thisPage", defaultValue: "This page wants to open “\(app)”.", bundle: .module)
+            return String(localized: "browser.externalApp.prompt.thisPage", defaultValue: "This page wants to open “\(app)”.", bundle: .l10n)
         }
-        return String(localized: "browser.externalApp.prompt", defaultValue: "\(origin) wants to open “\(app)”.", bundle: .module)
+        return String(localized: "browser.externalApp.prompt", defaultValue: "\(origin) wants to open “\(app)”.", bundle: .l10n)
     }
     static var externalAppAlwaysAllow: String {
-        String(localized: "browser.externalApp.alwaysAllow", defaultValue: "Always allow on this site", bundle: .module)
+        String(localized: "browser.externalApp.alwaysAllow", defaultValue: "Always allow on this site", bundle: .l10n)
     }
-    static var externalAppOpen: String { String(localized: "browser.externalApp.open", defaultValue: "Open", bundle: .module) }
+    static var externalAppOpen: String { String(localized: "browser.externalApp.open", defaultValue: "Open", bundle: .l10n) }
 }

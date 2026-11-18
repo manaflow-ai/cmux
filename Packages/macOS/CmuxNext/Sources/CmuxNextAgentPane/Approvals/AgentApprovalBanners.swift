@@ -96,12 +96,12 @@ public final class AgentApprovalBanners {
     /// Where macOS hides previews, the command stays hidden.
     public nonisolated static func notificationCategories() -> [UNNotificationCategory] {
         let allow = UNNotificationAction(identifier: allowAction, title: String(
-            localized: "notifications.approval.allowOnce", defaultValue: "Allow once", bundle: .module), options: [.authenticationRequired])
+            localized: "notifications.approval.allowOnce", defaultValue: "Allow once", bundle: .l10n), options: [.authenticationRequired])
         let always = UNNotificationAction(identifier: alwaysAction, title: String(
-            localized: "notifications.approval.allowAlways", defaultValue: "Always allow", bundle: .module), options: [.authenticationRequired])
+            localized: "notifications.approval.allowAlways", defaultValue: "Always allow", bundle: .l10n), options: [.authenticationRequired])
         let deny = UNNotificationAction(identifier: denyAction, title: String(
-            localized: "notifications.approval.deny", defaultValue: "Deny", bundle: .module), options: [.destructive])
-        let hidden = String(localized: "notifications.approval.hiddenBody", defaultValue: "An agent is waiting for your approval", bundle: .module)
+            localized: "notifications.approval.deny", defaultValue: "Deny", bundle: .l10n), options: [.destructive])
+        let hidden = String(localized: "notifications.approval.hiddenBody", defaultValue: "An agent is waiting for your approval", bundle: .l10n)
         return [(category, [allow, deny]), (alwaysCategory, [allow, always, deny])].map { identifier, actions in
             UNNotificationCategory(identifier: identifier, actions: actions, intentIdentifiers: [],
                                    hiddenPreviewsBodyPlaceholder: hidden, options: [])

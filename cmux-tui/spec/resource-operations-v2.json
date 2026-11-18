@@ -15707,6 +15707,55 @@
         }
       },
       "extra": false
+    },
+    "LanguagePackState": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "bundled",
+              "ready",
+              "unavailable"
+            ]
+          },
+          "description": "bundled: nothing to fetch, the app uses what it ships. ready: the pack is extracted at root. unavailable: the pack could not be had now; code and message say why."
+        },
+        "root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "ready: the pack's folder, <cache>/<sha256>."
+        },
+        "code": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "language_packs.offline",
+              "language_packs.verify",
+              "language_packs.bad_manifest",
+              "language_packs.io"
+            ]
+          },
+          "description": "unavailable: offline (the download failed), verify (size, hash or archive did not match), bad_manifest (the manifest is not readable or names a bad pack) or io (the cache folder could not be written)."
+        },
+        "message": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "unavailable: one plain English sentence."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -29962,6 +30011,71 @@
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "language_packs.ensure": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "language": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            },
+            "description": "The language the app shows, as a pack key of the manifest (de, ja, zh-Hans, pt-BR). en or empty answers bundled."
+          },
+          "manifest": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the app bundle's language-packs.json. A missing file answers bundled."
+          },
+          "cache": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the folder that keeps extracted packs, one folder per pack SHA-256. The daemon makes it when it is missing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "LanguagePackState"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only the verified app connection sends it (origin user, a local socket): it reads and writes folders by path and downloads. A page, an agent, an app and a link connection are refused.",
+        "The manifest is {version: 1, packs: {<language>: {url, sha256, size}}}; another version, a sha256 that is not 64 lowercase hex digits, a size of 0 or above 128 MiB, or a url that is not https://files-next.cmux.com/... is bad_manifest (debug builds also take http on 127.0.0.1 or localhost).",
+        "A pack whose folder <cache>/<sha256> holds .complete answers ready with no network. Otherwise the daemon downloads the url once (120 s in all, no redirect), refuses a body of another size or SHA-256 (verify), unpacks the zstd tar into a private .partial folder (only files and folders with relative names and no .., else verify), writes .complete last and renames the folder into place.",
+        "Requests for one pack share one download. After a ready answer the daemon removes the pack folders of <cache> the manifest no longer names and .partial folders older than an hour.",
+        "A failure is a reply, never an error: unavailable with code language_packs.offline (network), language_packs.verify (size, hash or archive), language_packs.bad_manifest or language_packs.io (the file system), and one sentence for a person."
       ]
     },
     "layout.bulk": {

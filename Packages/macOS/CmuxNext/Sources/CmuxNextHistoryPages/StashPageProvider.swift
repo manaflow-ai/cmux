@@ -207,7 +207,7 @@ private final class PendingUndo {
 /// page's own are webviews/src/pages/stash.
 nonisolated enum StashPageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .l10n)
     }
 
     static var title: String { t("stash.title", "Stashed Tabs") }

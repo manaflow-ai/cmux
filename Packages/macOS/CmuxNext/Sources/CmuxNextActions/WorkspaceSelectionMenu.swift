@@ -18,11 +18,11 @@ extension NSMenu {
     /// action's own title. `pins`, `mutes`: as in ``namingWorkspaceSelection(pins:mutes:)``.
     public static func workspaceSelectionTitle(_ id: ActionID, pins: Bool, mutes: Bool) -> String? {
         switch id.rawValue {
-        case "workspace.duplicate": String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .module)
-        case "palette.toggleWorkspacePin": pins ? String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .module)
-            : String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .module)
-        case "workspace.toggleAudioMute": mutes ? String(localized: "workspaceSelection.mute", defaultValue: "Mute Workspaces", bundle: .module)
-            : String(localized: "workspaceSelection.unmute", defaultValue: "Unmute Workspaces", bundle: .module)
+        case "workspace.duplicate": String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .l10n)
+        case "palette.toggleWorkspacePin": pins ? String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .l10n)
+            : String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .l10n)
+        case "workspace.toggleAudioMute": mutes ? String(localized: "workspaceSelection.mute", defaultValue: "Mute Workspaces", bundle: .l10n)
+            : String(localized: "workspaceSelection.unmute", defaultValue: "Unmute Workspaces", bundle: .l10n)
         default: nil
         }
     }

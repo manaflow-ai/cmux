@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""Languages download on first use (CMUX-570): split an app's non-English strings into packs.
+
+Usage (stdlib only; run with `python3 -I`):
+  language-packs.py split APP OUT --base-url https://files-next.cmux.com/language-packs [--keep LANG ...]
+  language-packs.py measure APP [--keep LANG ...]
+
+Languages are APP/Contents/Info.plist CFBundleLocalizations minus "en" (and minus --keep). Only the
+CmuxNext package's SwiftPM resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) are split;
+every other bundle, framework, Sparkle, Chromium, uBlock and web page stays in the app.
+
+split moves each B/Contents/Resources/L.lproj into OUT/stage/L/B/Contents/Resources/L.lproj (with a
+copy of B/Contents/Info.plist), packs each language deterministically (sorted tar entries, mtime 0,
+uid/gid 0, mode 0644 files and 0755 dirs, no symlinks, paths relative to Contents/Resources, then
+zstd -19 with no long-distance window, so any zstd decoder with its default window reads it) into
+OUT/L.tar.zst, and writes the pins, content addressed (<base-url>/<sha256>/L.tar.zst), to
+APP/Contents/Resources/language-packs.json and OUT/language-packs.json:
+  {"version": 1, "packs": {"de": {"sha256": ..., "size": ..., "url": ...}, ...}}
+Run it after the app's inner code is signed and before the app itself is sealed
+(scripts/sign-cmux-bundle.sh step 4, CMUX_NEXT_LANGUAGE_PACKS=1); the resource bundles carry no
+signature of their own, so the outer seal covers what is left. scripts/cmux-next/publish-language-packs.sh
+uploads OUT before the appcast names the app.
+
+measure selects the same files without moving anything and prints files and bytes per language,
+the total installed bytes a split removes, and the packed size.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+
+BUNDLE_GLOB = "CmuxNext_*.bundle"
+PIN_NAME = "language-packs.json"
+ZSTD_LEVEL = 19
+LANG_RE = re.compile(r"[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*")
+
+
+def die(message: str) -> None:
+    print(f"language-packs: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def languages(app: Path, keep: list[str]) -> list[str]:
+    info = app / "Contents" / "Info.plist"
+    if not info.is_file():
+        die(f"no {info}")
+    with info.open("rb") as handle:
+        listed = plistlib.load(handle).get("CFBundleLocalizations") or []
+    if not isinstance(listed, list) or not all(isinstance(lang, str) for lang in listed):
+        die(f"{info}: CFBundleLocalizations is not a list of strings")
+    skip = {"en", *keep}
+    chosen = sorted({lang for lang in listed if lang not in skip})
+    for lang in chosen:
+        if not LANG_RE.fullmatch(lang):
+            die(f"{info}: unexpected localization name {lang!r}")
+    return chosen
+
+
+def bundles(app: Path) -> list[Path]:
+    found = sorted((app / "Contents" / "Resources").glob(BUNDLE_GLOB))
+    if not found:
+        die(f"no {BUNDLE_GLOB} under {app}/Contents/Resources")
+    for bundle in found:
+        if bundle.is_symlink() or not bundle.is_dir():
+            die(f"{bundle} is not a directory")
+        if (bundle / "Contents" / "_CodeSignature").exists():
+            # A signed nested bundle would need re-signing after its .lproj leave; none is today.
+            die(f"{bundle} is signed on its own; split it before it is signed")
+    return found
+
+
+def lproj_files(lproj: Path) -> list[Path]:
+    """Every file under an .lproj, refusing symlinks and anything that is not a file or directory."""
+    files = []
+    for root, dirs, names in os.walk(lproj):
+        for name in dirs + names:
+            path = Path(root) / name
+            if path.is_symlink():
+                die(f"{path} is a symlink; language packs carry none")
+        for name in names:
+            path = Path(root) / name
+            if not path.is_file():
+                die(f"{path} is not a regular file")
+            files.append(path)
+    return sorted(files)
+
+
+def selection(app: Path, keep: list[str]):
+    """{lang: [(bundle, lproj, [files])]} and the .lproj names no pack takes (for the summary)."""
+    langs = languages(app, keep)
+    chosen: dict[str, list] = {lang: [] for lang in langs}
+    left: set[str] = set()
+    for bundle in bundles(app):
+        resources = bundle / "Contents" / "Resources"
+        if not resources.is_dir():
+            continue
+        for lproj in sorted(resources.glob("*.lproj")):
+            lang = lproj.name[: -len(".lproj")]
+            if lang in chosen:
+                if lproj.is_symlink() or not lproj.is_dir():
+                    die(f"{lproj} is not a directory")
+                chosen[lang].append((bundle, lproj, lproj_files(lproj)))
+            else:
+                left.add(lang)
+    return chosen, sorted(left)
+
+
+def tar_bytes(entries: list[tuple[str, Path | None]]) -> bytes:
+    """A deterministic tar of (relative path, source file or None for a directory)."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for name, source in sorted(entries, key=lambda entry: entry[0]):
+            info = tarfile.TarInfo(name)
+            info.mtime = 0
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            if source is None:
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                tar.addfile(info)
+            else:
+                data = source.read_bytes()
+                info.type = tarfile.REGTYPE
+                info.mode = 0o644
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def pack_entries(items) -> list[tuple[str, Path | None]]:
+    """One language's tar entries, named relative to Contents/Resources of the app:
+    each bundle's directories down to its .lproj, its Info.plist, and the .lproj's contents."""
+    entries: dict[str, Path | None] = {}
+    for bundle, lproj, files in items:
+        base = bundle.parent
+        for directory in (bundle, bundle / "Contents", bundle / "Contents" / "Resources", lproj,
+                          *(p for p in lproj.rglob("*") if p.is_dir() and not p.is_symlink())):
+            entries[directory.relative_to(base).as_posix()] = None
+        entries[f"{bundle.name}/Contents/Info.plist"] = bundle / "Contents" / "Info.plist"
+        for path in files:
+            entries[path.relative_to(base).as_posix()] = path
+    return list(entries.items())
+
+
+def zstd_compress(data: bytes) -> bytes:
+    """zstd -19 (no --long: the daemon's decoder keeps its default window). The zstd CLI
+    (Homebrew on the signing Macs, the zstd package on Linux) or Python 3.14's compression.zstd."""
+    cli = shutil.which("zstd") or next((p for p in ("/opt/homebrew/bin/zstd", "/usr/local/bin/zstd")
+                                        if os.access(p, os.X_OK)), None)
+    if cli:
+        done = subprocess.run([cli, f"-{ZSTD_LEVEL}", "-q", "-c", "--no-progress"], input=data,
+                              stdout=subprocess.PIPE, check=False)
+        if done.returncode != 0:
+            die(f"{cli} failed with status {done.returncode}")
+        return done.stdout
+    try:
+        from compression import zstd  # Python 3.14+
+    except ImportError:
+        die("no zstd: install the zstd CLI (brew install zstd, apt-get install zstd) or run Python 3.14+")
+    return zstd.compress(data, level=ZSTD_LEVEL)
+
+
+def mb(size: int) -> str:
+    return f"{size / 1_000_000:.2f} MB"
+
+
+def measure(args) -> None:
+    app = Path(args.app)
+    chosen, left = selection(app, args.keep)
+    total_files = total_bytes = total_packed = 0
+    print(f"{'lang':<8} {'bundles':>7} {'files':>6} {'installed':>12} {'packed':>12}")
+    for lang, items in chosen.items():
+        files = [f for _, _, fs in items for f in fs]
+        size = sum(f.stat().st_size for f in files)
+        packed = len(zstd_compress(tar_bytes(pack_entries(items)))) if files else 0
+        print(f"{lang:<8} {len(items):>7} {len(files):>6} {size:>12} {packed:>12}")
+        total_files += len(files)
+        total_bytes += size
+        total_packed += packed
+    print(f"{'total':<8} {'':>7} {total_files:>6} {total_bytes:>12} {total_packed:>12}")
+    print(f"{len(chosen)} languages: {total_files} files, {mb(total_bytes)} installed bytes removed, "
+          f"{mb(total_packed)} of packs")
+    if left:
+        print(f"kept in the app: {', '.join(name + '.lproj' for name in left)}")
+
+
+def check_base_url(url: str) -> str:
+    if not (url.startswith("https://") or re.match(r"http://(localhost|127\.0\.0\.1)(:\d+)?(/|$)", url)):
+        die(f"--base-url must be https (or http to localhost for tests): {url!r}")
+    return url.rstrip("/")
+
+
+def split(args) -> None:
+    app = Path(args.app)
+    out = Path(args.out)
+    base_url = check_base_url(args.base_url)
+    app_pin = app / "Contents" / "Resources" / PIN_NAME
+    if app_pin.exists():
+        die(f"{app_pin} exists: this app was split already")
+    if out.exists() and any(out.iterdir()):
+        die(f"{out} is not empty")
+    chosen, left = selection(app, args.keep)
+    stage = out / "stage"
+    stage.mkdir(parents=True)
+    packs = {}
+    total_bytes = total_files = 0
+    for lang, items in chosen.items():
+        if not items:
+            print(f"==> {lang}: no {lang}.lproj in any {BUNDLE_GLOB}; no pack")
+            continue
+        # Packed from the app (the same entries measure reads), then moved out of it.
+        data = zstd_compress(tar_bytes(pack_entries(items)))
+        stage_lang = stage / lang
+        moved = 0
+        for bundle, lproj, files in items:
+            moved += sum(f.stat().st_size for f in files)
+            total_files += len(files)
+            dest = stage_lang / bundle.name / "Contents" / "Resources" / lproj.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bundle / "Contents" / "Info.plist", stage_lang / bundle.name / "Contents" / "Info.plist")
+            shutil.move(str(lproj), str(dest))
+        asset = out / f"{lang}.tar.zst"
+        asset.write_bytes(data)
+        sha = hashlib.sha256(data).hexdigest()
+        packs[lang] = {"sha256": sha, "size": len(data), "url": f"{base_url}/{sha}/{lang}.tar.zst"}
+        total_bytes += moved
+        print(f"==> {lang}: {len(items)} bundles, {moved} bytes moved, pack {len(data)} bytes ({sha[:12]})")
+    pin = json.dumps({"version": 1, "packs": packs}, indent=2, sort_keys=True) + "\n"
+    (out / PIN_NAME).write_text(pin)
+    app_pin.write_text(pin)
+    packed = sum(p["size"] for p in packs.values())
+    print(f"==> {len(packs)} language packs: {total_files} files, {total_bytes} bytes ({mb(total_bytes)}) "
+          f"removed from the app, {packed} bytes ({mb(packed)}) of packs; pin {app_pin}")
+    if left:
+        print(f"kept in the app: {', '.join(name + '.lproj' for name in left)}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    s = sub.add_parser("split")
+    s.add_argument("app")
+    s.add_argument("out")
+    s.add_argument("--base-url", required=True)
+    s.add_argument("--keep", nargs="+", default=[], metavar="LANG")
+    s.set_defaults(run=split)
+    m = sub.add_parser("measure")
+    m.add_argument("app")
+    m.add_argument("--keep", nargs="+", default=[], metavar="LANG")
+    m.set_defaults(run=measure)
+    args = parser.parse_args()
+    args.run(args)
+
+
+if __name__ == "__main__":
+    main()
