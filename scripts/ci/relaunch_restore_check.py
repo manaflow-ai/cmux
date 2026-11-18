@@ -512,7 +512,11 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             os.remove(inst.sock)  # the old app's socket file: only the relaunched app's counts
         except OSError:
             pass
-    process, marks_read, _ = launch(app, env, out / "app-relaunched.log")
+    import relaunch_premain_probe  # experiment (lane/rtc-premain-probe, not for merge)
+    probe = relaunch_premain_probe.Probe(n, app, out)
+    probe.before_launch(asked, row["pid_before"])
+    process, marks_read, _ = launch(app, probe.env(env), out / "app-relaunched.log")
+    probe.after_launch(process.pid, time.monotonic())
     row["pid_after"] = process.pid
     launched = time.monotonic()
     row["relaunch_ms"] = round((launched - asked) * 1000)
@@ -556,6 +560,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     drain()
     os.close(marks_read)
     row["marks"] = marks
+    probe.finish(marks)
     row["front_after"] = front(inst.topology())
     row["usable"] = ok
     row["quit_to_usable_ms"] = round((done - asked) * 1000) if ok else None
