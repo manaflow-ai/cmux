@@ -11,7 +11,7 @@
 #   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
 #                 removed, and the phone's kept override cleared
 #   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
-#                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (#45790; CNX_CLOUD_DEV_STACK names
+#                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
 #                 another command)
 #   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
@@ -168,7 +168,7 @@ review_resolve_backend() {
       BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" ;;
     tag-stack)
       local stack="${CNX_CLOUD_DEV_STACK:-$REPO_ROOT/scripts/cmux-next/cloud-dev-stack.sh}"
-      [[ -x "$stack" ]] || die "--backend tag-stack needs $stack (#45790), which this checkout does not have; pass --backend <https://...ts.net:port> instead"
+      [[ -x "$stack" ]] || die "--backend tag-stack needs $stack , which this checkout does not have; pass --backend <https://...ts.net:port> instead"
       out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
       out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
       BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
