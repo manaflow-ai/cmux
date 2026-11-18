@@ -89,6 +89,11 @@ pub struct SessionContext {
     /// draw the lease in that agent's presence colour. Display only: the
     /// caller states it, so no policy reads it.
     pub terminal: Option<String>,
+    /// The caller's cmux workspace key (`browser.repl.open {workspace}`,
+    /// filled by the CLI and MCP clients from `CMUX_WORKSPACE_ID`), so the
+    /// app opens the session's tabs in the caller's own workspace, never the
+    /// focused one. Placement only: the caller states it, so no policy reads it.
+    pub workspace: Option<String>,
 }
 
 /// The profile agents get unless the person names another (D12).
@@ -323,6 +328,7 @@ impl Host {
             label: lease_label(params.get("label").and_then(Value::as_str), &name),
             profile: profile.to_owned(),
             terminal: lease_terminal(params.get("terminal").and_then(Value::as_str)),
+            workspace: lease_workspace(params.get("workspace").and_then(Value::as_str)),
         };
         let driver = self.engines.driver(&engine, sink.clone(), &context)?;
         let mut capabilities: Vec<String> =
@@ -612,6 +618,18 @@ fn lease_label(label: Option<&str>, session: &str) -> String {
     let text: String = words.join(" ").chars().take(48).collect();
     let text = text.trim_end();
     if text.is_empty() { session.to_owned() } else { text.to_owned() }
+}
+
+/// The caller's workspace key when it has a workspace key's shape (hex
+/// digits and dashes, at most 64 characters), else none.
+fn lease_workspace(workspace: Option<&str>) -> Option<String> {
+    workspace
+        .filter(|key| {
+            !key.is_empty()
+                && key.len() <= 64
+                && key.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        })
+        .map(str::to_owned)
 }
 
 /// The caller's terminal id when it has a cmux terminal id's shape
@@ -932,6 +950,17 @@ mod tests {
             assert_eq!(lease_terminal(Some(bad)), None, "{bad:?}");
         }
         assert_eq!(lease_terminal(None), None);
+    }
+
+    #[test]
+    fn lease_workspace_keeps_only_a_workspace_key() {
+        let key = "FBC6C273-1E11-4696-A320-1B29E00E73C7";
+        assert_eq!(lease_workspace(Some(key)).as_deref(), Some(key));
+        assert_eq!(lease_workspace(Some("fbc6c2731e114696")).as_deref(), Some("fbc6c2731e114696"));
+        for bad in ["", "ws_1", "home", "a b", "\u{202E}ab", &"a".repeat(65)] {
+            assert_eq!(lease_workspace(Some(bad)), None, "{bad:?}");
+        }
+        assert_eq!(lease_workspace(None), None);
     }
 
     #[test]

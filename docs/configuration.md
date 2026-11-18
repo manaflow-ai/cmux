@@ -120,7 +120,7 @@ How text draws in cmux's own controls (tab titles, the sidebar, the command pale
 
 `"system"`, the earlier name, still reads as `"auto"`.
 
-Web pages change at once. Native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
 
 ## `app.windowTitleTemplate`
 
