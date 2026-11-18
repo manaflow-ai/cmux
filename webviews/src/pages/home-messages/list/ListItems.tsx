@@ -2,7 +2,7 @@
 // unread dot in the gutter) or a pinned tile (a big avatar with the name under it and its unread
 // dot), as the native list (MessagesLab's sidebar) draws them. The avatar is the participant's
 // picture or their initials; a group shows up to three members; a Chief working shows a quiet mark.
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { memo, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { DrivenRow } from "../../../ui/DrivenList";
 import { useAvatarPicture } from "../../home-channels/avatars";
 import { graphemePrefix, initials } from "../../../ui/initials";
@@ -71,7 +71,42 @@ export interface ItemEvents {
   onHover(id: string): void;
 }
 
-export function ListRow({
+const sameParticipant = (a: HomeParticipant | undefined, b: HomeParticipant | undefined) =>
+  a === b || (!!a && !!b && a.id === b.id && a.name === b.name && a.kind === b.kind && a.chief === b.chief);
+
+/** Whether two items draw the same (the list model builds every item again on each change and on its
+ * minute clock): what a row or tile shows, its label and its avatar. */
+export function sameLook(a: ListItem, b: ListItem): boolean {
+  if (a === b) return true;
+  if (
+    a.id !== b.id ||
+    a.title !== b.title ||
+    a.label !== b.label ||
+    a.preview !== b.preview ||
+    a.time !== b.time ||
+    a.badge !== b.badge ||
+    a.unread !== b.unread ||
+    a.muted !== b.muted ||
+    a.state !== b.state ||
+    !sameParticipant(a.peer, b.peer) ||
+    a.members.length !== b.members.length
+  )
+    return false;
+  for (let index = 0; index < Math.min(a.members.length, 3); index++)
+    if (!sameParticipant(a.members[index], b.members[index])) return false;
+  return true;
+}
+
+/** Memo for a row or tile: its other props are numbers, booleans and the list's one `events`. */
+function sameItemProps<P extends { item: ListItem }>(a: P, b: P): boolean {
+  for (const key in a) {
+    if (key === "item") continue;
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  return sameLook(a.item, b.item);
+}
+
+export const ListRow = memo(function ListRow({
   item,
   top,
   selected,
@@ -124,9 +159,9 @@ export function ListRow({
       )}
     </DrivenRow>
   );
-}
+}, sameItemProps);
 
-export function PinnedTile({
+export const PinnedTile = memo(function PinnedTile({
   item,
   x,
   y,
@@ -174,4 +209,4 @@ export function PinnedTile({
       </span>
     </DrivenRow>
   );
-}
+}, sameItemProps);
