@@ -55,6 +55,12 @@ so each pass also writes the linux pool's live member to it (MIRRORS, mirror_wri
 overflow switch's record names it among the variables it changed, and --check fails while it names a
 label outside the pool.
 
+Other variables hold one raw Blacksmith Linux label that runs-on reads ahead of a pool (RAW_LABEL_VARS:
+LINUX_BUILD_RUNNER, LINUX_RUNNER_DARWIN_CROSS, CI_TRUSTED_RUNNER, ...). Each pass moves one that names a `_dead`
+label to the nearest live size of the same image, records the label it left in RUNNER_POOLS' `_raw_home`, and
+moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. A value
+that is not a Blacksmith Linux pool label is left alone.
+
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
 creates the job, and the queue janitor's dead-label re-dispatch (cmux#27114) re-runs those jobs,
 which then read the pool's new member.
@@ -98,6 +104,30 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
+# (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
+# feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
+# LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS still named blacksmith-32vcpu-ubuntu-2404 (dead since 23:11Z the
+# day before) until they were moved by hand at 04:40Z, with about 1,706 jobs queued there that never started. Each
+# pass moves such a variable off a label `_dead` names to the nearest live size of its image (raw_substitute()),
+# keeps where it came from in RUNNER_POOLS' `_raw_home`, and moves it back once that label leaves `_dead`
+# (raw_homes(), raw_writes()). A value that is no Blacksmith Linux pool label (an owned runner, a hosted label,
+# unset) is never touched. tests/test_ci_runner_pools.py fails when a main workflow reads another variable that way.
+# macOS variables are never here: macOS moves through its pickers and the overflow switch.
+RAW_LABEL_VARS = (
+    "CI_CLASSIC_NIGHTLY_MINI",
+    "CI_COMPILE_CHECK_GATEWAY",
+    "CI_CONTROL_RUNNER",
+    "CI_LINUX_GATE_OWNED_RUNNER",
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER",
+    "CI_TEST_COMPILE_GATEWAY",
+    "CI_TRUSTED_RUNNER",
+    "LINUX_ARM64_RUNNER",
+    "LINUX_BUILD_RUNNER",
+    "LINUX_RUNNER_DARWIN_CROSS",
+)
+RAW_HOME_KEY = "_raw_home"
+BLACKSMITH_LINUX = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-[a-z0-9.-]+)$")
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
@@ -299,6 +329,18 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    homes = value.get(RAW_HOME_KEY)
+    if homes is not None:
+        good = {name: {"home": entry["home"], "to": entry["to"]}
+                for name, entry in (homes.items() if isinstance(homes, dict) else ())
+                if name in RAW_LABEL_VARS and isinstance(entry, dict)
+                and all(isinstance(entry.get(key), str) and BLACKSMITH_LINUX.match(entry[key])
+                        for key in ("home", "to"))}
+        if not isinstance(homes, dict) or len(good) != len(homes):
+            dropped.append(f"{VARIABLE}.{RAW_HOME_KEY} holds entries that are not VARIABLE -> "
+                           "{home, to} Blacksmith Linux labels; dropped")
+        if good:
+            clean[RAW_HOME_KEY] = dict(sorted(good.items()))
     return clean, dropped
 
 
@@ -333,7 +375,7 @@ def switch_owned(record: str | None) -> frozenset[str] | None:
         return None
     if not isinstance(changed, dict):
         return None
-    return frozenset(name for name in MIRRORS if name in changed)
+    return frozenset(name for name in (*MIRRORS, *RAW_LABEL_VARS) if name in changed)
 
 
 def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
@@ -361,7 +403,94 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
+    writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
     return writes
+
+
+def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]]) -> str | None:
+    """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: the same image
+    (so the same arch), the largest size at most `label`'s (the release valve's direction), else the smallest larger
+    one. None when no other size of that image is live."""
+    match = BLACKSMITH_LINUX.match(label)
+    if not match:
+        return None
+    size, image, dead = int(match.group(1)), match.group(2), set(dead)
+    sizes: dict[str, int] = {}
+    for spec in pools.values():
+        for member in members(spec):
+            other = BLACKSMITH_LINUX.match(member)
+            if other and other.group(2) == image and member != label and member not in dead:
+                sizes[member] = int(other.group(1))
+    down = sorted((name for name, n in sizes.items() if n <= size), key=lambda name: -sizes[name])
+    up = sorted((name for name, n in sizes.items() if n > size), key=lambda name: sizes[name])
+    return next(iter([*down, *up]), None)
+
+
+def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str | None], dead: Iterable[str],
+              pools: Mapping[str, Mapping[str, Any]], *, owned: frozenset[str]) -> tuple[dict[str, dict[str, str]],
+                                                                                         list[str]]:
+    """The next RUNNER_POOLS `_raw_home` (VARIABLE -> {home, to}) and a line per change.
+
+    A RAW_LABEL_VARS variable on a Blacksmith Linux pool label `_dead` names gets an entry: `home`, the label it
+    held, and `to`, the live size it moves to (raw_substitute()). The entry stays while the variable holds `home`,
+    `to` or another dead label; raw_writes() points it at `to` while `home` is dead and back at `home` after. Once
+    it holds `home` again with `home` live, the entry goes. A variable set by hand to anything else loses its entry
+    and is left alone, as is one this pass could not read or the overflow switch's record names (`owned`)."""
+    dead = set(dead)
+    known = {label for spec in pools.values() for label in members(spec) if BLACKSMITH_LINUX.match(label)}
+    homes: dict[str, dict[str, str]] = {}
+    lines: list[str] = []
+    for name in RAW_LABEL_VARS:
+        entry = previous.get(name)
+        if name not in live or name in owned:
+            if entry:
+                homes[name] = dict(entry)
+            continue
+        current = (live.get(name) or "").strip()
+        if entry and current not in (entry["home"], entry["to"]) and current not in dead:
+            lines.append(f"{name}={current or 'unset'} was set by hand after it moved off {entry['home']}; "
+                         "it stays as set")
+            entry = None
+        if entry is None:
+            if current not in known or current not in dead:
+                continue
+            to = raw_substitute(current, dead, pools)
+            if to is None:
+                lines.append(f"{name}={current} is dead and no other size of its image is live; it stays")
+                continue
+            homes[name] = {"home": current, "to": to}
+            continue
+        home = entry["home"]
+        if home not in dead and current == home:
+            lines.append(f"{name} is back on {home}")
+            continue
+        to = entry["to"]
+        if home in dead and to in dead:
+            to = raw_substitute(home, dead, pools) or to
+        homes[name] = {"home": home, "to": to}
+    return dict(sorted(homes.items())), lines
+
+
+def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
+               owned: frozenset[str]) -> list[tuple[str, str, str, str]]:
+    """(variable, label, current, why) for each `_raw_home` entry (raw_homes()) whose variable does not hold its
+    target: `to` while `home` is dead, `home` once it is not. Only a variable this pass read, the switch's record
+    does not name, and that still holds `home`, `to` or a dead label (else it was set by hand) moves."""
+    dead = set(value.get(DEAD_KEY) or {})
+    found = []
+    for name, entry in sorted((value.get(RAW_HOME_KEY) or {}).items()):
+        if name in owned or name not in live:
+            continue
+        current = (live.get(name) or "").strip()
+        if current not in (entry["home"], entry["to"]) and current not in dead:
+            continue
+        if entry["home"] in dead:
+            target, why = entry["to"], f"{entry['home']} is dead"
+        else:
+            target, why = entry["home"], f"{entry['home']} takes jobs again"
+        if current != target and target not in dead:
+            found.append((name, target, current, why))
+    return found
 
 
 def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[str, Any]], *,
@@ -646,6 +775,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
                              covered=evidence_covers(health, snapshot, pools, now=now))
+    # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
+    # one may have moved them, so the job-start values could undo its failover.
+    live, record, readable = _live(switch, env)
+    owned = switch_owned(record) if readable else None
+    previous_homes = current.get(RAW_HOME_KEY) or {}
+    if owned is not None:
+        homes, said = raw_homes(previous_homes, live, value[DEAD_KEY], pools, owned=owned)
+        lines += said
+    else:
+        homes = dict(previous_homes)
+    if homes:
+        value[RAW_HOME_KEY] = homes
+    if homes != previous_homes:
+        value[UPDATED_KEY] = iso(now)
     for line in lines:
         print(line)
     summary = env.get("GITHUB_STEP_SUMMARY")
@@ -658,11 +801,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"{VARIABLE} unchanged")
     else:
         writes.append((VARIABLE, render(value)))
-    # The mirrored variables and the switch's record, read live: the switch step just before this one
-    # may have moved them, so the job-start values could undo its failover.
-    live, record, readable = _live(switch, env)
     if readable:
         writes += mirror_writes(value, live, record=record)
+    if owned is not None:
+        # Every raw-label move is a warning, so the run's annotations say which variables left which label.
+        for name, target, was, why in raw_writes(value, live, owned=owned):
+            print(f"::warning title=Runner pools::{name}: {was or 'unset'} -> {target} ({why}; "
+                  f"{VARIABLE}.{RAW_HOME_KEY} keeps its home)")
     if not writes:
         return 0
     if args.dry_run:
@@ -681,7 +826,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
 
 def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], str | None, bool]:
-    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env."""
+    """(MIRRORS values, the overflow record, whether they were read) through the API, else the job's env.
+
+    The RAW_LABEL_VARS values this pass could read are in the same map; one it could not read is absent, so it is
+    never moved on a guess (raw_homes(), raw_writes())."""
     names = (*MIRRORS, OVERFLOW_RECORD)
     if switch is not None and hasattr(switch, "get_variable"):
         try:
@@ -695,6 +843,14 @@ def _live(switch: Any, env: Mapping[str, str]) -> tuple[dict[str, str | None], s
             return {}, None, False
         got = {name: env.get(name) for name in names}
     record = got.pop(OVERFLOW_RECORD)
+    for name in RAW_LABEL_VARS:
+        if switch is not None and hasattr(switch, "get_variable"):
+            try:
+                got[name] = switch.get_variable(name)
+            except Exception as error:  # noqa: BLE001 - an unread variable is never moved
+                print(f"::warning title=Runner pools::could not read {name} ({error}); not moving it")
+        elif name in env:
+            got[name] = env.get(name)
     return got, record, True
 
 

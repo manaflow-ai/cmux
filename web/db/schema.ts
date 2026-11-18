@@ -2899,6 +2899,16 @@ export const appleSubscriptions = pgTable("apple_subscriptions", {
    * never moves `updated_at`.
    */
   appleCheckedAt: timestamp("apple_checked_at", { withTimezone: true }),
+  /**
+   * The higher plan of the period still running when Apple's early renewal
+   * into a lower plan was written (a downgrade charged up to a day before the
+   * period ends). It grants until `carried_until` unless
+   * `carried_transaction_id` was refunded; the cron re-derives the plan once
+   * it ends and clears these.
+   */
+  carriedPlanId: text("carried_plan_id"),
+  carriedUntil: timestamp("carried_until", { withTimezone: true }),
+  carriedTransactionId: text("carried_transaction_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

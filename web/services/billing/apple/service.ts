@@ -100,6 +100,8 @@ type FreshAppleState = {
   readonly transaction: JWSTransactionDecodedPayload;
   readonly renewal: JWSRenewalInfoDecodedPayload | null;
   readonly appleStatus: number | null;
+  /** True when Apple's current status answered; false for the fallback to the caller's own transaction. */
+  readonly fromAppleStatus: boolean;
 };
 
 /**
@@ -112,7 +114,7 @@ async function freshAppleState(
   transaction: JWSTransactionDecodedPayload,
   deps: AppleIapDependencies,
 ): Promise<FreshAppleState> {
-  const fallbackState = { transaction, renewal: null, appleStatus: null };
+  const fallbackState = { transaction, renewal: null, appleStatus: null, fromAppleStatus: false };
   const fallback = (reason: AppleClientFallbackReason, error?: unknown) => {
     reportClientTransactionFallback(transaction, reason, error);
     return fallbackState;
@@ -135,7 +137,7 @@ async function freshAppleState(
           bundleId: transaction.bundleId!,
         })
       : null;
-    return { transaction: fresh, renewal, appleStatus: snapshot.status };
+    return { transaction: fresh, renewal, appleStatus: snapshot.status, fromAppleStatus: true };
   } catch (error) {
     return fallback("lookup_failed", error);
   }
@@ -532,6 +534,8 @@ export type AppleRetryResult = {
   readonly lapsedDeferred: number;
   /** Lapsed subscriptions Apple showed as still granting, written instead of expired. */
   readonly lapsesRecovered: number;
+  /** Users whose carried higher plan ended and whose plan was re-derived. */
+  readonly carriesEnded: number;
 };
 
 /**
@@ -572,6 +576,7 @@ export async function retryAppleNotifications(
     lapsedFailures: sweep.failures,
     lapsedDeferred: sweep.deferredUsers,
     lapsesRecovered: sweep.recovered,
+    carriesEnded: sweep.carriesEnded,
   };
 }
 
