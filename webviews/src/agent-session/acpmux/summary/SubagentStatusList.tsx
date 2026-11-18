@@ -16,6 +16,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
+import { sameAgentRowProps } from "../subagents/subagentLook";
 
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
@@ -159,8 +160,9 @@ export function SubagentStatusList({
 }
 
 /// A subagent's row: the tray's own line (subagents/AgentLine.tsx), so a subagent reads the same here
-/// and above the composer. Memoized on its agent and plain values; it keeps its own clock, ticking
-/// only while it runs, so a tick draws the running rows and no ended one.
+/// and above the composer. Memoized on the fields of its agent it draws and its plain values
+/// (subagentLook.ts), so a snapshot that only brings new objects draws no row; it keeps its own
+/// clock, ticking only while its time moves, so a tick draws the running rows and no ended one.
 const SubagentStatusRow = memo(function SubagentStatusRow({
   agent,
   depth,
@@ -208,7 +210,7 @@ const SubagentStatusRow = memo(function SubagentStatusRow({
       />
     </li>
   );
-});
+}, sameAgentRowProps);
 
 const NO_WAITING: ReadonlySet<string> = new Set();
 

@@ -17,17 +17,19 @@ import { TurnActionsContext } from "../conversation/turnActions";
 import type { ResumeActions } from "../subagents/ResumeControl";
 import type { Subagent } from "../subagents/subagentFold";
 import { SUBAGENT_ROW } from "../subagents/subagentRows";
+import { sameSubagentLook } from "../subagents/subagentLook";
 import { subagentStatus } from "./subagentStatusListModel";
 
 /// Subagent rows as SubagentListRow draws them; each carries its place in its list (`status`). A row
-/// whose agent and place did not change is the one `kept` drew last time, so its memo holds and only
-/// the changed agent's row draws again.
+/// whose place and drawn fields did not change (subagentLook.ts: every snapshot is new objects) is
+/// the one `kept` drew last time, so its memo holds and only the changed agent's row draws again.
 function listRows(agents: readonly Subagent[], kept: Map<string, AcpmuxRow>): AcpmuxRow[] {
   const rows = agents.map((agent, index): AcpmuxRow => {
     const status =
       agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle";
     const last = kept.get(agent.id);
-    if (last && last.subagents?.[0] === agent && last.status === status) return last;
+    const was = last?.subagents?.[0];
+    if (last && was && last.status === status && sameSubagentLook(was, agent)) return last;
     return {
       id: `summary-subagent:${agent.id}`,
       version: 1,
