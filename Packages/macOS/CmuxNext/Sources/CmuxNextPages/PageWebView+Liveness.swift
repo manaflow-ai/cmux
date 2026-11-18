@@ -57,8 +57,12 @@ extension PageWebView {
     /// one ended renderer that share a window's toasts each show theirs at once instead of
     /// replacing each other; its kind is one for all, so Don't Show Again hides every copy.
     public func rendererRestartedToast(_ line: String) -> CmuxToast {
-        CmuxToast(id: "page.rendererRestarted.\(PageRegistry.instance(of: self))", kind: "page.rendererRestarted", message: line)
+        CmuxToast(id: "page.rendererRestarted.\(PageRegistry.instance(of: self))", kind: Self.rendererRestartedToastKind, message: line)
     }
+
+    /// The restart toast's Don't Show Again key: the id the agent pane's one toast had before the
+    /// toast became each page's own, so a person who hid it keeps it hidden.
+    public nonisolated static let rendererRestartedToastKind = "agentPane.rendererRestarted"
 
     /// The page global the restart line's document script sets (webviews rendererRestartStore.ts
     /// reads it when the pane's module loads, so the line is in the chat's first frame) and the

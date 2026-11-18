@@ -181,6 +181,27 @@ struct PageWebViewHungRendererEndTests {
         other.close()
     }
 
+    /// Don't Show Again on the restart toast was saved under the agent pane's old toast id
+    /// (`agentPane.rendererRestarted`, its kind by default): that saved choice still hides every
+    /// page's restart toast now that each page has its own id.
+    @Test func aRestartToastHiddenBeforeStaysHidden() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "page-hung-toast-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["agentPane.rendererRestarted"], forKey: CmuxToastNeverShowStore.defaultsKey)
+        let toasts = CmuxToastCenter(neverShow: CmuxToastNeverShowStore(defaults: defaults))
+        let window = window()
+        defer { window.close() }
+        let hosting = FakeChromiumHosting()
+        let (view, _) = try await chat(hosting, session: "s-hidden", renderer: newRenderer())
+        let toast = view.rendererRestartedToast("restarted")
+        #expect(toast.kind == "agentPane.rendererRestarted" && toast.offersNeverShow)
+        toasts.show(toast, in: window)
+        #expect(toasts.toasts(in: window).isEmpty, "a restart toast the person hid before showed again")
+        view.close()
+    }
+
     @Test func anEndThatEndedNothingTakesTheMarksBack() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
