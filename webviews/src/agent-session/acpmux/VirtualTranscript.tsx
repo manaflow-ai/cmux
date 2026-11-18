@@ -1,4 +1,11 @@
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
+import {
+  gridScale,
+  MARK_INDICATOR,
+  MARK_PROMPT,
+  rowMark,
+  TRANSCRIPT_COMPOSER_GAP,
+  transcriptLiveVars,
+} from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -14,6 +21,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { type KeptHeight, keptHeightFor, KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
@@ -1654,6 +1662,62 @@ function estimateFrom(
   };
 }
 
+/// The layouts of the chats this page's transcript showed and left (conversation/keptLayouts.ts).
+const keptLayouts = new KeptLayouts<DrawnHeights>();
+
+/// The row heights `last` measured for chat `sessionId`, by row id, to keep when the transcript leaves it.
+/// One pass over its rows, once per switch.
+function keptHeightsOf(
+  last: LastEstimate | undefined,
+  sessionId: string,
+  heights: RowHeights,
+): ReadonlyMap<string, KeptHeight> {
+  const kept = new Map<string, KeptHeight>();
+  if (!last || last.sessionId !== sessionId) return kept;
+  for (const row of last.rows) {
+    const known = heights.get(row);
+    if (known)
+      kept.set(row.id, {
+        version: row.version,
+        textLength: row.text?.length ?? 0,
+        width: known.width,
+        height: known.height,
+        ...(known.edge !== undefined ? { edge: known.edge } : {}),
+        ...(known.scale !== undefined ? { scale: known.scale } : {}),
+      });
+  }
+  return kept;
+}
+
+/// A shown-again chat seeds its estimates for this many passes and this long (its kept tail's draw, its
+/// attach page and the records after it each build new row objects), then measures as usual.
+const SEED_PASSES = 4;
+const SEED_MS = 2_000;
+
+/// Gives each row of `rows` with no estimate yet the height its chat's kept layout holds for it (same id,
+/// version and text length), so the estimate keeps it instead of measuring it. True once seeding is done.
+function seedKeptHeights(
+  restoring: { heights: ReadonlyMap<string, KeptHeight>; passes: number; since?: number },
+  rows: readonly AcpmuxRow[],
+  heights: RowHeights,
+): boolean {
+  const scale = gridScale();
+  for (const row of rows) {
+    if (heights.has(row)) continue;
+    const kept = keptHeightFor(restoring.heights, row, scale);
+    if (kept)
+      heights.set(row, {
+        width: kept.width,
+        height: kept.height,
+        ...(kept.edge !== undefined ? { edge: kept.edge } : {}),
+        ...(kept.scale !== undefined ? { scale: kept.scale } : {}),
+      });
+  }
+  restoring.passes += 1;
+  restoring.since ??= performance.now();
+  return restoring.passes >= SEED_PASSES && performance.now() - restoring.since >= SEED_MS;
+}
+
 /// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
 /// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
 /// chat or rows it cannot find there, so every row is measured.
@@ -2611,13 +2675,33 @@ function TranscriptView({
     heights: new WeakMap(),
   });
   const measurementSession = useRef(sessionId);
+  /// The layout kept for this chat when the transcript last left it (conversation/keptLayouts.ts), while
+  /// its first estimates seed their row heights from it (`seedKeptHeights`).
+  const restoring = useRef<{ heights: ReadonlyMap<string, KeptHeight>; passes: number; since?: number } | undefined>(
+    undefined,
+  );
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
     // prepared markdown and DOM heights from the old transcript must never place the new one.
+    // The chat left keeps its layout for its next show in this page, and the chat shown takes the
+    // layout it left, if any: its rows place at the heights they drew, measuring none of them again.
+    const left = measurementSession.current;
+    if (left !== undefined)
+      keptLayouts.keep(left, {
+        drawn,
+        heights: keptHeightsOf(lastEstimate.current, left, rowHeights.current.heights),
+        look: measuredLook.current,
+        view: measuredView.current,
+        registry: rowHeights.current.registry,
+      });
     measurementSession.current = sessionId;
     measurementCache.current.clear();
     rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
+    const kept = sessionId === undefined ? undefined : keptLayouts.take(sessionId, chatLook, attachmentView, registry);
+    restoring.current = kept ? { heights: kept.heights, passes: 0 } : undefined;
+    // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
+    if (kept && kept.drawn !== drawn) setDrawn(kept.drawn);
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
@@ -3976,13 +4060,20 @@ function TranscriptView({
     measuredLook.current = chatLook;
     measuredView.current = attachmentView;
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
-    if (rowHeights.current.registry !== registry || lookChanged)
+    if (rowHeights.current.registry !== registry || lookChanged) {
       rowHeights.current = { registry, heights: new WeakMap() };
+      // A kept layout was measured with the look and registry before: none of it places a row now.
+      restoring.current = undefined;
+    }
     const rowWidth = scaledRowWidth;
     // A live resize's frame at a new width: only the rows around the mounted ones are measured, the
     // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
     // measures every row at the width that held; a partial layout is never a base to keep rows from.
     void resizeSettled;
+    // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
+    // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
+    if (restoring.current && measurementSession.current === sessionId && seedKeptHeights(restoring.current, rows, rowHeights.current.heights))
+      restoring.current = undefined;
     // What the last pass left, read once for this one (`estimateFrom`).
     const { kept, resizing, partial } = estimateFrom(
       fresh ? undefined : lastEstimate.current,
