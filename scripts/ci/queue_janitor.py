@@ -3579,7 +3579,7 @@ def find_concurrency_holders(
         workflow = str(parked["path"]).rsplit("/", 1)[-1]
         try:
             candidates = [run for run in holder_candidates(
-                parked, github.branch_runs(workflow, str(parked["head_branch"])))
+                parked, github.queued_branch_runs(workflow, str(parked["head_branch"])))
                 if run["id"] not in seen]
             jobs = {run["id"]: github.jobs(run["id"]) for run in candidates[:1]}
         except RateLimited as error:
@@ -4341,7 +4341,7 @@ class GitHub:
             result.update(parse_graphql_prs(response, chunk))
         return result
 
-    def branch_runs(self, workflow: str, branch: str) -> list[dict[str, Any]]:
+    def queued_branch_runs(self, workflow: str, branch: str) -> list[dict[str, Any]]:
         """One page of a workflow's queued pull request runs on one branch: a parked run's possible holders."""
         query = urllib.parse.urlencode({"branch": branch, "event": "pull_request", "status": "queued",
                                         "per_page": 20})
