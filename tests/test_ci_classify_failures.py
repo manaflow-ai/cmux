@@ -194,6 +194,13 @@ class SignatureTests(unittest.TestCase):
         result = cf.classify_text("", [GUI_TOKEN_UNAVAILABLE])
         self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "gui-token-unavailable"))
 
+    def test_a_no_console_user_failure_annotation_is_the_machine(self) -> None:
+        # The shard's every test failed because the runner had no GUI session;
+        # the only cause lives in this failure annotation (#15395).
+        result = cf.classify_text("", [NO_CONSOLE_WARNING])
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "no-console-user"))
+        self.assertIn(NO_CONSOLE_WARNING, result["evidence"])
+
     def test_an_ambiguous_console_warning_does_not_outweigh_test_failures(self) -> None:
         log = f"##[warning]{NO_CONSOLE_WARNING}\n{TEST_FAILED}"
         self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
