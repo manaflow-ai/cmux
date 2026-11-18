@@ -945,6 +945,31 @@ class RawLabelVars(unittest.TestCase):
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
         self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
 
+    def test_the_tree_build_variables_never_move_below_eight_vcpu(self) -> None:
+        # 2026-11-18 13:31Z: LINUX_BUILD_RUNNER and LINUX_RUNNER_DARWIN_CROSS had moved to 2 vCPU, where the fat-LTO
+        # tree build legs were SIGKILLed out of memory.
+        pools = runner_pools.load_pools()
+        small = {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}
+        dead = set(self.SIZES) - small
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, dead, pools), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools, 8))
+        live = {"LINUX_BUILD_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "CI_CONTROL_RUNNER": "blacksmith-2vcpu-ubuntu-2404"}
+        previous = {"LINUX_BUILD_RUNNER": {"home": "blacksmith-16vcpu-ubuntu-2404", "to": "blacksmith-2vcpu-ubuntu-2404"}}
+        homes, lines = runner_pools.raw_homes(previous, live, dead, pools, owned=frozenset())
+        # No size at or above 8 vCPU is live: it goes back home to wait there.
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"], {"home": "blacksmith-16vcpu-ubuntu-2404",
+                                                       "to": "blacksmith-16vcpu-ubuntu-2404"})
+        self.assertTrue(any("below its 8 vCPU floor" in line for line in lines), lines)
+        value = {runner_pools.DEAD_KEY: {label: "2026-11-18T13:31:07Z" for label in dead},
+                 runner_pools.RAW_HOME_KEY: homes}
+        self.assertEqual(runner_pools.raw_writes(value, live, owned=frozenset()),
+                         [("LINUX_BUILD_RUNNER", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404",
+                           "blacksmith-16vcpu-ubuntu-2404 is dead")])
+        # 8 vCPU live again: it takes that, not 2.
+        homes, _ = runner_pools.raw_homes(previous, live, dead - {"blacksmith-8vcpu-ubuntu-2404"}, pools,
+                                          owned=frozenset())
+        self.assertEqual(homes["LINUX_BUILD_RUNNER"]["to"], "blacksmith-8vcpu-ubuntu-2404")
+
     def test_the_pinned_spill_path_makes_the_same_moves(self) -> None:
         # Production runs main() through linux_pool_spill.py: a switch that records writes, then the spill re-parses
         # the recorded RUNNER_POOLS (parse_value()) and writes mirror_writes() over _live() itself.

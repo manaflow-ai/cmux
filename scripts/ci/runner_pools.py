@@ -127,6 +127,9 @@ RAW_LABEL_VARS = (
     "LINUX_RUNNER_DARWIN_CROSS",
 )
 RAW_HOME_KEY = "_raw_home"
+# The smallest size a RAW_LABEL_VARS variable may move to (memory_floor()): the cmux-tui tree build's fat-LTO legs
+# (cmux-tui-build-package.yml plan-build) were SIGKILLed out of memory on 4 and 2 vCPU on 2026-11-18.
+RAW_LABEL_MIN_VCPU = {"LINUX_BUILD_RUNNER": 8, "LINUX_RUNNER_DARWIN_CROSS": 8}
 BLACKSMITH_LINUX = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-[a-z0-9.-]+)$")
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
@@ -438,10 +441,10 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
     return writes
 
 
-def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]]) -> str | None:
+def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]], least: int = 0) -> str | None:
     """The live Blacksmith Linux pool label a RAW_LABEL_VARS variable takes while `label` is dead: the same image
     (so the same arch), the largest size at most `label`'s (the release valve's direction), else the smallest larger
-    one. None when no other size of that image is live."""
+    one, never below `least` vCPU (RAW_LABEL_MIN_VCPU). None when no other allowed size of that image is live."""
     match = BLACKSMITH_LINUX.match(label)
     if not match:
         return None
@@ -450,7 +453,8 @@ def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[
     for spec in pools.values():
         for member in members(spec):
             other = BLACKSMITH_LINUX.match(member)
-            if other and other.group(2) == image and member != label and member not in dead:
+            if other and other.group(2) == image and member != label and member not in dead \
+                    and int(other.group(1)) >= least:
                 sizes[member] = int(other.group(1))
     down = sorted((name for name, n in sizes.items() if n <= size), key=lambda name: -sizes[name])
     up = sorted((name for name, n in sizes.items() if n > size), key=lambda name: sizes[name])
@@ -485,7 +489,7 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
         if entry is None:
             if current not in known or current not in dead:
                 continue
-            to = raw_substitute(current, dead, pools)
+            to = raw_substitute(current, dead, pools, RAW_LABEL_MIN_VCPU.get(name, 0))
             if to is None:
                 lines.append(f"{name}={current} is dead and no other size of its image is live; it stays")
                 continue
@@ -496,8 +500,14 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
             lines.append(f"{name} is back on {home}")
             continue
         to = entry["to"]
-        if home in dead and to in dead:
-            to = raw_substitute(home, dead, pools) or to
+        least = RAW_LABEL_MIN_VCPU.get(name, 0)
+        size = BLACKSMITH_LINUX.match(to)
+        if size and int(size.group(1)) < least:
+            # Moved below its floor (before RAW_LABEL_MIN_VCPU): an allowed live size, else back home to wait.
+            to = raw_substitute(home, dead, pools, least) or home
+            lines.append(f"{name}: {entry['to']} is below its {least} vCPU floor; it moves to {to}")
+        elif home in dead and to in dead:
+            to = raw_substitute(home, dead, pools, least) or to
         homes[name] = {"home": home, "to": to}
     return dict(sorted(homes.items())), lines
 
@@ -519,7 +529,8 @@ def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
             target, why = entry["to"], f"{entry['home']} is dead"
         else:
             target, why = entry["home"], f"{entry['home']} takes jobs again"
-        if current != target and target not in dead:
+        # `to` is `home` when no size at or above the variable's floor is live: it waits there, dead or not.
+        if current != target and (target not in dead or target == entry["home"]):
             found.append((name, target, current, why))
     return found
 
