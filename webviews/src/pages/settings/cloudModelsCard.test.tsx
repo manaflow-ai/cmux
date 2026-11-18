@@ -89,7 +89,9 @@ test("a ChatGPT plan is Connected for Cloud; Claude stays not set up", async () 
   expect(row(rendered, "chatgpt").querySelector("[data-cloud-via]")?.textContent).toContain("ChatGPT plan");
 });
 
-test("readiness follows the Cloud start's rule: off or signed out does not count, the team's key does", () => {
+// The team's shared key never reaches this Mac and no machine gets a model route to spend it (CloudSetup.swift
+// `choice`), so it serves no Cloud chat: the row stays Set Up, as the start's Set up Cloud refusal says.
+test("readiness follows the Cloud start's rule: off, signed out or the team's key alone does not count", () => {
   const off = structuredClone(mockModels.claudeForCloud);
   off.personal.connections = off.personal.connections.map((c) => ({ ...c, enabled: false }));
   expect(cloudReadiness(off, "claude").state).toBe("off");
@@ -99,7 +101,7 @@ test("readiness follows the Cloud start's rule: off or signed out does not count
     canEdit: false,
     keys: [{ agent: "claude", set: true, last4: null }],
   };
-  expect(cloudReadiness(team, "claude")).toMatchObject({ state: "ready", via: "Shared Claude key" });
+  expect(cloudReadiness(team, "claude").state).toBe("missing");
   expect(cloudReadiness(team, "chatgpt").state).toBe("missing");
   // An OpenRouter key works on this Mac only; an Anthropic key serves Cloud.
   expect(cloudReadiness(mockModels.macLogins, "apiKey")).toMatchObject({ state: "missing" });
