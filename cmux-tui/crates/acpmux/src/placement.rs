@@ -736,11 +736,11 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     place_demoting(candidates, &[], registry, work)
 }
 
-/// `place`, with the hosts `demoted` names (each with its line, `start_refusals::line`) after
-/// every other: the others are weighed first, and a demoted one takes the work only when none of
-/// them gives a pick with room (an unread host counts, as in `place`). A record never takes a
-/// host out: with the demoted hosts back in, the verdict is the one `place` gives, the demoted
-/// hosts last among equals, so a record alone never makes "no host has room".
+/// `place`, with the hosts `demoted` names (each with its line, `start_refusals::line`) ranked
+/// after the others that stand the same against their lane cap and room: the record is one term
+/// of the pick order, after reach, budget, lane cap and room and before the tier and load. So a
+/// recorded host under its cap still goes ahead of any host at its cap, and a record never takes
+/// a host out or makes "no host has room".
 pub fn place_demoting(
     candidates: &[Candidate],
     demoted: &[(String, String)],
@@ -806,33 +806,24 @@ pub fn place_demoting(
     // load or swap is still under its lane cap: a host with no reading never goes ahead of one
     // known to be under its cap, since its numbers may be worse. Then the hosts passed over
     // only for room, load or swap whose role takes the work.
-    // A demoted host (`place_demoting`) is left out of the first round, and joins only when
-    // that round gives no pick or only one passed over for room.
-    fn choose<'w>(pool: &[&'w Weighed], work: Work) -> (Vec<&'w Weighed>, bool) {
-        let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
-        let order: Vec<&Weighed> =
-            pool.iter().copied().filter(|w| w.refused.is_none() && !w.unknown).collect();
-        if !order.is_empty() {
-            return (order, false);
-        }
-        let under: Vec<&Weighed> =
-            pool.iter().copied().filter(|w| takes(w) && w.under_cap()).collect();
+    let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
+    let mut order: Vec<&Weighed> =
+        weighed.iter().filter(|w| w.refused.is_none() && !w.unknown).collect();
+    let mut overloaded = false;
+    if order.is_empty() {
+        let under: Vec<&Weighed> = weighed.iter().filter(|w| takes(w) && w.under_cap()).collect();
         let unread: Vec<&Weighed> =
-            pool.iter().copied().filter(|w| w.refused.is_none() && w.unknown).collect();
-        match (unread.is_empty(), under.is_empty()) {
+            weighed.iter().filter(|w| w.refused.is_none() && w.unknown).collect();
+        (order, overloaded) = match (unread.is_empty(), under.is_empty()) {
             (false, true) => (unread, false),
             (false, false) => (under, true),
-            (true, _) => (pool.iter().copied().filter(takes).collect(), true),
-        }
-    }
-    let fresh: Vec<&Weighed> = weighed.iter().filter(|w| w.demoted.is_none()).collect();
-    let (mut order, mut overloaded) = choose(&fresh, work);
-    if (order.is_empty() || overloaded) && fresh.len() < weighed.len() {
-        (order, overloaded) = choose(&weighed.iter().collect::<Vec<_>>(), work);
+            (true, _) => (weighed.iter().filter(takes).collect(), true),
+        };
     }
     // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
     // configured), then past it on headroom, then a cap with no live count read, then full. An
     // unread host stands between the last two (`under_cap` and the order above).
+    // Then a recent remote-chain refusal (`place_demoting`), then the tier, room, rank and load.
     let cap_rank = |w: &Weighed| match w.cap {
         CapState::Under | CapState::NoCap | CapState::Unknown => 0,
         CapState::Headroom => 1,
@@ -842,10 +833,9 @@ pub fn place_demoting(
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
-        a.demoted
-            .is_some()
-            .cmp(&b.demoted.is_some())
-            .then(cap_rank(a).cmp(&cap_rank(b)))
+        cap_rank(a)
+            .cmp(&cap_rank(b))
+            .then(a.demoted.is_some().cmp(&b.demoted.is_some()))
             .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
@@ -860,7 +850,7 @@ pub fn place_demoting(
             w.refused.as_deref().unwrap_or_default()
         ),
         Some(w) if w.demoted.is_some() => format!(
-            "{}: {} (no other host qualifies, so it is picked although {})",
+            "{}: {} (picked although {}: no host without such a record stands as well against its lane cap and room)",
             w.name,
             w.why,
             w.demoted.as_deref().unwrap_or_default()
