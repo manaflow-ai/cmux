@@ -50,10 +50,40 @@ jobs:
           permission-actions: write
           permission-contents: read
 
-      - name: Dispatch the current feat-cmux-next tip when needed
+      # The App's hour before the tick spends any of it (GET /rate_limit is free), as the
+      # `app-spend-pool:` line HQ's spend publisher sums (scripts/ci/app_spend_mark.py's format;
+      # this job has no checkout, so it is read here). This tick dispatches builds, so its floor
+      # is the low one, HQ's NOW reserve (app_spend_mark.APP_BUDGET_NOW_RESERVE, 1,500): below it
+      # the tick reads on GITHUB_TOKEN instead of the App, as it already does once the App is
+      # refused, and still dispatches.
+      - name: Read the dispatcher App budget before the tick
+        id: app-spend
+        if: steps.app-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          FLOOR: "1500"
+          TAG: cmux-next-dev-daily-dispatch/dispatch
+        with:
+          script: |
+            const { data } = await getOctokit(process.env.APP_TOKEN).rest.rateLimit.get();
+            const c = data.resources.core;
+            const tag = process.env.TAG;
+            console.log(`app-spend-pool: ${tag} at=${Math.floor(Date.now() / 1000)} limit=${c.limit} used=${c.used} remaining=${c.remaining} reset=${c.reset}`);
+            core.setOutput('used', String(c.used));
+            core.setOutput('reset', String(c.reset));
+            const low = c.remaining < Number(process.env.FLOOR);
+            core.setOutput('low', low ? 'true' : 'false');
+            if (low) {
+              core.notice(`${tag}: ${c.remaining} of ${c.limit} App calls left, under the floor of ${process.env.FLOOR}; this tick reads on GITHUB_TOKEN`);
+            }
+
+      - name: Dispatch the current feat-cmux-next tip when needed
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.app-token.outputs.token || '' }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -220,3 +250,30 @@ jobs:
               inputs: { dev_daily: 'true', dev_daily_sha: sha },
             });
             core.notice(`Requested cmux NEXT DEV Release build for feat-cmux-next ${sha}`);
+
+      # This tick's spend: the pool again and the difference from the reading above, when both
+      # read one rate-limit window (an upper bound: every job holding this App's token spends the
+      # same pool meanwhile).
+      - name: Read the dispatcher App budget after the tick
+        if: always() && steps.app-token.outputs.token != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          START_USED: ${{ steps.app-spend.outputs.used }}
+          START_RESET: ${{ steps.app-spend.outputs.reset }}
+          TAG: cmux-next-dev-daily-dispatch/dispatch
+        with:
+          script: |
+            const { data } = await getOctokit(process.env.APP_TOKEN).rest.rateLimit.get();
+            const c = data.resources.core;
+            const tag = process.env.TAG;
+            console.log(`app-spend-pool: ${tag} at=${Math.floor(Date.now() / 1000)} limit=${c.limit} used=${c.used} remaining=${c.remaining} reset=${c.reset}`);
+            if (process.env.START_RESET && Number(process.env.START_RESET) === c.reset) {
+              const rest = Math.max(0, c.used - Number(process.env.START_USED));
+              console.log(`app-spend: ${tag} bash rest=${rest} graphql=0 gh=0 gh_paginate=0`);
+              console.log(`app-spend-note: ${tag} rest=${rest} is an upper bound: every job holding this installation's token spends the same pool meanwhile`);
+            } else {
+              console.log(`app-spend-note: ${tag} no start reading in this rate-limit window; spend not measured`);
+            }

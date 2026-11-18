@@ -560,6 +560,10 @@ class GitHub:
         self.repo = repo
         self.token = token
         self.fallback_token = (fallback_token or "").strip() or None
+        # path -> (ETag, body) of the last answer to a GET. The watch lists its own run's jobs every POLL_SECONDS
+        # for up to PROBE_MINUTES + 5; a conditional read of an unchanged listing answers 304, which GitHub does not
+        # count against the token's hourly pool.
+        self.etags: dict[str, tuple[str, Any]] = {}
 
     def _headers(self, token: str) -> dict[str, str]:
         return {
@@ -573,11 +577,24 @@ class GitHub:
         headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
+        # An ETag is per URL, not per token: a 304 answers whichever token asked.
+        cached = self.etags.get(path) if method == "GET" else None
+        if cached:
+            headers["If-None-Match"] = cached[0]
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read()
-            return json.loads(raw) if raw else {}
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                raw = response.read()
+                result = json.loads(raw) if raw else {}
+                etag = response.headers.get("ETag") if method == "GET" else None
+                if etag:
+                    self.etags[path] = (etag, result)
+                return result
+        except urllib.error.HTTPError as error:
+            if error.code == 304 and cached:
+                return cached[1]
+            raise
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None

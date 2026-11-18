@@ -119,6 +119,17 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's NOW reserve, 1,500): below it
+      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-guard-attribution/analyze --floor landing
+
       - name: Record main's head
         id: head
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -147,8 +158,8 @@ jobs:
       - name: Analyze
         id: analyze
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
         run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
 
       - name: Log the glaeda-route App budget after
@@ -168,6 +179,16 @@ jobs:
           name: guard-report
           path: ${{ runner.temp }}/guard-report.json
           retention-days: 14
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-guard-attribution/analyze
 
   report:
     # The headline is the job name, so the webhook feed carries the culprit.
@@ -220,6 +241,17 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/ci
+
+      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's NOW reserve, 1,500): below it
+      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-guard-attribution/report --floor landing
 
       - name: Download the report
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -294,8 +326,8 @@ jobs:
 
       - name: Comment, and open, update or close the tracking issue
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
           FIX_PR: ${{ steps.fix-pr.outputs.url }}
         run: |
           set -euo pipefail
@@ -315,3 +347,13 @@ jobs:
         run: >-
           gh api rate_limit --jq
           '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-guard-attribution/report

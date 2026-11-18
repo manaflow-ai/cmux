@@ -1078,7 +1078,9 @@ class ReadTokenTests(unittest.TestCase):
                          {"permission-actions": "read"})
         self.assertTrue(mint["continue-on-error"])
         [step] = [s for s in steps if s.get("id") == "switch"]
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        # Under the cmux-bot budget floor the switch reads on the workflow token (scripts/ci/app_spend_mark.py).
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.app-spend.outputs.low != 'true' && "
+                                                  "steps.cmux-bot-token.outputs.token || github.token }}")
         self.assertEqual(step["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])

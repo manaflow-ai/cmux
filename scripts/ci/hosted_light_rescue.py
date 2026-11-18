@@ -65,6 +65,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from app_spend_mark import APP_BUDGET_NOW_RESERVE  # noqa: E402  (HQ NOW's share of the cmux-bot hour)
+
 UTC = dt.timezone.utc
 HOSTED_LABEL = re.compile(r"^ubuntu-[0-9][\w.-]*$")
 # The stall-aware failover's bound: a hosted light job is 2-50 s of work, and on 2026-11-02 27 of them sampled
@@ -82,6 +85,9 @@ LIST_PAGE = 100
 # from 07:06Z); the NEXT nightly tick and its notarization
 # preflight then failed with "API rate limit exceeded for installation" (runs 41791114042, 41790985234).
 POOL_RESERVE = 500
+# The cmux-bot App pool (the read token when the workflow token is the fallback) keeps HQ NOW's reserve: no read here
+# spends it below that; reads move to the fallback instead (app_spend_mark.APP_BUDGET_NOW_RESERVE).
+APP_POOL_RESERVE = max(POOL_RESERVE, APP_BUDGET_NOW_RESERVE)
 JOURNAL_RETRY = dt.timedelta(minutes=15)
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
@@ -263,12 +269,13 @@ APP_TOKEN_SECONDS = 50 * 60  # an installation token lasts an hour; mint the nex
 class Pool:
     """One token's rate-limit pool as its last response reported it: None until a response carries it."""
 
-    def __init__(self) -> None:
+    def __init__(self, reserve: int = POOL_RESERVE) -> None:
         self.remaining: int | None = None
         self.reset: float = 0.0
+        self.reserve = reserve
 
     def spare(self, now: float) -> bool:
-        return self.remaining is None or self.remaining > POOL_RESERVE or now >= self.reset
+        return self.remaining is None or self.remaining > self.reserve or now >= self.reset
 
 
 class GitHub:
@@ -283,7 +290,9 @@ class GitHub:
         self.write_token = write_token or self.fallback or token
         self.mint, self.clock = mint, clock
         self.minted_at = clock()
-        self.pools: dict[str, Pool] = {"primary": Pool(), "fallback": Pool()}
+        # With a fallback, `token` is the cmux-bot App's: its pool keeps HQ NOW's reserve (APP_POOL_RESERVE).
+        self.pools: dict[str, Pool] = {"primary": Pool(APP_POOL_RESERVE if self.fallback else POOL_RESERVE),
+                                       "fallback": Pool()}
         self.primary_refused_until = 0.0
 
         self.etags: dict[str, tuple[str, Any]] = {}
@@ -295,6 +304,11 @@ class GitHub:
     def remaining(self) -> int | None:
         """The pool reads use now (for the pass's log line)."""
         return self.pools[self.read_pool()].remaining
+
+    @property
+    def reserve(self) -> int:
+        """The reserve of the pool reads use now."""
+        return self.pools[self.read_pool()].reserve
 
     @property
     def reset(self) -> float:
@@ -642,7 +656,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
     if pool_low(client, now):
-        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, "reserve", POOL_RESERVE)}); "
                      f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
         return lines
     # Round the server query lower bound so the same URL remains cacheable for a short interval. The exact upper
@@ -727,7 +741,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     for read, run in enumerate(runs):
         if pool_low(client, now):
-            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, "reserve", POOL_RESERVE)}); "
                          f"{len(runs) - read} job reads left to a later pass")
             break
         created = parse_time(run.get("created_at"))
@@ -975,7 +989,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     minute_pass_from = now - WINDOW
     repo = getattr(client, "repo", "")
     if pool_low(client, now):
-        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, "reserve", POOL_RESERVE)}); nothing read")
         return lines, counts
     listed: dict[int, Mapping[str, Any]] = {}
     for status in ("queued", "in_progress"):
@@ -1012,7 +1026,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
                 break
             in_progress_reads += 1
         if pool_low(client, now):
-            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); stopped")
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {getattr(client, "reserve", POOL_RESERVE)}); stopped")
             break
         where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
         try:

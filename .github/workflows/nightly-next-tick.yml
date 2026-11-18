@@ -298,6 +298,7 @@ jobs:
           ref: ${{ github.sha }}
           path: .tick-tooling
           sparse-checkout: |
+            scripts/ci/app_spend_mark.py
             scripts/ci/gh_app_token.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
@@ -334,6 +335,19 @@ jobs:
           permission-actions: read
           permission-contents: read
 
+      # The cmux-bot installation's hour before this job's reads (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor. This job keeps the nightly
+      # moving, so its floor is the low one (LANDING_FLOOR, the 1,500 HQ NOW reserve): below it the two steps below are skipped,
+      # nothing is re-run on a refused read, and the next tick reads again
+      # (scripts/ci/app_spend_mark.py). gh_budget_wait.sh only waits through a refusal; it measures nothing.
+      - name: Read the cmux-bot budget before the tick
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.read-token.outputs.token }}
+        run: python3 .tick-tooling/scripts/ci/app_spend_mark.py start nightly-next-tick/unstick --floor landing
+
       # Before the rate-limit wait below, which then wraps it (its waits count once per job).
       - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
         env:
@@ -361,6 +375,7 @@ jobs:
       # are re-run; scripts/ci/nightly_next_stuck_run.py. Only in this job's one fixed group,
       # so two ticks never act on one run at once.
       - name: Report a stuck nightly-next run and re-run its lost jobs once it ends
+        if: steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 15
         env:
@@ -373,6 +388,7 @@ jobs:
       # re-run, run 40340830337) is never requested again by the request job ("already on
       # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
+        if: steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -380,3 +396,13 @@ jobs:
           GH_APP_TOKEN_ATTEMPTS: "1"
         working-directory: .tick-tooling
         run: bash scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
+
+      # This job's spend: the pool again and the difference from the reading above (an upper
+      # bound, since every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after the tick
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.read-token.outputs.token }}
+        run: python3 .tick-tooling/scripts/ci/app_spend_mark.py end nightly-next-tick/unstick
