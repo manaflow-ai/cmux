@@ -366,7 +366,9 @@ jobs:
       # stat data and its `checkout --force` stops at "not uptodate; will not remove from working
       # tree" with HEAD already at the requested commit but files missing (run 44395720799: no
       # scripts/ci/init-submodule.sh, no .github/actions/zig-global-cache). Writing every tracked
-      # file of HEAD again repairs it; an ephemeral runner starts clean and skips this.
+      # file of HEAD again repairs it. Blacksmith also reports `self-hosted`, so this runs there
+      # too, where it rewrites a fresh checkout and changes nothing. The lane runners' job-started
+      # hook now resets the workspace before every job; this stays as the legs' own guard.
       - name: Init ghostty submodule
         shell: bash
         run: |
