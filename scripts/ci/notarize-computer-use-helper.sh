@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Independently notarize and staple the nested cmux Computer Use app, and the
-# nested Screen Sharing helper ("<app name> Screen Sharing.app",
-# plans/cmux-next/screen-sharing-helper.md) when the host carries it.
+# Independently notarize and staple the nested cmux Computer Use app (with the
+# screen sharing executable inside it: one permission identity for screen
+# sharing and computer use, bundle-screen-sharing-helper.sh), and a separate
+# Screen Sharing helper ("<app name> Screen Sharing.app",
+# plans/cmux-next/screen-sharing-helper.md) when a host packaged before that
+# move still carries one.
 #
 # cmux copies these helpers out of the signed host bundle before launch. An
 # independent ticket keeps each copied app Gatekeeper-valid even when the Mac
@@ -180,6 +183,18 @@ start_submission() {
   # signing must use all-except-computer-use so these exact CDHashes survive
   # until finish staples the ticket and re-seals only the outer app.
   "$SIGNING_KEYCHAIN_TOOL" unlock
+  # The screen sharing executable inside the Computer Use helper (one permission identity,
+  # bundle-screen-sharing-helper.sh) is nested code: signed first, with the helper's identifier
+  # and no entitlements, so the helper's seal and this submission's ticket cover it.
+  if [ -f "$HELPER_PATH/Contents/MacOS/cmux-screen-sharing" ]; then
+    "$CODESIGN_TOOL" \
+      --force \
+      --options runtime \
+      --timestamp \
+      --sign "$SIGNING_IDENTITY" \
+      --identifier com.cmuxterm.cua \
+      "$HELPER_PATH/Contents/MacOS/cmux-screen-sharing"
+  fi
   for helper in "${NESTED_HELPERS[@]}"; do
     # The Screen Sharing helper needs no entitlements.
     sign_args=(--entitlements "$HELPER_ENTITLEMENTS")
