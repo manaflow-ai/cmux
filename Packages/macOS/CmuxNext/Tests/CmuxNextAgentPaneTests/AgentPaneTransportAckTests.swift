@@ -161,6 +161,27 @@ struct AgentPaneHiddenSocketBoundTests {
         #expect(shown.frames.filter { $0.contains("_acpmux/lagged") }.count == 1)
     }
 
+    /// A permission ask reaches a hidden pane while its stream is held below the bound. Before the
+    /// hidden bound a full flush carried it there; held, it waited until the pane showed, so the
+    /// agent sat on an ask nobody was told about.
+    @Test(arguments: [
+        #"{"jsonrpc":"2.0","method":"_acpmux/permission_pending","params":{"sessionId":"s","permissionId":"p","toolCall":{"title":"rm -rf build"}}}"#,
+        #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"permission_request","dir":"mux","msg":{"permissionId":"p"}}}"#,
+        #"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"permission_reissued","dir":"mux","msg":{"permissionId":"p"}}}"#,
+    ])
+    func aHiddenPaneGetsAPermissionAskWhileItsStreamIsHeld(ask: String) throws {
+        var limits = AgentPaneTransport.Limits()
+        limits.hiddenQueuedFrames = 16
+        let socket = try Self.socket(limits)
+        socket.setHidden(true)
+        for seq in 1...8 { socket.receiveLocalReply(Self.chunk(seq)) }
+        socket.waitForInboundPasses()
+        #expect(!socket.pageWaits, "a held stream alone woke the hidden page")
+        socket.receiveLocalReply(ask)
+        socket.waitForInboundPasses()
+        #expect(socket.pageWaits, "a permission ask waited for the hidden pane to show")
+    }
+
     @Test func aVisibleSocketKeepsTheFullQueue() throws {
         var limits = AgentPaneTransport.Limits()
         limits.hiddenQueuedFrames = 16
