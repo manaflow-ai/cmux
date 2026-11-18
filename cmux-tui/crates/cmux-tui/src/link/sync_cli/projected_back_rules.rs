@@ -3,9 +3,10 @@
 //! the way back never writes (or deletes) a path the way out would not have listed.
 
 use std::collections::BTreeSet;
-use std::io::Write as _;
+use std::io::{Seek as _, SeekFrom, Write as _};
 use std::path::Path;
-use std::process::{Command, Stdio};
+
+use cmux_process::{Command, Stdio};
 
 use crate::link::sync_cli::{links, local, merge, names, skips};
 
@@ -96,15 +97,8 @@ pub(super) fn ignored(root: &Path, paths: &[(String, bool)]) -> BTreeSet<String>
     if paths.is_empty() {
         return BTreeSet::new();
     }
-    let child = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["check-ignore", "--stdin", "-z"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
-    let Ok(mut child) = child else { return BTreeSet::new() };
+    // The list goes to git as a file: a pipe would need a second thread to fill it while git's
+    // answers are read.
     let mut input = Vec::new();
     for (path, folder) in paths {
         input.extend_from_slice(path.as_bytes());
@@ -113,15 +107,18 @@ pub(super) fn ignored(root: &Path, paths: &[(String, bool)]) -> BTreeSet<String>
         }
         input.push(0);
     }
-    let writer = child.stdin.take().map(|mut stdin| {
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(&input);
-        })
-    });
-    let output = child.wait_with_output();
-    if let Some(writer) = writer {
-        let _ = writer.join();
+    let Ok(mut list) = tempfile::tempfile() else { return BTreeSet::new() };
+    if list.write_all(&input).and_then(|()| list.seek(SeekFrom::Start(0)).map(|_| ())).is_err() {
+        return BTreeSet::new();
     }
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "--stdin", "-z"])
+        .stdin(list)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
     let Ok(output) = output else { return BTreeSet::new() };
     // 0: some are ignored; 1: none is.
     if !matches!(output.status.code(), Some(0 | 1)) {
