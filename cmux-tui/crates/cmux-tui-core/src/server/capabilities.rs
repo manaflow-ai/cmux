@@ -104,6 +104,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
+        capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -280,6 +282,7 @@ pub(super) fn advertised_capabilities(
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         floating_panes::FLOATING_PANES_CAPABILITY,
+        floating_panes::QUICK_TERMINAL_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
