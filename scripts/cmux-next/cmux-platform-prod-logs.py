@@ -463,7 +463,8 @@ def publish(events, needles, ident):
     rows = [line(e, counts) for e in events]
     rows.sort(key=lambda r: r.pop("_ts", 0))
     rows = [r for r in rows if base.matches(r, needles)]
-    # events_scanned: the window's events before the id filter; events_in_window: the ones this id owns.
+    # events_scanned: the events the query returned for the id (its needle) before the exact id filter;
+    # events_in_window: the ones this id owns.
     head = {"needles": [base.tag(n) for n in needles], "events_scanned": scanned, "events_in_window": len(events),
             "kept_any": bool(rows),
             "rows_cut": len(rows) > MAX_ROWS, **counts}

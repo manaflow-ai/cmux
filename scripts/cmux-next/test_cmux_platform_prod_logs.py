@@ -389,6 +389,22 @@ class IdNeedleTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(query.call_args.kwargs.get("needle"), ident)
 
+    def test_every_page_of_an_id_read_carries_the_needle(self):
+        full = [{"$metadata": {"id": f"e{i}"}} for i in range(1000)]
+        replies = [{"result": {"events": {"events": full}}}, {"result": {"events": {"events": []}}}]
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", ["logs", "--from", "2026-11-11T13:20:00Z", "--service", PROD,
+                                                "--id", TEAM, "--needles", LISTED]), \
+                patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), patch.object(logs.sys, "stdout", output), \
+                patch.object(logs, "query", side_effect=replies) as query, \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", return_value="https://example/issues/9"):
+            self.assertEqual(logs.main(), 0)
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual([c.kwargs.get("needle") for c in query.call_args_list], [TEAM, TEAM])
+        self.assertEqual(query.call_args_list[1].args[4], "e999")
+
     def test_a_window_read_sends_no_needle(self):
         code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", VM_PROD, "--id", "window",
                                       "--needles", "cmux-vm"])
