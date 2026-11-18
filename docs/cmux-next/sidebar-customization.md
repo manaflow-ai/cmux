@@ -74,6 +74,146 @@ workspace moved and ranked within its section. The watcher test writes a
 temporary \`cmux-next.json\` through an atomic replacement and observes the new
 projection without a restart.
 
+# Sidebar looks
+
+`sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
+(the Codex app), `studio` (a coding studio: threads by project, status in words and icons) or
+`cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
+and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
+whole window's look.
+
+```sh
+cmux settings set sidebar.look claude
+cmux settings reset sidebar.look      # back to cmux's own sidebar
+```
+
+Or in `~/.config/cmux/cmux-next.json`: `{ "sidebar": { "look": "studio" } }`. Saving the file is
+the reload, as with every sidebar setting. A theme file may set `sidebar.look` too.
+
+## A look is only public settings
+
+Each look is a file of ordinary sidebar settings, shipped in `Resources/sidebar-looks/<look>.json`
+and read by the app (`SidebarLookPreset`) and by the daemon and the CLI (cmux-config
+`sidebar_look`). A look fills only the keys that cmux-next.json, the managed layers and the theme
+file leave unset. Your own setting always wins, so you can take a look and change one thing:
+
+```json
+{ "sidebar": { "look": "codex", "showTimestamps": false } }
+```
+
+Or drop `sidebar.look` and copy a look's lines into your file to own every value. These are the
+three looks written out, exactly as shipped:
+
+**Claude**: Projects, then one flat Recents list; plain headings; a row is its title; a small dot
+for work.
+
+```json
+{
+  "sidebar.groupBy": "recents",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": false,
+  "sidebar.detailedStatusIcons": false,
+  "appearance.statusIndicator.style": "dot",
+  "sidebar.showSpaces": false
+}
+```
+
+**Codex**: threads under a plain heading per project folder; title and time on one line; a
+spinner for work.
+
+```json
+{
+  "sidebar.groupBy": "folder",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": false,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": true,
+  "sidebar.detailedStatusIcons": false,
+  "appearance.statusIndicator.style": "native",
+  "sidebar.showSpaces": false
+}
+```
+
+**Studio**: threads by project folder, a closed folder shows how many it holds; title and compact
+time; working, waiting, error and done each have their own icon.
+
+```json
+{
+  "sidebar.groupBy": "folder",
+  "sidebar.groupHeader.background": "sections",
+  "sidebar.groupHeader.memberCount": true,
+  "sidebar.groupHeader.unreadCount": false,
+  "sidebar.sectionLook": "quiet",
+  "sidebar.workspaceRow.icon": false,
+  "sidebar.showColors": false,
+  "sidebar.showTimestamps": true,
+  "sidebar.detailedStatusIcons": true,
+  "appearance.statusIndicator.style": "arc",
+  "sidebar.showSpaces": false
+}
+```
+
+Colors are not part of a sidebar look: they belong to theme files. Pair a look with one, for
+example `sidebar.look` `claude` with the shipped `claude-desktop` theme file
+(`cmux settings set appearance.themeFile claude-desktop`). Past settings and theme files, the
+`customize/main.js` row hook (`cmux.sidebar.rows/1`, below) adds icons, weight, an indicator or a
+badge per row, and the hover card hook redraws the card. Every look here uses only those three
+routes, so anything a shipped look does, you can do yourself without a build.
+
+## No shift
+
+A look never moves the pane or a row. It may set only the grid keys (cmux-config
+`sidebar_look::GRID_KEYS`): grouping, headings, which marks a row draws and how status shows. It
+never sets row height, sidebar width, the trailing column or motion (`sidebar.density`,
+`sidebar.textSize`, `sidebar.style`, `appearance.metrics.*`, animation keys, or row elements that
+add a line). Those stay on the shared grid, and they stay yours: a look keeps your density and
+width.
+
+Two detectors hold this:
+
+- Rust (`cargo test -p cmux-config --lib sidebar_look`): every shipped look reads whole, sets only
+  grid keys that are public settings, fills only unset keys, keeps the density, and `cmux` fills
+  nothing.
+- Swift (`AASidebarLookPresetGalleryTests`, CmuxNextAppTests): through the real sidebar list, for
+  every look, a row changing state (working, busy, waiting, error, done, unread, idle) and a hot
+  reload move no row's frame; switching looks keeps the list width and one workspace row height
+  across all four looks; and switching away and back returns every row frame exactly. Its gallery
+  (`CMUX_TEST_REQUIRE_GUI=1`) writes `sidebar-look-presets-gallery/`, one column per look, dark
+  above light.
+
+## How faithful, and what is not expressible yet
+
+The looks were matched to references: the Claude desktop app's own startup layout of its
+sidebar, the Codex app's documented structure, and the Studio reference's measured source values.
+
+| | Claude | Codex | Studio |
+|---|---|---|---|
+| Sidebar width (reference) | 288 | not measured | 256 (208 to fit) |
+| Row pitch (reference) | 26 | not measured | 36, 1 apart |
+| List | Projects, then Recents | by project | by project folder |
+| Row | dot, title | title, time | title, time; status words with an icon |
+| Headings | plain | plain | plain, 32 tall, count when closed |
+| Selection | filled row | filled row | filled row, faint 1 px ring |
+
+Width and row pitch are not set by a look (No shift). To match the reference's numbers, set them
+yourself: `appearance.metrics.sidebarWidth` (for example 256 or 288) and `sidebar.density`
+(`comfortable` is the nearest to a 36 pitch).
+
+Not expressible as settings yet, so no look sets them:
+
+- The selection's faint ring (Studio). Today's selection is a fill.
+- A lighter title for a settled row and full ink on hover (Studio).
+- Row actions that replace the time on hover (Studio).
+- A Recents list with no Projects block above it (Claude with no projects).
+
 # Customizing the sidebar's hover card and rows
 
 cmux-next lets you redraw a workspace row's hover card and decorate sidebar rows with a short

@@ -27,6 +27,7 @@ pub mod owner;
 pub mod refusal;
 pub mod render;
 pub mod schema;
+pub mod sidebar_look;
 pub mod store;
 pub mod text;
 pub mod theme_file;
