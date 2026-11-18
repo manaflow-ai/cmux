@@ -30,7 +30,7 @@ pub(crate) fn fold(path: &Path, state: &mut State) {
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => break,
             Ok(_) if buf.last() != Some(&b'\n') => break,
-            Ok(n) => whole += n as u64,
+            Ok(n) => whole = whole.saturating_add(n as u64),
             Err(e) => {
                 tracing::warn!("asks: read {}: {e}", path.display());
                 break;

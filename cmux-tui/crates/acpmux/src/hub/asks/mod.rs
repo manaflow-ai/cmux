@@ -36,7 +36,7 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::store::EventRecord;
 
@@ -54,7 +54,8 @@ static TRACE_ID: LazyLock<Option<Regex>> =
 /// The ask id of message `message_id` in chat `session_id`: stable for the same pair.
 pub fn ask_id(session_id: &str, message_id: &str) -> String {
     let digest = crate::sha256::sha256_hex(format!("{session_id}\n{message_id}").as_bytes());
-    format!("ask-{}", &digest[..10])
+    // A sha256 hex digest is 64 characters, all ASCII.
+    format!("ask-{}", digest.get(..10).unwrap_or(&digest))
 }
 
 /// The ask ids `text` carries (a pull request body), once each, in the order they appear.
@@ -255,20 +256,25 @@ impl State {
             .flatten()
             .filter_map(|url| self.prs.get(url))
             .map(|pr| {
-                let mut v = json!({"url": pr.url, "state": pr.state});
+                let mut v = Map::new();
+                v.insert("url".into(), json!(pr.url));
+                v.insert("state".into(), json!(pr.state));
                 if let Some(repo) = &pr.repo {
-                    v["repo"] = json!(repo);
+                    v.insert("repo".into(), json!(repo));
                 }
                 if let Some(n) = pr.number {
-                    v["number"] = json!(n);
+                    v.insert("number".into(), json!(n));
                 }
-                v
+                Value::Object(v)
             })
             .collect();
-        let mut row = serde_json::to_value(ask).unwrap_or_else(|_| json!({}));
-        row["status"] = json!(self.status(&ask.id));
-        row["prs"] = Value::Array(prs);
-        row
+        let mut row = match serde_json::to_value(ask) {
+            Ok(Value::Object(map)) => map,
+            _ => Map::new(),
+        };
+        row.insert("status".into(), json!(self.status(&ask.id)));
+        row.insert("prs".into(), Value::Array(prs));
+        Value::Object(row)
     }
 }
 
@@ -292,7 +298,7 @@ impl AsksQuery {
         let limit = match params.get("limit") {
             None | Some(Value::Null) => DEFAULT_LIMIT,
             Some(v) => match v.as_u64() {
-                Some(n) if n > 0 => (n as usize).min(MAX_LIMIT),
+                Some(n) if n > 0 => usize::try_from(n).unwrap_or(MAX_LIMIT).min(MAX_LIMIT),
                 _ => return Err("limit must be a positive integer".into()),
             },
         };
@@ -393,7 +399,7 @@ impl AskLedger {
 
     /// Hands `line` to the writer, under the state lock so lines keep their order.
     fn emit(&self, state: &mut State, line: Line) {
-        state.seq += 1;
+        state.seq = state.seq.wrapping_add(1);
         let rewrite = matches!(line, Line::Purge { .. });
         if let Some(tx) = self.writer.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             let _ = tx.send(store::Work::Line(Box::new(line)));
@@ -530,15 +536,18 @@ impl AskLedger {
         rows.truncate(q.limit);
         let next = rows.last().and_then(|r| r.get("ts")).cloned().filter(|_| more);
         for row in &mut rows {
-            if let Some(t) = row.get("sessionId").and_then(Value::as_str).and_then(&title) {
-                row["sessionTitle"] = json!(t);
+            let named = row.get("sessionId").and_then(Value::as_str).and_then(&title);
+            if let (Some(t), Value::Object(map)) = (named, row) {
+                map.insert("sessionTitle".into(), json!(t));
             }
         }
-        let mut reply = json!({"asks": rows, "host": self.host});
+        let mut reply = Map::new();
+        reply.insert("asks".into(), Value::Array(rows));
+        reply.insert("host".into(), json!(self.host));
         if let Some(ts) = next {
-            reply["next"] = ts;
+            reply.insert("next".into(), ts);
         }
-        reply
+        Value::Object(reply)
     }
 
     /// Up to `q.limit + 1` rows, newest first: one past the page says another follows.
