@@ -19,11 +19,15 @@ struct ControlCaller: Sendable, Equatable {
     /// `caller.home_chat`: a Chief turn (the Chief host sets it). The app does
     /// not know a turn's agent session, so its chat is the Home chat.
     var homeChat = false
+    /// `caller.workspace`: the key of the workspace the agent session runs in
+    /// (`CMUX_WORKSPACE_ID`), where it is placed when no tab shows its chat.
+    var workspaceKey: String?
 
-    init(agentSession: String? = nil, terminalID: String? = nil, homeChat: Bool = false) {
+    init(agentSession: String? = nil, terminalID: String? = nil, homeChat: Bool = false, workspaceKey: String? = nil) {
         self.agentSession = agentSession
         self.terminalID = terminalID
         self.homeChat = homeChat
+        self.workspaceKey = workspaceKey
     }
 
     /// The caller of a method that also takes the caller's terminal as its own param (`terminal_id`):
@@ -55,6 +59,7 @@ struct ControlCaller: Sendable, Equatable {
         }
         agentSession = try text("agent_session")
         terminalID = try text("terminal_id")
+        workspaceKey = try text("workspace")
         if let flag = members["home_chat"], !flag.isNull {
             guard case .bool(let on) = flag else {
                 throw ControlError.invalidParams(ControlStrings.format("control.error.mustBeBoolean", "%@ must be true or false", "caller.home_chat"))
@@ -72,6 +77,7 @@ struct ControlCaller: Sendable, Equatable {
         if let agentSession { members["agent_session"] = .string(agentSession) }
         if let terminalID { members["terminal_id"] = .string(terminalID) }
         if homeChat { members["home_chat"] = true }
+        if let workspaceKey { members["workspace"] = .string(workspaceKey) }
         return .object(members)
     }
 }
@@ -80,7 +86,8 @@ extension ControlActionRequest {
     /// The caller the request carries, nil when it named none.
     var caller: ControlCaller? {
         guard callerAgentSession != nil || callerTerminal != nil || callerHomeChat else { return nil }
-        return ControlCaller(agentSession: callerAgentSession, terminalID: callerTerminal, homeChat: callerHomeChat)
+        return ControlCaller(agentSession: callerAgentSession, terminalID: callerTerminal, homeChat: callerHomeChat,
+                             workspaceKey: callerWorkspace)
     }
 }
 
@@ -96,11 +103,42 @@ struct ControlCallerLocation: Sendable, Equatable {
     var beside: ControlPaneInfo?
     /// Every pane of that column, in the screen's order (top to bottom); empty when there is none.
     var column: [ControlPaneInfo] = []
+    /// Whether `tab` is the caller's own chat or terminal. False for a stand-in place: the Home chat of
+    /// a Chief turn, or a pane of the workspace an agent's session runs in when no tab shows its chat.
+    /// What the caller opens is placed from a stand-in; a run on "its own" tab or pane has none there.
+    var isOwnTab = true
 
-    /// The caller's chat tab (agent session) or terminal tab, nil when the
-    /// topology shows neither.
+    /// Where the caller is: its chat tab (agent session) or terminal tab; else, for a Chief turn,
+    /// the Home chat; else, for an agent whose chat no tab shows (its tab was closed, or a Chief
+    /// subagent told again later), the workspace its session runs in (``ownWorkspace(_:in:)``).
+    /// Nil when none of these is in the topology: the caller is refused, never placed in the
+    /// focused workspace, which is Home while the person talks to the Chief (user, 2026-11-18).
     static func resolve(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
-        own(caller, in: topology) ?? (caller.homeChat ? homeChat(caller, in: topology) : nil)
+        if let own = own(caller, in: topology) { return own }
+        return caller.homeChat ? homeChat(caller, in: topology) : ownWorkspace(caller, in: topology)
+    }
+
+    /// An agent's own workspace by the key its session runs in (`caller.workspace`), at the pane a
+    /// window shows focused there, else a screen's default pane, else its first pane with a tab.
+    static func ownWorkspace(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
+        guard caller.agentSession != nil, let key = caller.workspaceKey.map(workspaceKeyForm), !key.isEmpty,
+              let workspace = topology.workspaces.first(where: { workspaceKeyForm($0.id) == key }) else { return nil }
+        var candidates: [(screen: ControlScreenInfo, pane: ControlPaneInfo)] = []
+        for window in topology.windows where window.workspaceID == workspace.id {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.id == window.focusedPaneID }) { candidates.append((screen, pane)) }
+            }
+        }
+        for screen in workspace.screens {
+            if let pane = screen.panes.first(where: { $0.id == screen.defaultPaneID }) { candidates.append((screen, pane)) }
+            candidates += screen.panes.map { (screen, $0) }
+        }
+        for (screen, pane) in candidates {
+            guard let tab = pane.tabs.first(where: { $0.id == pane.selectedTabID }) ?? pane.tabs.first else { continue }
+            return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
+                        beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen), isOwnTab: false)
+        }
+        return nil
     }
 
     /// The Home workspace's docked chat tab (page `home-dock`, HomeDock.page),
@@ -111,7 +149,7 @@ struct ControlCallerLocation: Sendable, Equatable {
                 for pane in screen.panes {
                     guard let tab = pane.tabs.first(where: { $0.page == "home-dock" }) else { continue }
                     return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
-                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
+                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen), isOwnTab: false)
                 }
             }
         }
@@ -190,4 +228,9 @@ struct ControlCallerLocation: Sendable, Equatable {
         // daemon the CLI and MCP address.
         members["browser"] = BrowserCallerTarget.resolve(near: location, in: topology)?.json ?? .null
     }
+}
+
+/// A workspace key in one form: `CMUX_WORKSPACE_ID` is upper-case and dashed, the topology's key lower-case.
+func workspaceKeyForm(_ key: String) -> String {
+    key.lowercased().filter { $0 != "-" }
 }

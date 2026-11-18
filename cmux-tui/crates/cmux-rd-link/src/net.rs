@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
 use std::io;
+use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::mpsc;
@@ -40,6 +41,9 @@ const MAX_STUN_SERVERS: usize = 8;
 const LATER_POLL_US: u64 = 50_000;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
+/// Room for a burst of media datagrams before the driver can drain the socket.
+/// Linux doubles this request when reporting the effective buffer size.
+const UDP_BUFFER_SIZE: i32 = 4 << 20;
 /// How long `CandidatesDone` waits for TURN allocations.
 const RELAY_GATHER_US: u64 = 3_000_000;
 /// Most TURN servers used.
@@ -256,19 +260,85 @@ fn interface_addresses() -> Vec<IpAddr> {
     out
 }
 
+/// A candidate kind's slot in the driver's counts: host, srflx, relay.
+fn kind_index(kind: CandidateKind) -> usize {
+    match kind {
+        CandidateKind::Host => 0,
+        CandidateKind::ServerReflexive => 1,
+        CandidateKind::Relay => 2,
+    }
+}
+
 fn now_us(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Grow both queues so a keyframe burst is not dropped before the driver can
+/// read it. The kernel may cap the request; the default is still useful on
+/// platforms that accept the larger value.
+fn grow_udp_buffers(socket: &UdpSocket) {
+    for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&UDP_BUFFER_SIZE as *const i32).cast(),
+                size_of_val(&UDP_BUFFER_SIZE) as libc::socklen_t,
+            );
+        }
+    }
+}
+
+/// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
+/// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
+fn keep_awake_us() -> Option<u64> {
+    match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
+        None => Some(crate::endpoint::KEEP_AWAKE_US),
+    }
+}
+
+/// Apple platforms: the socket's traffic is interactive video
+/// (`SO_NET_SERVICE_TYPE` = `NET_SERVICE_TYPE_VI`, the class video calls use),
+/// so Wi-Fi sends it in the video access category and the system treats the
+/// flow as latency sensitive. Best effort: a refusal changes nothing else.
+fn mark_interactive_video(socket: &UdpSocket) {
+    #[cfg(target_vendor = "apple")]
+    {
+        // <sys/socket.h>; the libc crate does not export them.
+        const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
+        const NET_SERVICE_TYPE_VI: libc::c_int = 3;
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                SO_NET_SERVICE_TYPE,
+                (&NET_SERVICE_TYPE_VI as *const libc::c_int).cast(),
+                size_of_val(&NET_SERVICE_TYPE_VI) as libc::socklen_t,
+            );
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    let _ = socket;
 }
 
 impl Net {
     /// Binds the socket, starts the driver thread and begins gathering candidates.
     pub fn start(config: NetConfig) -> Result<Self, LinkError> {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
+        grow_udp_buffers(&socket);
+        mark_interactive_video(&socket);
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
         endpoint.set_local_networks(cmux_transport::local_networks());
+        endpoint.set_keep_awake(keep_awake_us());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
@@ -307,6 +377,8 @@ impl Net {
             relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
+            gathered: std::cell::Cell::new([0; 3]),
+            heard: 0,
         };
         // Host candidates are known at once.
         for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
@@ -454,10 +526,21 @@ struct Driver {
     relay_only: bool,
     candidates_done: bool,
     start: Instant,
+    /// Local candidates reported, by kind (host, srflx, relay), for a failure's reason.
+    gathered: std::cell::Cell<[u32; 3]>,
+    /// Packets from anywhere but a STUN or TURN server, handed to the link.
+    heard: u64,
 }
 
 impl Driver {
     fn emit(&self, event: NetEvent) {
+        if let NetEvent::Candidate(c) = &event {
+            let mut gathered = self.gathered.get();
+            if let Some(n) = gathered.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+            self.gathered.set(gathered);
+        }
         if self.events.send(event).is_ok() {
             // SAFETY: one byte from a local to the event pipe's write end (owned by `Net`,
             // which joins this thread before closing it).
@@ -666,9 +749,29 @@ impl Driver {
         }
     }
 
+    /// What this side gathered, what the peer sent, and how many packets it
+    /// heard: a failure says whether the handshake ever reached this side
+    /// (`heard 0`: a NAT, firewall or missing route dropped it) and which
+    /// routes each side had. Counts only, never an address.
+    fn routes_seen(&self) -> String {
+        let [host, srflx, relay] = self.gathered.get();
+        let mut peer = [0u32; 3];
+        for c in &self.remote {
+            if let Some(n) = peer.get_mut(kind_index(c.kind)) {
+                *n += 1;
+            }
+        }
+        let [p_host, p_srflx, p_relay] = peer;
+        format!(
+            "local host {host} srflx {srflx} relay {relay}; \
+             peer host {p_host} srflx {p_srflx} relay {p_relay}; heard {}",
+            self.heard
+        )
+    }
+
     fn run(&mut self) {
         if let Err(e) = self.serve() {
-            self.emit(NetEvent::Failed(e.to_string()));
+            self.emit(NetEvent::Failed(format!("{e} ({})", self.routes_seen())));
         }
     }
 
@@ -736,6 +839,7 @@ impl Driver {
                         {
                             match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
+                                    self.heard += 1;
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {
                                         return Ok(());
@@ -758,6 +862,7 @@ impl Driver {
                             self.on_stun(packet);
                             continue;
                         }
+                        self.heard += 1;
                         if self.deliver(Route::Udp(from), packet, now)? {
                             return Ok(());
                         }
@@ -768,5 +873,59 @@ impl Driver {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set_socket_buffer(socket: &UdpSocket, option: libc::c_int, value: i32) {
+        // SAFETY: the descriptor is open for the borrow of `socket`, and the
+        // option value points at a live integer of the length passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&value as *const i32).cast(),
+                size_of_val(&value) as libc::socklen_t,
+            )
+        };
+        assert_eq!(result, 0, "setsockopt failed: {}", io::Error::last_os_error());
+    }
+
+    fn socket_buffer(socket: &UdpSocket, option: libc::c_int) -> i32 {
+        let mut value = 0i32;
+        let mut length = size_of_val(&value) as libc::socklen_t;
+        // SAFETY: the descriptor is open, and the kernel writes at most the
+        // size of `value` bytes to the pointer and length supplied.
+        let result = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&mut value as *mut i32).cast(),
+                &mut length,
+            )
+        };
+        assert_eq!(result, 0, "getsockopt failed: {}", io::Error::last_os_error());
+        value
+    }
+
+    #[test]
+    fn grow_udp_buffers_expands_both_queues() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // Use a small starting point so the assertion does not depend on the
+        // host's default buffers already being larger than our request.
+        set_socket_buffer(&socket, libc::SO_SNDBUF, 4096);
+        set_socket_buffer(&socket, libc::SO_RCVBUF, 4096);
+        let before =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        grow_udp_buffers(&socket);
+        let after =
+            [socket_buffer(&socket, libc::SO_SNDBUF), socket_buffer(&socket, libc::SO_RCVBUF)];
+        assert!(after[0] > before[0], "send buffer did not grow: {before:?} -> {after:?}");
+        assert!(after[1] > before[1], "receive buffer did not grow: {before:?} -> {after:?}");
     }
 }

@@ -12,6 +12,7 @@
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { Icon } from "../icons/Icon";
 import { Spinner } from "../conversation/icons";
 import { ArrowUpIcon, ReturnIcon, StopIcon } from "../ComposerPickers";
 import { RETURN_GLYPH_PATH } from "../composerPickerModel";
@@ -25,6 +26,7 @@ function motionAllowed(): boolean {
 }
 
 export function GlyphIcon({ glyph }: { glyph: SlotGlyph }) {
+  if (glyph === "play") return <Icon name="media.play" size={14} selected />;
   if (glyph === "stopping") return <Spinner loading size={14} />;
   if (glyph === "stop") return <StopIcon />;
   if (glyph === "return") return <ReturnIcon />;

@@ -1,0 +1,7 @@
+# Notice to PL-acpmux: Codex message phases and composer Resume (2026-11-13)
+
+The Codex app-server translator now preserves explicit `commentary` and `final_answer` phases while the pinned ACP translator omits them. `codex_app_server/message_phases.rs` annotates existing replay chunks and emits metadata-only live updates for sessions already exposed through ACP, including exposed subagents. Hidden prediction threads remain hidden; missing or unknown phases add nothing. No text is replayed twice and a resume without replay gains no synthetic history.
+
+The web pane uses the phase to keep commentary in work folds and to stop the work clock at the final answer. Empty-composer Resume uses the existing authenticated send pipeline, handoff review and Cloud turn claim logic. Codex sends empty input without an optimistic prompt bubble; Claude keeps text continuation. The selected stopped target is revalidated across asynchronous waits and immediately before dispatch.
+
+Validation on the integrated PR branch: focused fake-wire transport and projection tests, all-file web typecheck and portable web lint passed. The translator has focused unit tests in its new module, but Rust tests/builds and performance benchmarks were not run for this port. Source-build native accessibility inspection verified the visible recovery controls in a real Claude chat; provider-level Codex Resume remains unverified. No new polling, durable writes or endpoints are introduced.

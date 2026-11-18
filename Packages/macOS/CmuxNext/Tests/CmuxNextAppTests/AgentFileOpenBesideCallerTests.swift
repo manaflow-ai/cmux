@@ -45,8 +45,8 @@ struct AgentFileOpenBesideCallerTests {
                 Issue.record("file.open was refused: \(error.code) \(error.message)")
                 return
             }
-            #expect(["beside_caller", "beside_caller_new_column"].contains(answer["placement"]?.stringValue ?? ""),
-                    "the reply names another place: \(answer)")
+            #expect(answer["placement"] == "caller", "the reply names another place: \(answer)")
+            #expect(answer["pane_id"]?.stringValue?.isEmpty == false, "the reply names no pane: \(answer)")
 
             let opened = { store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.page == "editor" } }
             let chatPane = { services.locateTab(chat.id, onMachine: services.daemon.machineID)?.1 }

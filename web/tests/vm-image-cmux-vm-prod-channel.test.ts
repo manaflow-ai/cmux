@@ -220,7 +220,6 @@ describe("prod-copy.ts plan", () => {
     const { root, lock } = fakeRoot([]);
     for (const [bake, v, flags] of [
       ["images/cmux-vm/bake.ts --agent-tools (CI run 300)", "CLOUD_FREESTYLE_SNAPSHOT", ["--prod-copy", "--agent-tools"]],
-      ["images/cmux-vm/bake.ts (CI run 300)", "CLOUD_FREESTYLE_SNAPSHOT", ["--prod-copy"]],
       ["images/cmux-vm/bake.ts --agent-tools --team-vm (CI run 300)", "TEAM_VM_SNAPSHOT", ["--prod-copy", "--agent-tools", "--team-vm"]],
     ] as const) {
       writeFileSync(path.join(root, "images/cmux-vm/channels/dev.json"), JSON.stringify({ history: [devEntry(lock, { bake, var: v })] }));
@@ -233,6 +232,7 @@ describe("prod-copy.ts plan", () => {
     ["a local bake (no run)", { run: undefined, bake: "images/cmux-vm/bake.ts --agent-tools (local run)" }, /not a CI bake/],
     ["a dev tree bake", { bake: "images/cmux-vm/bake.ts --agent-tools --dev-tree (CI run 300)" }, /dev tree/],
     ["an unknown flag", { bake: "images/cmux-vm/bake.ts --update-lock (CI run 300)" }, /not all copyable/],
+    ["a bake without the desktop closure", { bake: "images/cmux-vm/bake.ts (CI run 300)" }, /required Cloud desktop closure/],
     ["another lock", { lock_sha256: "0".repeat(64) }, /other inputs/],
     ["a var that disagrees with --team-vm", { var: "TEAM_VM_SNAPSHOT" }, /disagree/],
     ["an entry that already has a copy", { names: { production: { snapshot: "cmuxnp-prod-vmimg-x", snapshot_id: ID(9) } } }, /already records names.production/],

@@ -81,6 +81,10 @@ export interface ComboboxProps {
    * 2026-11-04: "opening the project picker lags like shit since we have so many") opens in a
    * frame. `estimate` is a row's height in pixels before it is measured. */
   virtualRows?: { estimate: number };
+  /** The line shown when there are no suggestions ("No matches"). It is Base UI's live Empty part
+   * (`role="status"`, polite), so a screen reader hears it as the list empties. */
+  empty?: ReactNode;
+  emptyClassName?: string;
   /** Declarative native rows. When the host is available the web list is not mounted. */
   native?: {
     model: NativePopupDescription;
@@ -118,6 +122,8 @@ export function Combobox({
   onHighlight,
   native,
   virtualRows,
+  empty,
+  emptyClassName,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -553,6 +559,13 @@ export function Combobox({
             </Autocomplete.Positioner>
           </Autocomplete.Portal>
         ))}
+      {empty !== undefined && (
+        // Mounted for as long as the field is, so the live region exists before its text arrives;
+        // Base UI renders the children only while no item is left.
+        <Autocomplete.Empty className={cx("ui-combobox-empty", emptyClassName)}>
+          {suggestions.length === 0 ? empty : null}
+        </Autocomplete.Empty>
+      )}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;

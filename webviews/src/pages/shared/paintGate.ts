@@ -10,6 +10,10 @@ export const PAINT_AFTER_NAME = "__cmuxPaintAfter";
 /** The page's own bound, under the host's: late data still lets the page report a frame. */
 export const PAINT_AFTER_LIMIT_MS = 400;
 
+/** Whether the page's first frame report was released (`whenPageShown`). */
+let shown = false;
+const shownListeners: (() => void)[] = [];
+
 /** Holds the first-frame report until `ready` settles or `limitMs` passes. Call it while the
     page's module runs: the probe is a document-end script and reads the promise once. */
 export function holdFirstPaint(
@@ -25,7 +29,33 @@ export function holdFirstPaint(
   );
   const gate = Promise.race([settled, limit]).finally(() => clearTimeout(timer));
   target[PAINT_AFTER_NAME] = gate;
+  // Shown from the frame after the report: a pooled page's claim routes it (a hash change, a task
+  // after the claim) before then, so that route still counts as the page's open.
+  if (target === (globalThis as unknown as Record<string, unknown>))
+    void gate.then(() => {
+      const show = () => {
+        shown = true;
+        for (const listener of shownListeners.splice(0)) listener();
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(show));
+      else show();
+    });
   return gate;
+}
+
+/** Calls `listener` once the page's first frame report is released (at once if it already was): from
+    then on the reader sees the page, so a change after it is one they watch happen. A pooled page's
+    report is released only after the host's claim. */
+export function whenPageShown(listener: () => void): () => void {
+  if (shown) {
+    listener();
+    return () => undefined;
+  }
+  shownListeners.push(listener);
+  return () => {
+    const index = shownListeners.indexOf(listener);
+    if (index >= 0) shownListeners.splice(index, 1);
+  };
 }
 
 /** Where a pooled page leaves its first screen for the host's claim (`holdPaintUntil`). */

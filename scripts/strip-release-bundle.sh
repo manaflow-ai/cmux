@@ -115,6 +115,17 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 4 -path '*/cmux Helper*.app/Contents/MacOS/*' -type f -print0 | sort -z)
 fi
 
+# The remote browser host (Contents/Helpers/cmux-remote-browser-host.app,
+# scripts/cmux-next/embed-remote-browser-host.sh) and its Chromium helper apps,
+# like the cmux Helper apps above. The pinned host binary carried 0.8 MB of
+# local symbols (cmux#42190). The CEF framework symlink in its Frameworks is
+# not followed.
+if [ -d "$APP_PATH/Contents/Helpers" ]; then
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Helpers" -maxdepth 7 -path '*/cmux-remote-browser-host*.app/Contents/MacOS/*' -type f -print0 | sort -z)
+fi
+
 if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"

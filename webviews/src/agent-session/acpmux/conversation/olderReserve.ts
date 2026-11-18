@@ -53,6 +53,8 @@ export type OlderReserve = {
   end: number;
   /// The room this pass held.
   room: number;
+  /// Loaded rows plus reserve, held while the native scrollbar owns the scroll offset.
+  height: number;
   /// No count of the unloaded history was known yet, so no room was ever estimated: the first
   /// count seeds it once (a chat whose first frame comes before its summary). Once seeded, or once
   /// the history is whole, counts never add room again.
@@ -65,6 +67,8 @@ export type OlderReserve = {
   owed?: number;
   /// The input's `rose` this state has paid for.
   rose?: number;
+  /// A page's estimate was held during a native thumb drag; refine it once the pointer lets go.
+  deferred?: true;
 };
 
 export type OlderReserveInput = {
@@ -84,6 +88,8 @@ export type OlderReserveInput = {
   /// How far the reader has scrolled up among the rows in total while room was owed: what it rose
   /// since the last pass pays some of the room owed (`payOlderRoom`).
   rose?: number;
+  /// Keep the native thumb's range while the pointer owns it, consuming only the space pages fill.
+  dragging?: boolean;
 };
 
 /// Where the pin is now: its last index, moved by the rows that came or went (a page prepends), or
@@ -135,14 +141,19 @@ export function olderReserve(
   const rose = input.rose ?? 0;
   const same = state?.sessionId === input.sessionId ? state : undefined;
   // What the reader rose since the last pass pays room owed before anything else moves.
-  const previous = same ? { ...payOlderRoom(same, rose - (same.rose ?? rose))!, rose } : undefined;
+  const previous = same
+    ? { ...(input.dragging ? same : payOlderRoom(same, rose - (same.rose ?? rose))!), rose }
+    : undefined;
   // Zero is final for this session (no pin search or row scan after exhaustion), unless no count
   // was ever known to seed it.
   if (previous?.room === 0 && !previous.unseeded) return { reserve: 0, state: previous };
   // An initial empty snapshot has nothing to estimate. Once a layout has held room, keep its
   // exhausted state through an empty snapshot so the same session cannot seed it again.
   if (rows.length === 0)
-    return { reserve: 0, state: previous ? { ...previous, room: 0, end: 0, unseeded: undefined } : undefined };
+    return {
+      reserve: 0,
+      state: previous ? { ...previous, room: 0, end: 0, height: 0, unseeded: undefined } : undefined,
+    };
   const found = previous ? findPin(previous, rows) : -1;
   const pin = found >= 0 ? found : firstPrompt(rows);
   const top = input.rowTop(pin);
@@ -158,7 +169,12 @@ export function olderReserve(
   let reserve: number;
   let unseeded: true | undefined;
   let owed = 0;
-  if (!input.canLoadOlder) reserve = 0;
+  let deferred: true | undefined;
+  if (input.dragging && previous && !previous.unseeded) {
+    reserve = Math.min(OLDER_RESERVE_MAX, Math.max(0, previous.height - input.rowsHeight));
+    owed = previous.owed ?? 0;
+    deferred = true;
+  } else if (!input.canLoadOlder) reserve = 0;
   else if (!previous || previous.unseeded) {
     const first = estimate();
     reserve = first ?? 0;
@@ -173,7 +189,8 @@ export function olderReserve(
     // owed, and paid as the reader scrolls up (`payOlderRoom`), never in one step.
     // A page whose turns run longer than the tail's says the history before it likely does too: the
     // room owed takes the larger of the whole sample's average and the landed rows' own.
-    const refined = landed && held > 0 ? refine(estimate(), input, pin, top, prompts, known) : undefined;
+    const refined =
+      (landed || previous.deferred) && held > 0 ? refine(estimate(), input, pin, top, prompts, known) : undefined;
     if (refined !== undefined && held - refined > OLDER_RESERVE_REFINE_PX) {
       reserve = refined;
       owed = 0;
@@ -199,10 +216,12 @@ export function olderReserve(
       // Rebase after shrinkage, or a pin that left: later growth consumes the room still held.
       end: reserve + top,
       room: reserve,
+      height: reserve + input.rowsHeight,
       ...(unseeded ? { unseeded } : {}),
       ...(prompts ? { prompts } : {}),
       ...(owed > 0 ? { owed } : {}),
       rose,
+      ...(deferred ? { deferred } : {}),
     },
   };
 }
@@ -238,5 +257,11 @@ export function payOlderRoom(state: OlderReserve | undefined, rose: number): Old
   if (!(pay > 0.5)) return state;
   const owed = state.owed - pay;
   const { owed: _paid, ...rest } = state;
-  return { ...rest, room: state.room + pay, end: state.end + pay, ...(owed > 0.5 ? { owed } : {}) };
+  return {
+    ...rest,
+    room: state.room + pay,
+    end: state.end + pay,
+    height: state.height + pay,
+    ...(owed > 0.5 ? { owed } : {}),
+  };
 }

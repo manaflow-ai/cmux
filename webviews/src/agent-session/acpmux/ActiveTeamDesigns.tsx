@@ -111,6 +111,8 @@ function Palette() {
   );
 }
 
+/// The Cloud row and the Machines header as they were drawn (with the team), kept as the design record; the
+/// product says only Cloud there (https://github.com/manaflow-ai/cmux/issues/45695).
 function CloudSurfaces() {
   const active = TEAMS.find((team) => team.id === ACTIVE)!;
   return (

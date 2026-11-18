@@ -23,6 +23,26 @@ import Testing
         return frameworks
     }
 
+    /// "Chromium is downloading, so this tab uses WebKit" stayed on its tab after the download
+    /// finished. It goes when the runtime installs; a notice that says something else since stays.
+    @Test func theWaitingNoticeGoesWhenTheRuntimeInstalls() throws {
+        let frameworks = try pack()
+        let waiting = "Chromium is downloading, so this tab uses WebKit."
+        let source = CEFRuntimeSource(layout: nil, pending: .downloading(fraction: 0.2))
+        let tab = BrowserChromeTabState()
+        source.waitingNotice.show(waiting, on: tab)
+        #expect(tab.noticeText == waiting)
+        source.install(CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: root, helperApp: frameworks))
+        #expect(tab.noticeText == nil)
+
+        let other = CEFRuntimeSource(layout: nil, pending: .downloading(fraction: nil))
+        let since = BrowserChromeTabState()
+        other.waitingNotice.show(waiting, on: since)
+        since.showNotice("Something else")
+        other.install(CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: root, helperApp: frameworks))
+        #expect(since.noticeText == "Something else")
+    }
+
     @Test func aBuildWithoutRuntimeOrPackIsNotBundled() {
         let source = CEFRuntimeSource(layout: nil)
         #expect(source.unavailableReason == .notBundled)

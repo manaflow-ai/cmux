@@ -2,30 +2,51 @@ import CmuxNextSettings
 import Foundation
 
 /// `action.run` for a run that names a caller and no target (``ControlCallerPlacement``): the run uses the
-/// caller's own place, never the app's focus.
+/// caller's own place, never the app's focus. The one owner of that rule: `file.open`, `browser.open_split`,
+/// `browser.page.right` and `browser.page.new_tab` hand their runs here with the caller.
 ///
-/// - A surface-opening action whose handler places its new tab (``besideCallerActions``) goes beside the caller: in
-///   its helper column, else in a new column right of its pane; a terminal no agent runs in keeps it in its own pane.
+/// - What an agent opens beside itself (``opensBeside(_:)``: a browser of any engine, the diff viewer, a file,
+///   a new terminal or tab) goes in its helper column, else in a new column right of its pane. A terminal no
+///   agent runs in keeps it in its own pane.
 /// - Any other action that takes a tab, pane or workspace target runs on the caller's own tab, pane or workspace
-///   (a rename renames its own workspace). That includes the opens that name their own place (Split Right, New
-///   Column, New Terminal to the Right, New Tab at End): they split or fill the caller's own pane, as asked.
+///   (a rename renames its own workspace). That includes the opens that name their own place (``opensSurface(_:)``:
+///   New ▸ kind ▸ place, Split Right, Mac Screen, Reopen Closed Tab): they open in the caller's own pane, as asked.
 /// - An agent's run that closes or destroys (``closingActions``, the catalog's destructive actions) is refused
 ///   until it names its target: for an agent, "this tab" may be its own home or the tab it opened last, and the
 ///   wrong guess ends the agent or loses the person's work. A person's shell keeps its own tab, pane or workspace,
 ///   which is what its focused run meant.
-/// - An agent the topology does not show has no place: its opens and its runs on a tab, pane or workspace are
-///   refused (`caller_unavailable`), never run on the focused one; only ``workspaceCreatingActions`` still run.
+/// - An agent whose chat no tab shows stands in the workspace its session runs in (`caller.workspace`): what it
+///   opens is placed from there and a workspace run is that workspace; it has no tab or pane of its own, so any
+///   other run is refused. An agent cmux cannot place at all is refused (`caller_unavailable`), never run on the
+///   focused pane, which is Home while the person talks to the Chief (user, 2026-11-18); only
+///   ``workspaceCreatingActions`` still run.
+/// - A Chief turn (`caller.home_chat`) acts for the person across the app: only what it opens beside itself is
+///   placed, beside the Home chat; its other runs are unchanged.
 /// - An action with no such target kind (settings, the palette) and a run with a target or no caller are unchanged.
 ///
 /// Existing-browser actions are aimed first, at the browser nearest the caller (``aimBrowserActionAtCaller``).
 extension ControlRouter {
-    /// The surface-opening actions whose handlers place the new tab beside the caller (AgentBesidePlacement),
-    /// with the kind the same-kind rule reads (`browser`, `terminal`; nil: no kind).
-    static let besideCallerActions: [String: String?] = [
-        "openBrowser": "browser", "openBrowser.webkit": "browser", "openBrowser.chromium": "browser",
-        "openDiffViewer": nil, "file.open": nil, "openMarkdownFile": nil,
-        "newSurface": "terminal", "newTab.default": nil, "newTab.ofKind": nil,
+    /// The actions, with the browser (``opensBrowser(_:)``), whose handlers place the new tab beside an agent
+    /// caller (AgentBesidePlacement): selected in its helper column, or moved into a new column right of it.
+    static let besideCallerActions: Set<String> = [
+        "openDiffViewer", "file.open", "openMarkdownFile", "newSurface", "newTab.default", "newTab.ofKind",
     ]
+
+    /// `openBrowser` and its engine variants (`openBrowser.webkit`, `openBrowser.chromium`).
+    static func opensBrowser(_ id: String) -> Bool { id == "openBrowser" || id.hasPrefix("openBrowser.") }
+
+    /// Whether `id` opens a tab that goes beside an agent caller.
+    static func opensBeside(_ id: String) -> Bool { opensBrowser(id) || besideCallerActions.contains(id) }
+
+    /// The kind the same-kind rule reads for what `id` opens (`browser`, `terminal`); nil: no kind.
+    static func besideKind(_ id: String) -> String? { opensBrowser(id) ? "browser" : id == "newSurface" ? "terminal" : nil }
+
+    /// The other actions that open a new tab or page where their target is: run by an agent with
+    /// no target they open in the agent's own place, never in the focused pane. A new workspace or
+    /// window (`newTab`, `newWindow`) is not one: it opens no tab in an existing workspace.
+    static func opensSurface(_ id: String) -> Bool {
+        ["new.", "newSurface", "tabGroup.newTab", "file.open", "macScreen.open", "reopenClosedBrowserPanel"].contains { id.hasPrefix($0) }
+    }
 
     /// The target kinds a caller has of its own, in no order: an action lists its own first.
     static let callerTargetKinds: Set<String> = ["tab", "pane", "workspace"]
@@ -45,16 +66,26 @@ extension ControlRouter {
         "workspace.newOnMachine", "newWorkspaceGroup", "reopenClosedWorkspace", "reopenPreviousSession",
     ]
 
-    /// Aims a run that names a caller and no target at the caller's own place. A caller the topology does not
-    /// show is refused for an agent (it has no place, and the focused pane is never its place); a terminal the
-    /// topology does not show is another session's, and its run is left as it is.
+    /// Aims a run that names a caller and no target at the caller's own place. An agent cmux cannot place is
+    /// refused (it has no place, and the focused pane is never its place); a terminal the topology does not show
+    /// is another session's, and its run is left as it is.
     static func placeAtCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
-        guard request.target == nil, let caller = request.caller else { return }
+        guard let caller = request.caller else { return }
+        guard request.target == nil else {
+            // An explicit target wins. A terminal's browser aimed at its own tab (an older CLI's `browser open`)
+            // still goes where a Cmd-click's would (TabLifecycle): it is told which panes are another agent's.
+            if opensBrowser(action.id), caller.terminalID != nil, let location = ControlCallerLocation.resolve(caller, in: topology) {
+                request.besideAgentHomes = ControlCallerPlacement(location).agentHomes
+            }
+            return
+        }
         // Open in the editor app opens nothing in cmux: there is no place to choose.
         if action.id == "file.open", request.arguments["where"] == .string("editor") { return }
-        let opens = besideCallerActions[action.id] != nil
-        let kind = action.targets.first { callerTargetKinds.contains($0) }
-        guard opens || kind != nil else { return }
+        let beside = opensBeside(action.id), opens = beside || opensSurface(action.id)
+        var kind = action.targets.first { callerTargetKinds.contains($0) }
+        // New Tab in Group takes a tab group: the group of the caller's own tab (its handler reads a tab's group).
+        if kind == nil, action.id == "tabGroup.newTab" { kind = "tab" }
+        guard beside || (kind != nil && !caller.homeChat) else { return }
         guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
             guard caller.agentSession != nil || caller.homeChat else { return }
             if opens { throw BrowserCallerTarget.missingCaller(caller) }
@@ -63,9 +94,12 @@ extension ControlRouter {
             throw Self.callerNotLocated(caller, action: action)
         }
         let placement = ControlCallerPlacement(location)
-        if opens, placement.isBeside {
+        request.besideAgentHomes = placement.agentHomes
+        if beside, placement.isBeside {
             return placeBeside(&request, action: action, placement: placement, topology: topology)
         }
+        // An agent that stands in its session's workspace has no tab or pane of its own to run anything else on.
+        if !location.isOwnTab, !opens, kind != "workspace" { throw Self.callerNotLocated(caller, action: action) }
         if placement.isBeside, action.isDestructive || closingActions.contains(action.id) {
             throw Self.targetRequired(action, location: location)
         }
@@ -90,11 +124,9 @@ extension ControlRouter {
         let paneTarget = action.targets.contains("pane")
         let own = paneTarget ? ControlTargetRef(kind: "pane", id: location.pane.id) : ControlTargetRef(kind: "tab", id: location.tab.id)
         request.besideCaller = true
-        request.besideAgentHomes = placement.agentHomes
         // The diff viewer takes the column's pane as it is; a Chief turn's Home column is never measured.
         let measured = action.id != "openDiffViewer" && location.tab.page != "home-dock" && location.isShown(in: topology)
-        let kind = besideCallerActions[action.id] ?? nil
-        let helper = action.id == "openDiffViewer" ? placement.column.first : placement.pane(for: kind)
+        let helper = action.id == "openDiffViewer" ? placement.column.first : placement.pane(for: besideKind(action.id))
         if placement.kind == .helperColumn, !measured, let helper,
            let target = paneTarget ? ControlTargetRef(kind: "pane", id: helper.id)
                : ControlCallerPlacement.anchorTab(of: helper).map({ ControlTargetRef(kind: "tab", id: $0) }) {
@@ -115,11 +147,12 @@ extension ControlRouter {
         request.arguments[argument] = .string(cwd)
     }
 
-    /// An agent named as the caller has no chat or terminal in any workspace: its run has no place of its own.
+    /// An agent named as the caller has no chat or terminal of its own in any workspace: its run has no tab or
+    /// pane of its own.
     static func callerNotLocated(_ caller: ControlCaller, action: ControlActionInfo) -> ControlError {
         ControlError(code: "caller_unavailable",
                      message: ControlStrings.format("control.error.callerNotLocated",
-                                                    "%@ has no target, and the caller's chat or terminal is in no workspace; name the tab, pane or workspace to act on",
+                                                    "%@ has no target, and no tab shows the caller's chat or terminal; name the tab, pane or workspace to act on",
                                                     action.id),
                      data: ["action": .string(action.id), "agent_session": .optional(caller.agentSession),
                             "terminal_id": .optional(caller.terminalID)])

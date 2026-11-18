@@ -284,10 +284,12 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
         // A running turn keeps its work in sight (cmux#38339): its last call's row over the subagent's.
+        // Where its subagent started, the group's start line (#42247), then where it ended.
         "work-to-subagent": diff(
           tail(document.querySelector('[data-row-id="status-work"]') ?? undefined),
-          head(byClass("acpmux-subagentDone")),
+          head(byClass("acpmux-subagentStarted")),
         ),
+        "started-to-subagent": diff(head(byClass("acpmux-subagentStarted")), head(byClass("acpmux-subagentDone"))),
         "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
         // The closed group draws its first line under its head (stacked): the live line is a row under that.
         "waiting-to-live": after(

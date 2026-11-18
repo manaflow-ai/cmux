@@ -86,7 +86,7 @@ public final class BookmarkEditBubble: NSObject {
             self?.onMore()
         }
         let content = NSHostingView(rootView: BookmarkEditView(model: model))
-        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         popup.panel.adoptThemeScope(of: anchor)
         // A press on the star toggles the bubble: the star closes it, not the click monitor.

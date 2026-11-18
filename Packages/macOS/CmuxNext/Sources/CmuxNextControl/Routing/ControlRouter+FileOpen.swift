@@ -15,9 +15,12 @@ import Foundation
 ///   in the code editor (the action's `asText`, u18462).
 /// - `workspace_id`, `terminal_id`, `caller`: placement as `browser.open_split`
 ///   (ControlCallerPlacement): the named workspace, else the caller's own place
-///   (beside an agent chat or a terminal an agent runs in, the own pane of a
+///   (beside an agent chat or a terminal an agent runs in, the workspace an
+///   agent's session runs in when no tab shows its chat, the own pane of a
 ///   terminal with no agent), else the focused pane, else the workspace under a
-///   page the window shows. The reply's `placement` names which.
+///   page the window shows. The reply's `placement` names which (`caller` with
+///   `pane_id` for a caller's own place). An agent cmux cannot place is refused
+///   (`caller_unavailable`): its file never opens in the focused workspace, Home.
 /// - `focus` (default false), `idempotency_key`, `origin`: as `action.run`;
 ///   each path's run gets the key with `.<index>`. `after`: the read barrier.
 ///
@@ -40,10 +43,14 @@ struct FileOpenRun {
         let topology = call.snapshot.topology
         let placement = try BrowserOpenSplitPlacement.resolve(workspaceID: request.workspaceID, caller: request.caller,
                                                               in: topology, method: call.method)
-        // `file.open` takes a pane: the pane of the placement's tab; beside a caller, the pane action.run picks
-        // for it; else the action's own focused pane.
+        // `file.open` takes a pane: the pane of the placement's tab; for a caller placed beside itself (an
+        // agent: its chat, its terminal, the workspace its session runs in, the Home chat of a Chief turn),
+        // the pane `action.run` aims its run at (ControlRouter.placeAtCaller), never the focused pane, Home;
+        // else the action's own focused pane.
         let paneID = placement.targetTab.flatMap { topology.tab(id: $0)?.pane.id }
         let caller = placement.kind.isBesideCaller ? request.caller : nil
+        // The pane the first file's run was aimed at, for the reply; each file is placed by its own run.
+        var placedPane = paneID
         var opened: [JSONValue] = []
         for (index, path) in request.paths.enumerated() {
             var args: [String: JSONValue] = ["path": .string(path)]
@@ -60,9 +67,14 @@ struct FileOpenRun {
                                                              snapshot: snapshot, connection: call.connection,
                                                              deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             opened.append(["path": .string(path), "replayed": ran["replayed"] ?? false])
+            if placedPane == nil, caller != nil, ran["resolved"]?["kind"] == "pane" { placedPane = ran["resolved"]?["id"]?.stringValue }
         }
-        var reply: [String: JSONValue] = ["opened": .array(opened), "placement": .string(placement.kind.rawValue)]
-        if let paneID { reply["pane_id"] = .string(paneID) }
+        // `placement`: `caller` with `pane_id` for a file placed at its caller's own place (the pane its run
+        // was aimed at: the caller's helper column, or its own pane, from which the tab moves to a new column
+        // right of it); `caller_terminal` with `pane_id` for a terminal no agent runs in; `workspace`,
+        // `focused_pane` or `window_workspace` as `browser.open_split`.
+        var reply: [String: JSONValue] = ["opened": .array(opened), "placement": .string(placement.kind.fileOpenName)]
+        if let placedPane { reply["pane_id"] = .string(placedPane) }
         return .object(reply)
     }
 }

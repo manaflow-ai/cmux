@@ -74,14 +74,47 @@ public final class CmuxMobileAccentTheme: @unchecked Sendable {
     @ObservationIgnored private let defaults: UserDefaults
 
     /// The chosen accent; an install that never chose, or a value this build
-    /// does not know, is ``CmuxMobileAccent/neutral``.
+    /// does not know, is ``CmuxMobileAccent/neutral``. Choosing one stops ``followsMac``.
     public var accent: CmuxMobileAccent {
-        didSet { defaults.set(accent.rawValue, forKey: Self.settingKey) }
+        didSet {
+            defaults.set(accent.rawValue, forKey: Self.settingKey)
+            followsMac = false
+        }
+    }
+    /// Match Mac (ask-87d30da8e5): no accent chosen on this phone, so the chrome takes the Mac
+    /// theme's accent while it follows the Mac (`CmuxMobileMacTheme`), else ``accent``. An install
+    /// that never chose one starts here; a choice made on the phone always wins.
+    public private(set) var followsMac: Bool
+
+    @ObservationIgnored private let macTheme: CmuxMobileMacTheme
+
+    public init(defaults: UserDefaults = .standard, macTheme: CmuxMobileMacTheme = .shared) {
+        self.defaults = defaults
+        self.macTheme = macTheme
+        let stored = defaults.string(forKey: Self.settingKey)
+        accent = stored.flatMap(CmuxMobileAccent.init(rawValue:)) ?? .neutral
+        followsMac = stored == nil
     }
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        accent = defaults.string(forKey: Self.settingKey).flatMap(CmuxMobileAccent.init(rawValue:)) ?? .neutral
+    /// Settings' Match Mac row: forget the phone's choice and take the Mac's accent.
+    public func matchMac() {
+        defaults.removeObject(forKey: Self.settingKey)
+        followsMac = true
+    }
+
+    /// The Mac's accent when the accent and the chrome both follow the Mac, nil otherwise.
+    private var macAccent: CmuxMobileMacPalette? { followsMac ? macTheme.palette : nil }
+
+    /// The accent fill every chrome tint reads.
+    public var accentToken: CmuxMobileColorToken {
+        guard macAccent != nil else { return accent.accent }
+        return macTheme.token(accent.accent) { $0.accent }
+    }
+
+    /// The ink on ``accentToken``.
+    public var onAccentToken: CmuxMobileColorToken {
+        guard macAccent != nil else { return accent.onAccent }
+        return macTheme.token(accent.onAccent) { $0.onAccent }
     }
 }
 #endif

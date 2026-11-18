@@ -448,6 +448,41 @@ async fn an_attach_first_finishes_a_rekey_whose_answer_was_lost() {
     assert_eq!(platform.seen.lock().unwrap().len(), 2);
 }
 
+/// Review F2 at 6b797bbf: a link set up on this home puts its first adoption off while a
+/// rekey is pending (`mesh_node_key::rekey_pending`), so nothing depends on the key yet: the
+/// attach finishes the rekey (not `node_key.adopted`), and only then does the link serve the
+/// final key (`link_serves_node_key`).
+#[tokio::test]
+async fn an_attach_finishes_a_pending_rekey_the_link_put_off_adopting() {
+    let dir = tempfile::tempdir().unwrap();
+    public_of(dir.path());
+    let link = dir.path().join("link");
+    std::fs::create_dir_all(&link).unwrap();
+    std::fs::write(link.join("config.json"), r#"{"install":"inst_a","port":0}"#).unwrap();
+    crate::cli::mesh_node_key::record_link_home(&link, Some(dir.path())).unwrap();
+    let platform = platform(dir.path().into(), None, takes_the_key).await;
+    let target = machine(&platform.origin);
+    let rekeys = tokio::sync::Mutex::new(());
+    // A rekey whose answer was lost left its candidate.
+    let lock = KeyHolder::acquire(dir.path()).unwrap();
+    crate::cli::mesh_node_key::write_pending_held(dir.path(), &lock, &[9u8; 32]).unwrap();
+    drop(lock);
+    let candidate = pending_public(dir.path()).unwrap();
+    assert!(crate::cli::mesh_node_key::rekey_pending(dir.path()));
+    assert!(
+        !crate::cli::mesh_node_key::link_serves_node_key(Some(&link), dir.path()),
+        "the link does not adopt while the rekey is pending"
+    );
+    let finished = finish_pending_rekey(&rekeys, &target, dir.path(), None, TOKEN, |_| Ok(()))
+        .await
+        .expect("a pending key")
+        .unwrap();
+    assert_eq!(pending_outcome(&finished)["wgPublicKey"], json!(candidate));
+    assert_eq!(public_of(dir.path()), candidate);
+    assert!(!crate::cli::mesh_node_key::rekey_pending(dir.path()));
+    assert!(crate::cli::mesh_node_key::link_serves_node_key(Some(&link), dir.path()));
+}
+
 #[tokio::test]
 async fn a_platform_that_answers_another_key_changes_nothing_here() {
     let dir = tempfile::tempdir().unwrap();
@@ -484,6 +519,58 @@ async fn a_second_rekey_while_one_runs_is_busy() {
     assert!(first.is_ok(), "{first:?}");
     assert_eq!(reason(&second.unwrap_err()), "busy");
     assert_eq!(platform.seen.lock().unwrap().len(), 1, "the busy rekey sent nothing");
+}
+
+/// Review F2 at c1898fca: once the cmux link adopted the node key (`key-adopted.json`), or a
+/// sign-out archived that adoption with its install (`key-adopted.<install>.json`), the link's
+/// paired peers know it by that key alone. With the link stopped the key lock is free, yet a
+/// rekey is refused `node_key.adopted` before anything is written or sent, and the key bytes
+/// stay; so is a rekey an earlier one left pending, which an attach would finish.
+#[tokio::test]
+async fn a_rekey_is_refused_while_an_adoption_depends_on_the_key() {
+    for record in ["key-adopted.json", "key-adopted.inst_a.json"] {
+        let dir = tempfile::tempdir().unwrap();
+        let _ = public_of(dir.path());
+        let key_bytes = std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap();
+        std::fs::create_dir_all(dir.path().join("link")).unwrap();
+        std::fs::write(
+            dir.path().join("link").join(record),
+            json!({ "key_dir": dir.path() }).to_string(),
+        )
+        .unwrap();
+        let platform = platform(dir.path().into(), None, takes_the_key).await;
+        let rekeys = tokio::sync::Mutex::new(());
+        let refused =
+            rotate(&rekeys, &machine(&platform.origin), dir.path(), None, TOKEN, &[], |_| {
+                panic!("nothing is recorded")
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(reason(&refused), "node_key.adopted", "{record}: {refused:?}");
+        assert_eq!(refused.data.as_ref().unwrap()["code"], "node_key.adopted");
+        assert!(platform.seen.lock().unwrap().is_empty(), "{record}: the platform was asked");
+        assert!(!KeyFile::NodePending.path_in(dir.path()).exists(), "{record}: a candidate");
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), key_bytes);
+        // A pending rekey, as an attach finishes it first: refused the same way.
+        let lock = KeyHolder::acquire(dir.path()).unwrap();
+        crate::cli::mesh_node_key::write_pending_held(dir.path(), &lock, &[9u8; 32]).unwrap();
+        drop(lock);
+        let refused = finish_pending_rekey(
+            &rekeys,
+            &machine(&platform.origin),
+            dir.path(),
+            None,
+            TOKEN,
+            |_| panic!("nothing is recorded"),
+        )
+        .await
+        .expect("a pending key")
+        .unwrap_err();
+        assert_eq!(reason(&refused), "node_key.adopted", "{record}: {refused:?}");
+        assert!(platform.seen.lock().unwrap().is_empty(), "{record}: the platform was asked");
+        assert_eq!(std::fs::read(KeyFile::Node.path_in(dir.path())).unwrap(), key_bytes);
+        assert!(KeyHolder::acquire(dir.path()).is_ok(), "the refusal let the key lock go");
+    }
 }
 
 #[tokio::test]

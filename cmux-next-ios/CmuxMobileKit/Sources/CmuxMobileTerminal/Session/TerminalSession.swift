@@ -154,9 +154,10 @@ public protocol TerminalSession: AnyObject {
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void)
     /// Bytes for the PTY (keys encoded by Ghostty, composer text, paste).
     func send(_ bytes: Data)
-    /// Bytes the terminal wrote by itself, not the person: Ghostty's replies
-    /// to terminal queries (cursor and device reports, focus and mouse
-    /// reports). A session that holds keys through an outage drops these
+    /// Bytes that are no key the person typed, pressed or pasted: Ghostty's
+    /// replies to terminal queries (cursor and device reports, focus,
+    /// visibility and size reports), and the wheel and click reports of a
+    /// scroll or a tap. A session that holds keys through an outage drops these
     /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
     func sendReply(_ bytes: Data)
     /// The screen's grid in cells: what a TUI should draw (rows between the
@@ -198,8 +199,15 @@ public protocol TerminalSession: AnyObject {
     /// The reader scrolled up to the oldest row the screen holds: a session
     /// that attached with the latest screen first brings older rows (a Mac
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
-    /// scrolls there; the session decides. Others ignore it.
-    func loadOlderHistory()
+    /// scrolls there; the session decides. Others ignore it. Returns whether
+    /// it asked (a mirror reset and a longer replay follow).
+    @discardableResult
+    func loadOlderHistory() -> Bool
+    /// Before the first attach: the screen will put a reader back on a row
+    /// `rows` rows above the end (a tab back from the warm set,
+    /// ``TerminalScrollPlace``), so a session that attaches with the latest
+    /// screen first asks for at least that much history at once. Others ignore it.
+    func requestHistoryRows(_ rows: Int)
 }
 
 extension TerminalSession {
@@ -226,18 +234,43 @@ extension TerminalSession {
 
     public func clearHistory() async throws {}
 
-    public func loadOlderHistory() {}
+    @discardableResult
+    public func loadOlderHistory() -> Bool { false }
+
+    public func requestHistoryRows(_ rows: Int) {}
 
     public var hostGridOwnerName: String? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk
 /// boundaries. Sessions that only see bytes use it to derive `alternateScreen`.
+/// It also follows the input modes (``inputModeNumbers``), so a terminal that was
+/// reset can be put back in the modes the stream set (``restoringBytes``).
 public struct AlternateScreenDetector: Sendable {
+    /// The DEC private modes that change what the terminal's keys, pastes and touches
+    /// send: cursor keys (1), mouse tracking (1000, 1002, 1003), focus events (1004),
+    /// mouse encodings (1005, 1006, 1015) and bracketed paste (2004).
+    public static let inputModeNumbers: Set<Int> = [1, 1000, 1002, 1003, 1004, 1005, 1006, 1015, 2004]
+
     public private(set) var isActive = false
+    /// The ``inputModeNumbers`` the stream set and has not reset since.
+    public private(set) var inputModes: Set<Int> = []
     private var pending: [UInt8] = []
 
     public init() {}
+
+    /// A stream that is already on the alternate screen (`active`) when it starts.
+    public init(active: Bool) {
+        isActive = active
+    }
+
+    /// The bytes that put a reset terminal back in the modes the stream set: the
+    /// alternate screen, then the input modes. Empty when it set none.
+    public var restoringBytes: Data {
+        var out = isActive ? "\u{1B}[?1049h" : ""
+        for mode in inputModes.sorted() { out += "\u{1B}[?\(mode)h" }
+        return Data(out.utf8)
+    }
 
     /// Scans `bytes`; returns the new state when it changed in this chunk.
     public mutating func scan(_ bytes: Data) -> Bool? {
@@ -272,6 +305,9 @@ public struct AlternateScreenDetector: Sendable {
                     if byte == 0x68 || byte == 0x6C {
                         if params.contains(where: { $0 == 47 || $0 == 1047 || $0 == 1049 }) {
                             isActive = byte == 0x68
+                        }
+                        for mode in params where Self.inputModeNumbers.contains(mode) {
+                            if byte == 0x68 { inputModes.insert(mode) } else { inputModes.remove(mode) }
                         }
                     }
                     complete = true

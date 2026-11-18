@@ -50,6 +50,10 @@ function load() {
       level.artTint === undefined || (level.artTint > 0 && level.artTint < level.tint),
       `glass ${level.name}'s artTint is clearer than its tint`,
     );
+    assert(
+      level.veil === undefined || (level.veil > 0 && level.veil < level.tint),
+      `glass ${level.name}'s veil on the App's glass is clearer than its own tint`,
+    );
     assert(["level", "mode"].includes(level.kind), `glass ${level.name} is a level or a mode`);
     assert(GLASS_FILTER.test(level.blur), `glass ${level.name}'s blur is blur(<px>) saturate(<n>)`);
   }
@@ -61,6 +65,17 @@ function load() {
   const material = data.glassMaterial;
   for (const key of ["neutralLight", "neutralDark", "rimLit", "rimShade"])
     assert(material[key] >= 0 && material[key] <= 1, `glassMaterial.${key} is a gray level from 0 to 1`);
+  const transient = data.transientMaterial;
+  const menu = data.glass.find((level) => level.name === "menu");
+  assert(
+    menu.veil === transient.hostVeil * 100 && menu.tint === transient.webTint,
+    "menu and transient material stay in sync",
+  );
+  for (const key of ["darkVeilAlpha", "lightVeilAlpha", "hostVeil"])
+    assert(transient[key] > 0 && transient[key] < 0.9, `transientMaterial.${key} stays translucent`);
+  assert(transient.webTint > 0 && transient.webTint < 90, "transient web tint stays translucent");
+  // Native parity belongs to check-surface-roles.py. Web-only sparse checkouts
+  // generate this scale from schemas without loading platform source files.
   assert(data.elevation.length === 2, "exactly two shadows");
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
@@ -76,6 +91,9 @@ const glassVars = (level) => ({
   // The radius alone, for a surface that blurs without the level's saturation (the diff's bars).
   radius: [`--ds-glass-${level.name}-radius`, px(Number(level.blur.match(GLASS_FILTER)[1]))],
   artTint: level.artTint === undefined ? null : [`--ds-glass-${level.name}-art-tint`, `${level.artTint}%`],
+  // The theme surface laid on the App's own glass under a surface of this level (host glass, and the
+  // native GlassMenu's veil): one number for the page and the App.
+  veil: level.veil === undefined ? null : [`--ds-glass-${level.name}-veil`, `${level.veil}%`],
 });
 // A gray level (0 black, 1 white) as an opaque CSS color, 8 bits a channel.
 export const gray = (level) => {
@@ -109,15 +127,22 @@ function cssBlock(data) {
     out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
   }
   for (const level of data.glass) {
-    const { tint, blur, radius, artTint } = glassVars(level);
+    const { tint, blur, radius, artTint, veil } = glassVars(level);
     out.push(`  /* glass ${level.name} (${level.kind}): ${level.for} */`, `  ${tint[0]}: ${tint[1]};`);
     if (artTint) out.push(`  ${artTint[0]}: ${artTint[1]};`);
+    if (veil) out.push(`  ${veil[0]}: ${veil[1]};`);
     out.push(`  ${blur[0]}: ${blur[1]};`);
     if (level.kind === "level") out.push(`  ${radius[0]}: ${radius[1]};`);
   }
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
   for (const [name, value, note] of materialVars(data.glassMaterial)) out.push(`  ${name}: ${value}; /* ${note} */`);
+  for (const [key, value] of Object.entries(data.transientMaterial)) {
+    if (typeof value !== "number") continue;
+    const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    const unit = key === "webTint" ? "%" : key === "webBlur" ? "px" : "";
+    out.push(`  --ds-transient-${name}: ${value}${unit};`);
+  }
   for (const entry of data.elevation)
     out.push(`  --elevation-${entry.name}: ${shadow(entry, "light")}; /* ${entry.for} */`);
   for (const color of data.colors) out.push(`  --ds-color-${color.name}: ${colorValue(color)}; /* ${color.for} */`);

@@ -244,19 +244,15 @@ pub(super) async fn wait_for_lock_release_with_budget(
     lock: PathBuf,
     budget: Option<Duration>,
 ) -> bool {
-    use std::os::unix::io::AsRawFd;
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
     let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return true;
-        }
-        let kind = std::io::Error::last_os_error().kind();
-        if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
-            return false;
+        match lock_released(&file) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(_) => return false,
         }
         if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
@@ -264,6 +260,18 @@ pub(super) async fn wait_for_lock_release_with_budget(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+/// One look at the daemon lock through `file`: whether no daemon holds it now (an interrupted
+/// look reads held, to look again). The look leaves no lock behind: it unlocks before it returns
+/// ([`cmux_file_lock::FileLock::held_elsewhere`]), so a child that another thread forks meanwhile
+/// keeps no daemon lock through its copy of the descriptor, and the next daemon starts.
+fn lock_released(file: &std::fs::File) -> std::io::Result<bool> {
+    match cmux_file_lock::FileLock::held_elsewhere(file, cmux_file_lock::Kind::Exclusive) {
+        Ok(held) => Ok(!held),
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 /// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
@@ -281,10 +289,10 @@ pub(super) async fn wait_for_lock_release_with_budget(
     };
     let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
-        match file.try_lock() {
-            Ok(()) => return true,
-            Err(std::fs::TryLockError::WouldBlock) => {}
-            Err(std::fs::TryLockError::Error(_)) => return false,
+        match lock_released(&file) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(_) => return false,
         }
         if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
@@ -364,6 +372,10 @@ mod tests {
         for removal in ["rm ", "delete", "remove"] {
             assert!(!why.contains(removal), "{why}");
         }
+        assert!(
+            !lock_released(&crate::config::private_state_rw(&lock).unwrap()).unwrap(),
+            "a held daemon lock read released"
+        );
         // A pid the file still records from a daemon that is gone is not named.
         std::fs::write(&lock, format!("{}\n", i32::MAX)).unwrap();
         let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
@@ -371,5 +383,29 @@ mod tests {
         assert!(why.contains("acpmux daemon status"), "{why}");
         drop(held);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A look that finds the daemon lock free leaves no lock behind, also while the description it
+    /// looked through stays open: a child that another thread forked during the look keeps a copy
+    /// until it execs, and a lock the look took and only closed stays held through that copy. The
+    /// next daemon start (an update's handover waits here first) is then refused "another acpmux
+    /// daemon holds" with no daemon running (LOCK-AUDIT daemon/lock.rs:254).
+    #[test]
+    fn a_release_look_leaves_no_lock_while_its_description_stays_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-look-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+        // The look's description stays open, as a forked child's copy of it does.
+        let looked = crate::config::private_state_rw(&lock).unwrap();
+        let released = lock_released(&looked).unwrap();
+        let next = acquire_lock(&lock).map(drop).map_err(|e| e.to_string());
+        drop(looked);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(released, "a free daemon lock read held");
+        next.expect("a look at a free daemon lock left it held");
     }
 }

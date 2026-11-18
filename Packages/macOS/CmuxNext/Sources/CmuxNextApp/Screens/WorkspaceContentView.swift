@@ -33,6 +33,7 @@ final class WorkspaceContentView: NSView {
     func setParked(_ parked: Bool) {
         guard parked != isParkedOffScreen else { return }
         isParkedOffScreen = parked
+        if !parked { alphaValue = 1 }
         notifyParkingChange()
     }
 

@@ -22,7 +22,7 @@ nonisolated enum AgentCacheSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.cacheCompact.enabled", "Compact Before the Cache Expires"),
-                help: SettingsText.keyed("settings.agents.cacheCompact.enabled.help", "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."),
+                help: SettingsText.keyed("settings.agents.cacheCompact.enabled.help", "Compacts an idle Claude chat while its cache is warm, so the next message costs less."),
                 kind: .toggle,
                 default: .bool(AgentCacheSettings.cacheCompactEnabledDefault),
                 keywords: ["cache", "prompt cache", "compact", "autocompact", "context", "ttl", "claude"]

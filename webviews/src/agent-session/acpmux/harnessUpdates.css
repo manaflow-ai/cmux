@@ -1,0 +1,76 @@
+/* Harness updates available (HarnessUpdates.tsx): the model menus' update footer. The reference's
+   order: a heading with Update all, one row per agent CLI split by hairlines, the reason under them.
+   It stays put while the model list above it scrolls. */
+.acpmux-harness-updates {
+  flex: none;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-harness-updates-head,
+.acpmux-harness-update {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+}
+.acpmux-harness-updates-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-harness-updates-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-harness-update { border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border); }
+.acpmux-harness-update-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-harness-update-versions {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-harness-update[data-phase="failed"] .acpmux-harness-update-versions { color: var(--agent-danger, var(--agent-muted)); }
+.acpmux-harness-updates-all,
+.acpmux-harness-update-skip,
+.acpmux-harness-update-run {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.acpmux-harness-update-run {
+  min-width: 56px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-harness-updates-all:hover,
+.acpmux-harness-update-skip:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
+.acpmux-harness-update-run:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
+.acpmux-harness-updates :is(button):disabled { opacity: 0.6; }
+.acpmux-harness-updates-hint {
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}

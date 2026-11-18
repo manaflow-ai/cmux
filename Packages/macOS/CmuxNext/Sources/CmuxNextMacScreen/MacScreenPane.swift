@@ -82,6 +82,8 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
+    private var cursorTask: Task<Void, Never>?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -160,6 +162,7 @@ public final class MacScreenPane {
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
         actions.refresh = { session.refresh() }
+        actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in
             // A View Only session sends no input (the host would ignore it anyway).
             guard self?.model.viewOnly != true else { return }
@@ -175,20 +178,30 @@ public final class MacScreenPane {
         model.hasFrame = false
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
+        session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick() else { return }
-            Task { @MainActor [weak self] in self?.framesShown(counter.take()) }
+            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
         let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        }
     }
 
-    private func framesShown(_ count: Int) {
+    private func framesShown(_ counter: MacScreenFrameCounter) {
         guard let session else { return }
+        let count = counter.take()
         for _ in 0 ..< count { session.framePresented(size: view.video.framePixels) }
+        session.framesCounted(counter)
         if !model.hasFrame {
             model.hasFrame = true
             view.needsLayout = true
@@ -258,6 +271,7 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         decodeTask?.cancel()
+        cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -291,7 +305,8 @@ public final class MacScreenPane {
         hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
     }
 
-    private func disconnectByPerson() {
+    /// The viewer toolbar or a targeted Stop Viewing action ends this session.
+    public func disconnectByPerson() {
         view.input.releaseKeyboard()
         model.hub?.disconnect(reason: .viewerDisconnected)
     }
@@ -305,9 +320,11 @@ public final class MacScreenPaneView: NSView {
     let presenter = RemoteFramePresenters().make(.metal)
     let input = RemoteInputSurface()
     var capture: NSView { input.view }
+    /// One cursor: the local pointer wears the remote shape; the overlay only where they differ.
+    private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
-    static let toolbarHeight: CGFloat = 34
+    var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
 
     init(model: MacScreenPaneModel) {
         self.model = model
@@ -333,7 +350,7 @@ public final class MacScreenPaneView: NSView {
 
     /// The screen area: everything under the toolbar.
     var screenRect: CGRect {
-        CGRect(x: 0, y: Self.toolbarHeight, width: bounds.width, height: max(0, bounds.height - Self.toolbarHeight))
+        CGRect(x: 0, y: toolbarHeight, width: bounds.width, height: max(0, bounds.height - toolbarHeight))
     }
 
     /// Where the streamed display sits (aspect fit), for the input surface.
@@ -344,7 +361,7 @@ public final class MacScreenPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.toolbarHeight)
+        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbarHeight)
         capture.frame = screenRect
         // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
         let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
@@ -354,6 +371,7 @@ public final class MacScreenPaneView: NSView {
         } else {
             video.frame = .zero
         }
+        cursor.update()
         let showsCard = chrome.showsCard
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open

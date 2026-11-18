@@ -143,8 +143,13 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
     let first =
         members.first().map(|member| public_member(member, evicted)).unwrap_or_else(|| json!({}));
-    // A deleted space is named by the space, not its first workspace (cx-ncc.44).
-    let room = &record["room"]["profile"][0]["name"];
+    // A deleted space is named by the space, not its first workspace (cx-ncc.44);
+    // a space its last workspace's close took keeps that workspace's name.
+    let room = if record["room_cascade"] == true {
+        &Value::Null
+    } else {
+        &record["room"]["profile"][0]["name"]
+    };
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],

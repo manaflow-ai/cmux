@@ -6,10 +6,14 @@ import Foundation
 /// beside the caller; the app's focus is never the place. `action.run`, `file.open`, `browser.open_split`,
 /// `browser.page.right` and the `beside` of `system.identify` and `snapshot.get` all read this one decision.
 ///
-/// - A terminal no agent runs in (a person's shell, a script): its own pane.
+/// - A terminal no agent runs in (a person's shell, a script): its own pane. (Its browser then goes where a
+///   Cmd-click's would, the pane on its right or a new one beside it: TabLifecycle, Lawrence 2026-11-15.)
 /// - An agent (an agent chat, a Chief turn, a terminal whose hooks report an agent): its helper column, the column
 ///   right of its pane, unless that column is another agent's home (it holds another agent's chat, or a terminal an
 ///   agent runs in). Without a helper column, a new column directly right of its pane.
+/// - An agent whose chat no tab shows stands in the workspace its session runs in (`caller.workspace`,
+///   ``ControlCallerLocation/ownWorkspace(_:in:)``): what it opens is placed from that pane the same way. One
+///   cmux cannot place at all is refused; nothing of an agent's lands in the focused workspace, Home (user, 2026-11-18).
 /// - A docked chat (Home's, an agent chat's dock) keeps the strip beside it: a dock cannot split, and its strip is
 ///   where its tools open, so the strip's first column is its helper column whatever that column holds.
 ///
@@ -31,27 +35,30 @@ struct ControlCallerPlacement: Sendable, Equatable {
     var kind: Kind
     /// The helper column's panes, top to bottom; empty unless `kind` is `helperColumn`.
     var column: [ControlPaneInfo] = []
-    /// The panes of the caller's screen that are another agent's home. Empty for a docked caller.
+    /// The panes of the caller's screen that are another agent's home, for an agent and for a plain
+    /// terminal alike. Empty for a docked caller.
     var agentHomes: [String] = []
 
     init(_ location: ControlCallerLocation) {
         self.location = location
-        guard Self.runsAgent(location) else {
-            kind = .ownPane
-            return
-        }
         var homes: [String] = []
         if location.pane.dock == nil {
-            let own = location.tab.agentSessionID ?? location.caller.agentSession
+            // The caller's own session: its own (an agent placed in its session's workspace stands at
+            // another tab), else its chat tab's.
+            let own = location.caller.agentSession ?? location.tab.agentSessionID
             homes = location.screen.panes.filter { pane in
                 pane.id != location.pane.id && pane.tabs.contains { Self.isAnotherAgent($0, than: own) }
             }.map(\.id)
+        }
+        agentHomes = homes
+        guard Self.runsAgent(location) else {
+            kind = .ownPane
+            return
         }
         let beside = location.column
         let taken = beside.contains { homes.contains($0.id) }
         kind = beside.isEmpty || taken ? .newColumn : .helperColumn
         column = kind == .helperColumn ? beside : []
-        agentHomes = homes
     }
 
     /// Whether the caller is an agent: an agent chat, a Chief turn, or a terminal an agent runs in.

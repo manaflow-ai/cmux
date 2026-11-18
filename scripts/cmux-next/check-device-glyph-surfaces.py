@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Static check: every native machine surface draws the SF Symbol the Rust device-kind mapping names
+(cmux-tui/crates/cmux-device-kind, `DeviceKind::symbol`), read from the record the daemon sent, and
+keeps no kind-to-symbol table of its own (Leo 2026-11-14: "nicer icons ... across all the remote
+related areas").
+
+Each surface below must read the daemon's symbol field. No Swift file under Packages/macOS may spell a
+device-kind wire name next to a symbol name (a second mapping). Exit 1 names what is missing.
+
+Usage: check-device-glyph-surfaces.py [--repo DIR]
+"""
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+# (file, a regex the file must match: it reads the symbol the daemon named)
+SURFACES = [
+    # The sidebar's remote machine groups: each peer's `health.deviceSymbol`.
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPeerList.swift", r'\["deviceSymbol"\]'),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift", r"symbol: machine\.symbol"),
+    # The sidebar's machine section headers: the machine daemon's `identify` `machine_symbol`.
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/Identify.swift", r'"machine_symbol"'),
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/MachineRegistry+Icons.swift", r"device: .*\.machineSymbol"),
+    # The right sidebar's Machines section: each row sends the daemon's symbol to the page.
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/MachineSectionRow+App.swift", r"symbol: daemon\.store\.identity\?\.machineSymbol"),
+    # The workspace hover card's machine line: the header's symbol.
+    ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceHoverCardContent.swift", r"Self\.machineSymbol\(remote\)"),
+]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", default=str(Path(__file__).resolve().parents[2]))
+    root = Path(parser.parse_args().repo)
+    kinds = json.loads((root / "webviews/src/ui/deviceGlyphKinds.json").read_text())
+    problems = []
+    for path, pattern in SURFACES:
+        file = root / path
+        if not file.exists():
+            problems.append(f"{path}: missing")
+        elif not re.search(pattern, file.read_text()):
+            problems.append(f"{path}: does not draw the daemon's device symbol ({pattern})")
+    # A second table: a Swift line that pairs a kind's wire name with its symbol.
+    pairs = [(kind, symbol) for kind, symbol in kinds.items() if kind != symbol]
+    for file in sorted((root / "Packages/macOS").rglob("*.swift")):
+        text = file.read_text(errors="replace")
+        for kind, symbol in pairs:
+            if re.search(rf'"{re.escape(kind)}"[^\n]{{0,80}}"{re.escape(symbol)}"', text):
+                problems.append(f"{file.relative_to(root)}: maps {kind} to {symbol} itself; read the daemon's symbol")
+    for problem in problems:
+        print(problem)
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

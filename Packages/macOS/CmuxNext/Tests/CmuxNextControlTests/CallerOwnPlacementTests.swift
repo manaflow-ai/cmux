@@ -161,7 +161,9 @@ import Testing
         #expect(request.target == Self.paneTarget("pane-agent"), "\(String(describing: request.target))")
         #expect(request.besideCaller)
         #expect(request.newColumnBeside)
-        #expect(reply["placement"] == "beside_caller_new_column")
+        // `file.open` says where it opened as the base does: `caller` with the pane its run was aimed at.
+        #expect(reply["placement"] == "caller")
+        #expect(reply["pane_id"] == "pane-agent")
 
         snapshot = Self.snapshot(own: Self.chat("tab-agent", session: "agent-1"), right: [Self.pane("pane-web", [Self.browser("tab-web")])])
         let (withColumn, columnExecutor) = install(snapshot)
@@ -170,7 +172,8 @@ import Testing
         ])).get()
         #expect(columnExecutor.all.first?.target == Self.paneTarget("pane-web"))
         #expect(columnExecutor.all.first?.besideCaller == true)
-        #expect(beside["placement"] == "beside_caller")
+        #expect(beside["placement"] == "caller")
+        #expect(beside["pane_id"] == "pane-web")
     }
 
     @Test func aFileFromATerminalFollowsTheSameRule() async throws {
@@ -178,7 +181,8 @@ import Testing
         let agent = try await router.handle(ControlRequest(id: "1", method: "file.open", params: ["path": "/tmp/a.md", "terminal_id": "term-agent"])).get()
         #expect(executor.all.first?.target == Self.paneTarget("pane-agent"))
         #expect(executor.all.first?.newColumnBeside == true)
-        #expect(agent["placement"] == "beside_caller_new_column")
+        #expect(agent["placement"] == "caller")
+        #expect(agent["pane_id"] == "pane-agent")
 
         let (plain, plainExecutor) = install(Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil)))
         let shell = try await plain.handle(ControlRequest(id: "1", method: "file.open", params: ["path": "/tmp/a.md", "terminal_id": "term-agent"])).get()
@@ -257,6 +261,56 @@ import Testing
         #expect(try await run("splitRight", Self.snapshot(), caller: ["terminal_id": "term-elsewhere"]).target == nil)
         // A new workspace needs no place of the caller's: an agent no tab shows still makes one.
         #expect(try await run("newTab", Self.snapshot(), caller: ["agent_session": "gone"]).target == nil)
+    }
+
+    // MARK: The base's caller rule (2026-11-18) is the same rule
+
+    /// An agent whose chat no tab shows stands in the workspace its session runs in (`caller.workspace`): what it
+    /// opens is placed there and a workspace run is that workspace; it has no tab or pane of its own for the rest.
+    @Test func anAgentWithNoTabStandsInItsSessionsWorkspace() async throws {
+        let closed: JSONValue = ["agent_session": "agent-closed", "workspace": "WS-AGENT"]
+        let opened = try await run("openBrowser", Self.snapshot(), caller: closed, args: ["url": "https://example.com"])
+        #expect(opened.target == Self.tabTarget("tab-agent"), "in its session's workspace: \(String(describing: opened.target))")
+        #expect(opened.besideCaller)
+        #expect(try await run("renameWorkspace", Self.snapshot(), caller: closed).target == ControlTargetRef(kind: "workspace", id: "ws-agent"))
+        let (router, executor) = install(Self.snapshot())
+        let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "renameTab", "caller": closed]))
+        #expect(refused.failure?.code == "caller_unavailable", "the tab there is not its own")
+        #expect(executor.all.isEmpty)
+    }
+
+    /// A Chief turn acts for the person across the app: only what it opens is placed (beside the Home chat).
+    @Test func aChiefTurnsFileOpensBesideTheHomeChatAndItsOtherRunsAreUnchanged() async throws {
+        var snapshot = HomeChatCallerTests.snapshot()
+        snapshot.catalog = Self.catalog()
+        let (router, executor) = install(snapshot)
+        let reply = try await router.handle(ControlRequest(id: "1", method: "file.open", params: [
+            "path": "/tmp/note.md", "caller": ["agent_session": "turn-on-a-vm", "home_chat": true],
+        ])).get()
+        #expect(executor.all.first?.target == Self.paneTarget("pane-right"), "\(String(describing: executor.all.first?.target))")
+        #expect(executor.all.first?.besideCaller == true)
+        #expect(reply["placement"] == "caller")
+        #expect(reply["pane_id"] == "pane-right")
+        #expect(try await run("splitRight", snapshot, caller: ["home_chat": true]).target == nil)
+        #expect(try await run("closeTab", snapshot, caller: ["home_chat": true]).target == nil)
+    }
+
+    /// An older CLI's `browser open` names the terminal's own tab: the app sends that browser where a Cmd-click's
+    /// goes (TabLifecycle), and the run says which panes beside the caller are another agent's, so it is never one.
+    @Test func aBrowserAimedAtTheCallersOwnTabStillKnowsTheOtherAgentsPanes() async throws {
+        let other = Self.pane("pane-other", [Self.terminal("tab-other", "term-other", agent: "codex")])
+        for own in [Self.terminal("tab-agent", "term-agent", agent: "claude"), Self.terminal("tab-agent", "term-agent", agent: nil)] {
+            let (router, executor) = install(Self.snapshot(own: own, right: [other]))
+            _ = try await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "openBrowser", "target": "tab:tab-agent", "caller": Self.agent,
+            ])).get()
+            let request = try #require(executor.all.first)
+            #expect(request.target == Self.tabTarget("tab-agent"))
+            #expect(request.besideAgentHomes == ["pane-other"])
+        }
+        // A plain shell's own run with no target carries them too.
+        let shell = Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil), right: [other])
+        #expect(try await run("openBrowser", shell).besideAgentHomes == ["pane-other"])
     }
 
     @Test func anAgentsNewTabOpensBesideItAndItsNewWorkspaceIsListedByItsOwn() async throws {

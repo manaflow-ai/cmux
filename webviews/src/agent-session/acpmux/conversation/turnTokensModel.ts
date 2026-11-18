@@ -20,13 +20,16 @@ export const readTokens = (split: TurnTokenSplit) => split.input + split.cacheRe
 export const hasTokens = (split: TurnTokenSplit | undefined): split is TurnTokenSplit =>
   split !== undefined && split.output + readTokens(split) > 0;
 
-/// The hover: "Output 12.4K · fresh input 1.2K · cache reads 3.8M · cache writes 40K".
+/// The hover, in plain words: "Wrote 12.4K tokens · read 60K new, 2.1M again". Never the prompt
+/// cache's jargon (Leo, 2026-11-12, on "Output 7K · fresh input 4 · cache reads 0 · cache writes
+/// 219.6K": "what even are cache writes? When I'm seeing this stuff, what's going on?"): what the
+/// model read for the first time is its fresh input plus what it saved to the cache, and what it
+/// read again is the cache's reads.
 export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
   t("turn.tokens.detail", {
     output: compactTokens(language, split.output),
-    input: compactTokens(language, split.input),
-    cacheRead: compactTokens(language, split.cacheRead),
-    cacheWrite: compactTokens(language, split.cacheWrite),
+    fresh: compactTokens(language, split.input + split.cacheWrite),
+    reused: compactTokens(language, split.cacheRead),
   });
 
 const UNCACHED = "\ue000";

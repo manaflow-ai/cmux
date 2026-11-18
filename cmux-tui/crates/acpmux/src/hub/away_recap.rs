@@ -32,6 +32,13 @@
 //!   draw with the "New since you looked" divider at `since` (`seen.rs`). A
 //!   turn since it was asked makes it stale: it is dropped.
 //!
+//! - One recap per chat (Leo, 2026-11-11, of a chat with eight stacked recaps that all said the
+//!   same thing: "oh shit this is way too much"). The chat's current recap is kept on its
+//!   metadata (`SessionMeta::away_recap`), across restarts: a recap that names no fact the
+//!   current one does not (`facts`) is never written, and a newer one replaces it (`replaces` on
+//!   its record names the old record, which clients stop drawing). Its dismissal
+//!   (`Hub::dismiss_recap`) is kept there too, so a recap with nothing new never comes back.
+//!
 //! The recap never goes to the model as a prompt and is never in Claude
 //! Code's transcript. `agents.chats.sessionRecap` (the app's chat settings
 //! push, `chats/settings.rs`) turns it off; a chat's own `session-recap`
@@ -70,14 +77,77 @@ pub(crate) struct Away {
     asked_at_turns: Option<u64>,
     /// The recap made while the person was away, and the turn count it describes.
     ready: Option<(String, u64)>,
-    /// The turn count of the last recap shown.
-    shown_at_turns: Option<u64>,
 }
 
 /// The saved `sessionRecap` (`chat-settings.json`), on when there is none.
 pub(super) fn saved_setting() -> bool {
     crate::chats::ChatSettings::load(&crate::config::home().join("chat-settings.json"))
         .session_recap
+}
+
+/// What a recap names, to tell a recap with something new from one that says the same thing in
+/// other words (each recap is a fresh model answer, so its wording changes every time): PR and
+/// issue numbers (`cmux#34338` and `#34338` alike), paths, file names and names with digits in
+/// them (`leo1024rd`). A recap that names none of these is its words. Sorted, each once.
+pub(crate) fn facts(text: &str) -> Vec<String> {
+    let mut found = std::collections::BTreeSet::new();
+    let edge = |c: char| !(c.is_alphanumeric() || matches!(c, '#' | '/' | '~' | '_' | '-'));
+    for word in text.split(|c: char| {
+        c.is_whitespace() || matches!(c, ',' | ';' | '(' | ')' | '`' | '"' | '\'' | '[' | ']')
+    }) {
+        let word = word.trim_matches(edge);
+        if word.is_empty() {
+            continue;
+        }
+        let number =
+            word.split_once('#').map(|(_, n)| n.trim_end_matches(|c: char| !c.is_ascii_digit()));
+        if let Some(digits) =
+            number.filter(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()))
+        {
+            found.insert(format!("#{digits}"));
+        } else if (word.starts_with('/') || word.starts_with("~/")) && word.len() > 2 {
+            found.insert(word.trim_end_matches('/').to_owned());
+        } else if word.chars().any(|c| c.is_ascii_digit())
+            && word.chars().any(char::is_alphabetic)
+            && word.len() >= 4
+        {
+            found.insert(word.to_lowercase());
+        } else if let Some((stem, ext)) = word.rsplit_once('.')
+            && stem.len() >= 2
+            && (1..=5).contains(&ext.len())
+            && ext.chars().all(|c| c.is_ascii_alphabetic())
+            && stem.chars().any(char::is_alphabetic)
+        {
+            found.insert(word.to_lowercase());
+        }
+    }
+    if found.is_empty() {
+        let words: Vec<String> = text
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        found.insert(format!("text:{}", digest_of(&words)));
+    }
+    found.into_iter().collect()
+}
+
+/// A stable hash of `facts` (FNV-1a), the same on every run and machine.
+pub(crate) fn digest_of(facts: &[String]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for fact in facts {
+        for byte in fact.bytes().chain([0]) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+/// Whether a recap naming `facts` says nothing the chat's current recap does not: then it is
+/// never written, whether the current one shows or was dismissed.
+pub(crate) fn nothing_new(current: Option<&crate::store::AwayRecap>, facts: &[String]) -> bool {
+    current.is_some_and(|current| facts.iter().all(|fact| current.facts.contains(fact)))
 }
 
 /// Trimmed and capped recap text, or None for an empty answer.
@@ -158,16 +228,85 @@ impl Hub {
         if at_turns != turns || !self.recap_applies(session) {
             return;
         }
-        away.shown_at_turns = Some(turns);
         drop(away);
-        self.append(
-            session,
-            "mux",
-            "recap",
+        let facts = facts(&text);
+        let current = session.read_meta(|meta| meta.away_recap.clone());
+        if nothing_new(current.as_ref(), &facts) {
+            // The same recap again in other words: none is written, and the next waits
+            // `TURNS_BETWEEN` turns from here.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap =
+                current.map(|current| crate::store::AwayRecap { turns, ..current });
+            self.save_meta(session);
+            return;
+        }
+        let digest = digest_of(&facts);
+        let mut msg = json!({
+            "text": text,
+            "awayMs": away_for.as_millis() as u64,
             // `since`: where the person left off, so a client draws the recap with its
             // "New since you looked" divider instead of twice (`seen.rs`).
-            json!({"text": text, "awayMs": away_for.as_millis() as u64, "since": since}),
-        );
+            "since": since,
+            "digest": digest,
+        });
+        // The recap it replaces: a client draws only the newest. `msg` is the object built just
+        // above; inserting through `as_object_mut` keeps the panic ratchet's indexing count flat.
+        if let (Some(old), Some(fields)) = (&current, msg.as_object_mut()) {
+            fields.insert("replaces".to_owned(), json!(old.seq));
+        }
+        let record = self.append(session, "mux", "recap", msg);
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap =
+            Some(crate::store::AwayRecap {
+                seq: record.seq,
+                digest,
+                facts,
+                turns,
+                dismissed: false,
+            });
+        self.save_meta(session);
+    }
+
+    /// The person pressed the × of the recap logged at `seq`: kept on
+    /// the chat, so a recap with no new fact is never written after it, across restarts. A recap
+    /// older than the chat's current one is already replaced; one from before recaps were kept
+    /// (`away_recap` None) becomes the current one, dismissed.
+    pub fn dismiss_recap(&self, id: &str, seq: u64) -> Result<(), RpcError> {
+        let session = &*self.resolve(id)?;
+        let current = session.read_meta(|meta| meta.away_recap.clone());
+        let recap = match current {
+            Some(current) if current.seq == seq => {
+                crate::store::AwayRecap { dismissed: true, ..current }
+            }
+            Some(current) if current.seq > seq => return Ok(()),
+            _ => {
+                let record = self
+                    .events(&session.id, seq.saturating_sub(1), 1)
+                    .map_err(|e| RpcError::internal(e.to_string()))?
+                    .into_iter()
+                    .find(|r| r.seq == seq && r.dir == "mux" && r.kind == "recap")
+                    .ok_or_else(|| RpcError::invalid_params(format!("no recap at {seq}")))?;
+                let text = record.msg.get("text").and_then(Value::as_str).unwrap_or_default();
+                let facts = facts(text);
+                let turns = session.read_meta(|meta| meta.turn_count);
+                crate::store::AwayRecap {
+                    seq,
+                    digest: digest_of(&facts),
+                    facts,
+                    turns,
+                    dismissed: true,
+                }
+            }
+        };
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).away_recap = Some(recap);
+        self.save_meta_answered(session)
+    }
+
+    /// Forgets what this daemon run knew of `id`'s away state, as a restart does; what the chat
+    /// keeps on disk (`SessionMeta::away_recap`) stays. For tests.
+    #[doc(hidden)]
+    pub fn recap_forget_run(&self, id: &str) {
+        if let Ok(session) = self.resolve(id) {
+            *session.away.lock().unwrap_or_else(|e| e.into_inner()) = Away::default();
+        }
     }
 
     /// A turn of `session` ended: a recap made before it is stale, and one is asked for
@@ -209,9 +348,11 @@ impl Hub {
         if !idle {
             return None;
         }
-        let turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
+        let (turns, last) =
+            session.read_meta(|meta| (meta.turn_count, meta.away_recap.as_ref().map(|r| r.turns)));
         let away = session.away.lock().unwrap_or_else(|e| e.into_inner());
-        let enough = match away.shown_at_turns {
+        // From the chat's kept recap, so a restart does not start the count again.
+        let enough = match last {
             Some(last) => turns >= last + TURNS_BETWEEN,
             None => turns >= MIN_TURNS,
         };
@@ -271,7 +412,15 @@ impl Hub {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat's recap is scheduled again,
+                    // which does nothing for one that wants none (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("recap-events", n) {
+                            hub.schedule_recap(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;

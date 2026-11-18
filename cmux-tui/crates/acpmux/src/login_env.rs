@@ -1175,21 +1175,41 @@ pub fn effective_for(
     family: Option<&str>,
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
+    let (vault, machine) = (crate::vault::env_for_children(), machine_values());
+    effective_with(family, profile, daemon_values(), vault, machine)
+}
+
+/// [`effective_for`] over a given daemon env (less `machine.env`'s names), vault entries
+/// (`vault::env_for_children`) and `machine.env` values, as one launch reads them once.
+pub(crate) fn effective_with(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+    daemon: Vec<(String, String)>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let nested = std::env::var_os("CLAUDECODE").is_some();
-    let (vault, machine) = (crate::vault::env_for_children(), machine::read());
     // A launch's scrub removes the nested keys, then puts back the login
     // values, the vault's and `machine.env`'s (`restore_machine_tokio`).
     let mut restored = nested_overrides(family);
     restored.extend(nested_local(vault.clone(), machine.clone()));
     let local = pairs_with(family, Some(profile), vault, machine);
+    let mut env = layered(daemon, nested, local, restored, profile);
+    // A launch adds the Cloud machine's route where nothing set one; a check sees the same.
+    crate::cloud_model_plane::fill_map(&mut env);
+    env
+}
+
+/// `machine.env`'s values now (`machine.rs`), for [`effective_with`].
+pub(crate) fn machine_values() -> BTreeMap<String, String> {
+    machine::read()
+}
+
+/// The daemon's own env less `machine.env`'s names, for [`effective_with`]; call after
+/// [`machine_values`], which records those names.
+pub(crate) fn daemon_values() -> Vec<(String, String)> {
     let names = machine::names();
-    layered(
-        std::env::vars().filter(|(key, _)| !names.contains(key)),
-        nested,
-        local,
-        restored,
-        profile,
-    )
+    std::env::vars().filter(|(key, _)| !names.contains(key)).collect()
 }
 
 /// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
@@ -1243,6 +1263,8 @@ pub fn apply_tokio_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_tokio(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1269,6 +1291,9 @@ pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    // On a Cloud machine its own model route (root-owned, no credential) is the machine's, not
+    // the remote caller's authority: a chat the Mac started there reaches the edge too.
+    crate::cloud_model_plane::fill_tokio(cmd, false);
 }
 
 /// Same, for std's process builder.
@@ -1282,6 +1307,8 @@ pub fn apply_std_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_std(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1626,21 +1653,7 @@ fn delivered_names() -> Vec<String> {
     delivered_names_in(&home)
 }
 
-/// The machine files' metadata stamp (never a value), for keys that must
-/// change when a delivery or revocation does (the agent pool's). It covers
-/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
-/// a hold or a credential change is discarded at its claim.
-pub fn machine_stamp() -> Option<String> {
-    let vault = crate::vault::stamp();
-    match (machine_files_stamp(), vault) {
-        (None, None) => None,
-        (files, vault) => {
-            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
-        }
-    }
-}
-
-fn machine_files_stamp() -> Option<String> {
+pub(crate) fn machine_files_stamp() -> Option<String> {
     let home =
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     machine_files_stamp_in(&home)

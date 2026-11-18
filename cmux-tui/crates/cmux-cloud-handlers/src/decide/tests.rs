@@ -188,3 +188,156 @@ fn a_port_failure_names_the_limit_or_the_detail() {
     );
     assert_eq!(detail("no route."), "no route");
 }
+
+#[test]
+fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "no-desktop", "title": "Shell", "status": "running", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": true},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": true},
+        {"id": "starting", "title": "Booting", "status": "starting", "desktop": true}
+    ]))
+    .unwrap();
+    assert_eq!(
+        palette_targets(true, &machines),
+        vec![
+            PaletteTargetRow {
+                id: "ready".into(),
+                title: "Ready".into(),
+                state: PaletteTargetState::Ready,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "paused".into(),
+                title: "Paused".into(),
+                state: PaletteTargetState::Resume,
+                intent: Some(PaletteTargetIntent::Choose)
+            },
+            PaletteTargetRow {
+                id: "starting".into(),
+                title: "Booting".into(),
+                state: PaletteTargetState::Starting,
+                intent: None
+            },
+            PaletteTargetRow {
+                id: "no-desktop".into(),
+                title: "Shell".into(),
+                state: PaletteTargetState::DesktopUnavailable,
+                intent: Some(PaletteTargetIntent::StartDesktop)
+            },
+        ]
+    );
+}
+
+#[test]
+fn palette_desktop_setup_preserves_each_running_machine_target() {
+    for status in ["running", "ready", "connected", "active", " Running "] {
+        let machines = vec![PaletteMachine {
+            id: "existing-machine".into(),
+            title: "My machine".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let rows = serde_json::to_value(palette_targets(true, &machines)).unwrap();
+        assert_eq!(rows[0]["id"], "existing-machine", "{status}");
+        assert_eq!(rows[0]["intent"], "startDesktop", "{status}");
+        assert_eq!(rows[0]["state"], "desktopUnavailable", "{status}");
+        assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    }
+}
+
+#[test]
+fn palette_desktop_starting_state_wins_over_missing_capability() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "booting", "title": "", "status": "provisioning", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Starting);
+    assert_eq!(row.intent, None);
+    assert!(row.title.is_empty(), "native code supplies the localized fallback title");
+}
+
+#[test]
+fn palette_desktop_paused_machine_resumes_and_sets_up_the_same_target() {
+    for status in ["paused", "suspended", " Paused "] {
+        for desktop in [false, true] {
+            let machines = vec![PaletteMachine {
+                id: "paused-machine".into(),
+                title: "Paused".into(),
+                status: status.into(),
+                desktop,
+            }];
+            let row = &palette_targets(true, &machines)[0];
+            assert_eq!(row.id, "paused-machine");
+            assert_eq!(row.state, PaletteTargetState::Resume);
+            assert_eq!(
+                row.intent,
+                Some(if desktop {
+                    PaletteTargetIntent::Choose
+                } else {
+                    PaletteTargetIntent::StartDesktop
+                })
+            );
+        }
+    }
+}
+
+#[test]
+fn palette_desktop_transition_states_do_not_offer_recovery() {
+    for status in ["pausing", " Pausing "] {
+        let machines = vec![PaletteMachine {
+            id: "pausing-machine".into(),
+            title: "Pausing".into(),
+            status: status.into(),
+            desktop: false,
+        }];
+        let row = &palette_targets(true, &machines)[0];
+        assert_eq!(row.id, "pausing-machine");
+        assert_eq!(row.state, PaletteTargetState::Resume);
+        assert_eq!(row.intent, None);
+    }
+    let machines = vec![PaletteMachine {
+        id: "deleting-machine".into(),
+        title: "Deleting".into(),
+        status: "deleting".into(),
+        desktop: false,
+    }];
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, None);
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+}
+
+#[test]
+fn unavailable_desktopless_machine_offers_desktop_recovery() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "offline", "title": "Offline", "status": "offline", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Unavailable);
+    assert_eq!(row.intent, Some(PaletteTargetIntent::CreateDesktop));
+}
+
+#[test]
+fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_empty() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "unknown", "title": "", "status": "offline", "desktop": false},
+        {"id": "paused", "title": "Paused", "status": "paused", "desktop": false},
+        {"id": "ready", "title": "Ready", "status": "running", "desktop": false}
+    ]))
+    .unwrap();
+    assert_eq!(palette_targets(false, &machines)[0].id, "ready");
+    assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(palette_targets(false, &machines)[1].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(
+        palette_targets(true, &[]),
+        vec![PaletteTargetRow {
+            id: "create-desktop".into(),
+            title: String::new(),
+            state: PaletteTargetState::Empty,
+            intent: Some(PaletteTargetIntent::CreateDesktop)
+        }]
+    );
+}

@@ -212,6 +212,8 @@ export const MessageRow = memo(
         messageAt={row.at}
         artifactIdentity={row.id}
         artifactRevision={row.version}
+        // The reply's prose face, a font pack's when it sets one (chatDisplay.ts PROSE_FAMILY_KEY).
+        className="cv-reply"
         // No claim marks (#39244's green or red underline on "tests pass"): Codex draws a reply as
         // written (Lucas, 2026-11-11: "we want to remove this red line thing").
       />
@@ -228,6 +230,7 @@ export const MessageRow = memo(
   },
   (previous, next) =>
     previous.row.id === next.row.id &&
+    previous.row.at === next.row.at &&
     previous.row.version === next.row.version &&
     previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,

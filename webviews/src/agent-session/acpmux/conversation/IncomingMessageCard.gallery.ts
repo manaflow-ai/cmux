@@ -28,6 +28,7 @@ const message = (
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
+const turnCap = "This turn has run 30 minutes, past its cap. Wrap up what you have and end the turn.";
 const chiefReport = "Sidebar fix is up as #24012; the review passed and CI is green.";
 const laneVerdict = "[builder] SHIP at abcdef123456 · no findings · turn 2, idle";
 const laneVerdictSnapshot = chat([
@@ -197,6 +198,16 @@ export default agentPaneEntry({
   height: 520,
   covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx"],
   variants: {
+    "acpmux-own": {
+      note: "acpmux's own prompts that name no sender (the turn cap's notice, an inbox digest) draw as acpmux's line, never as the person's bubble (Leo, 2026-11-12: \"i didnt send it myself\").",
+      snapshot: chat([
+        user("Refactor the session store", 9),
+        assistant("Working through the store: 4 of 7 modules moved.", 8),
+        user(turnCap, 6, { incoming: message("acpmux", turnCap) }),
+        assistant("Wrapping up: the 4 moved modules build and pass their tests.", 5),
+        summary(5, { status: "completed", durationMs: 1_812_000, toolCount: 41 }),
+      ]),
+    },
     messages: {
       note: "A chat here sends a message (clicking its sender name opens that chat); a Claude Code session sends one from outside cmux (no chat target). Each is one line with the message's first line; the line opens the whole message, with Details for the envelope.",
       snapshot: chat([

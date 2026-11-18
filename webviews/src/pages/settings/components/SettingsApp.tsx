@@ -8,12 +8,14 @@ import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
-import { ReadOnlyBanner } from "./ReadOnlyBanner";
+import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
+import { TryOnSlot } from "./TryOnBar";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { personalizationPartOf } from "./PersonalizationCard";
 import { ScrollArea } from "../../../ui/ScrollArea";
+import { whenPageShown } from "../../shared/paintGate";
 
 /**
  * The page (P1): the search field and the categories in the sidebar at the window's left, the
@@ -102,6 +104,17 @@ export function SettingsApp() {
   );
   // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
   const section = shownSection(location.section, state.host?.dev_build === true);
+  // The category the page opens on draws still: no entrance on the open, whose first shown frame is
+  // the settled page (Leo, 2026-10-20: "the settings flicker is bad when you load it";
+  // settings-open-frames). The open is every category shown before the page is (a pooled page's
+  // claim may route it first, paintGate.ts); a category picked after that fades in (layout.css
+  // `settings-enter`).
+  const [pageShown, setPageShown] = useState(false);
+  useEffect(() => whenPageShown(() => setPageShown(true)), []);
+  const [openedOn, setOpenedOn] = useState(section);
+  if (!pageShown && section !== openedOn) setOpenedOn(section);
+  const [switched, setSwitched] = useState(false);
+  if (pageShown && !switched && section !== openedOn) setSwitched(true);
   // A click on the category already shown takes its page back to the top (Lucas 2026-11-11), as a
   // second click on a native sidebar's current item or a browser's tab does.
   const content = useRef<HTMLElement>(null);
@@ -118,10 +131,12 @@ export function SettingsApp() {
       revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
+    // Nothing matches: Return asks cmux for it, as the row under "No settings match." does.
+    else if (query.trim()) void store.askCmux(query);
   };
 
   return (
-    <div className="settings" ref={keyboardRef}>
+    <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
       <aside className="sidebar">
         <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
@@ -139,11 +154,8 @@ export function SettingsApp() {
           <span />
         </div>
         <div className="column">
-          {!state.connected ? (
-            <ReadOnlyBanner />
-          ) : state.loaded && !state.readable ? (
-            <ReadOnlyBanner reason="loadFailed" />
-          ) : null}
+          <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
+          <TryOnSlot />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

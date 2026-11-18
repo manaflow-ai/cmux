@@ -7,9 +7,9 @@ import CmuxNextWakeups
 @MainActor
 public final class SidebarPlaceholderGrace {
     public static let delay: Duration = .milliseconds(300)
-    /// The wait before one list names "Connecting…": the daemon's startup deadline
-    /// (`DaemonStartup.defaultDeadline`, which the store's drop grace uses too).
-    public static let connectingDelay: Duration = .seconds(10)
+    /// The wait before one list names "Connecting…": the shared connection quiet time
+    /// (``QuietHold/connectionDelay``: the daemon's startup deadline, which the store's drop grace uses too).
+    public static let connectingDelay: Duration = QuietHold.connectionDelay
 
     /// Runs when a section's wait ends (the bridge runs its rows pass again).
     public var onEnd: (@MainActor () -> Void)?
@@ -55,14 +55,18 @@ public final class SidebarPlaceholderGrace {
         ended.remove(section)
     }
 
-    /// `sections` with each other machine that has been connecting for less than this grace's wait
-    /// marked `holdsStatusLabel`: one list names "Connecting…" only on a connect that lasts (it showed
-    /// from the first frame of every launch). A machine that stops connecting waits again next time.
+    /// `sections` with each machine (This Mac too) whose link has been coming up, dropped or out of reach for
+    /// less than this grace's wait marked `holdsStatusLabel`: neither its header (`SectionHeaderRowView`)
+    /// nor one list names "Connecting…", "Reconnecting…", "Unreachable" or "Offline" until it lasts
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"), since the link
+    /// redials on its own and most drops end inside the wait. The wait spans every such state in a
+    /// row (reconnecting, then unreachable) and starts again once the link is up. A state a person
+    /// must act on (sign-in, install, update) is never held.
     public func holdingConnectingLabels(_ sections: [SidebarSection]) -> [SidebarSection] {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
-            guard var machine = section.machine, machine.kind != .local else { return section }
-            guard machine.status == .connecting else {
+            guard var machine = section.machine else { return section }
+            guard Self.healsOnItsOwn(machine.status) else {
                 reset(section.id)
                 return section
             }
@@ -71,6 +75,16 @@ public final class SidebarPlaceholderGrace {
             var held = section
             held.kind = .machine(machine)
             return held
+        }
+    }
+
+    /// A link state that ends without anyone acting: coming up, redialing after a drop, or out of
+    /// reach until the network answers again.
+    nonisolated static func healsOnItsOwn(_ status: SidebarMachine.Status) -> Bool {
+        switch status {
+        case .connecting, .reconnecting, .unreachable, .offline: true
+        case .connected, .updateAvailable, .updateRequired, .installRequired, .installing, .authFailed, .failed,
+             .disconnected, .paused, .pausedIdle, .pausing, .resuming, .deleting: false
         }
     }
 }

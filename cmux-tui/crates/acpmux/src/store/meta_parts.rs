@@ -20,10 +20,9 @@
 //! than its `session.json` shows the older list until the agent's next report, never loses a
 //! person's setting.
 
-use super::{SessionMeta, ToolInventory, ToolRow};
+use super::{SessionMeta, SharedRows, SharedValue, ToolInventory, ToolRow};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::Write;
@@ -70,7 +69,7 @@ fn split<T>(f: impl FnOnce() -> T) -> T {
 }
 
 /// `SessionMeta::available_commands`' `skip_serializing_if`.
-pub(crate) fn skip_commands(commands: &Option<Value>) -> bool {
+pub(crate) fn skip_commands(commands: &Option<SharedValue>) -> bool {
     commands.is_none() || splitting()
 }
 
@@ -103,12 +102,12 @@ pub(crate) fn tools_without_rows<S: serde::Serializer>(
 struct PartsOut<'a> {
     fingerprint: &'a str,
     #[serde(skip_serializing_if = "no_value")]
-    available_commands: &'a Option<Value>,
+    available_commands: &'a Option<SharedValue>,
     #[serde(skip_serializing_if = "none_of")]
     tool_rows: &'a [ToolRow],
 }
 
-fn no_value(value: &&Option<Value>) -> bool {
+fn no_value(value: &&Option<SharedValue>) -> bool {
     value.is_none()
 }
 
@@ -122,15 +121,15 @@ struct PartsIn {
     #[serde(default)]
     fingerprint: String,
     #[serde(default)]
-    available_commands: Option<Value>,
+    available_commands: Option<SharedValue>,
     #[serde(default)]
-    tool_rows: Vec<ToolRow>,
+    tool_rows: SharedRows,
 }
 
 /// The fields hashed, in one order.
 #[derive(Serialize)]
 struct Hashed<'a> {
-    commands: &'a Option<Value>,
+    commands: &'a Option<SharedValue>,
     rows: &'a [ToolRow],
 }
 
@@ -175,9 +174,12 @@ struct Stamp {
 }
 
 fn stamp(path: &Path) -> Option<Stamp> {
-    let meta = crate::home_fs::symlink_metadata(path).ok()?;
+    Some(stamp_metadata(&crate::home_fs::symlink_metadata(path).ok()?))
+}
+
+fn stamp_metadata(meta: &std::fs::Metadata) -> Stamp {
     #[cfg(unix)]
-    let ino = std::os::unix::fs::MetadataExt::ino(&meta);
+    let ino = std::os::unix::fs::MetadataExt::ino(meta);
     #[cfg(not(unix))]
     let ino = 0;
     let modified_ns = meta
@@ -185,7 +187,7 @@ fn stamp(path: &Path) -> Option<Stamp> {
         .ok()
         .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_nanos());
-    Some(Stamp { ino, len: meta.len(), modified_ns })
+    Stamp { ino, len: meta.len(), modified_ns }
 }
 
 /// What the store last wrote or read of each chat's parts file: its fingerprint and the file's
@@ -253,6 +255,29 @@ impl PartsMemo {
     /// `meta` as read from `text` (a `session.json` or journal image) in `dir`: a split one gets
     /// its parts from the parts file, and the memo learns them. One that is not split is as read.
     pub fn merge(&self, dir: &Path, text: &[u8], meta: &mut SessionMeta) {
+        self.merge_with(dir, text, meta, || {
+            crate::config::private_state_file(&dir.join(PARTS_FILE))
+        });
+    }
+
+    pub(super) fn merge_held(
+        &self,
+        dir: &crate::home_fs::PrivateDir,
+        text: &[u8],
+        meta: &mut SessionMeta,
+    ) {
+        self.merge_with(dir.path(), text, meta, || {
+            dir.private_file(std::ffi::OsStr::new(PARTS_FILE))
+        });
+    }
+
+    fn merge_with(
+        &self,
+        dir: &Path,
+        text: &[u8],
+        meta: &mut SessionMeta,
+        open: impl FnOnce() -> Result<std::fs::File>,
+    ) {
         #[derive(Deserialize)]
         struct Mark {
             #[serde(default, rename = "metaParts")]
@@ -264,18 +289,15 @@ impl PartsMemo {
             return;
         };
         let path = dir.join(PARTS_FILE);
-        let at = stamp(&path);
-        // Read as `session.json` is: owner-only, never through a link.
-        let read = || -> Option<Vec<u8>> {
+        // The stamp and bytes belong to the same open file, even if its name is replaced.
+        let read = || -> Option<(Vec<u8>, Option<Stamp>)> {
+            let mut file = open().ok()?;
+            let at = Some(stamp_metadata(&file.metadata().ok()?));
             let mut bytes = Vec::new();
-            std::io::Read::read_to_end(
-                &mut crate::config::private_state_file(&path).ok()?,
-                &mut bytes,
-            )
-            .ok()?;
-            Some(bytes)
+            std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
+            Some((bytes, at))
         };
-        let Some(bytes) = at.and_then(|_| read()) else {
+        let Some((bytes, at)) = read() else {
             self.forget(&meta.id);
             return;
         };

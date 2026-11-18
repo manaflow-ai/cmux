@@ -19,9 +19,11 @@ import Foundation
 ///   gets the tab beside it; a terminal with no agent (a person's shell) gets it
 ///   in its own pane. An unknown terminal (another session's) falls through to
 ///   the focused pane.
-/// - `caller`: `{agent_session}`, `{terminal_id}` or `{home_chat}` of who asks
-///   (`CMUX_AGENT_SESSION`): with no workspace named, the tab opens beside the
-///   caller (ControlCallerPlacement), ahead of `terminal_id`.
+/// - `caller`: `{agent_session, workspace}`, `{terminal_id}` or `{home_chat}` of
+///   who asks (`CMUX_AGENT_SESSION`, `CMUX_WORKSPACE_ID`): with no workspace
+///   named, the tab opens beside the caller (ControlCallerPlacement), ahead of
+///   `terminal_id`. An agent whose chat no tab shows is placed in the workspace
+///   its session runs in; one cmux cannot place is refused (`caller_unavailable`).
 /// - `focus` (default false): true lets the run change the view and then
 ///   shows the new tab (`tab.focus`), as `action.run focus: true` does.
 /// - `transparent_background`: cmux-next browser tabs are always opaque, so
@@ -122,7 +124,8 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
     var url: String
     var workspaceID: String?
     var terminalID: String?
-    /// Who asks: `caller`, else the terminal `terminal_id` names.
+    /// Who asks: `caller` (an agent session with the workspace it runs in, a terminal, a Chief turn), else
+    /// the terminal `terminal_id` names.
     var caller: ControlCaller?
     var focus: Bool
     var idempotencyKey: String?
@@ -150,7 +153,7 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
         if try Self.bool(params, "transparent_background") == true {
             throw ControlError(code: "unsupported",
                                message: ControlStrings.format("control.error.openSplitTransparent",
-                                                              "%@ cannot open a transparent browser tab: cmux-next browser tabs are always opaque (omit transparent_background)",
+                                                              "%@ cannot open a transparent browser tab; omit transparent_background",
                                                               method),
                                data: ["param": "transparent_background"])
         }
@@ -200,8 +203,13 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
         case besideCaller = "beside_caller"
         /// The caller has no helper column: a new column right of it.
         case besideCallerNewColumn = "beside_caller_new_column"
+        /// `file.open`'s one name for both beside kinds: at its caller's own place, with the pane in `pane_id`.
+        case caller
 
         var isBesideCaller: Bool { self == .besideCaller || self == .besideCallerNewColumn }
+
+        /// The reply's `placement` of `file.open`: `caller` for a file placed beside its caller, else this kind.
+        var fileOpenName: String { isBesideCaller ? Kind.caller.rawValue : rawValue }
     }
 
     var kind: Kind
@@ -229,7 +237,9 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
                 case .newColumn: return Self(kind: .besideCallerNewColumn, targetTab: nil)
                 }
             }
-            // An agent the topology does not show has no place; a terminal it does not show is another session's.
+            // An agent cmux cannot place (no chat tab, no workspace its session runs in) is refused: its tab never
+            // lands in the focused workspace, Home (user, 2026-11-18). A terminal the topology does not show is
+            // another session's.
             if caller.agentSession != nil || caller.homeChat { throw BrowserCallerTarget.missingCaller(caller) }
         }
         if topology.focus.paneID != nil { return Self(kind: .focusedPane, targetTab: nil) }

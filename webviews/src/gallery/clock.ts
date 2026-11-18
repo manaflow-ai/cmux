@@ -7,6 +7,11 @@ export const GALLERY_NOW = Date.UTC(2026, 9, 6, 9, 41, 0);
 
 export const minutesAgo = (minutes: number) => GALLERY_NOW - minutes * 60_000;
 
+/// A live turn's reply written just now, in minutes (5.4 s): past WRITING_MS (5 s), so the live line
+/// reads "Thinking", and inside SILENT_MS (10 s), so it has not yet turned to "Waiting"
+/// (agent-session/acpmux/conversation/thinkingModel.ts) when a play reads it soon after load.
+export const FRESH_REPLY_MINUTES = 0.09;
+
 export function installGalleryClock(start = GALLERY_NOW): void {
   const RealDate = Date;
   const origin = performance.now();

@@ -24,17 +24,29 @@ function fake(name: string | undefined, endTime = 80, currentTime = 40): Fake {
 
 function frames() {
   const queued = new Map<number, () => void>();
+  const posted = new Map<number, () => void>();
   let next = 1;
   return {
     queued,
+    posted,
     request: (run: () => void) => {
       queued.set(next, run);
       return next++;
     },
     cancel: (handle: number) => void queued.delete(handle),
+    post: (run: () => void) => {
+      const handle = next++;
+      posted.set(handle, run);
+      return () => void posted.delete(handle);
+    },
     flush: () => {
       const runs = [...queued.values()];
       queued.clear();
+      for (const run of runs) run();
+    },
+    paint: () => {
+      const runs = [...posted.values()];
+      posted.clear();
       for (const run of runs) run();
     },
   };
@@ -43,13 +55,16 @@ function frames() {
 const row = (animations: Fake[]) => ({ getAnimations: () => animations }) as unknown as Element;
 
 describe("holdEntranceForFirstFrame", () => {
-  test("holds the entrance at its start until the next frame, then plays it", () => {
+  test("holds the entrance through the frame's rendering, then plays it", () => {
     const fade = fake("cv-enter-fade");
     const clock = frames();
     holdEntranceForFirstFrame(row([fade]), clock);
     expect(fade.playState).toBe("paused");
     expect(fade.currentTime).toBe(0);
     clock.flush();
+    expect(fade.playState).toBe("paused");
+    expect(fade.currentTime).toBe(0);
+    clock.paint();
     expect(fade.playState).toBe("running");
     expect(fade.currentTime).toBe(0);
   });
@@ -70,5 +85,27 @@ describe("holdEntranceForFirstFrame", () => {
     const cancel = holdEntranceForFirstFrame(row([fade]), clock);
     cancel();
     expect(clock.queued.size).toBe(0);
+  });
+
+  test("an unmount after the frame callback cancels the posted release", () => {
+    const fade = fake("cv-enter");
+    const clock = frames();
+    const cancel = holdEntranceForFirstFrame(row([fade]), clock);
+    clock.flush();
+    expect(clock.posted.size).toBe(1);
+    cancel();
+    expect(clock.posted.size).toBe(0);
+    clock.paint();
+    expect(fade.playState).toBe("paused");
+  });
+
+  test("a page hide that finishes the held entrance is not replayed", () => {
+    const fade = fake("cv-enter");
+    const clock = frames();
+    holdEntranceForFirstFrame(row([fade]), clock);
+    clock.flush();
+    fade.playState = "finished";
+    clock.paint();
+    expect(fade.playState).toBe("finished");
   });
 });

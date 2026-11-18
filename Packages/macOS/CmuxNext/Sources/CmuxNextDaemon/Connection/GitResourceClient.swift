@@ -23,11 +23,13 @@ public struct GitResourceClient: Sendable {
     }
 
     /// Runs `operation` with `params` (`path` plus the operation's fields)
-    /// and returns its `result`.
-    public func read(_ operation: String, params: [String: JSONValue]) async throws -> JSONValue {
+    /// and returns its `result`. With a `capability`, a session host that
+    /// does not advertise it gets no request: the read throws
+    /// `DaemonError.missingCapabilities`.
+    public func read(_ operation: String, params: [String: JSONValue], requiring capability: String? = nil) async throws -> JSONValue {
         try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: nil)
-        }, as: JSONValue.self, timeout: Self.timeout)
+        }, as: JSONValue.self, timeout: Self.timeout, requiring: capability)
     }
 
     /// Runs the mutation `operation` with `params` under `idempotencyKey` and

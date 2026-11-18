@@ -9,7 +9,7 @@ import Testing
     let t0 = ContinuousClock.now
 
     private func shown() -> Debounce {
-        var claim = Debounce(delay: .seconds(1), backgroundDelay: .seconds(300))
+        var claim = Debounce(delay: .seconds(1))
         claim.pageShown = true
         _ = claim.update(at: t0)
         return claim
@@ -39,48 +39,36 @@ import Testing
         #expect(claim.update(at: t0.advanced(by: .seconds(2))).claims == nil)
     }
 
-    /// Leo, 2026-11-12: an app switch, the lock screen or a link blip must
-    /// not move the Mac's PTY. The background keeps the claim for the grace.
-    @Test func theBackgroundKeepsTheClaimForTheGrace() {
+    /// Leo, 2026-11-12: "if I do completely switch away, I want to be gone.
+    /// I want to leave it." The background releases at once, no grace.
+    @Test func theBackgroundReleasesAtOnce() {
         var claim = shown()
         claim.appActive = false
         let away = claim.update(at: t0)
-        #expect(away.claims == nil, "released at once: the Mac's PTY grows and the phone redraws twice")
-        #expect(away.recheck == t0.advanced(by: .seconds(300)))
-        #expect(claim.update(at: t0.advanced(by: .seconds(299))).claims == nil)
-        #expect(claim.claims)
-        #expect(claim.update(at: t0.advanced(by: .seconds(300))).claims == false)
+        #expect(away.claims == false, "kept: the Mac's pane stays at the phone's size while the phone is away")
+        #expect(away.recheck == nil)
+        #expect(!claim.claims)
     }
 
-    /// Background then foreground (an app switch, lock and unlock): nothing
-    /// is ever sent, so the Mac never resizes the PTY.
-    @Test func backgroundThenForegroundSendsNothing() {
+    /// Background then foreground (an app switch, lock and unlock): released
+    /// at once, claimed again at once, each sent exactly once.
+    @Test func backgroundThenForegroundReleasesThenClaimsAtOnce() {
         var claim = shown()
         var sent: [Bool] = []
-        for (step, active) in [(1, false), (40, true), (60, false), (200, true)] {
+        for (step, active) in [(1, false), (40, true), (41, false), (42, true)] {
             claim.appActive = active
             if let change = claim.update(at: t0.advanced(by: .seconds(step))).claims { sent.append(change) }
         }
-        #expect(sent.isEmpty)
+        #expect(sent == [false, true, false, true])
         #expect(claim.claims)
     }
 
-    @Test func aPageThatLeftStillReleasesAfterTheShortDelayInTheBackground() {
+    @Test func aBackgroundDuringAPendingReleaseReleasesAtOnce() {
         var claim = shown()
         claim.pageShown = false
         _ = claim.update(at: t0)
         claim.appActive = false
-        #expect(claim.update(at: t0.advanced(by: .milliseconds(100))).claims == nil)
-        #expect(claim.update(at: t0.advanced(by: .seconds(1))).claims == false)
-    }
-
-    @Test func thePageLeavingDuringTheBackgroundGraceTakesTheShortDelay() {
-        var claim = shown()
-        claim.appActive = false
-        _ = claim.update(at: t0)
-        claim.pageShown = false
-        let left = claim.update(at: t0.advanced(by: .seconds(10)))
-        #expect(left.recheck == t0.advanced(by: .seconds(11)))
+        #expect(claim.update(at: t0.advanced(by: .milliseconds(100))).claims == false)
     }
 
     @Test func aSheetOverThePageReleasesAndItsDismissalClaimsAgain() {
@@ -96,10 +84,8 @@ import Testing
         var claim = shown()
         claim.appActive = false
         _ = claim.update(at: t0)
-        // Away past the grace: released; back, it claims at once.
-        #expect(claim.update(at: t0.advanced(by: .seconds(300))).claims == false)
         claim.appActive = true
-        #expect(claim.update(at: t0.advanced(by: .seconds(301))).claims == true)
+        #expect(claim.update(at: t0.advanced(by: .milliseconds(1))).claims == true)
     }
 
     @Test func aPageNeverShownReleasesAfterTheDelay() {
@@ -123,11 +109,11 @@ import Testing
         #expect(told == [false])
         claimer.set(pageShown: true)
         #expect(told == [false, true])
-        // The background keeps the claim (its grace is long).
+        // The background releases at once; the foreground claims at once.
         claimer.set(appActive: false)
-        #expect(told == [false, true])
+        #expect(told == [false, true, false])
         claimer.set(appActive: true)
-        #expect(told == [false, true])
+        #expect(told == [false, true, false, true])
     }
 
     @Test func aClaimerWhosePageNeverShowsReleases() async throws {

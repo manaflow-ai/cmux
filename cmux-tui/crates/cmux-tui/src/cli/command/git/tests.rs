@@ -281,6 +281,20 @@ fn git_files_joins_the_query_and_takes_a_limit() {
 }
 
 #[test]
+fn git_fingerprint_takes_a_scope_of_a_work_tree_only() {
+    assert_eq!(
+        sent(&["git", "fingerprint", "--path", "/repo"]),
+        ("git.fingerprint".into(), json!({"path": "/repo", "scope": "uncommitted"}))
+    );
+    assert_eq!(
+        sent(&["git", "fingerprint", "--path", "/repo", "--scope", "branch"]),
+        ("git.fingerprint".into(), json!({"path": "/repo", "scope": "branch"}))
+    );
+    assert!(rejects(&["git", "fingerprint", "--scope", "commits"]).contains("--scope"));
+    assert!(rejects(&["git", "fingerprint", "--scope", "committed"]).contains("--scope"));
+}
+
+#[test]
 fn git_comments_are_keyed_by_the_root_and_never_by_a_repository_target() {
     let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
     assert_eq!(
@@ -327,6 +341,31 @@ fn git_comments_are_keyed_by_the_root_and_never_by_a_repository_target() {
     assert_eq!(operation, "diff.comments.delete");
     assert_eq!(params["ids"], json!(["dc_1", "dc_2"]));
     assert_eq!(params["versions"], json!({"dc_1": "2026-11-08T00:00:00Z"}));
+    let (operation, params) = sent(&[
+        "git",
+        "comments",
+        "send",
+        "--root",
+        "/repo",
+        "dc_1",
+        "dc_2",
+        "--acp-session",
+        "ses_1",
+        "--text",
+        "Address these",
+        "--versions-json",
+        "{}",
+    ]);
+    assert_eq!(operation, "diff.comments.send");
+    assert_eq!(params["ids"], json!(["dc_1", "dc_2"]));
+    assert_eq!(params["acp_session"], "ses_1");
+    assert_eq!(params["text"], "Address these");
+    assert_eq!(params["versions"], json!({}));
+    // The session host refuses a send without versions; so does the CLI.
+    assert!(
+        rejects(&["git", "comments", "send", "dc_1", "--acp-session", "s", "--text", "t"])
+            .contains("versions-json")
+    );
     // A repository target belongs to the git operations, not to comments.
     assert!(rejects(&["git", "comments", "list", "--path", "/repo"]).contains("--path"));
 }

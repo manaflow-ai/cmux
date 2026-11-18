@@ -43,6 +43,39 @@ impl ReaderCompletion {
     }
 }
 
+/// The seat of a terminal whose child is `process`, held by the terminal's
+/// runtime from here to its drop. It is taken when the runtime is made, which
+/// is before the terminal enters the session state: the accept loop counts
+/// the terminal's connections as a terminal's from this moment, and asks no
+/// session state for it (`diagnostics/terminal_seats.rs`). The seat names
+/// `terminal`, so the accept also reads from it which terminal a client is in.
+pub(super) fn terminal_seat(
+    mux: &Weak<Mux>,
+    process: Option<u32>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::TerminalSeat {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => mux.connection_stats().seat_terminal(process, terminal),
+        None => crate::diagnostics::TerminalSeat::unseated(process),
+    }
+}
+
+/// Where the host that starts a terminal of `mux` takes its seat
+/// (`diagnostics/terminal_seats.rs`, `HostSeating`): before the host starts
+/// the terminal's child, so that child's first connection is the terminal's.
+#[cfg(any(unix, windows))]
+pub(super) fn host_seating(
+    mux: &Weak<Mux>,
+    terminal: &Option<TerminalPublicId>,
+) -> crate::diagnostics::HostSeating {
+    let terminal = terminal.as_ref().map(TerminalPublicId::as_str);
+    match mux.upgrade() {
+        Some(mux) => crate::diagnostics::HostSeating::of(mux.connection_stats().clone(), terminal),
+        None => crate::diagnostics::HostSeating::default(),
+    }
+}
+
 pub(super) struct ReaderCompletionGuard(pub(super) Arc<ReaderCompletion>);
 
 impl Drop for ReaderCompletionGuard {
@@ -87,6 +120,13 @@ impl PtyTerminalRuntime {
         self.input_port.reconnect_ended();
     }
 
+    /// The terminal closes or its owner lets it go: a reader that waits for the PTY fence of its dead host stops
+    /// the wait and starts no replacement host. The handle's lock is a leaf, so it is safe under the runtime lock.
+    pub(super) fn cancel_host_fence_wait(&self) {
+        #[cfg(unix)]
+        self.host_fence_wait.cancel();
+    }
+
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
     /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
     /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
@@ -113,10 +153,45 @@ impl PtyTerminalRuntime {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        self.after_observed_output(metadata, bytes)
+    }
+
+    /// [`Self::observe_terminal_output`] that also rewrites the title ops
+    /// ghostty-vt skips (`titles`, the stream's
+    /// [`ShellMarks::titles_mut`](crate::prompt_mode_reset::ShellMarks::titles_mut)),
+    /// in the same one walk of the bytes. Returns the rewritten bytes, for
+    /// `crate::prompt_mode_reset::write_rewritten_output`, and the
+    /// notifications.
+    pub(super) fn observe_terminal_output_rewriting_titles<'a>(
+        &self,
+        titles: &mut crate::terminal_title::TitleTracker,
+        bytes: &'a [u8],
+    ) -> (Cow<'a, [u8]>, Vec<crate::terminal_metadata::TerminalNotification>) {
+        let mut metadata =
+            self.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !bytes.is_empty() {
+            metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
+        }
+        let rewritten = metadata.observe_output_rewriting_titles(titles, bytes);
+        (rewritten, self.after_observed_output(metadata, bytes))
+    }
+
+    fn after_observed_output(
+        &self,
+        mut metadata: std::sync::MutexGuard<'_, crate::terminal_metadata::TerminalMetadata>,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         if self.tail_pin.feed(bytes)
             && let Some(mux) = self.mux.upgrade()
         {
             mux.queue_terminal_tail(self.event_surface_id);
+        }
+        // Mark and wake: the ports pass reads the screen later, off the reader.
+        if !bytes.is_empty()
+            && self.port_mark.mark()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.queue_terminal_ports(self.event_surface_id);
         }
         metadata.take_admitted_notifications(Instant::now())
     }
@@ -296,6 +371,9 @@ pub struct PtyTerminalRuntime {
     /// The last line of a pinned terminal (`terminal-tail-pin-v1`); idle
     /// unless the terminal is pinned.
     pub(crate) tail_pin: crate::terminal_tail::TailPinSlot,
+    /// Set when the terminal printed since the last ports pass
+    /// (`mux/terminal_port_watch.rs`); the reader only sets it.
+    pub(crate) port_mark: crate::mux::PortMark,
     /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
@@ -311,7 +389,9 @@ pub struct PtyTerminalRuntime {
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
     #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
-    pub(super) pid: Option<u32>,
+    /// The child's process id, with the terminal's seat among the session's
+    /// terminals (`terminal_seat`).
+    pub(super) pid: crate::diagnostics::TerminalSeat,
     pub(super) command: Vec<String>,
     pub(super) cwd: Option<String>,
     /// How this incarnation ended, with its provenance (process end versus
@@ -327,6 +407,11 @@ pub struct PtyTerminalRuntime {
     /// (`restart-tab` on a `failed` tab): its host was ended, so the
     /// reconnect loop stops its wait and retries at once.
     pub(super) recover_requested: AtomicBool,
+    /// The wait of this terminal's reader for the PTY fence of its dead
+    /// host, before it starts the replacement host. Each place that sets
+    /// `owner_detaching` cancels it ([`Self::cancel_host_fence_wait`]).
+    #[cfg(unix)]
+    pub(super) host_fence_wait: crate::terminal_host_runtime::PtyFenceWait,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
