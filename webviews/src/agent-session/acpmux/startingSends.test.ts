@@ -320,3 +320,21 @@ test("a new chat's first prompt row carries its paste and its attachments", () =
   expect(row.pasted?.length).toBe(1);
   expect(row.retryAttachments).toEqual([paste]);
 });
+
+// cmux#45759 follow-up F2: a prompt removed while its files were read, whose files then failed,
+// ran the queue's rollback for a prompt no longer in it: `splice(-1)` took the newest prompt
+// instead and gave it back.
+test("a prompt removed while its files are read, whose files then fail, leaves the prompts behind it to go", async () => {
+  const h = harness();
+  let fail!: (error: Error) => void;
+  const ready = new Promise<ComposerAttachment[]>((_, reject) => (fail = reject));
+  h.sends.add("first", [], h.go, undefined, "first", { ready });
+  h.sends.add("second", [], h.go, undefined, "second");
+  await h.settle();
+  expect(h.sends.remove("first")).toBe(true);
+  fail(new Error("upload failed"));
+  await h.settle();
+  expect(h.given).toEqual([]);
+  expect(h.sent).toEqual(["second"]);
+  expect(h.sends.rows.map((row) => row.text)).toEqual(["second"]);
+});

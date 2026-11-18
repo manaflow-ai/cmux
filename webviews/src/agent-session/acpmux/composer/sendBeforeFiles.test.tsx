@@ -293,3 +293,136 @@ test("a send made while the chat still connects to acpmux is shown at once and g
   await settle();
   expect(sent).toEqual(["sent while loading", "and another"]);
 });
+
+// cmux#45759 follow-up F1: a chip the host makes (`bound`, a dictation recording) that already
+// failed holds a send, but `take` tried again only a failed upload, so nothing ever made it and the
+// prompt's files never settled: the prompt waited forever.
+test("a failed chip the host makes is made again by the send, and the prompt goes with it", async () => {
+  const h = await mountIntake();
+  let makes = 0;
+  let second!: (chip: ComposerAttachment | undefined) => void;
+  const make = () => {
+    makes += 1;
+    if (makes === 1) return Promise.resolve(undefined);
+    return new Promise<ComposerAttachment | undefined>((resolve) => (second = resolve));
+  };
+  await act(async () => h.intake().attachLater("Dictation.m4a", make, "Could not save the recording."));
+  await settle();
+  expect(h.intake().pending[0]?.failed).toBe("Could not save the recording.");
+  expect(h.intake().loading).toBe(1);
+  let ready!: Promise<ComposerAttachment[]>;
+  await act(async () => {
+    ready = h.intake().sendWith()!.take();
+  });
+  let made: string[] | undefined;
+  void ready.then((chips) => (made = chips.map((chip) => chip.path ?? "")));
+  await settle();
+  // The send is its Retry: the host makes it again, and its tile stays the prompt's meanwhile.
+  expect(makes).toBe(2);
+  expect(h.intake().pending).toEqual([]);
+  await act(async () =>
+    second({ id: "made", kind: "link", name: "Dictation.m4a", mimeType: "audio/mp4", size: 9, path: "/up/d.m4a" }),
+  );
+  await settle();
+  expect(made).toEqual(["/up/d.m4a"]);
+  expect(h.intake().pending).toEqual([]);
+});
+
+test("a failed chip the host makes that fails again fails its prompt with why, and is the composer's chip again", async () => {
+  const h = await mountIntake();
+  await act(async () =>
+    h.intake().attachLater("Dictation.m4a", () => Promise.resolve(undefined), "Could not save the recording."),
+  );
+  await settle();
+  let outcome: string | undefined;
+  await act(async () => {
+    // Its failure is heard from the send on, as Composer `handOff` hears it.
+    void h
+      .intake()
+      .sendWith()!
+      .take()
+      .then(
+        () => (outcome = "made"),
+        (error: Error) => (outcome = error.message),
+      );
+  });
+  await settle();
+  expect(outcome).toBe("Could not save the recording.");
+  const [chip] = h.intake().pending;
+  expect(chip?.failed).toBe("Could not save the recording.");
+  expect(chip?.retryable).toBe(true);
+});
+
+/// A prompt handed its files (`sendWith`), as the composer hands it to the pane's queue (Composer
+/// `handOff`): its `giveBack` makes the chips the composer's again and answers those already made.
+function handedFiles(handed: NonNullable<ReturnType<ReturnType<typeof useAttachmentIntake>["sendWith"]>>) {
+  const ready = handed.take();
+  return Object.assign(ready, { giveBack: () => [...handed.giveBack().values()] });
+}
+
+// cmux#45759 follow-up F2: a refused prompt brings back every prompt behind it, but one of those
+// still waiting for its files came back with its zero-byte stand-ins, and its files stayed the
+// prompt's: hidden tiles that no send or Retry could reach, gone once made.
+test("a prompt still waiting for its files, behind one refused, comes back and its files are the composer's again", async () => {
+  const h = await mountIntake();
+  await act(async () => void h.intake().attach([recording()], true, "drop"));
+  await settle();
+  const given: { text: string; attachments: string[] }[] = [];
+  const sends = new StartingSends(
+    () => undefined,
+    (text, attachments) => given.push({ text, attachments: attachments.map((chip) => `${chip.name}:${chip.size}`) }),
+    () => ({ chat: "chat", visit: 1 }),
+  );
+  let refuse!: (error: Error) => void;
+  sends.add("A", [], () => new Promise((_, reject) => (refuse = reject)), undefined, "a", { asSent: true });
+  await act(async () => {
+    const handed = h.intake().sendWith()!;
+    sends.add("B", handed.standIns, async () => undefined, undefined, "b", {
+      ready: handedFiles(handed),
+      asSent: true,
+    });
+  });
+  await settle();
+  expect(h.intake().loading).toBe(0);
+  await act(async () => refuse(new Error("trust.pending")));
+  await settle();
+  // B comes back after A, with no stand-in: its recording is the composer's chip, still uploading.
+  expect(given).toEqual([
+    { text: "B", attachments: [] },
+    { text: "A", attachments: [] },
+  ]);
+  expect(h.intake().pending.map((chip) => chip.name)).toEqual(["Screen Recording.mov"]);
+  expect(h.intake().loading).toBe(1);
+  await act(async () => h.finish({ paths: ["/up/Screen Recording.mov"] }));
+  await settle();
+  expect(h.intake().attachments.map((chip) => chip.path)).toEqual(["/up/Screen Recording.mov"]);
+});
+
+test("a prompt whose files were made while it waited, behind one refused, comes back with those files", async () => {
+  const h = await mountIntake();
+  await act(async () => void h.intake().attach([recording()], true, "drop"));
+  await settle();
+  const given: { text: string; attachments: string[] }[] = [];
+  const sends = new StartingSends(
+    () => undefined,
+    (text, attachments) => given.push({ text, attachments: attachments.map((chip) => chip.path ?? `${chip.size}`) }),
+    () => ({ chat: "chat", visit: 1 }),
+  );
+  let refuse!: (error: Error) => void;
+  sends.add("A", [], () => new Promise((_, reject) => (refuse = reject)), undefined, "a", { asSent: true });
+  await act(async () => {
+    const handed = h.intake().sendWith()!;
+    sends.add("B", handed.standIns, async () => undefined, undefined, "b", {
+      ready: handedFiles(handed),
+      asSent: true,
+    });
+  });
+  await act(async () => h.finish({ paths: ["/up/Screen Recording.mov"] }));
+  await settle();
+  await act(async () => refuse(new Error("trust.pending")));
+  await settle();
+  expect(given).toEqual([
+    { text: "B", attachments: ["/up/Screen Recording.mov"] },
+    { text: "A", attachments: [] },
+  ]);
+});
