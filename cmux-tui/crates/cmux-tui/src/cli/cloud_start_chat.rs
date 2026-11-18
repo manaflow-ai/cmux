@@ -337,6 +337,7 @@ pub(super) fn wait_on(
         account: None,
         until: None,
         allow_large: false,
+        no_focus: false,
     };
     let answer = json!({
         "machine_id": machine_id,
