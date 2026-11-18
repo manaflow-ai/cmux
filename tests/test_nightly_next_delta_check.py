@@ -131,7 +131,7 @@ download = (ROOT / "scripts/ci/nightly-steps/publish-next-download.sh").read_tex
 expect(".delta" in download and "prune" in download, "the publication uploads its deltas to R2 before the feed")
 one_job = (ROOT / "scripts/ci/nightly-steps/one-job.sh").read_text(encoding="utf-8")
 expect('-"$NIGHTLY_BUILD"-*.delta' in one_job, "one-job.sh hands on only this build's deltas")
-expect("RECENT_BASES=0" in (ROOT / "scripts/ci/generate-nightly-deltas.sh").read_text(encoding="utf-8"),
+expect("NIGHTLY_DELTAS_NEAREST_SHIPPED" in workflow and "RECENT_BASES=0" in (ROOT / "scripts/ci/generate-nightly-deltas.sh").read_text(encoding="utf-8"),
        "the nightly-next tail builds only the older bases")
 sparkle = (ROOT / "scripts/sparkle_generate_appcast.sh").read_text(encoding="utf-8")
 expect("SPARKLE_TOOLS_CACHE_DIR" in sparkle, "the Sparkle tools are cached on the Mac")
