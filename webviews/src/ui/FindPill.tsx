@@ -40,6 +40,8 @@ export type FindPillProps = {
   status: string;
   /** Nothing matched: the status reads in the danger ink. */
   noMatches: boolean;
+  /** Still searching: the count so far reads dimmer, and a dot stands in before there is one. */
+  busy?: boolean;
   /** The chevrons work (something matched). */
   canStep: boolean;
   onNext: () => void;
@@ -132,6 +134,8 @@ export function FindPill(props: FindPillProps) {
         className="find-pill__count"
         aria-live="polite"
         data-none={props.noMatches ? "" : undefined}
+        data-busy={props.busy ? "" : undefined}
+        aria-busy={props.busy ? true : undefined}
       >
         {props.status}
       </span>

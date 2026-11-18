@@ -1,0 +1,13 @@
+{
+  "envs": [["light", "none"], ["dark", "none"]],
+  "shots": [
+    { "name": "index-hits", "entry": "agent-pane.chat-find-index", "variant": "index-hits", "width": 640, "height": 280, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "searching", "entry": "agent-pane.chat-find-index", "variant": "searching", "width": 640, "height": 280, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "loading-older", "entry": "agent-pane.chat-find-index", "variant": "loading-older", "width": 640, "height": 280, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "landed", "entry": "agent-pane.chat-find-index", "variant": "landed", "width": 640, "height": 280, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "no-index", "entry": "agent-pane.chat-find-index", "variant": "no-index", "width": 640, "height": 280, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "pane-loads-by-seq", "entry": "agent-pane.chat-find-pane", "variant": "loads-by-seq", "width": 760, "height": 640, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "pane-loads-by-time", "entry": "agent-pane.chat-find-pane", "variant": "loads-by-time", "width": 760, "height": 640, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "pane-no-index", "entry": "agent-pane.chat-find-pane", "variant": "no-index", "width": 760, "height": 640, "deviceScaleFactor": 2, "arms": { "now": "" } }
+  ]
+}
