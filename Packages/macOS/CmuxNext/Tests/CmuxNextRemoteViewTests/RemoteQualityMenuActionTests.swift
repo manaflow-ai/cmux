@@ -34,7 +34,8 @@ import Testing
         let pane = pane()
         var sent: [RemoteQualityPreset] = []
         pane.handlers.selectQuality = { sent.append($0) }
-        try #require(pane.view.toolbar.onSelectQuality)(.lowBandwidth)
+        let row = try #require(pane.view.toolbar.onSelectQuality)
+        row(.lowBandwidth)
         #expect(pane.settings.quality == .lowBandwidth)
         #expect(sent == [.lowBandwidth])
     }
