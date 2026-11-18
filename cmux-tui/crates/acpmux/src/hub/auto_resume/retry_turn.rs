@@ -53,6 +53,17 @@ pub(crate) fn busy() -> RpcError {
     refused("retry.busy", "a turn runs or is about to start in this chat; retry once it ends")
 }
 
+/// The account's rate limit holds the chat (`rate_hold.rs`): a retry now would be refused the same
+/// way and send the whole context again. Its turn runs by itself at the reset. A one-minute
+/// watchdog that retried every 429'd chat kept the spiral going (2026-11-17).
+fn rate_limited(until: u64) -> RpcError {
+    let at = crate::hub::rate_hold::until_line(until);
+    let why = format!(
+        "retry.rate_limited: {at}: the chat goes on by itself at the reset; Stop ends the hold"
+    );
+    RpcError::invalid_params(why).with_data(json!({"reason": "retry.rate_limited", "until": until}))
+}
+
 fn stopped() -> RpcError {
     refused("retry.stopped", "Stop or close came before the retry's turn started")
 }
@@ -179,6 +190,12 @@ impl Hub {
         record_manual: bool,
     ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
+        // A person's or an agent's retry waits for the account's reset like every other turn.
+        if auto.is_none()
+            && let Some(until) = session.rate_hold.until().filter(|u| *u > crate::hub::now_ms())
+        {
+            return Err(rate_limited(until));
+        }
         let (cut_turn, failed, error) = self.claim_failed_turn(session, auto, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
