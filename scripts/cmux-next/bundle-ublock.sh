@@ -46,15 +46,47 @@ for locale_dir in "$dest/_locales"/*/; do
     *) rm -rf "$locale_dir"; removed=$((removed + 1)) ;;
   esac
 done
-# GPL-3.0 section 5(a): a modified copy says what changed and when. The bundled copy's SOURCE.txt
-# (fetch-ublock.sh writes it; the cache keeps its own) names both changes; the date is the day this
-# change to the copy was made, not the build's, so builds stay reproducible.
-/usr/bin/python3 -I - "$dest/SOURCE.txt" "$removed" <<'PY'
+# The URLhaus malware list ("Online Malicious URL Blocklist", urlhaus-1, on by default) is a feed of
+# malware URLs online now that expires in 12 hours: 0.8 MB in uBlock 1.75.0, 12.0 MB in 1.76.4 (the
+# feed grew). uBlock reads a bundled list only while its cache has no copy (assets.js caches only
+# downloads), and the launch that reads it starts the update cycle 2 s later (start.js: a list never
+# downloaded counts as overdue), which downloads every list. So the 12 MB snapshot covers only the
+# seconds before that download, or a launch with no network, where no web page loads either. Ship the
+# list's header only: uBlock still reads it from the package, so filtering starts at once without
+# waiting on the network (a missing file would make the first launch wait for the 12 MB download),
+# and the update cycle fills it in, as it does for every bundled list.
+urlhaus="$dest/assets/thirdparties/urlhaus-filter/urlhaus-filter-online.txt"
+urlhaus_note=""
+if [[ -f "$urlhaus" ]]; then
+  /usr/bin/python3 -I - "$urlhaus" <<'PY'
 import sys
-path, removed = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
+header = []
+with open(path, encoding="utf-8") as f:
+    for line in f:
+        if not line.startswith("!"):
+            break
+        header.append(line)
+header.append("! cmux: the entries are removed from this bundled copy; uBlock Origin downloads the\n")
+header.append("! current list in the update cycle it starts 2 seconds after launch (bundle-ublock.sh).\n")
+with open(path, "w", encoding="utf-8") as f:
+    f.write("".join(header))
+PY
+  urlhaus_note=1
+fi
+# GPL-3.0 section 5(a): a modified copy says what changed and when. The bundled copy's SOURCE.txt
+# (fetch-ublock.sh writes it; the cache keeps its own) names every change; each date is the day that
+# change to the copy was made, not the build's, so builds stay reproducible.
+/usr/bin/python3 -I - "$dest/SOURCE.txt" "$removed" "$urlhaus_note" <<'PY'
+import sys
+path, removed, urlhaus = sys.argv[1], sys.argv[2], sys.argv[3]
 line = ("cmux changes (2026-11-12): the manifest's \"key\" field (keeps the Chrome Web Store extension id),\n"
         f"and the _locales catalogs of the {removed} languages cmux does not ship are removed\n"
         "(scripts/cmux-next/bundle-ublock.sh); the browser falls back to the default locale for them.\n")
+if urlhaus:
+    line += ("cmux changes (2026-11-18): assets/thirdparties/urlhaus-filter/urlhaus-filter-online.txt keeps\n"
+             "its header only (scripts/cmux-next/bundle-ublock.sh); uBlock Origin downloads the current\n"
+             "list in the update cycle it starts 2 seconds after launch.\n")
 text = open(path).read()
 lines = text.splitlines(keepends=True)
 for i, l in enumerate(lines):
@@ -65,4 +97,4 @@ else:
     lines.append(line)
 open(path, "w").write("".join(lines))
 PY
-echo "bundled uBlock Origin from $src ($removed locale catalogs removed)"
+echo "bundled uBlock Origin from $src ($removed locale catalogs removed${urlhaus_note:+, URLhaus list entries removed})"

@@ -243,7 +243,7 @@ describe("where a long frame's time went", () => {
     const part = longFramePart(
       {
         startTime: 100,
-        duration: 80,
+        duration: 80, // motion-allow: a long frame's length, not motion
         renderStart: 178,
         styleAndLayoutStart: 179,
         scripts: [
@@ -257,7 +257,7 @@ describe("where a long frame's time went", () => {
       100,
     );
     expect(part).toBe(
-      "80.0 ms: 78.0 ms before its render, 1.0 ms frame callbacks, 1.0 ms from style and layout on; " +
+      "80.0 ms: 78.0 ms before its render, 1.0 ms frame callbacks, 1.0 ms from style and layout on; " + // motion-allow: a long frame's length, not motion
         "began 0.0 ms after the step's start; " +
         "scripts 71.0 ms: main.tsx 30.0 ms, IMG[src=data:…].onload 20.0 ms, IMG[src=one.png].onload 10.0 ms",
     );
