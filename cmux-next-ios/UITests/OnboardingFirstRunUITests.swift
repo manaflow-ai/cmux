@@ -89,7 +89,7 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
         let send = app.buttons["setup.first-chat.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 20), "send button\n\(app.debugDescription)")
         XCTAssertFalse(send.isEnabled, "send must wait for text")
-        let field = app.textFields["setup.first-chat.field"].exists ? app.textFields["setup.first-chat.field"] : app.textViews["setup.first-chat.field"]
+        let field = app.textFields["setup.first-chat.field"]
         field.tap()
         field.typeText("Rename the README title to cmux NEXT")
         XCTAssertTrue(send.isEnabled, "send must enable with text")

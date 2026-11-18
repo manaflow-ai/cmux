@@ -137,11 +137,11 @@ struct FirstChatStep: View {
     /// black in light, SPEC 1.1), disabled until there is text.
     private var field: some View {
         let prompt = FirstChatSuggestion.typedPrompt(typed)
-        return HStack(alignment: .bottom, spacing: 8) {
-            TextField("Or describe a task…", text: $typed, axis: .vertical)
+        return HStack(alignment: .center, spacing: 8) {
+            // One line, so Return sends (a vertical field would take Return as a newline).
+            TextField("Or describe a task…", text: $typed)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)
-                .lineLimit(1...4)
                 .focused($fieldFocused)
                 .submitLabel(.send)
                 .onSubmit { if let prompt { send(prompt) } }
@@ -161,7 +161,6 @@ struct FirstChatStep: View {
             .buttonStyle(.cmuxPressFill)
             .disabled(prompt == nil || started)
             .padding(.trailing, 6)
-            .padding(.bottom, 5)
             .accessibilityLabel(Text("Send to Chief"))
             .accessibilityIdentifier("setup.first-chat.send")
         }
