@@ -192,6 +192,10 @@ def create(params, case, session, rnd, arm=None):
     """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
     if opts.type and not params.get("url") and not params.get("type"):
         params = {**params, "type": opts.type}
+    if params.get("type"):
+        # A person types into an active app with a key window: an inactive app (the fleet launch) drops the replayed keys
+        # of its first cold Chromium tab (round 0, a1227 probes A/B), which no person can hit.
+        rpc("debug.window.focus", {"window": window_key(), "activate": True})
     result = rpc("debug.new_tab", params, timeout=30) or {}
     result.update(result.get("omnibar") or {})  # focus_ms, typed_ms, typed_text, focused_at_end
     result.update({"case": case, "session": session, "round": rnd})
