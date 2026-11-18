@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
+// cmux-tui mux protocol 12, IR 81cb65c9a343b154b9741705deadd6ace96c048ad22cfca55c7184942e1bb214.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2158,6 +2158,8 @@ pub struct ServerStatsResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsWritePath {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub commits_by_writer: Option<Vec<ServerStatsWritePathWriter>>,
     pub effect_intent_batches: u64,
     pub effect_intent_failures: u64,
     pub effect_intents: u64,
@@ -2173,6 +2175,14 @@ pub struct ServerStatsWritePath {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub wal_synced_commits: Option<u64>,
     pub writer_registry_locks: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsWritePathWriter {
+    pub commits: u64,
+    pub wal_frames: u64,
+    pub writer: String,
 }
 
 #[rustfmt::skip]

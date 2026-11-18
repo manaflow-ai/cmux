@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
+inline constexpr std::string_view kProtocolIrSha256 = "81cb65c9a343b154b9741705deadd6ace96c048ad22cfca55c7184942e1bb214";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -193,6 +193,7 @@ struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsWritePath;
+struct ServerStatsWritePathWriter;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct SetHostSizePolicyResult;
@@ -5463,7 +5464,15 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsWritePathWriter {
+    std::uint64_t commits{};
+    std::uint64_t wal_frames{};
+    std::string writer{};
+    friend bool operator==(const ServerStatsWritePathWriter&, const ServerStatsWritePathWriter&) = default;
+};
+
 struct ServerStatsWritePath {
+    std::optional<std::vector<ServerStatsWritePathWriter>> commits_by_writer{};
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
@@ -7753,6 +7762,12 @@ template <>
 struct Codec<ServerStatsWritePath> {
     static Result<Json> encode(const ServerStatsWritePath& value);
     static Result<ServerStatsWritePath> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWritePathWriter> {
+    static Result<Json> encode(const ServerStatsWritePathWriter& value);
+    static Result<ServerStatsWritePathWriter> decode(const Json& value);
 };
 
 template <>

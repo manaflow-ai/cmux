@@ -1878,11 +1878,20 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    commits_by_writer: Union[List[ServerStatsWritePathWriter], MissingType] = field(default=MISSING)
     registry_wal_file_bytes: Union[int, MissingType] = field(default=MISSING)
     registry_wal_file_high_water_bytes: Union[int, MissingType] = field(default=MISSING)
     registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
     wal_commits: Union[int, MissingType] = field(default=MISSING)
     wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsWritePathWriter:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsWritePathWriter'
+    commits: int
+    wal_frames: int
+    writer: str
 
 
 @dataclass(frozen=True)
@@ -6838,6 +6847,7 @@ __all__ = [
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',
+    'ServerStatsWritePathWriter',
     'SetCellPixelsResult',
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',

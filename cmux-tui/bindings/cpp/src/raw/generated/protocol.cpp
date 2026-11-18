@@ -11694,6 +11694,11 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
 Result<Json> Codec<ServerStatsWritePath>::encode(const ServerStatsWritePath& value) {
     (void)value;
     Json::Object object;
+    if (value.commits_by_writer) {
+        auto encoded = encode_value(*value.commits_by_writer);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("commits_by_writer", std::move(encoded).value());
+    }
     auto encoded_effect_intent_batches = encode_value(value.effect_intent_batches);
     if (!encoded_effect_intent_batches) return std::move(encoded_effect_intent_batches).error();
     object.emplace("effect_intent_batches", std::move(encoded_effect_intent_batches).value());
@@ -11741,6 +11746,12 @@ Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsWritePath result{};
+    const Json* field_commits_by_writer = value.find("commits_by_writer");
+    if (field_commits_by_writer) {
+        auto decoded = decode_value<std::vector<ServerStatsWritePathWriter>>(*field_commits_by_writer);
+        if (!decoded) return std::move(decoded).error();
+        result.commits_by_writer = std::move(decoded).value();
+    }
     const Json* field_effect_intent_batches = value.find("effect_intent_batches");
     if (!field_effect_intent_batches) {
         return make_error(ErrorCode::decode, "missing required field 'effect_intent_batches'");
@@ -11815,6 +11826,55 @@ Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& val
         auto decoded = decode_value<std::uint64_t>(*field_writer_registry_locks);
         if (!decoded) return std::move(decoded).error();
         result.writer_registry_locks = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsWritePathWriter>::encode(const ServerStatsWritePathWriter& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_commits = encode_value(value.commits);
+    if (!encoded_commits) return std::move(encoded_commits).error();
+    object.emplace("commits", std::move(encoded_commits).value());
+    auto encoded_wal_frames = encode_value(value.wal_frames);
+    if (!encoded_wal_frames) return std::move(encoded_wal_frames).error();
+    object.emplace("wal_frames", std::move(encoded_wal_frames).value());
+    auto encoded_writer = encode_value(value.writer);
+    if (!encoded_writer) return std::move(encoded_writer).error();
+    object.emplace("writer", std::move(encoded_writer).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsWritePathWriter> Codec<ServerStatsWritePathWriter>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsWritePathWriter result{};
+    const Json* field_commits = value.find("commits");
+    if (!field_commits) {
+        return make_error(ErrorCode::decode, "missing required field 'commits'");
+    }
+    if (field_commits) {
+        auto decoded = decode_value<std::uint64_t>(*field_commits);
+        if (!decoded) return std::move(decoded).error();
+        result.commits = std::move(decoded).value();
+    }
+    const Json* field_wal_frames = value.find("wal_frames");
+    if (!field_wal_frames) {
+        return make_error(ErrorCode::decode, "missing required field 'wal_frames'");
+    }
+    if (field_wal_frames) {
+        auto decoded = decode_value<std::uint64_t>(*field_wal_frames);
+        if (!decoded) return std::move(decoded).error();
+        result.wal_frames = std::move(decoded).value();
+    }
+    const Json* field_writer = value.find("writer");
+    if (!field_writer) {
+        return make_error(ErrorCode::decode, "missing required field 'writer'");
+    }
+    if (field_writer) {
+        auto decoded = decode_value<std::string>(*field_writer);
+        if (!decoded) return std::move(decoded).error();
+        result.writer = std::move(decoded).value();
     }
     return result;
 }
