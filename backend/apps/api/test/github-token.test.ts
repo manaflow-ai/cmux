@@ -615,6 +615,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // A repository of the owner the link left out (not selected when it was linked) is added on the same page.
     const unlisted = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
     expect([unlisted.status, unlisted.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted" }])
+    // The recorded list is the linking person's access: the installation may already include it, so both fixes are named.
+    expect(unlisted.body.error.message).toContain("the person who connected GitHub could see")
+    expect(unlisted.body.error.message).toContain("If the installation on GitHub leaves acme/secret out, add it there; then connect GitHub again as someone who can see acme/secret")
     // The installation lacks the asked access (GitHub's other 422): its own reason, and the page where an owner reviews it.
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "The permissions requested are not granted to this installation." }, 422)
     const access = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "write" } })
@@ -634,6 +637,35 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Decided from the team's connections alone: GitHub is not asked.
     expect(gh.mints()).toHaveLength(0)
     expect(gh.calls.filter((c) => c.url.includes("/app/installations/"))).toHaveLength(0)
+  })
+
+  it("a selected connection on another account than the repository's owner says so, and never falls back to the owner's connection", async () => {
+    const a = await signedInWithInstall("gh-token-selected-other", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const acme = ((await read(a.session, "integration.list")).body.value.connections as Array<{ id: string; provider: string }>).find((c) => c.provider === "github")!.id
+    // A second installation, 77 on the account `other`.
+    gh.routes["https://api.github.com/user/installations"] = (req) =>
+      req.url.includes("/user/installations/77/repositories")
+        ? ok({ repositories: [{ full_name: "other/app" }] })
+        : ok({ installations: [{ id: 77, account: { login: "other", type: "Organization" }, permissions: { contents: "write", metadata: "read" } }] })
+    const begin = await op(a.session, "integration.connect", { provider: "github", sharing: "team" })
+    const oauthState = new URL(begin.body.value.authorize_url).searchParams.get("state")!
+    const done = await op(a.session, "integration.complete", { state: oauthState, code: "c", installation_id: "77", setup_action: "install" })
+    expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, value: { status: "active" } })
+    const other = done.body.value.id as string
+    const ask = (repo: string, connection: string) => token(a.installToken, { team: a.team, repo, permissions: { contents: "read" }, connection })
+    // The team has a connection on acme, but the person selected the one on other: name the selection, not "no connection".
+    const selected = await ask("acme/web", other)
+    expect([selected.status, selected.body.error.code, selected.body.error.reason, "configure_url" in selected.body.error]).toEqual([403, "policy.denied", "connection_other_owner", false])
+    expect(selected.body.error.message).toBe("the selected GitHub connection is for other, not acme: select the team's GitHub connection on acme instead")
+    // No connection on the owner besides the selected one: say that too.
+    const nowhere = await ask("third/app", acme)
+    expect([nowhere.status, nowhere.body.error.reason]).toEqual([403, "connection_other_owner"])
+    expect(nowhere.body.error.message).toContain("the selected GitHub connection is for acme, not third, and this team has no other cmux GitHub App connection on third")
+    // Without a selection, the same repository is not another owner's: the team's acme connection mints it.
+    expect(gh.mints()).toHaveLength(0)
+    const unselected = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
+    expect([unselected.status, unselected.body.connection_id]).toEqual([200, acme])
   })
 
   it("an organization install waiting for an owner's approval says so instead of a setup error", async () => {

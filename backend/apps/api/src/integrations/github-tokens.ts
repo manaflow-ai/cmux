@@ -27,11 +27,12 @@ export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<R
 /**
  * Why a policy.denied refused a repository, so the machine's git and gh can name the one fix (cmux-host
  * github_cli.rs `Refused::explain`): `owner_not_connected`, no connection of this team is on the repository's
- * owner (another account's repository: its owner installs the App); `repo_not_granted`, the owner's installation
+ * owner (another account's repository: its owner installs the App); `connection_other_owner`, the selected connection
+ * is on another account than the repository's owner; `repo_not_granted`, the owner's installation
  * (or the linking person's recorded access) leaves it out; `repo_not_allowed`, the team's allowlist; `permissions_not_granted`,
  * the installation does not grant the asked access; `workflows_not_allowed`, the team policy's workflows switch.
  */
-export type DenyReason = "owner_not_connected" | "repo_not_granted" | "repo_not_allowed" | "permissions_not_granted" | "workflows_not_allowed"
+export type DenyReason = "owner_not_connected" | "connection_other_owner" | "repo_not_granted" | "repo_not_allowed" | "permissions_not_granted" | "workflows_not_allowed"
 /** `configure_url`: on a policy.denied for a repository the owner's installation lacks, the installation's page where it is added. */
 export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number; readonly configure_url?: string; readonly reason?: DenyReason }
 export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; connection_id: string; permissions: Record<string, string>; token_id: string } } | TokenFail
@@ -143,6 +144,7 @@ const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: C
   if (active.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
   // `repositories` names repositories inside the installation's own account: the owner must be that account (githubCovers, shared with Connect's reuse).
   const owned = ownerConnections(active, ask)
+  if (selected && owned.length === 0 && selected.account?.name.toLowerCase() !== repo.split("/")[0]!.toLowerCase()) return otherOwner(selected, active, repo)
   const c = owned.find((x) => githubCovers(x, policy, repo))
   const installation = c ? githubInstallationOf(c) : undefined
   if (!c || installation === undefined) return notCovered(owned, policy, repo)
@@ -157,6 +159,22 @@ const ownerConnections = (active: ReadonlyArray<Connection>, ask: TokenAsk): Rea
 }
 
 /**
+ * The selected connection is on another account than `repo`'s owner. It stays the only authority (no fallback), so the
+ * reply names it and whether the team has a connection on the owner this principal may use (`active` is mayUse's).
+ */
+const otherOwner = (selected: Connection, active: ReadonlyArray<Connection>, repo: string): TokenFail => {
+  const owner = repo.split("/")[0]!
+  const on = selected.account?.name ? `is for ${selected.account.name}, not ${owner}` : `is for another account, not ${owner}`
+  const another = active.some((x) => x.id !== selected.id && x.account?.name.toLowerCase() === owner.toLowerCase() && githubInstallationOf(x) !== undefined)
+  return deny(
+    "connection_other_owner",
+    another
+      ? `the selected GitHub connection ${on}: select the team's GitHub connection on ${owner} instead`
+      : `the selected GitHub connection ${on}, and this team has no other cmux GitHub App connection on ${owner}: the App must be installed on ${owner} and connected to the team`,
+  )
+}
+
+/**
  * Why no connection covers `repo`: none is on its owner (a repository of an account this team has not connected, such
  * as one the person only collaborates on), the team's allowlist leaves it out, or the owner's connection does not
  * include it (not selected on the installation, or added after the person linked it: the recorded list is the link's).
@@ -167,7 +185,9 @@ const notCovered = (owned: ReadonlyArray<Connection>, policy: ReturnType<typeof 
   // The allowlist alone, whatever the scope.
   const anyScope = { ...policy, github: { ...policy.github, scope: "installation" as const } }
   if (!owned.some((x) => githubRepoAllowed(x, anyScope, repo))) return deny("repo_not_allowed", `the team's GitHub repository allowlist does not include ${repo}`)
-  return deny("repo_not_granted", `the team's GitHub connection on ${owner} does not include ${repo}: add it to the installation on GitHub, then connect GitHub again`)
+  // Only the default scope gets here (the installation scope checks the allowlist alone): the recorded list is what the
+  // person who connected GitHub could see in the installation, so either the installation or that person's access lacks it.
+  return deny("repo_not_granted", `the team's GitHub connection on ${owner} does not include ${repo}: it lists the repositories the person who connected GitHub could see. If the installation on GitHub leaves ${repo} out, add it there; then connect GitHub again as someone who can see ${repo}`)
 }
 
 /** A `repo_not_granted` refusal with the owner's installation page, where the repository is added, when GitHub names one. */

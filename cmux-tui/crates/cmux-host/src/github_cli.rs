@@ -164,19 +164,33 @@ impl Refused {
                      {owner} with this repository, then connect it in cmux; {again}."
                 )),
             ),
+            // The selected connection is the only authority, so its account must be the owner.
+            "connection_other_owner" => (
+                format!(
+                    "{lead}: the selected GitHub connection is for another account, not {owner}."
+                ),
+                Some(format!(
+                    "Select the team's GitHub connection on {owner}; if the team has none, \
+                     {CONNECT_GITHUB} and install the App on {owner}; {again}."
+                )),
+            ),
+            // The team's list is what the person who connected GitHub could see in the
+            // installation: either the installation or that person's access leaves it out.
             "repo_not_granted" => {
                 let grant = match &self.configure_url {
-                    Some(url) => format!("open {url}, add the repository, then"),
-                    None => "add the repository to the installation on GitHub, then".to_owned(),
+                    Some(url) => format!("open {url} and add it"),
+                    None => "add it to the installation on GitHub".to_owned(),
                 };
                 (
                     format!(
-                        "{lead}: the team's cmux GitHub App installation on {owner} does not \
-                         include the repository."
+                        "{lead}: the team's cmux GitHub App connection on {owner} does not \
+                         include the repository (the installation leaves it out, or the person \
+                         who connected GitHub could not see it)."
                     ),
                     Some(format!(
-                        "To grant it, {grant} {CONNECT_GITHUB} again so the team's connection \
-                         includes it (or ask a team admin); {again}."
+                        "If the installation leaves it out, {grant}; then {CONNECT_GITHUB} \
+                         again as someone who can see the repository (or ask a team admin); \
+                         {again}."
                     )),
                 )
             }
@@ -1730,17 +1744,29 @@ mod tests {
         assert!(other.contains("ask its owner to install the cmux GitHub App on acme"), "{other}");
         assert!(other.contains("If you own acme, in cmux choose Connect GitHub"), "{other}");
         // Not in the installation: its page, then connect again so the team's list has it.
+        // The selected connection is on another account: select the owner's, never "no connection".
+        let selected = denied("connection_other_owner", None);
+        assert!(
+            selected.contains("the selected GitHub connection is for another account, not acme"),
+            "{selected}"
+        );
+        assert!(selected.contains("Select the team's GitHub connection on acme"), "{selected}");
+        assert!(!selected.contains("has no cmux GitHub App installation"), "{selected}");
+        // Not in the team's list (the linking person's access): the installation may already
+        // include it, so both fixes, ending with connecting again as someone who can see it.
         let missing = denied("repo_not_granted", Some(page));
         assert!(missing.contains("does not include the repository"), "{missing}");
+        assert!(missing.contains("the person who connected GitHub could not see it"), "{missing}");
         assert!(
             missing.contains(&format!(
-                "To grant it, open {page}, add the repository, then in cmux choose Connect GitHub"
+                "If the installation leaves it out, open {page} and add it; then in cmux choose \
+                 Connect GitHub"
             )),
             "{missing}"
         );
-        assert!(missing.contains("again so the team's connection includes it"), "{missing}");
+        assert!(missing.contains("again as someone who can see the repository"), "{missing}");
         let no_page = denied("repo_not_granted", None);
-        assert!(no_page.contains("add the repository to the installation on GitHub"), "{no_page}");
+        assert!(no_page.contains("add it to the installation on GitHub; then"), "{no_page}");
         let allowlist = denied("repo_not_allowed", Some(page));
         assert!(
             allowlist
@@ -1760,7 +1786,7 @@ mod tests {
             "{workflows}"
         );
         assert!(workflows.contains("Ask a team admin to allow workflow changes"), "{workflows}");
-        for text in [other, missing, no_page, allowlist, access, workflows] {
+        for text in [other, selected, missing, no_page, allowlist, access, workflows] {
             assert_eq!(text.lines().count(), 2, "{text}");
             assert!(text.starts_with("cmux could not get a GitHub token for acme/web"), "{text}");
         }

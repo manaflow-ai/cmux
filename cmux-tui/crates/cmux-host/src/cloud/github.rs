@@ -144,8 +144,9 @@ pub fn configure_url(url: &str) -> bool {
 
 /// Why a `policy.denied` refused a repository (the API's `DenyReason`, backend github-tokens.ts):
 /// only these pass to the machine's git and gh, which name the fix for each.
-pub const DENY_REASONS: [&str; 5] = [
+pub const DENY_REASONS: [&str; 6] = [
     "owner_not_connected",
+    "connection_other_owner",
     "repo_not_granted",
     "repo_not_allowed",
     "permissions_not_granted",
