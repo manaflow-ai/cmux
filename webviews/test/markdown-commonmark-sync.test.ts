@@ -1,6 +1,8 @@
 // The bounded heading id and list order syncs (commonmarkSync.ts) leave the document exactly as
 // Milkdown's own do: two editors, one with the stock commonmark preset and one with
-// `boundedCommonmark`, take the same edits, and their documents are equal after each.
+// `boundedCommonmark`, take the same edits, and their documents are equal after each. The heading
+// anchors and broken-link marks, carried from edit to edit (headingIndex.ts), are checked after each
+// against a walk of the whole document.
 import { beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
@@ -18,6 +20,8 @@ type Kit = {
   model: typeof import("@milkdown/kit/prose/model");
   state: typeof import("@milkdown/kit/prose/state");
   sync: typeof import("../src/pages/markdown/commonmarkSync");
+  links: typeof import("../src/pages/markdown/links");
+  linkEditing: typeof import("../src/pages/markdown/linkEditing");
 };
 let kit: Kit;
 
@@ -58,6 +62,8 @@ beforeAll(async () => {
     model: await import("@milkdown/kit/prose/model"),
     state: await import("@milkdown/kit/prose/state"),
     sync: await import("../src/pages/markdown/commonmarkSync"),
+    links: await import("../src/pages/markdown/links"),
+    linkEditing: await import("../src/pages/markdown/linkEditing"),
   };
 });
 
@@ -75,6 +81,13 @@ async function side(bounded: boolean, markdown: string): Promise<Side> {
     .use(bounded ? kit.sync.boundedCommonmark : kit.commonmark.commonmark)
     .use(kit.gfm.gfm)
     .use(kit.history.history)
+    .use(
+      kit.linkEditing.brokenLinkPlugin({
+        resolved: () => ({ exists: true }),
+        requestLinks: () => {},
+        linkLabel: (key) => key,
+      }),
+    )
     .create();
   let out!: Side;
   editor.action((ctx) => {
@@ -89,13 +102,58 @@ async function pair(markdown: string): Promise<[Side, Side]> {
   return [await side(false, markdown), await side(true, markdown)];
 }
 
-/** Applies `edit` to both and expects equal documents (ids and labels included). */
+/** Every heading's GitHub anchor, by a walk of the whole document (`headingTargets` before the index). */
+function walkedTargets(doc: ProseNode) {
+  const slugger = new kit.links.Slugger();
+  const out: Array<{ slug: string; text: string; level: number; pos: number }> = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "heading") return !node.isTextblock;
+    out.push({ slug: slugger.slug(node.textContent), text: node.textContent, level: Number(node.attrs.level), pos });
+    return false;
+  });
+  return out;
+}
+
+/** The broken-link marks drawn, and those a walk of the whole document finds. */
+function brokenLinks(state: EditorState) {
+  const plugin = state.plugins.find(
+    (candidate) => (candidate as unknown as { key: string }).key === "cmuxMarkdownLinks$",
+  );
+  const drawn = (plugin!.getState(state) as import("@milkdown/kit/prose/view").DecorationSet)
+    .find()
+    .map((decoration) => [decoration.from, decoration.to]);
+  const slugs = new Set(walkedTargets(state.doc).map((target) => target.slug));
+  const walked: number[][] = [];
+  state.doc.descendants((node, pos) => {
+    const mark = node.isText && node.marks.find((candidate) => candidate.type.name === "link");
+    if (!mark) return true;
+    const link = kit.links.parseLink(String(mark.attrs.href));
+    const anchor = link.anchor.trim();
+    if (link.kind === "anchor" && !slugs.has(anchor) && !slugs.has(kit.links.githubSlug(anchor)))
+      walked.push([pos, pos + node.nodeSize]);
+    return true;
+  });
+  return { drawn: drawn.sort((a, b) => a[0]! - b[0]!), walked };
+}
+
+/** Expects equal documents (ids and labels included), and the bounded side's anchors and broken links as a walk finds them. */
+function same(sides: [Side, Side], what: string) {
+  expect({ what, doc: sides[1].view.state.doc.toJSON() }).toEqual({ what, doc: sides[0].view.state.doc.toJSON() });
+  const { doc } = sides[1].view.state;
+  expect({ what, targets: kit.links.headingTargets(doc) }).toEqual({ what, targets: walkedTargets(doc) });
+  for (const target of walkedTargets(doc))
+    expect({ what, found: kit.links.findHeading(doc, target.slug) }).toEqual({ what, found: target });
+  const { drawn, walked } = brokenLinks(sides[1].view.state);
+  expect({ what, broken: drawn }).toEqual({ what, broken: walked });
+}
+
+/** Applies `edit` to both and expects the same results (`same`). */
 function both(sides: [Side, Side], edit: (state: EditorState, side: Side) => Transaction | null, what: string) {
   for (const current of sides) {
     const tr = edit(current.view.state, current);
     if (tr) current.view.dispatch(tr);
   }
-  expect({ what, doc: sides[1].view.state.doc.toJSON() }).toEqual({ what, doc: sides[0].view.state.doc.toJSON() });
+  same(sides, what);
 }
 
 function command(
@@ -104,7 +162,7 @@ function command(
   what: string,
 ) {
   for (const current of sides) run(current.view.state, (tr) => current.view.dispatch(tr));
-  expect({ what, doc: sides[1].view.state.doc.toJSON() }).toEqual({ what, doc: sides[0].view.state.doc.toJSON() });
+  same(sides, what);
 }
 
 /** The position just after the first `needle` in the document's text, or -1. */
@@ -137,6 +195,8 @@ const DOCUMENT = [
   "| a | b |\n| --- | --- |\n| c | d |",
   "> ## Quoted\n>\n> 1. inside\n> 2. quote",
   "## Notes",
+  "## Setup 1",
+  "links [s](#setup) [s1](#setup-1) [s2](#setup-2) [s11](#setup-1-1) [n](#notes) [N](#Notes) [t](#title) [u](#usage-1) [x](#setupx)",
   "end text",
 ].join("\n\n");
 
@@ -218,7 +278,7 @@ test("generated edits leave the same document as Milkdown's syncs", async () => 
   const sides = await pair(DOCUMENT);
   const { undo, redo } = kit.proseHistory;
   const next = random(45);
-  const words = ["Setup", "Notes", "Title", "x", " ", "Usage", "1"];
+  const words = ["Setup", "Notes", "Title", "x", " ", "Usage", "1", "-1", "## Setup"];
   for (let step = 0; step < 200; step++) {
     const kind = Math.floor(next() * 7);
     const at = next();
@@ -330,4 +390,73 @@ test("a bullet list made ordered is walked again on the next edit, as Milkdown's
   expect(JSON.stringify(sides[1].view.state.doc.toJSON())).toContain('"label":"3."');
   both(sides, (state) => state.tr.insertText("y", after(state.doc, "end")), "the next edit elsewhere");
   expect(JSON.stringify(sides[1].view.state.doc.toJSON())).not.toContain('"label":"3."');
+});
+
+/** The position of the `nth` heading whose text is `text`. */
+function heading(doc: ProseNode, text: string, nth = 0): number {
+  const found: number[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name === "heading" && node.textContent === text) found.push(pos);
+    return !node.isTextblock;
+  });
+  expect(found.length).toBeGreaterThan(nth);
+  return found[nth]!;
+}
+
+test("heading renames, repeats and deletes leave Milkdown's ids and a walk's anchors", async () => {
+  const sides = await pair(DOCUMENT);
+  const { undo, redo } = kit.proseHistory;
+  const rename =
+    (text: string, to: string, nth = 0) =>
+    (state: EditorState) => {
+      const pos = heading(state.doc, text, nth);
+      return state.tr.insertText(to, pos + 1, pos + 1 + text.length);
+    };
+  // "Setup" twice, then "Setup 1": Milkdown's `setup-#2`, GitHub's `setup-1` and `setup-1-1`.
+  both(sides, rename("Notes", "Setup"), "rename a heading onto a repeated id");
+  let title = "Title";
+  for (const key of ["x", "-", "1"]) {
+    const typed = title;
+    both(
+      sides,
+      (state) => state.tr.insertText(key, heading(state.doc, typed) + 1 + typed.length),
+      `type ${key} in a heading`,
+    );
+    title += key;
+  }
+  both(sides, rename("Titlex-1", "Setup-1"), "rename onto a GitHub suffix of another heading");
+  both(sides, rename("Usage", "Setup"), "rename an earlier heading onto the same id");
+  both(
+    sides,
+    (state) => {
+      const pos = heading(state.doc, "Setup");
+      return state.tr.delete(pos, pos + state.doc.nodeAt(pos)!.nodeSize);
+    },
+    "delete the first of the headings with an id",
+  );
+  both(
+    sides,
+    (state) => {
+      const pos = heading(state.doc, "Setup");
+      return state.tr.delete(pos + 1, pos + 1 + "Setup".length);
+    },
+    "empty the first of the headings with an id",
+  );
+  both(sides, rename("Quoted", "Setup 1"), "rename a quoted heading onto another's id");
+  both(
+    sides,
+    (state) => state.tr.setNodeMarkup(heading(state.doc, "Setup 1"), undefined, { level: 4, id: "" }),
+    "change a heading's level",
+  );
+  both(
+    sides,
+    (state) => {
+      const pos = state.doc.resolve(after(state.doc, "intro")).before(1);
+      return state.tr.setBlockType(pos + 1, pos + 1, state.schema.nodes.heading!, { level: 2 });
+    },
+    "make a paragraph a heading",
+  );
+  for (let i = 0; i < 12; i++) command(sides, undo, `undo ${i}`);
+  for (let i = 0; i < 5; i++) command(sides, redo, `redo ${i}`);
+  both(sides, rename("Setup", "Notes", 1), "rename after undo and redo");
 });
