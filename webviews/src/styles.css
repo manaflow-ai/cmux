@@ -538,11 +538,12 @@ body {
      containing block, so the popover is mounted on `document.body` (outside both)
      in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
      inline by JS from the Base button's rect, clamped to the viewport (see
-     computePopoverStyle); `body` spans the full viewport and does not clip the
-     clamped fixed element. */
+     computePopoverStyle, branchBasePopover.ts); `body` spans the full viewport and does not clip the
+     clamped fixed element. Its width follows Text Size (--ui-px, ui/popupSurface.css), as the
+     clamp in branchBasePopover.ts reckons it. */
   position: fixed;
-  width: 320px;
-  max-width: min(86vw, 360px);
+  width: calc(320 * var(--ui-px, 1px));
+  max-width: min(86vw, calc(360 * var(--ui-px, 1px)));
   display: flex;
   flex-direction: column;
   /* ui-glass owns the popup rim; retain the one-pixel box edge for stable
@@ -2935,11 +2936,6 @@ button.review-brief-spot:hover {
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--cmux-diff-ui-font-size);
   line-height: 1.45;
-}
-.plain-english-note {
-  margin: 0 4px 12px;
-  color: var(--cmux-diff-text-muted);
-  font-size: var(--text-detail);
 }
 .plain-english-file {
   margin: 0 0 16px;

@@ -23,13 +23,7 @@ extension SessionSettings {
 }
 
 extension SessionSettings {
-    /// `phone.allowConnections`: Off: the phone listener does not run and no phone reaches this Mac. Off on a fresh install; a Mac that already served phones keeps it on (PhoneAccessMigration).
-    public nonisolated static let allowConnectionsPath = ["phone", "allowConnections"]
-    public nonisolated static let allowConnectionsDefault = false
-    /// `phone.startSessions`: Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).
-    public nonisolated static let startSessionsPath = ["phone", "startSessions"]
-    public nonisolated static let startSessionsDefault = true
-    /// `phone.keepAwake`: Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
+    /// `phone.keepAwake`: Idle system sleep stays off while iPhone connections are on for a signed-in account (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
     public nonisolated static let phoneKeepAwakePath = ["phone", "keepAwake"]
     public nonisolated static let phoneKeepAwakeDefault: PhoneKeepAwakeSetting = .pluggedIn
     /// `phone.cloudReplica`: On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).
@@ -51,7 +45,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.keepAwake", "Keep Mac Awake While Agents Work"),
-                help: SettingsText.keyed("settings.sessions.keepAwake.help", "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."),
+                help: SettingsText.keyed("settings.sessions.keepAwake.help", "Stops idle sleep while an agent works. Closing the lid still sleeps the Mac."),
                 kind: .choice([
                     SettingChoice(SessionKeepAwakeSetting.off.rawValue, SettingsText.keyed("settings.choice.keepAwakeOff", "Off")),
                     SettingChoice(SessionKeepAwakeSetting.pluggedIn.rawValue, SettingsText.keyed("settings.choice.keepAwakePluggedIn", "While Plugged In")),
@@ -65,7 +59,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.keepAwakeForCommands", "Also While Terminal Commands Run"),
-                help: SettingsText.keyed("settings.sessions.keepAwakeForCommands.help", "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."),
+                help: SettingsText.keyed("settings.sessions.keepAwakeForCommands.help", "A build or test running over a minute keeps the Mac awake."),
                 kind: .toggle,
                 default: .bool(SessionSettings.keepAwakeForCommandsDefault),
                 keywords: ["sleep", "awake", "keep awake", "stay awake", "prevent sleep", "no sleep", "caffeinate", "terminal", "command", "build"]
@@ -95,7 +89,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.promptSuggestions", "Suggest Follow-Up Tasks"),
-                help: SettingsText.keyed("settings.sessions.promptSuggestions.help", "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."),
+                help: SettingsText.keyed("settings.sessions.promptSuggestions.help", "Agents suggest next tasks you can start as child chats."),
                 kind: .toggle,
                 default: .bool(SessionSettings.promptSuggestionsDefault),
                 keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
@@ -105,7 +99,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.promptSuggestions", "Suggest Next Prompt"),
-                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."),
+                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "Suggests your next prompt in grey; Tab takes it. Each one is an extra model call."),
                 kind: .toggle,
                 default: .bool(SessionSettings.claudePromptSuggestionsDefault),
                 keywords: ["suggestions", "prompt", "next prompt", "ghost text", "autocomplete", "claude", "codex", "usage"]
@@ -113,36 +107,16 @@ nonisolated enum SessionSettingsSchema {
         ]
     }
 
-    /// Settings > Accounts > Phone Access: whether phones signed in to your cmux account reach this Mac and what they may do (PhoneAccessGate, MobileHostService). The transport (Iroh today) is not part of any key.
+    /// Settings > Accounts > Phone Access: what this Mac does for cmux on iPhone, which connects through the iPhone host (IPhoneHostService, mobile.allowIPhoneConnections).
     static var phoneDescriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.phone", "Phone Access")
         return [
-            SettingDescriptor(
-                SessionSettings.allowConnectionsPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.phone.allowConnections", "Let Your Phone Use This Mac"),
-                help: SettingsText.keyed("settings.phone.allowConnections.help", "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."),
-                kind: .toggle,
-                default: .bool(SessionSettings.allowConnectionsDefault),
-                keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
-            ),
-            SettingDescriptor(
-                SessionSettings.startSessionsPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.phone.startSessions", "Let Your Phone Start New Workspaces"),
-                help: SettingsText.keyed("settings.phone.startSessions.help", "Off, your phone can still follow, type into and answer what's already running."),
-                kind: .toggle,
-                default: .bool(SessionSettings.startSessionsDefault),
-                keywords: ["iphone", "mobile", "remote", "workspace", "terminal", "start"]
-            ),
             SettingDescriptor(
                 SessionSettings.phoneKeepAwakePath,
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.keepAwake", "Keep Mac Awake for Your Phone"),
-                help: SettingsText.keyed("settings.phone.keepAwake.help", "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."),
+                help: SettingsText.keyed("settings.phone.keepAwake.help", "Closing the lid still puts the Mac to sleep."),
                 kind: .choice([
                     SettingChoice(PhoneKeepAwakeSetting.off.rawValue, SettingsText.keyed("settings.choice.phoneKeepAwakeOff", "Off")),
                     SettingChoice(PhoneKeepAwakeSetting.pluggedIn.rawValue, SettingsText.keyed("settings.choice.phoneKeepAwakePluggedIn", "While Plugged In")),
@@ -156,7 +130,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.cloudReplica", "Show This Mac's Workspaces on Your Phone While It's Off"),
-                help: SettingsText.keyed("settings.phone.cloudReplica.help", "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."),
+                help: SettingsText.keyed("settings.phone.cloudReplica.help", "Stores workspace names, colors and unread counts. No paths, titles or output."),
                 kind: .toggle,
                 default: .bool(SessionSettings.cloudReplicaDefault),
                 keywords: ["iphone", "mobile", "phone", "cloud", "offline", "workspaces", "sync", "privacy"]
@@ -166,7 +140,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.phone.cloudDesktop", "Show Your Cloud Machine's Screen on Your Phone"),
-                help: SettingsText.keyed("settings.phone.cloudDesktop.help", "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."),
+                help: SettingsText.keyed("settings.phone.cloudDesktop.help", "View only, streamed by this Mac while the page is open."),
                 kind: .toggle,
                 default: .bool(SessionSettings.cloudDesktopDefault),
                 keywords: ["iphone", "mobile", "phone", "cloud", "screen", "desktop", "computer", "chief"]

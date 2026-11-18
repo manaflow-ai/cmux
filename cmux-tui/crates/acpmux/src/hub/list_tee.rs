@@ -1,4 +1,5 @@
 //! One v1 list mark queue and one summary builder, until chat actors own rows.
+mod refused;
 mod summary;
 use super::*;
 #[cfg(test)]
@@ -7,7 +8,8 @@ use acpmux_book::index::{OriginState, ReadSide, RowKey, SortKey, Summary};
 use acpmux_core::hub::Source;
 use acpmux_core::life::V2;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use summary::{summary_from_remote, summary_from_session};
+use summary::summary_from_remote;
+pub(crate) use summary::summary_from_session;
 use tokio::sync::Notify;
 
 const BATCH: usize = 256;
@@ -52,7 +54,17 @@ impl TeeHandle {
     pub(super) fn remote_ready(&self) {
         self.state.remote_ready();
     }
+
+    /// Whether the daemon's v2 `list` holds the hub machines' rows ([`HUB_ROWS_FEATURE`]).
+    pub(super) fn lists_hub_rows(&self) -> bool {
+        self.state.lists
+    }
 }
+
+/// The `initialize` feature of a daemon whose v2 list holds the rows of the hub's machines
+/// (`mesh_book.rs`) as v1's list does: a caller that reads the v2 list without it takes v1's
+/// while a hub machine is listed.
+pub(crate) const HUB_ROWS_FEATURE: &str = "listHubRows";
 
 #[derive(Default)]
 struct TeeState {
@@ -61,9 +73,18 @@ struct TeeState {
     remote: std::sync::Mutex<HashSet<(String, String)>>,
     origins: std::sync::Mutex<HashMap<String, VecDeque<(OriginState, u64)>>>,
     remote_ready: AtomicBool,
+    /// The v2 index serves the `list` surface: its rows are v1's, the hub machines' included.
+    lists: bool,
     notify: Notify,
     marks: AtomicU64,
+    /// Peer and hub rows submitted or removed, and origin states written.
+    remote_submits: AtomicU64,
+    origin_writes: AtomicU64,
     all: AtomicBool,
+    /// The remote origins the index refused past its bound (`refused.rs`), and whether it holds
+    /// any: an admitted origin's submit reads the flag alone.
+    refused: std::sync::Mutex<refused::Refused>,
+    refused_any: AtomicBool,
     #[cfg(test)]
     walk_peak_page_bytes: AtomicU64,
     #[cfg(test)]
@@ -207,12 +228,12 @@ impl TeeState {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn load_and_mark_all_ns(&self) -> (u64, u64) {
         (self.store_load_ns.load(Ordering::Relaxed), self.mark_all_ns.load(Ordering::Relaxed))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn walk_finished(&self) -> bool {
         self.walk_done.load(Ordering::Acquire)
     }
@@ -417,6 +438,7 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         state.pending.lock().unwrap_or_else(|e| e.into_inner()).extend(ids);
     }
     for (id, origin_state, since) in state.take_origins(BATCH) {
+        state.origin_writes.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = v2.hub.origin(&id, origin_state, since) {
             tracing::warn!(origin = %id, %error, "v2 list tee rejected an origin state");
         }
@@ -430,32 +452,62 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         }
     }
     for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
-        submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire));
+        if submit_remote_id(v1, v2, state, &peer, &id) {
+            state.remote_submits.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
-fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) {
-    if v2.hub.source(peer) == Some(Source::Mirror) {
-        return;
-    }
+/// The summary of an ssh peer's row `(peer, id)` or, when it has none, of the mesh hub's row of
+/// machine `peer` (`mesh_book.rs`), built after the book's lock is dropped: v1's list joins both.
+fn remote_row_summary(v1: &Hub, peer: &str, id: &str) -> Option<std::io::Result<Summary>> {
     let rows = v1.remote_sessions.snapshot();
     if let Some(row) = rows.find_live_mux(peer, id) {
-        match summary_from_remote(peer, &row.summary) {
-            Ok(summary) => {
-                if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
-                    tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
-                }
+        return Some(summary_from_remote(peer, &row.summary));
+    }
+    drop(rows);
+    let row = v1.mesh_book_row(&format!("{peer}/{id}"))?;
+    Some(summary_from_remote(peer, &row.summary))
+}
+
+/// Submits or removes `(peer, id)`; answers whether it wrote to the index's queue.
+fn submit_remote_id(v1: &Hub, v2: &V2, state: &TeeState, peer: &str, id: &str) -> bool {
+    let source = v2.hub.source(peer);
+    if source == Some(Source::Mirror) {
+        return false;
+    }
+    if source.is_some() && state.refused_any.load(Ordering::Acquire) {
+        let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+        refused.admitted(&v2.hub, peer);
+        state.refused_any.store(!refused.is_empty(), Ordering::Release);
+    }
+    match remote_row_summary(v1, peer, id) {
+        Some(Ok(summary)) => {
+            if source.is_none() {
+                let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+                refused.note(&v2.hub, peer);
+                state.refused_any.store(!refused.is_empty(), Ordering::Release);
             }
-            Err(error) => {
-                tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary")
+            if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
+                tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
             }
+            true
         }
-    } else if remote_ready && let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
-        tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
+        Some(Err(error)) => {
+            tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary");
+            false
+        }
+        None if state.remote_ready.load(Ordering::Acquire) => {
+            if let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
+                tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
+            }
+            true
+        }
+        None => false,
     }
 }
 
-async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
+async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> (Expiries, bool) {
     #[cfg(test)]
     let started = std::time::Instant::now();
     v1.wait_store().await;
@@ -470,6 +522,7 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
     state.record_walk_id_memory(&unseen);
     let mut expiries = Expiries::default();
     let mut anchor: Option<SortKey> = None;
+    let mut complete = true;
     loop {
         let page = match v2.hub.snapshot().read_page(
             anchor.as_ref(),
@@ -482,6 +535,7 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
             Ok(page) => page,
             Err(error) => {
                 tracing::warn!(%error, "v2 list reconciliation page failed");
+                complete = false;
                 break;
             }
         };
@@ -503,16 +557,18 @@ async fn reconcile(v1: &Hub, v2: &V2, state: &TeeState) -> Expiries {
         anchor = Some(next);
         tokio::task::yield_now().await;
     }
-    for (n, id) in unseen.into_iter().enumerate() {
-        submit_id(v1, v2, &mut expiries, &id);
-        if (n + 1) % BATCH == 0 {
-            drain_marks(v1, v2, state, &mut expiries);
-            tokio::task::yield_now().await;
+    if complete {
+        for (n, id) in unseen.into_iter().enumerate() {
+            submit_id(v1, v2, &mut expiries, &id);
+            if (n + 1) % BATCH == 0 {
+                drain_marks(v1, v2, state, &mut expiries);
+                tokio::task::yield_now().await;
+            }
         }
     }
     #[cfg(test)]
     state.walk_done.store(true, Ordering::Release);
-    expiries
+    (expiries, complete)
 }
 
 async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
@@ -521,16 +577,19 @@ async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
         let Some(name) = peer.get("name").and_then(Value::as_str) else { continue };
         let Some(handle) = v1.peer_by_name(name) else { continue };
         peer_names.insert(name.to_owned());
-        let origin_state = match handle.state() {
-            crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
-                OriginState::Connected
-            }
-            _ => OriginState::Down,
-        };
+        let origin_state = super::peers::peer_origin_state(&handle);
         state.origin(name, origin_state, crate::store::now_ms());
     }
+    // The machines the mesh hub lists are origins as ssh peers are, connected while listed; the
+    // book never lists an ssh peer's host (`mesh_book::mine`).
+    let (book_hosts, book_keys) = v1.mesh_book_keys();
+    for host in book_hosts {
+        if peer_names.insert(host.clone()) {
+            state.origin(&host, OriginState::Connected, crate::store::now_ms());
+        }
+    }
     let remote_rows = v1.remote_sessions.snapshot();
-    let remote_keys: HashSet<(String, String)> = remote_rows
+    let mut remote_keys: HashSet<(String, String)> = remote_rows
         .values()
         .filter_map(|row| row.summary.session_id().map(|id| (row.peer.clone(), id.to_owned())))
         .collect();
@@ -538,6 +597,11 @@ async fn reconcile_remote(v1: &Hub, v2: &V2, state: &TeeState) {
         if let Some(id) = row.summary.session_id() {
             state.mark_remote(&row.peer, id);
         }
+    }
+    drop(remote_rows);
+    for (host, id) in book_keys {
+        state.mark_remote(&host, &id);
+        remote_keys.insert((host, id));
     }
     for origin in v2.hub.snapshot().origins() {
         if !peer_names.contains(&origin.id) {
@@ -580,27 +644,90 @@ pub(crate) fn start_v2_tee(
     v1: Arc<Hub>,
     v2: Arc<V2>,
 ) -> (Arc<TeeHandle>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let state = Arc::new(TeeState { hub: Arc::downgrade(&v2.hub), ..TeeState::default() });
+    let state = Arc::new(TeeState {
+        hub: Arc::downgrade(&v2.hub),
+        lists: v2.allows_surfaces(&["list"]),
+        ..TeeState::default()
+    });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
-        let mut expiries = reconcile(&v1, &v2, &state).await;
+        let mut slots_seen = v2.hub.origin_slots_freed();
+        let mut refusals_seen = v2.hub.origins_refused();
+        let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;
+        let mut rebuild_seen = v2.hub.rebuild_count();
+        if rebuild_seen != 0 {
+            v2.hub.source_walk_finished(Source::Local, rebuild_seen, initial_complete);
+        }
+        let mut rebuild_retry_at = None;
+        let mut rebuild_retry_secs = 1_u64;
         if v1.config.read().await.peers.is_empty() {
             state.remote_ready();
+        }
+        if !v2.allows_surfaces(&["list", "peers"]) {
+            write_off_mirror_marks(&v1, &v2).await;
         }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut remote_reconciled = false;
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
+            let rebuild_ready = v2.hub.rebuild_count() != rebuild_seen
+                && rebuild_retry_at.is_none_or(|deadline| std::time::Instant::now() >= deadline);
+            if rebuild_ready {
+                let rebuild = v2.hub.rebuild_count();
+                let (next_expiries, complete) = reconcile(&v1, &v2, &state).await;
+                if complete {
+                    expiries = next_expiries;
+                    rebuild_seen = rebuild;
+                    rebuild_retry_at = None;
+                    rebuild_retry_secs = 1;
+                    v2.hub.source_walk_finished(Source::Local, rebuild, true);
+                } else {
+                    rebuild_retry_at = Some(
+                        std::time::Instant::now()
+                            + std::time::Duration::from_secs(rebuild_retry_secs),
+                    );
+                    rebuild_retry_secs = rebuild_retry_secs.saturating_mul(2).min(64);
+                }
+            }
             if state.remote_ready.load(Ordering::Acquire) && !remote_reconciled {
                 reconcile_remote(&v1, &v2, &state).await;
                 remote_reconciled = true;
+            }
+            // One atomic load a turn: the writer refused a submit since the last, so a refusal
+            // the tee could not tell holds the next freed slot's whole reconcile (`refused.rs`).
+            let refusals = v2.hub.origins_refused();
+            if refusals != refusals_seen {
+                refusals_seen = refusals;
+                refused::moved(&v2.hub, &state);
+            }
+            // One atomic load a turn: the writer dropped an origin's source or record since the
+            // last, so the origins the index refused are offered again (`refused.rs`).
+            let slots = v2.hub.origin_slots_freed();
+            if slots != slots_seen {
+                slots_seen = slots;
+                if state.refused_any.load(Ordering::Acquire)
+                    && refused::release(&v1, &v2.hub, &state)
+                    && remote_reconciled
+                {
+                    reconcile_remote(&v1, &v2, &state).await;
+                }
             }
             let clock_tick = tokio::select! {
                 biased;
                 _ = tick.tick() => true,
                 _ = state.notify.notified() => false,
+                _ = v1.link_v2.handed_back_ready.notified() => false,
+                _ = async {
+                    if let Some(deadline) = rebuild_retry_at {
+                        tokio::time::sleep_until(deadline.into()).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => false,
                 _ = std::future::ready(()), if state.has_pending()
-                    || expiries.has_due(crate::store::now_ms()) => false,
+                    || expiries.has_due(crate::store::now_ms())
+                    || (v2.hub.rebuild_count() != rebuild_seen
+                        && rebuild_retry_at.is_none_or(|deadline| std::time::Instant::now() >= deadline)) => false,
             };
             let now = crate::store::now_ms();
             expiries.mark_due(&state, now);
@@ -657,11 +784,62 @@ pub(crate) fn start_v2_tee(
                     tokio::task::yield_now().await;
                 }
             }
+            walk_handed_back(&v1, &v2, &state);
             drain_marks(&v1, &v2, &state, &mut expiries);
             tokio::task::yield_now().await;
         }
     };
     (handle, task)
+}
+
+/// With `peers` off no mirror runs here, and v1 holds every origin. An origin whose mark a
+/// mirror left on an earlier run opens as the mirror's (decision 264), so it is taken over as
+/// v1, which writes the mark off: a later run with `peers` on walks rather than resumes past
+/// the rows v1 wrote meanwhile. Once the writer has handled each takeover, the tee walks those
+/// origins' rows as it does a hand-back's.
+async fn write_off_mirror_marks(v1: &Hub, v2: &V2) {
+    let mut asked = Vec::new();
+    for record in v2.hub.snapshot().mirror_marks() {
+        let before = v2.hub.takeover_turns(&record.origin);
+        match v2.hub.takeover(&record.origin, Source::V1) {
+            Ok(()) => asked.push((record.origin, before)),
+            Err(error) => {
+                tracing::warn!(origin = %record.origin, %error, "v2 list tee could not write off a mirror mark");
+            }
+        }
+    }
+    // Applied, held with a leaving origin, or refused: each is a turn of the writer's.
+    v2.hub
+        .wait_mirror_until(|hub| {
+            asked.iter().all(|(origin, before)| hub.takeover_turns(origin) != *before)
+        })
+        .await;
+    for (origin, _) in &asked {
+        v1.link_v2.hand_back(origin);
+    }
+}
+
+/// Marks every row of each origin a mirror handed back (`link_v2::Shared::hand_back`): v1's
+/// rows are submitted again and the v2 rows v1 does not hold leave, so the origin's rows end
+/// equal to v1's list.
+fn walk_handed_back(v1: &Hub, v2: &V2, state: &TeeState) {
+    let origins: HashSet<String> = v1.link_v2.take_handed_back().into_iter().collect();
+    if origins.is_empty() {
+        return;
+    }
+    for row in v1.remote_sessions.snapshot().values() {
+        if origins.contains(&row.peer)
+            && let Some(id) = row.summary.session_id()
+        {
+            state.mark_remote(&row.peer, id);
+        }
+    }
+    let index = v2.hub.snapshot();
+    for origin in &origins {
+        for id in index.origin_chat_ids(origin) {
+            state.mark_remote(origin, id);
+        }
+    }
 }
 
 pub(crate) struct V1PageProvider {
@@ -686,9 +864,8 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
                 None => Ok(None),
             };
         }
-        let rows = self.hub.remote_sessions.snapshot();
-        rows.find_live_mux(&key.origin, &key.chat_id)
-            .map(|row| summary_from_remote(&key.origin, &row.summary).map(Arc::new).map(Some))
+        remote_row_summary(&self.hub, &key.origin, &key.chat_id)
+            .map(|summary| summary.map(Arc::new).map(Some))
             .unwrap_or(Ok(None))
     }
 }
@@ -696,8 +873,16 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
 #[cfg(test)]
+mod handback_tests;
+#[cfg(test)]
+mod hub_rows_tests;
+#[cfg(test)]
 mod roundtrip_tests;
 #[cfg(test)]
+mod slot_release_tests;
+#[cfg(test)]
 mod snapshot_tests;
+#[cfg(test)]
+mod status_state_tests;
 #[cfg(test)]
 mod tests;

@@ -19,7 +19,10 @@ export function isPlumbingCall(update: any): boolean {
 /// the visible step list (mcpPresentation.ts `visibleToolItems`), so a call is never hidden from
 /// one and counted or drawn by the other. A call that ran a command, changed a file, showed an
 /// image, went to the background or was approved did more than load schemas, and stays.
+/// A result still waiting for its call (`awaitingCall`, held for an older page) is hidden the
+/// same way: the whole record draws such a result of a hidden call as nothing.
 export function isCompletedPlumbingTool(tool: any): boolean {
+  if (tool?.awaitingCall === true) return true;
   const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
   if (tool?.status !== "completed" || typeof name !== "string" || !PLUMBING_TOOLS.has(name) || tool.title !== name)
     return false;
@@ -50,12 +53,20 @@ export function isPlanToolCall(update: any): boolean {
   return update?._meta?.acpmux?.planTool === true;
 }
 
+/// Whether an ACP tool call or update is the Codex app server's `sleep` item ("Wait 45000 ms"): the
+/// agent pausing between polls of a background build. It does nothing the person asked for, and a run
+/// of them filled the transcript with "Wait …" rows (Lucas, 2026-11-14: "we should not have it").
+/// Hidden on sight, with its updates.
+export function isCodexSleep(update: any): boolean {
+  return update?._meta?.codexAppServer?.itemType === "sleep";
+}
+
 /// Tracks which call ids in `hidden` are plumbing and says whether this update's call is one. A
 /// plumbing call marks its id; any other call that starts under that id clears the mark, since an
 /// adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka). A result
 /// (`tool_call_update`, which names no tool) keeps whatever mark its call left.
 export function hiddenCall(hidden: Set<string>, key: string, update: any): boolean {
-  if (isPlumbingCall(update)) hidden.add(key);
+  if (isPlumbingCall(update) || isCodexSleep(update)) hidden.add(key);
   else if (update?.sessionUpdate === "tool_call") hidden.delete(key);
   return hidden.has(key);
 }
@@ -78,4 +89,11 @@ export function showsNothing(update: any): boolean {
   const content = update?.content;
   if (!Array.isArray(content)) return true;
   return !content.some((part: any) => part?.type === "diff" || part?.content?.type === "image");
+}
+
+/// The tool with its `awaitingCall` mark set or cleared (model.ts).
+export function withAwaitingCall<T extends { awaitingCall?: true }>(tool: T, awaiting: boolean): T {
+  if (awaiting) return { ...tool, awaitingCall: true };
+  const { awaitingCall: _awaiting, ...rest } = tool;
+  return rest as T;
 }

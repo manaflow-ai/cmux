@@ -53,7 +53,8 @@ struct SidebarListBlocks: Equatable {
     /// or a section gap and its line in a lines look; the band's padding only at the run's top). A block has no bottom padding in the list: the list puts its row
     /// spacing (or the next block's top edge) under the last item, so the rows under the pins follow as rows follow
     /// rows (Leo 2026-10-21).
-    func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false) -> SidebarRegionView.Content? {
+    /// `joinsHome`: that block is Home's section, so no line separates them (Lawrence 2026-11-13); the gap stays.
+    func content(_ id: String, hiding: Set<String>, gap: Int?, joinsAbove: Bool = false, joinsHome: Bool = false) -> SidebarRegionView.Content? {
         guard var section = sections[id] else { return nil }
         section.items.removeAll { hiding.contains($0.id.rawValue) }
         var infos = infos
@@ -68,7 +69,7 @@ struct SidebarListBlocks: Equatable {
         // A look with no line between sections (Quiet, the default) keeps the list's one row gap at the seam, so
         // Home to the first pin steps as pin to pin does (Lawrence 2026-11-11); a lines look keeps the gap its line needs.
         if joinsAbove {
-            (edges.topPadding, edges.leadingSeparator) = look.separatesSections ? (metrics.sectionGap, true) : (metrics.rowGap, false)
+            (edges.topPadding, edges.leadingSeparator) = look.separatesSections ? (metrics.sectionGap, !joinsHome) : (metrics.rowGap, false)
         }
         edges.bottomPadding = 0
         return SidebarRegionView.Content(sections: [section], infos: infos, collapsed: collapsed, look: look, metrics: edges,
@@ -129,15 +130,20 @@ extension SidebarListViewComponents {
     /// Block `id`'s content as drawn (with the drag's or the held drop's gap) or as the hit test's base (without it).
     func blockContent(_ id: String, includeGap: Bool) -> SidebarRegionView.Content? {
         let gap = includeGap ? shownDrag?.blockTarget.flatMap { $0.section == id ? $0.index : nil } : nil
-        return blocks?.content(id, hiding: blockHidden, gap: gap, joinsAbove: joinsBlockAbove(id))
+        let above = blockAbove(id)
+        return blocks?.content(id, hiding: blockHidden, gap: gap, joinsAbove: above != nil,
+                               joinsHome: above == SidebarLayoutDocument.topSectionID.rawValue)
     }
 
     /// Whether block `id` has another block right above it in the list (no rows between them), by the
     /// layout's own rules: a collapsed section or one whose groups the filter or the drag leave out lists no rows,
     /// and a section whose items lay out to nothing draws no block.
-    func joinsBlockAbove(_ id: String) -> Bool {
+    func joinsBlockAbove(_ id: String) -> Bool { blockAbove(id) != nil }
+
+    /// The block right above block `id` in the list (``joinsBlockAbove(_:)``), nil when rows or nothing are there.
+    func blockAbove(_ id: String) -> String? {
         let sections = model.sections
-        guard let index = sections.firstIndex(where: { $0.id == .custom(id) }) else { return false }
+        guard let index = sections.firstIndex(where: { $0.id == .custom(id) }) else { return nil }
         let matches = model.filterMatches
         var excludedGroup: GroupID?
         if case let .group(group)? = shownDrag?.payload { excludedGroup = group }
@@ -156,7 +162,8 @@ extension SidebarListViewComponents {
             guard let id = docID(section), let content = blocks?.content(id, hiding: blockHidden, gap: nil) else { return false }
             return SidebarRegionView.layout(of: content, width: bounds.width).height > 0
         }
-        return index > 0 && listsNoRows(sections[index - 1]) && hasBlock(sections[index - 1])
+        guard index > 0, listsNoRows(sections[index - 1]), hasBlock(sections[index - 1]) else { return nil }
+        return docID(sections[index - 1])
     }
 
     /// Ends a settling drop once its move landed (the list's structure or the blocks changed); returns it.

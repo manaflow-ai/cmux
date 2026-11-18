@@ -40,6 +40,14 @@
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One transient role for notices, window toasts and recoverable error cards. The values remain
+     sourced from the generated surface-role and design-scale tokens; these aliases prevent drift. */
+  --transient-surface-radius: var(--surface-toast-radius, 9px);
+  --transient-surface-veil: var(--surface-toast-veil);
+  --transient-surface-shadow: var(--elevation-2);
+  --transient-surface-gap: var(--ds-space-2);
+  --transient-action-fill: var(--ds-color-accent);
+  --transient-action-ink: var(--ds-color-on-accent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
@@ -115,8 +123,9 @@ body {
   --ds-glass-popover-art-tint: 50%;
   --ds-glass-popover-blur: blur(24px) saturate(1.25);
   --ds-glass-popover-radius: 24px;
-  /* glass menu (level): menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass) */
+  /* glass menu (level): every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers) */
   --ds-glass-menu-tint: 78%;
+  --ds-glass-menu-veil: 40%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-menu-radius: 32px;
   /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
@@ -135,6 +144,17 @@ body {
   --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
   --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
   --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
+  --ds-transient-dark-veil-alpha: 0.42;
+  --ds-transient-light-veil-alpha: 0.55;
+  --ds-transient-dark-rim-top: 0.3;
+  --ds-transient-dark-rim-bottom: 0.06;
+  --ds-transient-light-rim-top: 0.85;
+  --ds-transient-light-rim-bottom: 0.1;
+  --ds-transient-host-veil: 0.4;
+  --ds-transient-native-tint-strength: 1.25;
+  --ds-transient-web-tint: 78%;
+  --ds-transient-web-blur: 32px;
+  --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -245,6 +265,26 @@ body {
   border-color: transparent;
 }
 
+/* A hover card taller than the room it has scrolls in itself (Leo, 2026-11-14, on a "Received 2
+   messages" preview cut after its first message: "this has no transparency at all + is not
+   scrollable"). Its height stops at what its positioner has (Base UI's --available-height) and the
+   window less its edges; past that its content scrolls with the wheel, the trackpad and, from its
+   focused trigger, Page Down and Page Up (ui/Tooltip.tsx), and a scroll that reaches its end never
+   moves the transcript under it. A Tooltip's card (data-tooltip-card) takes the pointer, as a
+   link's card does, so the pointer can rest on it to scroll: Base UI keeps a tooltip open while the
+   pointer is on it. An AnchoredCard's caller decides that itself. */
+.ui-tooltip.ui-card {
+  max-height: min(
+    var(--available-height, 100dvh),
+    calc(100dvh - var(--tooltip-edge) - var(--tooltip-edge))
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ui-tooltip.ui-card[data-tooltip-card] {
+  pointer-events: auto;
+}
+
 .ui-hint {
   border-width: var(--tooltip-rim-width);
   background: var(--tooltip-tint);
@@ -257,6 +297,14 @@ body {
   position: fixed;
   z-index: var(--layer-tooltip);
   white-space: pre-line;
+}
+
+/* A wrapped tooltip's lines come out even, never a word or two alone on the last line, and the box
+   then narrows to its widest line (ui/tooltipFit.ts; Leo, 2026-11-07: "why is this even so wide in
+   the first place?"). A hover card's own text keeps its layout. */
+.ui-tooltip:not(.ui-card),
+.ui-title-tooltip {
+  text-wrap: balance;
 }
 
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
@@ -837,6 +885,23 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
     [role="option"],
     [role="menuitem"]
   ):is(:hover, [data-highlighted]) {
+  transition-duration: 0s !important;
+}
+/* MENU-ROW-SNAP (Lawrence 2026-11-17, "fix these hover bugs"): a menu's highlight moves as an
+   NSMenu's does, in one frame both ways. The row the pointer or the arrows leave clears in the
+   frame the next one lights, so two rows are never lit at once and none stays lit after the pointer
+   leaves the menu (the row's own 80 ms fade-out did both). Only the rows of a popup (every menu,
+   combobox and popover list is a .ui-popup); a list on a page keeps its cross-fade. A row's
+   keyframe motion (rowPresence.ts) is an animation, not a transition, so it still runs. */
+.ui-popup
+  :is(
+    .ui-menu-item,
+    .ui-combobox-item,
+    [role="option"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"]
+  ) {
   transition-duration: 0s !important;
 }
 

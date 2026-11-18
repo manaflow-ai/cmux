@@ -260,6 +260,10 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 19.").waitFor();
+    // Do not begin motion sampling while the fallback font can still be replaced: a late font
+    // reflow changes every row's height and looks like a follow jump even though no stream event ran.
+    await page.evaluate(() => document.fonts.ready);
+    await painted(page, 2);
     await rest(page);
     return page;
   }
@@ -333,9 +337,16 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         );
         const message = row?.querySelector<HTMLElement>(".cv-md");
         const composer = document.querySelector<HTMLElement>(".acpmux-dock");
+        const view = scroller.getBoundingClientRect();
+        const rowBox = row?.getBoundingClientRect();
         w.__frames.push({
           t: Math.round(frame),
-          marker: row?.getBoundingClientRect().top,
+          // Virtualized rows keep their estimated geometry while they are outside the viewport. Do
+          // not treat that offscreen bookkeeping as a painted movement; only compare the marker while
+          // it is actually visible in the transcript. A visible downward move remains a real failure.
+          // The marker is always the row's top: switching to another edge (the message's foot) once
+          // the top scrolls above the view reads as a jump down of the row's height above it.
+          marker: rowBox && rowBox.bottom > view.top && rowBox.top < view.bottom ? rowBox.top : undefined,
           messageBottom: message?.getBoundingClientRect().bottom,
           composerTop: composer?.getBoundingClientRect().top,
           settled: Boolean(document.querySelector(".acpmux-row--last-footer")),
@@ -456,8 +467,11 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${RICH}`);
       await page.getByText("Rich ending marker.").waitFor();
-      // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
-      await page.waitForTimeout(3_000);
+      await page.evaluate(() => document.fonts.ready);
+      await painted(page, 2);
+      // Observe a fixed number of painted frames. A wall-clock window changes its sample count with
+      // runner load and can stop between the layout and the paint that settles it.
+      await painted(page, 180);
       const frames = await page.evaluate(
         () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
       );

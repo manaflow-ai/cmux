@@ -70,7 +70,7 @@ jobs:
     name: portable light placement
     continue-on-error: true
     if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -117,14 +117,14 @@ jobs:
     needs: [portable-placement]
     if: ${{ always() && !cancelled() && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    # The run's router: a declared light job (.github/runners.json hosted_light_jobs) that runs
-    # before any job could pick a fleet runner for it. Attempt 1 takes GitHub-hosted Ubuntu, which
-    # is ephemeral like Blacksmith (this job mints GLAEDA_ROUTE_APP_KEY tokens); a re-run takes the
-    # reconciled ephemeral LINUX_RUNNER mirror, then Blacksmith 8 vCPU (16 under the overflow switch).
+    # The run's router: it runs before any job could pick a fleet runner for it. It mints
+    # GLAEDA_ROUTE_APP_KEY tokens, so every attempt takes ephemeral Blacksmith: the reconciled
+    # LINUX_RUNNER mirror, then 8 vCPU (16 under the overflow switch). It took GitHub-hosted Ubuntu on
+    # attempt 1 until 2026-11-18, when hosted runners left it queued for hours (cmux#45735).
     # Fork pull requests keep their Blacksmith branch. It used LINUX_RUNNER first, and on 2026-11-02 run 41385632466 job
     # 125086959342 sat unassigned on blacksmith-4vcpu-ubuntu-2404 behind 721 queued jobs while
     # every check of the pull request waited behind it. Measured: 11 s of work, 5 min timeout.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && needs.portable-placement.outputs.linux_runner || github.run_attempt == 1 && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' changes ') && needs.portable-placement.outputs.linux_runner || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included
@@ -594,17 +594,17 @@ jobs:
             # The cmux-next workflow owns its Swift, Rust, web and webview
             # checks. Keep the generic changes job for shared web routing, but
             # do not send a next-line PR through the legacy app-host suite.
+            # package_route: a package other than CmuxNext changed. A pull request that
+            # changes CmuxNext too keeps it: the lane's PACKAGES has no CmuxNext, so it
+            # never wakes the CmuxNext suite, and without it the other package's tests
+            # ran in no pull request check (hq#11644, scripts/ci/swift_test_coverage.py).
             package_route=false
-            cmuxnext_route=false
             if [ -f /tmp/cmux-ci-changed-files.txt ]; then
-              if grep -q '^Packages/' /tmp/cmux-ci-changed-files.txt; then
+              if awk '/^Packages\// && !/^Packages\/macOS\/CmuxNext\// { found = 1 } END { exit !found }' /tmp/cmux-ci-changed-files.txt; then
                 package_route=true
               fi
-              if grep -q '^Packages/macOS/CmuxNext/' /tmp/cmux-ci-changed-files.txt; then
-                cmuxnext_route=true
-              fi
             fi
-            if [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
+            if [ "$package_route" = true ]; then
               # The legacy reusable macOS workflow owns focused tests for the
               # affected package. Keep that route instead of waking the full
               # CmuxNext suite; its package lane runs beside compile admission
@@ -1445,7 +1445,7 @@ jobs:
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
     if: ${{ (!cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && needs.changes.outputs.next_line != 'true' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_BLACKSMITH_MACOS == 'on' && vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
     # failure is visible without becoming a merge requirement.

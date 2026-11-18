@@ -9,7 +9,8 @@
 # Run alone on a worker (it launches an app):
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
-#     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES]
+#     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
+#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app]
 # agents: also measure that many idle agent chats (one workspace each, on the
 # acpmux test agent cmux-tui/crates/acpmux/tests/fake_agent.py, its first turn
 # answered), as PERF-IDLE app-agents lines (resource-efficiency-DESIGN.md).
@@ -17,20 +18,39 @@
 # reload; bench_memory.py --purge-hidden), sampled again as purged-N.
 # release=MINUTES (with one agents= count): agents.hiddenChats.discard on after MINUTES; the released
 # chats sampled as released-N, then 10 of them shown again and timed (PERF-IDLE-RESTORE).
-# Output: PERF-IDLE lines; JSON under .build/perf-idle.
+# chat_renderer_crash=1 (with agents=): the chat renderer crash test (scripts/cmux-next/chat_renderer_crash.py):
+# every chat pinned and kept loaded, chat pages per renderer at each count, then a SIGKILL of the renderer with
+# the most chat pages; it fails when more than 8 chats reload or a chat of another renderer does.
+# attribute=1 (or attribute=KIND,KIND: those process kinds, default app,cef-gpu): also name what wakes the app and the Chromium GPU process in each window
+# (bench_memory.py --attribute: thread CPU, the debug.wakeups ledger and main run loop timers, live
+# pages, a stack sample after the window), as PERF-ATTR lines.
+# infinite=COUNTS: also the infinite-items run (scripts/measure/infinite-items.py, CMUX-571) on the bundle's
+# own acpmux and cmux-tui: COUNTS workspaces, each with a terminal tab and an agent chat, through simulated
+# days (days=DAYS, default 3) of switches, tab cycles, streaming turns and a sleep/wake, as INFINITE lines.
+# vmmap=KIND,KIND: after each app sample, vmmap --summary of every process of those kinds (bench_memory.py
+# --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
+# Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
+# .build/perf-idle.
 set -euo pipefail
 counts="1,10,50"
 measure=60
 agents=""
-reload_config=() purge=() release=()
+infinite="" days=3
+reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     counts=*) counts="${arg#counts=}" ;;
     measure=*) measure="${arg#measure=}" ;;
     agents=*) agents="${arg#agents=}" ;;
+    infinite=*) infinite="${arg#infinite=}" ;;
+    days=*) days="${arg#days=}" ;;
     purge=1) purge=(--purge-hidden) ;;
     release=*) release=(--release-hidden-chats "${arg#release=}") ;;
+    attribute=1) attribute=(--attribute) ;;
+    attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
+    chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
+    vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -87,7 +107,11 @@ PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
 python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
+  --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
+# Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
+grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
+grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
 python3 - "$work/app.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -98,9 +122,11 @@ for s in data.get("samples", []):
 PY
 if [[ -n "$agents" ]]; then
   echo "PERF-IDLE-LOAD agents $(uptime | sed 's/.*load averages*: //')"
-  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
+  env ${crash_env[@]+"${crash_env[@]}"} python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$agents" --mix terminal+chat \
     --fake-agent cmux-tui/crates/acpmux/tests/fake_agent.py \
-    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+    --settle 20 --measure "$measure" --top 8 ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
+    ${attribute[@]+"${attribute[@]}"} --out "$work/agents.json" > "$work/agents.log" 2>&1 || { status=$?; tail -n 60 "$work/agents.log"; }
+  grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -108,10 +134,23 @@ for s in data.get("samples", []):
     for kind, e in s["kinds"].items():
         print(f"PERF-IDLE app-agents {s['label']} agents={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']}")
+    if "chat_renderers" in s:
+        print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:
         print(f"PERF-IDLE-RELEASED {s['label']} cmux_pages={json.dumps(s['cef_pages'])}")
+if "chat_renderer_crash" in data:
+    print(f"CHAT-RENDERERS-CRASH {json.dumps(data['chat_renderer_crash'])}")
 if "restore" in data:
     print(f"PERF-IDLE-RESTORE {json.dumps({k: v for k, v in data['restore'].items() if k != 'opens'})}")
+    # Each restored chat's trace (marks, surface changes, note): why a restore has no first-content time.
+    for o in data["restore"].get("opens", []):
+        print(f"PERF-IDLE-RESTORE-OPEN {json.dumps(o)}")
 PY
+fi
+if [[ -n "$infinite" ]]; then
+  echo "PERF-IDLE-LOAD infinite $(uptime | sed 's/.*load averages*: //')"
+  python3 scripts/measure/infinite-items.py --acpmux "$app/Contents/Resources/bin/acpmux" --tui "$tui" \
+    --counts "$infinite" --days "$days" --root-dir "$state_root" --out "$work/infinite.json" \
+    2> "$work/infinite.log" || { status=$?; tail -n 40 "$work/infinite.log"; }
 fi
 exit "$status"

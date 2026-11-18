@@ -13,6 +13,10 @@ name: Cloud journey (production, hourly)
 # - real, every six hours (the canary): CLAUDE_CODE_OAUTH_TOKEN, the login machine-vault-e2e.yml gives its daemons,
 #   and the real model.
 #
+# Both models play the app's part on a warm spare first (--preclaim-login, with the cmux-tui the job builds): the
+# login is copied on the spare's cloud.spare.ready, as the app's SpareReady path, so after the claim the login step is
+# only the post-bind check when the receipt says installed (probe.json login_path: receipt or copy).
+#
 # A red run opens one issue per model, or rewrites the open one's body; the next green run of that model closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
@@ -39,10 +43,18 @@ on:
         description: "Staging only: measure the shipped spare-ready preclaim login path"
         type: boolean
         default: false
+      ensure_bench:
+        description: "With preclaim: time acp ensure on one fresh staging machine (5 each right after boot, settled, both cores loaded) instead of the burst"
+        type: boolean
+        default: false
       claims:
         description: "Preclaim burst size (1-20)"
         type: string
         default: "10"
+      spare_wait:
+        description: "Preclaim only: seconds each claim waits, at most, for a ready spare (0-900; 0 claims at once). 300 by default: a broker dispatch sends no spare_wait, and back-to-back claims on staging's one spare measure its refill, not the claim path"
+        type: string
+        default: "300"
 
 permissions:
   contents: read
@@ -61,13 +73,16 @@ jobs:
       matrix:
         model: [stub, real]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 30
+    # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
+    timeout-minutes: 60
     environment:
       name: cmux-next-cloud-journey
       deployment: false
     permissions:
       contents: read
       issues: write
+      # The red-journey step lists recent cmux VM production deploys (gh run list / view).
+      actions: read
     env:
       # This leg runs on the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
       SELECTED: ${{ (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
@@ -77,10 +92,44 @@ jobs:
         with:
           persist-credentials: false
           ref: feat-cmux-next
-          sparse-checkout: |
-            scripts/cmux-next
-            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
-            tests/fixtures/model-stub
+          submodules: recursive
+      # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
+      # and the login receipt), built as the staging preclaim job below builds it.
+      - name: Install Linux cmux-tui build dependencies
+        if: env.SELECTED == 'true'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        if: env.SELECTED == 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        if: env.SELECTED == 'true'
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: env.SELECTED == 'true'
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: env.SELECTED == 'true'
+        with:
+          workspaces: cmux-tui
+          # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
+          cache-bin: false
+      - name: Build the shipped Linux cmux-tui
+        id: build-cmux-tui
+        if: env.SELECTED == 'true'
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x target/debug/cmux-tui
+          echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: env.SELECTED == 'true'
         with:
@@ -95,13 +144,15 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           MODEL: ${{ matrix.model }}
+          CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
           mkdir -p "$out"
           probe=cloud-chat-replies-production
           [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
-          bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause
+          bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
+            --preclaim-login "$CMUX_TUI"
           code=$?
           { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"
@@ -132,10 +183,45 @@ jobs:
             if [ -n "$open" ]; then gh issue close "$open" --comment "Green again: a production chat reply was read back ([run]($RUN_URL))."; fi
             exit 0
           fi
+          # A red right after a rollout warns, naming it (no rollback: Leo, 2026-11-08, "well idk bout roll back but
+          # certainly a warning at least would still be useful today"). A rollout is a cmux VM production deploy
+          # (cmux-vm.yml on feat-cmux-next whose deploy-production job ran; an image roll commit is one too) in the
+          # last 6 hours, the real model's interval. A failed lookup only drops the section.
+          since="$(date -u -d '-6 hours' +%Y-%m-%dT%H:%M:%SZ)"
+          rollouts=""
+          if runs="$(gh run list --workflow cmux-vm.yml --branch feat-cmux-next --limit 40 \
+              --json databaseId,displayTitle,createdAt,event,url \
+              --jq "map(select(.createdAt >= \"$since\" and (.event == \"push\" or .event == \"workflow_dispatch\"))) | .[] | [.databaseId, .createdAt, .url, .displayTitle] | @tsv")"; then
+            while IFS=$'\t' read -r id created url subject; do
+              [ -n "$id" ] || continue
+              deploy="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name == "deploy-production")][0].conclusion // ""' || true)"
+              # Skipped or absent: this run deployed nothing to production.
+              [ -n "$deploy" ] && [ "$deploy" != skipped ] || continue
+              rollouts+="- ${created:0:16}Z [${subject//[\[\]]/}]($url) (deploy-production: $deploy)"$'\n'
+            done <<< "$runs"
+          else
+            echo "::warning::could not list cmux VM production deploys; the issue names no rollout"
+          fi
+          section=""
+          if [ -n "$rollouts" ]; then
+            section="$(printf '\n**Warning: production rolled out in the 6 hours before this red.** A rollout is the first suspect (a changed connection protocol or image the shipped app does not speak yet):\n\n%s\nNot listed: cmux-platform deploys, which this job cannot read.\n' "$rollouts")"$'\n'
+            echo "::warning title=Red after a rollout::the production Cloud journey ($MODEL model) is red within 6 h of a cmux VM production deploy"
+            { echo; echo "### Rolled out in the 6 hours before this red"; echo; printf '%s' "$rollouts"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           # shellcheck disable=SC2016 # backticks are Markdown, not a command
-          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$(date -u +%Y-%m-%dT%H:%MZ)")"
+          body="$(printf 'The production Cloud journey (`.github/workflows/cloud-journey-prod.yml`, %s model) failed.\n\nLatest red run: %s (its summary has the step table; `probe.json` in its artifact names the failed step).\n%s\nUpdated %s. The next green run closes this issue.\n' "$MODEL" "$RUN_URL" "$section" "$(date -u +%Y-%m-%dT%H:%MZ)")"
           if [ -n "$open" ]; then
+            # A body edit notifies no one, so a rollout this issue has not named yet also gets one comment.
+            seen="$(gh issue view "$open" --json body,comments --jq '[.body, .comments[].body] | join("\n")' || true)"
+            fresh=""
+            while IFS= read -r line; do
+              url="$(sed -n 's/.*](\(https:[^)]*\)).*/\1/p' <<< "$line")"
+              [ -n "$url" ] && ! grep -qF "$url" <<< "$seen" && fresh+="$line"$'\n'
+            done <<< "$rollouts"
             gh issue edit "$open" --body "$body"
+            if [ -n "$fresh" ]; then
+              gh issue comment "$open" --body "$(printf '**Warning:** still red ([run](%s)) after a new production rollout:\n\n%s' "$RUN_URL" "$fresh")"
+            fi
           else
             gh issue create --title "$title" --body "$body"
           fi
@@ -148,7 +234,8 @@ jobs:
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
     runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 60
+    # Room for spare_wait (ten claims, each waiting up to five minutes for a ready spare); at most 90, the journey sweep's bound.
+    timeout-minutes: 90
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -187,17 +274,46 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      - name: Mint the private HQ preclaim store token
+        id: hq-preclaim-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
       - name: Staging preclaim login burst
         env:
           CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
+          PRECLAIM_ENSURE_BENCH: ${{ inputs.ensure_bench && '5' || '' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-preclaim"
+          private="$RUNNER_TEMP/cloud-preclaim-private.json"
+          export PRECLAIM_PRIVATE_ROWS="$private"
+          set +e
           bun scripts/cmux-next/cloud-journey.ts --backend staging --model real --cmux "${{ steps.build-cmux-tui.outputs.path }}" \
-            --preclaim --claims '${{ inputs.claims }}' --out "$out"
+            --preclaim --claims '${{ inputs.claims }}' --spare-wait '${{ inputs.spare_wait || '300' }}' --out "$out"
+          journey_code=$?
+          set -e
+          if [ ! -s "$private" ]; then
+            echo "private preclaim rows were not produced" >&2
+            exit 1
+          fi
+          set +e
+          printf '%s\n' "$HQ_GH_TOKEN" | python3 -I scripts/cmux-next/cmux-api-prod-logs.py --private-json "$private" > "$out/private-pointer.json"
+          store_code=$?
+          set -e
+          cat "$out/private-pointer.json" >> "$out/summary.md"
+          rm -f -- "$private"
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          [ "$store_code" -eq 0 ] || exit "$store_code"
+          exit "$journey_code"
       - name: Upload staging preclaim evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

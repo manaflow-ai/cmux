@@ -10,6 +10,7 @@ import type { PlayContext } from "../../gallery/play";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import type { AcpmuxSnapshot } from "./model";
 import type { SlashCommand } from "./slashCommands";
+import { PLUS_PICKER } from "./composerSelectors";
 
 const RECENTS_KEY = "cmux.acpmux.recentSlashCommands";
 
@@ -75,7 +76,7 @@ const snapshot: AcpmuxSnapshot = ((base) => ({
 function openWith(recents: readonly string[]) {
   return async (ctx: PlayContext) => {
     ctx.document.defaultView?.localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
-    await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+    await ctx.click({ selector: PLUS_PICKER });
     await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.commands"]'));
   };
 }

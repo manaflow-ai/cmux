@@ -12,7 +12,6 @@ const LABELS: Record<string, string> = {
   hunkSummaryLoading: "Summarizing…",
   hunkSummaryFailed: "No summary for this change",
   hunkSummaryOpenInDiff: "Open in diff",
-  hunkSummaryNote: "Written by an agent from the code. Check the code before you rely on it.",
 };
 const label = (key: string) => LABELS[key] ?? key;
 

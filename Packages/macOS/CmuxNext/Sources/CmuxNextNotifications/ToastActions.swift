@@ -10,33 +10,61 @@ import CmuxNextDaemonService
 ///   its Toasts section (duration, glass, padding, motion) and the active window shows sample toasts, one of
 ///   each shape; a knob moved there shows on the next sample (run it again to replay them). Debug Settings'
 ///   "Copy changed values as JSON" hands the tuned values over to bake in as the defaults.
+/// - `debug.toastPlayground` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-13): the Toast Playground
+///   (``CmuxToastPlaygroundWindow``), every toast style with every kind of toast in light and dark, where
+///   the person fires a style as real toasts and picks the style of every toast and prompt.
+/// - `debug.keycapPlayground` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-16): the Keycap Playground
+///   (``CmuxKeycapPlaygroundWindow``), every dialog keycap style on a real dialog card's buttons, light and dark.
 ///
 /// The app injects how Debug Settings opens and which window is active:
 ///
 /// ```swift
 /// ToastActions(openTuning: { focus in try debugSettings.show(selection: .section("toasts"), focus: focus) },
-///              window: { windows.active?.window }).bind(into: registry)
+///              window: { windows.active?.window }, themeColors: { themes.catalog.colors }).bind(into: registry)
 /// ```
 @MainActor
 package struct ToastActions {
     private let openTuning: @MainActor (_ focus: Bool) throws -> Void
     private let window: @MainActor () -> NSWindow?
     private let center: CmuxToastCenter
+    private let themeColors: @MainActor () -> [String: ThemeFileColors]
+    private let cards: [CmuxToastPlaygroundCard]
 
     /// - Parameter openTuning: Opens Debug Settings on its Toasts section; `focus` is the run's
     ///   `allowsViewChange`. Throws an ``ActionFailure`` when this build has no developer tools.
     /// - Parameter window: The window the sample toasts show in; nil shows none.
+    /// - Parameter themeColors: Every theme file's colors by name (the app's theme catalog), for the
+    ///   playground's light and dark sheets; read when it opens.
     /// - Parameter center: The toasts' center (the app's shared one).
+    /// - Parameter cards: Sidebar cards the playground shows for real (the one-time GitHub star ask).
     package init(openTuning: @escaping @MainActor (_ focus: Bool) throws -> Void,
-                 window: @escaping @MainActor () -> NSWindow?, center: CmuxToastCenter = .shared) {
+                 window: @escaping @MainActor () -> NSWindow?,
+                 themeColors: @escaping @MainActor () -> [String: ThemeFileColors] = { [:] }, center: CmuxToastCenter = .shared,
+                 cards: [CmuxToastPlaygroundCard] = []) {
+        self.cards = cards
         self.openTuning = openTuning
         self.window = window
+        self.themeColors = themeColors
         self.center = center
     }
 
-    /// Binds both actions in `registry`.
+    /// Binds the actions in `registry`.
     package func bind(into registry: ActionRegistry) {
-        let center = center, openTuning = openTuning, window = window
+        let center = center, openTuning = openTuning, window = window, themeColors = themeColors
+        let keycaps = CmuxKeycapPlaygroundWindow()
+        // The Toast Playground opens the Keycap Playground too: its button works before the pinned app FFI has
+        // `debug.keycapPlayground` (the palette shows that action after the re-pin).
+        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards) {
+            keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+        }
+        registry.bindEffect("debug.toastPlayground", effect: { _ in
+            playground.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+            return .done
+        })
+        registry.bindEffect("debug.keycapPlayground", effect: { _ in
+            keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+            return .done
+        })
         registry.bindEffect("toasts.showHidden", effect: { _ in
             center.neverShow.showAll()
             return .done

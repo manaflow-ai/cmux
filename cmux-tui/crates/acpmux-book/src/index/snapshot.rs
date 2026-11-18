@@ -3,7 +3,7 @@
 //! Snapshot records have a trailing frame length, so a backward page needs no
 //! dense row-offset table. Sparse entries have a fixed width and are searched
 //! on disk; neither opening nor writing a snapshot materializes its directory.
-use super::{OriginRecord, RowKey, SortKey, Summary, codec};
+use super::{MarkRecord, OriginRecord, RowKey, SortKey, Summary, codec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
@@ -56,16 +56,21 @@ pub(super) fn classify_read_error(error: io::Error) -> io::Error {
 
 #[cfg(test)]
 mod damage_tests;
+mod kin_table;
+pub(super) use kin_table::write_failure as record_kin_write_failure;
 mod read;
 #[cfg(test)]
 mod scale_tests;
 mod seek;
 mod write;
+#[cfg(test)]
+pub(super) use write::KinWriteStats;
 pub use write::SortedSnapshot;
+pub(super) use write::StreamGeneration;
 
 pub(super) const HEADER_BYTES: usize = 4096;
 const MAGIC: &[u8; 8] = b"ACIDX003";
-const CHECKPOINT_BYTES: usize = 552;
+pub const CHECKPOINT_BYTES: usize = 552;
 const TRAILER_BYTES: usize = 4;
 const FIRST_ROWS: usize = 400;
 pub const SEEK_BYTES: usize = 64 * 1024;
@@ -176,7 +181,26 @@ pub struct DiskSnapshot {
     file: File,
     pub(super) head: Head,
     origins: Vec<OriginRecord>,
+    marks: Vec<MarkRecord>,
+    kin_table: Option<kin_table::Table>,
 }
+
+/// Origins and the mirror's marks share the snapshot's origins section; a
+/// mark is the newest one per origin at the captured sequence.
+#[derive(Default)]
+pub struct SnapshotMeta {
+    pub origins: Vec<OriginRecord>,
+    pub marks: Vec<MarkRecord>,
+}
+
+impl From<Vec<OriginRecord>> for SnapshotMeta {
+    fn from(origins: Vec<OriginRecord>) -> Self {
+        Self { origins, marks: Vec::new() }
+    }
+}
+
+/// 256 origins of at most 1 KiB and 256 marks of at most 289 bytes.
+pub(super) const MAX_ORIGINS_BYTES: u64 = 512 * 1024;
 
 /// One bounded physical piece, including its progress when filtering yields no rows.
 pub struct SnapshotPiece {
@@ -275,6 +299,9 @@ impl DiskSnapshot {
     pub fn origins(&self) -> impl Iterator<Item = &OriginRecord> {
         self.origins.iter()
     }
+    pub fn marks(&self) -> impl Iterator<Item = &MarkRecord> {
+        self.marks.iter()
+    }
     pub fn rows(self: &Arc<Self>) -> SnapshotRows {
         SnapshotRows {
             snapshot: self.clone(),
@@ -338,9 +365,10 @@ impl DiskSnapshot {
         {
             return Err(codec::invalid("snapshot extent"));
         }
-        if head.origins_bytes > 256 * 1024 {
+        if head.origins_bytes > MAX_ORIGINS_BYTES {
             return Err(codec::invalid("snapshot origins too large"));
         }
+        let mut marks = Vec::new();
         let origins = if head.origins_bytes == 0 {
             Vec::new()
         } else {
@@ -351,12 +379,28 @@ impl DiskSnapshot {
             let mut input = io::Cursor::new(bytes.as_slice());
             let mut origins = Vec::new();
             let mut ids = std::collections::HashSet::new();
+            let mut marked = std::collections::HashSet::new();
             while (input.position() as usize) < bytes.len() {
                 let Some((record, _)) = codec::read_any(&mut input)? else {
                     return Err(codec::invalid("snapshot origins"));
                 };
-                let codec::LogRecord::Origin(origin) = record else {
-                    return Err(codec::invalid("snapshot origins record"));
+                let origin = match record {
+                    codec::LogRecord::Origin(origin) => origin,
+                    codec::LogRecord::Mark(mark) => {
+                        if mark.mark.is_none()
+                            || mark.origin == "local"
+                            || mark.seq > head.seq
+                            || !marked.insert(mark.origin.clone())
+                            || marks.len() >= 256
+                        {
+                            return Err(codec::invalid("snapshot mark record"));
+                        }
+                        marks.push(mark);
+                        continue;
+                    }
+                    codec::LogRecord::Row(_) => {
+                        return Err(codec::invalid("snapshot origins record"));
+                    }
                 };
                 if !ids.insert(origin.id.clone()) {
                     return Err(codec::invalid("duplicate snapshot origin"));
@@ -374,7 +418,20 @@ impl DiskSnapshot {
         if origins.len() > 256 {
             return Err(codec::invalid("snapshot origin limit"));
         }
-        Ok(Some(Arc::new(Self { file, head, origins })))
+        let binding = kin_table::Binding {
+            head_crc: crc,
+            seq: head.seq,
+            count: head.count,
+            data_end: head.data_end,
+        };
+        let kin_table = match kin_table::Table::open(&sidecar_path(path), binding) {
+            Ok(table) => table,
+            Err(error) => {
+                kin_table::table_failure(&error);
+                None
+            }
+        };
+        Ok(Some(Arc::new(Self { file, head, origins, marks, kin_table })))
     }
 
     pub fn log_offset(&self) -> u64 {
@@ -396,9 +453,62 @@ impl DiskSnapshot {
         self.head.data_end + self.head.origins_bytes + self.head.directory_bytes as u64
     }
 
+    /// Whether the optional cold kin sidecar was bound to this snapshot.
+    /// The reader is intentionally added in the follow-up PR.
+    pub fn has_kin_table(&self) -> bool {
+        self.kin_table.as_ref().is_some_and(kin_table::Table::is_usable)
+    }
+
+    pub(super) fn disable_kin_table(&self, error: &io::Error) {
+        if let Some(table) = &self.kin_table {
+            table.disable(error);
+        }
+    }
+
+    /// Validate every sparse seek checkpoint before a hub publishes this
+    /// snapshot at open. Paging normally checks only the checkpoints it needs;
+    /// startup must reject a damaged directory as one unknown-boundary index.
+    pub fn validate_checkpoints(&self) -> io::Result<()> {
+        let count = self.head.directory_bytes / CHECKPOINT_BYTES;
+        let mut previous: Option<Checkpoint> = None;
+        for index in 0..count {
+            let mut bytes = [0; CHECKPOINT_BYTES];
+            read_at(
+                &self.file,
+                &mut bytes,
+                self.directory_offset() + (index * CHECKPOINT_BYTES) as u64,
+            )?;
+            let checkpoint = Checkpoint::decode(&bytes).map_err(classify_read_error)?;
+            if checkpoint.offset < HEADER_BYTES as u64
+                || checkpoint.offset >= self.head.data_end
+                || checkpoint.ordinal >= self.head.count
+                || checkpoint.first_len < 12
+                || checkpoint.first_len > super::MAX_INDEX_RECORD_BYTES + TRAILER_BYTES
+                || checkpoint.offset + checkpoint.first_len as u64 > self.head.data_end
+                || (index == 0
+                    && (checkpoint.offset != HEADER_BYTES as u64 || checkpoint.ordinal != 0))
+                || previous.as_ref().is_some_and(|prior| {
+                    prior.offset >= checkpoint.offset
+                        || prior.ordinal >= checkpoint.ordinal
+                        || prior.key >= checkpoint.key
+                })
+            {
+                return Err(fatal("snapshot checkpoint extent"));
+            }
+            previous = Some(checkpoint);
+        }
+        Ok(())
+    }
+
     pub(super) fn directory_offset(&self) -> u64 {
         self.head.data_end + self.head.origins_bytes
     }
+}
+
+fn sidecar_path(snapshot: &Path) -> std::path::PathBuf {
+    let mut name = snapshot.as_os_str().to_os_string();
+    name.push(".kin");
+    std::path::PathBuf::from(name)
 }
 
 #[cfg(unix)]

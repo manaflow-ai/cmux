@@ -31,6 +31,19 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
       [ "$archs" = "$NIGHTLY_VARIANT" ]
     fi
   done
+  # And the screen sharing executable, inside the Computer Use helper (one permission identity:
+  # scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use).
+  helpers=("$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing")
+  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing" >&2; exit 1; }
+  for binary in "${helpers[@]}"; do
+    archs="$(lipo -archs "$binary")"
+    echo "$binary: $archs"
+    if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+      [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+    else
+      [ "$archs" = "$NIGHTLY_VARIANT" ]
+    fi
+  done
 fi
 # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
 for alias in cmux-tui acpmux; do

@@ -84,6 +84,25 @@ pub(crate) fn thread_peak_bytes<T>(run: impl FnOnce() -> T) -> (T, usize) {
     (value, most.max(0) as usize)
 }
 
+/// Starts counting this thread's bytes from zero, unless they are counted already; whether it
+/// started. For a measure that spans calls (a source on an actor's thread), where
+/// [`thread_peak_bytes`]'s closure cannot.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_start() -> bool {
+    PEAK_BYTES.with(|peak| peak.get().is_none() && peak.replace(Some((0, 0))).is_none())
+}
+
+/// The most bytes this thread held at once, over where [`thread_peak_start`] began, since the
+/// last call; the next call counts from the bytes held now. `None` when not counting.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_take() -> Option<usize> {
+    PEAK_BYTES.with(|peak| {
+        let (live, most) = peak.get()?;
+        peak.set(Some((live, live)));
+        Some(most.max(0) as usize)
+    })
+}
+
 fn key(mux: &str) -> Key {
     ("huge-blue".to_owned(), mux.to_owned())
 }

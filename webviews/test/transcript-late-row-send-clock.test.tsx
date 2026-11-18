@@ -13,6 +13,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { broughtSentPrompt } from "../src/agent-session/acpmux/VirtualTranscript";
 import { installJsdomScroller } from "./support/jsdomScroller";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,7 +59,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 installJsdomScroller(dom.window as never, () => VIEWPORT);
 
 // The page's send clock (`--agent-motion-send`): a gallery's 180 ms, or "" for the scale's step (0).
-let sendClock = "180ms";
+let sendClock = "180ms"; // motion-allow: a gallery's own send clock
 const realStyle = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
   const style = realStyle(element, pseudo);
@@ -98,6 +99,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
 afterAll(async () => {
+  await settleReact();
   if (ownNow) Object.defineProperty(performance, "now", ownNow);
   else delete (performance as unknown as Record<string, unknown>).now;
   dom.window.close();
@@ -242,7 +244,7 @@ test("on the product's 0 send clock, a send's rows land at once: no send chase",
   } finally {
     await act(async () => root.unmount());
     container.remove();
-    sendClock = "180ms";
+    sendClock = "180ms"; // motion-allow: a gallery's own send clock
   }
 });
 

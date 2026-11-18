@@ -179,6 +179,12 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("palette.rank", PALETTE_RANK_REASON),
+    ("chat.list", CHAT_REASON),
+    ("chat.mark_read", CHAT_REASON),
+    ("chat.pin", CHAT_REASON),
+    ("theme.scheme.convert", THEME_SCHEME_REASON),
+    ("theme.scheme.export", THEME_SCHEME_REASON),
+    ("theme.scheme.from_image", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -196,6 +202,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),
     ("cloud.owner.handoff_wait", CLOUD_API_REASON),
@@ -295,8 +303,13 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const CHAT_REASON: &str = "The person's chats as their Priority view ranks them, and what they have \
+     seen or pinned: App Store apps (with a grant and a tap) and the person's own scripts read and \
+     mark them; an agent already lists sessions with acpmux's own tools.";
 const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
      (the Channels page); an agent has no palette to rank, and its tools already search.";
+const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
+     `cmux theme import|export|from-image`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \

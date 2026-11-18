@@ -16,7 +16,7 @@ extension AuthCoordinator {
     /// locked, the failure was transient and this throws
     /// ``AuthError/networkError`` so the caller retries without signing out.
     /// When neither token survives from available storage, the session is
-    /// genuinely gone, so this calls ``clearAuthState()`` (flipping
+    /// genuinely gone, so this calls ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` (flipping
     /// ``isAuthenticated`` to `false`, which routes the root scene to the
     /// sign-in page) and throws
     /// ``AuthError/unauthorized``.
@@ -41,8 +41,7 @@ extension AuthCoordinator {
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
-            authLog.error("Access token unavailable and no refresh token survives; clearing auth state and routing to login")
-            clearAuthState(preservePendingCode: true)
+            clearAuthState(reason: "access token unavailable and no refresh token survives", preservePendingCode: true)
             throw AuthError.unauthorized
         }
     }
@@ -53,7 +52,7 @@ extension AuthCoordinator {
     }
 
     private func accessTokenWithoutStateClear() async throws -> String {
-        let storageWasAvailable = await isTokenStorageAvailable()
+        let readBaseline = await tokenReadBaseline()
         if let token = try await client.resolvedAccessToken(forceRefresh: false) {
             return token
         }
@@ -70,7 +69,7 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        throw await emptyTokenReadError(since: readBaseline)
     }
 
     private func devAuthAccessTokenFallback() async -> String? {
@@ -138,10 +137,10 @@ extension AuthCoordinator {
     }
 
     func coherentTokenPairWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
-        let storageWasAvailable = await isTokenStorageAvailable()
+        let readBaseline = await tokenReadBaseline()
         for _ in 0..<3 {
             guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-                throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+                throw await emptyTokenReadError(since: readBaseline)
             }
             // Resolve the access token through the LIVE store: a still-fresh
             // stored token is returned without the network, and a stale one is
@@ -154,7 +153,7 @@ extension AuthCoordinator {
                 if let surviving = await client.refreshToken(), !surviving.isEmpty {
                     throw AuthError.networkError
                 }
-                throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+                throw await emptyTokenReadError(since: readBaseline)
             }
             // The bracket: an unchanged refresh across the access resolution
             // proves no rotation crossed the window, so the pair is coherent.
@@ -312,10 +311,10 @@ extension AuthCoordinator {
             throw AuthError.unauthorized
         }
         let generation = sessionGeneration
-        let storageWasAvailable = await isTokenStorageAvailable()
+        let readBaseline = await tokenReadBaseline()
         guard let refreshToken = await client.refreshToken(),
               !refreshToken.isEmpty else {
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+            throw await emptyTokenReadError(since: readBaseline)
         }
         guard sessionGeneration == generation,
               !sessionTokenTransitionIsActive,
@@ -340,7 +339,7 @@ extension AuthCoordinator {
     ///   caller should retry rather than sign out; ``AuthError/unauthorized``
     ///   only when the session is genuinely gone from available storage (the
     ///   refresh token was definitively rejected and cleared). The definitive
-    ///   case also calls ``clearAuthState()`` so ``isAuthenticated`` flips to
+    ///   case also calls ``clearAuthState(reason:preservePendingCode:sessionTransitionAlreadyAnnounced:)`` so ``isAuthenticated`` flips to
     ///   `false` and the root scene routes to the sign-in page instead of
     ///   showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
@@ -352,14 +351,13 @@ extension AuthCoordinator {
             if sessionTokenTransitionIsActive {
                 throw AuthError.networkError
             }
-            authLog.error("Forced token refresh failed and no refresh token survives; clearing auth state and routing to login")
-            clearAuthState(preservePendingCode: true)
+            clearAuthState(reason: "forced token refresh failed and no refresh token survives", preservePendingCode: true)
             throw AuthError.unauthorized
         }
     }
 
     private func forceRefreshAccessTokenWithoutStateClear() async throws -> String {
-        let storageWasAvailable = await isTokenStorageAvailable()
+        let readBaseline = await tokenReadBaseline()
         if let token = try await client.resolvedAccessToken(forceRefresh: true) {
             return token
         }
@@ -369,11 +367,37 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        throw await emptyTokenReadError(since: readBaseline)
     }
 
-    private func emptyTokenReadError(storageWasAvailable: Bool) -> AuthError {
-        storageWasAvailable ? .unauthorized : .networkError
+    /// Signed out only when storage was readable and every read answered:
+    /// a locked store or a read that failed with a storage error (not "not
+    /// found") is retryable, never a signed-out verdict.
+    private func emptyTokenReadError(since baseline: TokenReadBaseline) async -> AuthError {
+        guard baseline.storageWasAvailable else { return .networkError }
+        if await tokenReadFailed(since: baseline) {
+            authLog.error("Token read failed with a storage error; keeping the session, the next use retries")
+            return .networkError
+        }
+        return .unauthorized
+    }
+
+    /// Where a token read starts from: whether token storage was readable and
+    /// how many reads had failed with a storage error so far.
+    func tokenReadBaseline() async -> TokenReadBaseline {
+        let storageWasAvailable = await isTokenStorageAvailable()
+        return TokenReadBaseline(
+            storageWasAvailable: storageWasAvailable,
+            readFailures: await client.tokenReadFailureCount()
+        )
+    }
+
+    /// Whether a token read since `baseline` failed with a storage error
+    /// (a keychain error such as `errSecInteractionNotAllowed`) rather than
+    /// finding the token or definitively not finding it. A nil token from
+    /// such a read is unknown, not absent.
+    func tokenReadFailed(since baseline: TokenReadBaseline) async -> Bool {
+        await client.tokenReadFailureCount() != baseline.readFailures
     }
 }
 
@@ -499,4 +523,13 @@ extension AuthCoordinator {
         }
         publishAuthenticatedTeamScope()
     }
+}
+
+/// The state a token read starts from; see
+/// ``AuthCoordinator/tokenReadBaseline()``.
+struct TokenReadBaseline: Sendable {
+    /// Whether token storage reported itself readable before the read.
+    let storageWasAvailable: Bool
+    /// ``AuthClient/tokenReadFailureCount()`` before the read.
+    let readFailures: UInt64
 }

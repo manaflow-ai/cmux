@@ -421,8 +421,16 @@ fn on_chars(text: &str, mut range: Range<usize>) -> Range<usize> {
     range
 }
 
+static SCANS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Texts scanned since start. Nothing scans at a send to a peer; the peer link's gates read it.
+pub fn scans() -> u64 {
+    SCANS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Every secret in `text`, in order, with overlapping finds merged into one.
 pub fn find(text: &str) -> Vec<Found> {
+    SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let rules = &*RULES;
     let bytes = text.as_bytes();
     let lower = text.to_ascii_lowercase();

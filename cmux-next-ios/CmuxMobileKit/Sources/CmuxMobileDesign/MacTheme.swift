@@ -57,10 +57,57 @@ public struct CmuxMobileMacAppearance: Codable, Equatable, Sendable {
     /// Nil from a Mac that predates it (``CmuxMobileTerminalTheme/init(appearance:)``).
     public var terminal: [String]?
 
-    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil) {
+    /// What the chat shows, as hostd resolves it from the Mac's theme, picture and bubble colors
+    /// (`appearance.rs` `chat_look`). Nil when the Mac shows nothing the person chose (Ghostty's
+    /// own colors, no picture, no bubble colors), and from a host that predates it: the chat
+    /// stays the stock one then.
+    public struct Chat: Codable, Equatable, Sendable {
+        /// `home.bubbleColors.*` picked on the Mac, `#rrggbb`.
+        public struct Bubbles: Codable, Equatable, Sendable {
+            public var sent: String?
+            public var sentText: String?
+            public var received: String?
+            public var receivedText: String?
+
+            public init(sent: String? = nil, sentText: String? = nil, received: String? = nil, receivedText: String? = nil) {
+                self.sent = sent
+                self.sentText = sentText
+                self.received = received
+                self.receivedText = receivedText
+            }
+        }
+
+        public var background: String
+        public var foreground: String
+        /// How much of `background` covers the picture, 0...1 (1 with none).
+        public var backgroundOpacity: Double
+        /// The picture behind the chat: the content id of ``CmuxMobileMacAppearance/wallpaper``.
+        public var wallpaper: String?
+        public var bubbles: Bubbles?
+
+        public init(background: String, foreground: String, backgroundOpacity: Double = 1, wallpaper: String? = nil,
+                    bubbles: Bubbles? = nil) {
+            self.background = background
+            self.foreground = foreground
+            self.backgroundOpacity = backgroundOpacity
+            self.wallpaper = wallpaper
+            self.bubbles = bubbles
+        }
+    }
+
+    public var chat: Chat?
+
+    public init(theme: Theme, wallpaper: Wallpaper? = nil, terminal: [String]? = nil, chat: Chat? = nil) {
         self.theme = theme
         self.wallpaper = wallpaper
         self.terminal = terminal
+        self.chat = chat
+    }
+
+    /// The picture the chat shows: the frame's wallpaper when its `chat` names it.
+    public var chatWallpaper: Wallpaper? {
+        guard let id = chat?.wallpaper, let wallpaper, wallpaper.id == id else { return nil }
+        return wallpaper
     }
 
     /// One `appearance` frame; nil for anything the phone cannot derive a palette from.
@@ -168,7 +215,7 @@ public struct CmuxMobileMacPalette: Equatable, Sendable {
 #endif
 
 /// The last appearance a Mac sent, on disk: the phone paints it at launch before any link, and
-/// keeps it while no Mac is reachable. One JSON file and the wallpaper's bytes by content id.
+/// keeps it while no Mac is reachable. One JSON file.
 public struct CmuxMobileMacAppearanceCache: Sendable {
     public let folder: URL
 
@@ -185,24 +232,9 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
 
     private var appearanceFile: URL { folder.appendingPathComponent("appearance.json") }
 
-    /// The wallpaper file of `id` (hex only; anything else names no file).
-    public func wallpaperFile(id: String) -> URL? {
-        guard !id.isEmpty, id.count <= 128, id.allSatisfy(\.isHexDigit) else { return nil }
-        return folder.appendingPathComponent("wallpaper-\(id).img")
-    }
-
     public func load() -> CmuxMobileMacAppearance? {
         guard let data = try? Data(contentsOf: appearanceFile) else { return nil }
         return CmuxMobileMacAppearance.decode(data)
-    }
-
-    public func wallpaper(id: String) -> Data? {
-        wallpaperFile(id: id).flatMap { try? Data(contentsOf: $0) }
-    }
-
-    /// Whether wallpaper `id` is on disk (its file exists, not read).
-    public func hasWallpaper(id: String) -> Bool {
-        wallpaperFile(id: id).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
     }
 
     public func save(_ appearance: CmuxMobileMacAppearance) {
@@ -211,15 +243,36 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
         guard let data = try? encoder.encode(appearance) else { return }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? data.write(to: appearanceFile, options: .atomic)
+        // Wallpapers an earlier build kept here (the phone no longer shows the Mac's).
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.lastPathComponent.hasPrefix("wallpaper-") {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
-    /// Keeps `data` as wallpaper `id` and drops every other one.
-    public func saveWallpaper(_ data: Data, id: String) {
-        guard let file = wallpaperFile(id: id) else { return }
+    /// The chat's picture file of `id` (hex only; anything else names no file). One picture at most
+    /// is kept (``saveChatWallpaper(_:id:)``), each at most `MacAppearanceFeed.maxWallpaperBytes`.
+    public func chatWallpaperFile(id: String) -> URL? {
+        guard !id.isEmpty, id.count <= 128, id.allSatisfy(\.isHexDigit) else { return nil }
+        return folder.appendingPathComponent("chat-wallpaper-\(id).img")
+    }
+
+    public func chatWallpaper(id: String) -> Data? {
+        chatWallpaperFile(id: id).flatMap { try? Data(contentsOf: $0) }
+    }
+
+    /// Whether picture `id` is on disk (its file exists, not read).
+    public func hasChatWallpaper(id: String) -> Bool {
+        chatWallpaperFile(id: id).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
+    /// Keeps `data` as the chat's picture `id` and drops every other one.
+    public func saveChatWallpaper(_ data: Data, id: String) {
+        guard let file = chatWallpaperFile(id: id) else { return }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
         let others = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        for other in others where other.lastPathComponent.hasPrefix("wallpaper-") && other != file {
+        for other in others where other.lastPathComponent.hasPrefix("chat-wallpaper-") && other.lastPathComponent != file.lastPathComponent {
             try? FileManager.default.removeItem(at: other)
         }
     }
@@ -227,14 +280,16 @@ public struct CmuxMobileMacAppearanceCache: Sendable {
 
 #if os(iOS)
 /// The Mac's theme on this phone: Settings > Appearance > Match Mac theme (on by default). While on,
-/// the chrome's colors come from the last theme a Mac sent (``CmuxMobileMacPalette``), live while
-/// one is connected and from the cache otherwise, and the sidebar and Home show its wallpaper. Off,
-/// or before any Mac sent one, the phone keeps its black and white chrome. SwiftUI views that read a
-/// token in their body redraw when it changes (Observation), as with the accent.
+/// the accent of an install that never picked one comes from the last theme a Mac sent
+/// (``CmuxMobileMacPalette``), live while one is connected and from the cache otherwise. The app's
+/// own chrome (lists, sidebar, Home) stays the stock black and white whatever the Mac shows. The
+/// agent chat alone follows the Mac's chat (``chatLook``: hostd's `chat`, the theme's ground, the
+/// Mac's picture under its tint, its bubble colors) while this switch is on and the Mac shows a look
+/// the person chose. SwiftUI views that read the accent or the chat look in their body redraw when
+/// it changes (Observation).
 ///
-/// The palette is set at once on the main actor (a derivation, no disk). The disk work (the JSON and
-/// wallpaper writes, the folder listing) and the picture's decode run off the main actor, one after
-/// another in order, and the decoded picture is published back on the main actor.
+/// The palette is set at once on the main actor (a derivation, no disk). The JSON write runs off the
+/// main actor, one after another in order.
 @Observable
 public final class CmuxMobileMacTheme: @unchecked Sendable {
     public static let shared = CmuxMobileMacTheme()
@@ -245,14 +300,8 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     @ObservationIgnored private let cache: CmuxMobileMacAppearanceCache
     /// The last queued disk job: each one waits for it, so writes land in order.
     @ObservationIgnored private var diskTail: Task<Void, Never>?
-    /// The last queued picture load, published on the main actor when it ends.
-    @ObservationIgnored private var pictureLoad: Task<Void, Never>?
-    /// The wallpaper id the newest picture load is for.
-    @ObservationIgnored private var loadingPictureID: String?
-    /// The picture whose fetched bytes are queued for the disk: held, not to be fetched again.
-    @ObservationIgnored private var heldPictureID: String?
 
-    /// Whether the chrome follows the Mac's theme.
+    /// Whether the accent follows the Mac's theme.
     public var matchesMac: Bool {
         didSet { defaults.set(matchesMac, forKey: Self.settingKey) }
     }
@@ -260,12 +309,18 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     public private(set) var appearance: CmuxMobileMacAppearance?
     /// Its palette, whatever ``matchesMac`` says (Settings previews it).
     public private(set) var macPalette: CmuxMobileMacPalette?
-    /// Its wallpaper, decoded off the main actor, and the id it was decoded for.
-    public private(set) var macWallpaper: UIImage?
-    private var macWallpaperID: String?
+    /// The chat's picture, decoded off the main actor, and the id it was decoded for.
+    public private(set) var chatPicture: UIImage?
+    private var chatPictureID: String?
+    /// The last queued picture load, published on the main actor when it ends.
+    @ObservationIgnored private var pictureLoad: Task<Void, Never>?
+    /// The picture id the newest load is for.
+    @ObservationIgnored private var loadingPictureID: String?
+    /// The picture whose fetched bytes are queued for the disk: held, not to be fetched again.
+    @ObservationIgnored private var heldPictureID: String?
 
-    /// Reads the cached appearance (one small JSON file: the first frame is already themed); its
-    /// picture decodes off the main actor and shows when ready.
+    /// Reads the cached appearance (one small JSON file: the first frame already has the accent);
+    /// the chat's picture decodes off the main actor and shows when ready.
     public init(defaults: UserDefaults = .standard, cache: CmuxMobileMacAppearanceCache = .standard) {
         self.defaults = defaults
         self.cache = cache
@@ -273,39 +328,69 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         if let cached = cache.load() {
             appearance = cached
             macPalette = CmuxMobileMacPalette(cached)
-            loadPicture(cached.wallpaper?.id, bytes: nil)
+            if let id = cached.chatWallpaper?.id { loadPicture(id, bytes: nil) }
         }
     }
 
-    /// The palette the chrome draws with now: nil when off or no Mac ever sent one.
+    /// What the agent chat draws now: nil while Match Mac theme is off, before any Mac sent a
+    /// frame, or when the Mac's frame has no `chat` (its look is the defaults): the stock chat.
+    public var chatLook: CmuxMobileChatLook? {
+        guard matchesMac, let appearance, let chat = appearance.chat, let macPalette else { return nil }
+        let picture = chat.wallpaper != nil && chatPictureID == chat.wallpaper ? chatPicture : nil
+        return CmuxMobileChatLook(chat: chat, palette: macPalette, picture: picture)
+    }
+
+    /// Whether `appearance`'s chat picture must be fetched: no file under its id (an existence check).
+    public func needsChatWallpaper(_ appearance: CmuxMobileMacAppearance) -> Bool {
+        guard matchesMac, let id = appearance.chatWallpaper?.id, id != heldPictureID else { return false }
+        return !cache.hasChatWallpaper(id: id)
+    }
+
+    /// Keeps `bytes` as picture `id` when given, then decodes picture `id` off the main actor and
+    /// shows it if the appearance still names it.
+    private func loadPicture(_ id: String?, bytes: Data?) {
+        loadingPictureID = id
+        if bytes != nil { heldPictureID = id }
+        let cache = cache
+        let decoded = enqueue { () -> UIImage? in
+            if let id, let bytes { cache.saveChatWallpaper(bytes, id: id) }
+            guard let id, let data = cache.chatWallpaper(id: id), let image = UIImage(data: data) else { return nil }
+            return image.preparingForDisplay() ?? image
+        }
+        let previous = pictureLoad
+        // task-owner: pictureLoad; one decode per picture change, each after the one before.
+        pictureLoad = Task { @MainActor [weak self] in
+            await previous?.value
+            let image = await decoded.value
+            guard let self, self.loadingPictureID == id else { return }
+            if image != nil || self.chatPictureID != id {
+                self.chatPicture = image
+                self.chatPictureID = image == nil ? nil : id
+            }
+        }
+    }
+
+    /// The palette the accent (and the terminal's launch colors) follow now: nil when off or no Mac
+    /// ever sent one.
     public var palette: CmuxMobileMacPalette? { matchesMac ? macPalette : nil }
-    /// The wallpaper behind the sidebar and Home, with the Mac's tint over it: only the picture the
-    /// current appearance names (another Mac's or an earlier one never shows under this tint).
-    public var wallpaper: (image: UIImage, tint: Double)? {
-        guard matchesMac, let image = macWallpaper, let info = appearance?.wallpaper, macWallpaperID == info.id else { return nil }
-        return (image, info.tintOpacity)
-    }
 
-    /// Whether `appearance`'s wallpaper must be fetched: no file under its id (an existence check).
-    public func needsWallpaper(_ appearance: CmuxMobileMacAppearance) -> Bool {
-        guard let id = appearance.wallpaper?.id, id != heldPictureID else { return false }
-        return !cache.hasWallpaper(id: id)
-    }
-
-    /// A Mac's appearance, live: it wins over the cached one and is kept for the next launch.
-    /// `wallpaper` is the picture's bytes when they were just fetched. The palette changes at once;
-    /// the writes and the picture's decode happen off the main actor (``settled()`` awaits them).
+    /// A Mac's appearance, live: it wins over the cached one and is kept for the next launch. The
+    /// palette changes at once; the write happens off the main actor (``settled()`` awaits it).
+    /// `chatWallpaper` is the chat picture's bytes when they were just fetched; the picture's write
+    /// and decode happen off the main actor too. `keep: false` applies the palette for this launch
+    /// only (a demo's theme): nothing is cached and no picture loads.
     @MainActor
-    public func apply(_ appearance: CmuxMobileMacAppearance, wallpaper: Data? = nil) {
+    public func apply(_ appearance: CmuxMobileMacAppearance, chatWallpaper: Data? = nil, keep: Bool = true) {
         guard let palette = CmuxMobileMacPalette(appearance) else { return }
-        let newID = appearance.wallpaper?.id
         if self.appearance != appearance { self.appearance = appearance }
         if macPalette != palette { macPalette = palette }
+        guard keep else { return }
         let cache = cache
         enqueue { cache.save(appearance) }
+        let newID = appearance.chatWallpaper?.id
         // Load only when the picture changed, just arrived, or is still missing: a color change keeps it.
-        if wallpaper != nil || newID != loadingPictureID || (newID != nil && macWallpaper == nil) {
-            loadPicture(newID, bytes: wallpaper)
+        if chatWallpaper != nil || newID != loadingPictureID || (newID != nil && chatPicture == nil) {
+            loadPicture(newID, bytes: chatWallpaper)
         }
     }
 
@@ -327,31 +412,8 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
         return task
     }
 
-    /// Keeps `bytes` as picture `id` when given, then decodes picture `id` off the main actor and
-    /// shows it if the appearance still names it.
-    private func loadPicture(_ id: String?, bytes: Data?) {
-        loadingPictureID = id
-        if bytes != nil { heldPictureID = id }
-        let cache = cache
-        let decoded = enqueue { () -> UIImage? in
-            if let id, let bytes { cache.saveWallpaper(bytes, id: id) }
-            guard let id, let data = cache.wallpaper(id: id), let image = UIImage(data: data) else { return nil }
-            return image.preparingForDisplay() ?? image
-        }
-        let previous = pictureLoad
-        pictureLoad = Task { @MainActor [weak self] in
-            await previous?.value
-            let image = await decoded.value
-            guard let self, self.loadingPictureID == id else { return }
-            if image != nil || self.macWallpaperID != id {
-                self.macWallpaper = image
-                self.macWallpaperID = image == nil ? nil : id
-            }
-        }
-    }
-
     /// `stock` with the Mac's color in the slot of the Mac theme's own look (`pick`'s color), while
-    /// the chrome follows the Mac. The phone keeps its own light or dark (System follows iOS; Light
+    /// the accent follows the Mac. The phone keeps its own light or dark (System follows iOS; Light
     /// and Dark are the person's), and the slot of the other look keeps the stock color: a light
     /// Mac theme on a phone in dark mode shows the stock dark chrome.
     public func token(_ stock: CmuxMobileColorToken, _ pick: (CmuxMobileMacPalette) -> CmuxMobileRGBA) -> CmuxMobileColorToken {

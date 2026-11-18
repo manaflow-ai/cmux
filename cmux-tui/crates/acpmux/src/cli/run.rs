@@ -49,9 +49,24 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         } else {
             e
         }
-    })?;
+    });
+    let v = match v {
+        Ok(v) => v,
+        // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
+        // says what reaches it and carries its row.
+        Err(e) if crate::cli::send_relay::no_such_session(&e) => {
+            return Err(match crate::cli::send_relay::listed_row(&key).await {
+                Some(row) => crate::cli::send_relay::listed_refusal(&key, row).into(),
+                None => e,
+            });
+        }
+        Err(e) => return Err(e),
+    };
     crate::cli::resolve::routed_id(&v)
 }
+
+#[cfg(all(test, unix))]
+mod list_callers_tests;
 
 #[cfg(all(test, unix))]
 mod tests {

@@ -35,7 +35,7 @@ final class TerminalKeyboardTUIFitUITests: XCTestCase {
             demo = probe.label
             for step in ["tui.", "show0", "hide0"] where demo.hasPrefix(step) && !shot.contains(step) {
                 // The keyboard's animation and the resize settle are over by
-                // then; the next step is 1.6 s after this one.
+                // then; the next step is 2.5 s after this one.
                 RunLoop.current.run(until: Date().addingTimeInterval(1.0))
                 attach(app, step == "tui." ? "vim-keyboard-down" : step == "show0" ? "vim-keyboard-up" : "vim-keyboard-down-again")
                 shot.insert(step)
@@ -45,7 +45,9 @@ final class TerminalKeyboardTUIFitUITests: XCTestCase {
         XCTContext.runActivity(named: "demo: \(demo)") { _ in }
         XCTAssertTrue(demo.hasPrefix("done.rz"), "the demo finished with vim on the alternate screen (\(demo))")
         XCTAssertTrue(shot.isSuperset(of: ["tui.", "show0", "hide0"]), "each keyboard state was captured (\(shot.sorted()), \(demo))")
-        let counts = demo.dropFirst("done.rz".count).split(separator: "-").compactMap { Int($0) }
+        // `done.rz<before>-<after>.steps=...`: the counts before the step log.
+        let rz = demo.dropFirst("done.rz".count).split(separator: ".").first ?? ""
+        let counts = rz.split(separator: "-").compactMap { Int($0) }
         XCTAssertEqual(counts.count, 2, "resize counts in \(demo)")
         XCTAssertGreaterThan(counts.first ?? 0, 0, "the page claimed its grid on attach (\(demo))")
         // Each settled show and hide claims the rows that fit; none means the

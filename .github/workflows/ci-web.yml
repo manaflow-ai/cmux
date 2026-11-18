@@ -25,13 +25,12 @@ permissions:
 jobs:
   web-subarea-scope:
     if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
-    # The webview suite's router: a declared light job (.github/runners.json hosted_light_jobs,
-    # about 30 s of work). Attempt 1 takes GitHub-hosted Ubuntu, a re-run the Linux pool's live
-    # member, never LINUX_RUNNER alone. On 2026-11-01 LINUX_RUNNER sat on a stalled
+    # The webview suite's router (about 30 s of work): the Linux pool's live member on every attempt,
+    # never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735), never LINUX_RUNNER alone. On 2026-11-01 LINUX_RUNNER sat on a stalled
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
     permissions:
@@ -261,7 +260,93 @@ jobs:
           name: web-test-junit-shard${{ steps.shard.outputs.index }}-attempt${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-test-junit/junit.xml
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
+
+  # The agent pane against the real acpmux daemon (webviews/test/support/realAcpmux.ts): a new chat
+  # settles with no layout shift, and the model, effort and access picks hold through a first send,
+  # a reload, a daemon restart and a harness switch. Leo, 2026-11-17: "we need to test out more of
+  # these permission related combinations in ci and whatnot so things are as people would expect".
+  # The webview shards build no Rust, so these files skip there; this job builds acpmux and sets
+  # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
+  agent-pane-real-acpmux:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    name: Agent pane on real acpmux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          shared-key: agent-pane-real-acpmux
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
+          workspaces: cmux-tui -> target
+
+      - name: Build acpmux
+        working-directory: cmux-tui
+        run: |
+          cargo build --locked -p acpmux --bin acpmux
+          # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
+          target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+          echo "ACPMUX_BIN=$target_dir/debug/acpmux" >> "$GITHUB_ENV"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Run the real-daemon pane checks
+        working-directory: webviews
+        env:
+          CMUX_REAL_ACPMUX: "1"
+          CMUX_BROWSER_TESTS: "1"
+          FAST_CHECKS_OUT: ${{ runner.temp }}/agent-pane-real-acpmux
+        run: |
+          status=0
+          for file in test/agent-pane-new-chat-settles.test.ts test/agent-pane-picks-hold.test.ts; do
+            echo "::group::$file"
+            bun test "$file" || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Upload the measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-pane-real-acpmux
+          if-no-files-found: ignore
+          retention-days: 3
 
   web-instant-navigation:
     needs: web-subarea-scope
@@ -494,7 +579,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:transcript-icons check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -609,7 +694,7 @@ jobs:
           overwrite: true
           path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       # A push's verdicts feed the base's flake history (the webviews-test-history job), which a
       # pull request's base replay reads so a test that flips by itself on the base only warns.
@@ -852,20 +937,21 @@ jobs:
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
   # build; doing that after the head suite in one 40-minute job made shard 3 hit
-  # the timeout before it could publish a verdict.
+  # the timeout before it could publish a verdict. The early base shards above
+  # run the recorded base reds in parallel with the head suite; this one job
+  # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_32) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone).
+    # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
+    # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
     # actions: read: the base's webview test history is an artifact of its newest push.
     permissions:
       contents: read
       actions: read
-    # One job for every head shard: it was one a head shard (12), and in run 43409592440, with the early base
-    # results, 11 of those 12 took 0.3-0.9 min (nothing left to replay) and one 3.0 (one file). Each head shard's
-    # results are joined first (webviews_test_history.py heads), then judged once.
+    # One job joins every head shard after the parallel head and early-base work.
     name: react-apps-base-check
     steps:
       # The base is the merge commit's first parent, the commit the head shards
@@ -908,6 +994,8 @@ jobs:
       - name: Use the merge parent as the base
         id: head
         run: |
+          # The job's clock, for the compare step's replay budget (the checkout before it is in REPLAY_RESERVE).
+          date +%s > "$RUNNER_TEMP/job-started"
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
           cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
@@ -1019,7 +1107,10 @@ jobs:
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
-      # the job's verdict is the last step's.
+      # the job's verdict is the last step's. A red the base passed is replayed there again, at most
+      # two more times (base_again) and only its files, until the base fails it: one passing replay of a
+      # test that flaps called it the change's (cmux#41254, run 43006460063: attempt 2's replay
+      # passed the webkit stream-row overlap test, attempt 3's failed it).
       - name: Run base reds and compare
         id: base
         continue-on-error: true
@@ -1028,6 +1119,12 @@ jobs:
           HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
           BASE_RESULTS: ${{ runner.temp }}/base-results.json
           KNOWN_REPLAY: ${{ steps.history.outputs.replay }}
+          # The base replays after the first share one budget: this job's timeout-minutes (keep the two equal) less
+          # the time gone and REPLAY_RESERVE seconds for the head re-run (its setup, up to 11 min, and one file at
+          # the runner's 900 s ceiling) and the verdict. #41414 review: three replays of a 900 s file plus the
+          # head re-run came to 60 minutes inside a 55-minute job, cut with no verdict.
+          JOB_TIMEOUT_MINUTES: "55"
+          REPLAY_RESERVE: "1700"
           CMUX_NEXT_STYLE_GUARDS: warn
           CMUX_WEB_TEST_JOBS: "1"
           CMUX_WEB_TEST_RETRIES: "0"
@@ -1078,9 +1175,54 @@ jobs:
             --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky"
           sort -u "$flaky" -o "$flaky"
           if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
+          # Replay the files of the reds the base passed again, until it fails them, at most base_again times. None when
+          # the history answered every red (replay=0): this base has no install, bundles or browsers then. A replay
+          # starts only when its files' limits (one job, no retries) fit the budget left; one that does not fit is not
+          # run, and its reds stay the change's, not replayed (never excused). No clock reads as no time left.
+          again=() base_again=2
+          : "${JOB_TIMEOUT_MINUTES:=0}" "${REPLAY_RESERVE:=0}"  # unset: no budget, no further replay
+          started="$(cat "$RUNNER_TEMP/job-started" 2>/dev/null || echo 0)"
+          [[ "$started" =~ ^[0-9]+$ ]] || started=0
+          if [ "${KNOWN_REPLAY:-}" != "0" ]; then
+            for n in $(seq 1 "$base_again"); do
+              python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
+                > "$RUNNER_TEMP/base-again-files" || : > "$RUNNER_TEMP/base-again-files"
+              # A file the base does not have (a new test file red on the head) cannot replay there: its reds stay the
+              # change's. Unfiltered, the limit read below failed on it under -e -o pipefail and ended the step before
+              # the verdict (#41414 review); the first replay's own filter above keeps it out of that run the same way.
+              while IFS= read -r file; do
+                if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
+                  printf '%s\n' "$file"
+                elif [ -n "$file" ]; then
+                  echo "not on the base, the change's own, not replayed: $file" >&2
+                fi
+              done < "$RUNNER_TEMP/base-again-files" > "$RUNNER_TEMP/base-again-present"
+              mv "$RUNNER_TEMP/base-again-present" "$RUNNER_TEMP/base-again-files"
+              [ -s "$RUNNER_TEMP/base-again-files" ] || break
+              left=$(( JOB_TIMEOUT_MINUTES * 60 - REPLAY_RESERVE - ($(date +%s) - started) )) need=0
+              while IFS= read -r file; do
+                limit="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
+                declared="$(head -n 20 "$file" 2>/dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1 || :)"
+                if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
+                if [ "$limit" -gt 900 ]; then limit=900; fi
+                need=$(( need + limit ))
+              done < "$RUNNER_TEMP/base-again-files"
+              if [ "$need" -gt "$left" ]; then
+                echo "the replay budget (${left}s left) cannot fit another base replay (${need}s); the change's own, not replayed:"
+                sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
+                break
+              fi
+              echo "replaying on the base again ($n of $base_again):"; sed 's/^/  /' "$RUNNER_TEMP/base-again-files"
+              CMUX_WEB_TEST_FILES="$(cat "$RUNNER_TEMP/base-again-files")" \
+                CMUX_WEB_TEST_RESULTS="$RUNNER_TEMP/base-again-$n.json" \
+                env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
+                bash "$runner/run-webviews-tests.sh" || true
+              again+=(--base-again "$RUNNER_TEMP/base-again-$n.json")
+            done
+          fi
           status=0
-          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
-          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" \
+          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
+          python3 "$runner/guards_new_reds.py" --new-files --flaky "$flaky" "${again[@]}" "$HEAD_RESULTS" "$BASE_RESULTS" \
             > "$RUNNER_TEMP/head-rerun-files" || : > "$RUNNER_TEMP/head-rerun-files"
           # At most 25 from any one head shard, the cap each head shard's own base check held.
           echo "rerun=$([ "$status" -ne 0 ] && python3 "$runner/webviews_test_history.py" rerun-fits "$RUNNER_TEMP/head-rerun-files" \
@@ -1135,7 +1277,11 @@ jobs:
             CMUX_WEB_TEST_RESULTS="$HEAD_RERUN" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
             bash "$runner/run-webviews-tests.sh" || true
-          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$RUNNER_TEMP/flaky-on-base" \
+          again=()
+          for found in "$RUNNER_TEMP"/base-again-*.json; do
+            [ -e "$found" ] && again+=(--base-again "$found")
+          done
+          python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$RUNNER_TEMP/flaky-on-base" "${again[@]}" \
             --head-rerun "$HEAD_RERUN" "$HEAD_RESULTS" "$BASE_RESULTS"
 
       - name: Fail on the change's own reds
@@ -1153,14 +1299,29 @@ jobs:
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
   # diagnostic after the test suite.
+  # A feat-cmux-next push only. This scan reports and never fails on a finding
+  # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
+  # (cmux-next-react-doctor.yml) scans the same webviews project with the same
+  # pinned tool and gates it: a new error or a failed scan is red there. Running
+  # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
+  # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
+  # held PRs (#44127).
   react-doctor:
     needs: [web-subarea-scope, runners]
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
     # 2026-10-20 (runs 39505208959, 39506071754), which failed
     # react-apps-check. It takes the 16 vCPU size from the capability map.
+    # It has grown back into its cap: on 2026-11-16 `bun run react-doctor:ci`
+    # measured 20m02s at the feat-cmux-next tip and 13m58s on a PR head, both
+    # on one 8 vCPU Blacksmith runner, and the job itself ran 14 min of its 15
+    # before GitHub cancelled it three times on #44127 (jobs 133551852130,
+    # 133579638216, 133602056508). A cancelled job has no verdict, so the
+    # base-red classifier cannot excuse it and every PR that changes a React
+    # app waits on a rerun. 30 min is the headroom; the time to cut is in the
+    # doctor run, not in this cap.
     runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: webviews
@@ -1226,9 +1387,12 @@ jobs:
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
-          required_jobs = ["react-apps-check-shard", "react-doctor"]
+          required_jobs = ["react-apps-check-shard"]
+          # A pull request's base replay; a push's React Doctor report (the ratchet gates a pull request's).
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
+          else:
+              required_jobs.append("react-doctor")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
                             () if required else required_jobs)
           for name in required_jobs:
@@ -1240,12 +1404,12 @@ jobs:
   # a stalled download or cache save must not time out the gate. A missing
   # manifest only means the next run splits by path hash. A pull request's
   # entry stays in its own ref's scope; fork pull requests save none. A declared light
-  # job on the same route as web-subarea-scope (hosted Ubuntu on attempt 1), so the
+  # job on the same route as web-subarea-scope (the Linux pool on every attempt), so the
   # manifest is saved to the cache store the router restores it from.
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
@@ -1510,6 +1674,7 @@ jobs:
       - web-tests
       - web-instant-navigation
       - react-apps-check
+      - agent-pane-real-acpmux
       - diff-sidecar-check
       - web-db-migrations
     # Keep the web verdict after a failed dependency, but skip it after run
@@ -1589,6 +1754,7 @@ jobs:
               "web-tests": inputs["web"] == "true" and subareas.get("unit_tests") == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas.get("instant") == "true",
               "react-apps-check": inputs["web"] == "true" and subareas.get("react_apps") == "true",
+              "agent-pane-real-acpmux": inputs["web"] == "true" and subareas.get("react_apps") == "true",
               "diff-sidecar-check": scope_required and subareas.get("diff_sidecar") == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas.get("db") == "true",
           }

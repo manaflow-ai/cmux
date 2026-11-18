@@ -5,10 +5,18 @@ use crate::session_identity::SessionReceipt;
 use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
-fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
+pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
     match peer.state() {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
+        }
+        _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
+            || peer.link().down_since.is_some_and(|at| {
+                crate::store::now_ms().saturating_sub(at)
+                    >= super::peer_grace::DROP_GRACE.as_millis() as u64
+            }) =>
+        {
+            OriginState::Stale
         }
         _ => OriginState::Down,
     }
@@ -218,6 +226,7 @@ impl Hub {
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
+        peer.set_mirror(self.link_v2.clone());
         let settled = peer.settled();
         // Register under the peer lock and the rows writer lock (lock order: `peers`, then
         // `remote_sessions`): a purge or notice of the instance this replaces, checked current
@@ -765,7 +774,6 @@ impl Hub {
         };
         if !changed.is_empty() {
             self.save_peer_cache(peer, generation, true);
-            self.events.origin_tee(peer, OriginState::Stale, crate::store::now_ms());
         }
         for summary in changed {
             self.announce_remote(peer, summary, "status");
@@ -838,14 +846,12 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
+                // Whether a name missing from its rows is final, and messages waiting for the
+                // peer go now (`hub/no_session.rs`).
+                PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
-                    // Its list came before this notice and is applied: a name it lacks is no
-                    // session there (`hub/no_session.rs`).
-                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation) {
-                        p.rows_ready.store(true, std::sync::atomic::Ordering::SeqCst);
-                        p.note_rows_applied();
-                    }
+                    self.peer_ready_rows(&peer, generation);
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
@@ -879,7 +885,6 @@ impl Hub {
                     // Called directly, with no grace: this drop is its outage's first
                     // when the link counts one failed attempt.
                     self.note_peer_drop(&peer, generation, &e);
-                    self.events.origin_tee(&peer, OriginState::Down, crate::store::now_ms());
                     let first = self.peer(&peer).is_some_and(|p| p.link().attempts == 1);
                     self.save_after_drop(&peer, generation, first);
                     self.mark_peer_unreachable(&peer, generation);

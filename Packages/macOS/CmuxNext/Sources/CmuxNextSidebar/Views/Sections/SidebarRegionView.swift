@@ -206,6 +206,16 @@ final class SidebarRegionView: NSView {
     /// The layout of `content` at `width` (a list block's height and hit test).
     static func layout(of content: Content, width: CGFloat) -> SidebarRegionLayout { layout(content, width: width) }
 
+    /// The lines `layout` draws, each keyed: its separators where `drawsLines` (`appearance.borders`), else, in a
+    /// look that separates sections, a tonal step on every other section after Home's (no step under Home,
+    /// Lawrence 2026-11-13).
+    static func lineFrames(of layout: SidebarRegionLayout, look: SectionsLookVariant, drawsLines: Bool) -> [(key: String, frame: CGRect)] {
+        if drawsLines { return zip(layout.separatorKeys, layout.separators).map { (key: $0, frame: $1) } }
+        guard look.separatesSections else { return [] }
+        return zip(layout.sectionIDs, layout.sectionFrames).filter { $0.0 != SidebarLayoutDocument.topSectionID }.enumerated()
+            .filter { $0.offset % 2 == 1 }.map { (key: "tone:" + $0.element.0.rawValue, frame: $0.element.1) }
+    }
+
     /// Lays out the shown order again; animated, every row springs to its frame.
     func relayout(animated: Bool) {
         guard let content else { return }
@@ -333,10 +343,7 @@ final class SidebarRegionView: NSView {
             cardLayers[id] = card
         }
         drawsLines = Borders.drawsLines
-        let lineFrames: [(String, CGRect)] = drawsLines ? Array(zip(layoutResult.separatorKeys, layoutResult.separators))
-            : content.look.separatesSections
-            ? zip(layoutResult.sectionIDs, layoutResult.sectionFrames).enumerated().filter { $0.offset % 2 == 1 }.map { ("tone:" + $0.element.0.rawValue, $0.element.1) }
-            : []
+        let lineFrames = Self.lineFrames(of: layoutResult, look: content.look, drawsLines: drawsLines).map { ($0.key, $0.frame) }
         let lines = Dictionary(lineFrames, uniquingKeysWith: { a, _ in a })
         for (key, line) in lineLayers where lines[key] == nil {
             line.removeFromSuperlayer()

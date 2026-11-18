@@ -88,6 +88,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
+
+    /// The raw failure for `lastError`, which goes to the log only (never on
+    /// screen): the Mac's own words, so a log reads "unknown surface 9" and not
+    /// the sentence a person sees.
+    nonisolated static func diagnostic(_ error: any Error) -> String {
+        if let error = error as? LinkError { return error.message.isEmpty ? error.code : String(error.message.prefix(160)) }
+        return String(error.localizedDescription.prefix(160))
+    }
+
     /// The terminal's shared size state, live while attached to a daemon
     /// with `shared-sizing-v1`.
     public let sizing = TerminalSizingLive()
@@ -96,6 +105,21 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The daemon takes `replay_history_rows` (it listed
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
+    /// The `agent-cli-frame` stream and the newest frame this mirror drew
+    /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
+    /// since that frame instead of the whole screen.
+    private var hybridResume: (stream: String, frame: Int)?
+    /// Agent CLI frames this session could not draw (``DaemonTerminalInbound/hybridFallback(reason:)``).
+    /// The first makes a full resync (an attach that names no frame: a keyframe); after the
+    /// second the session attaches in bytes mode (it declares no hybrid capability).
+    private(set) var hybridFallbacks = 0
+    /// The attach whose frame failed is closing: attach again once it has.
+    private var resyncAfterClose = false
+    /// The session declares the hybrid capabilities: the setting is on and its frames did
+    /// not fail twice.
+    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Where the setting is read (tests give each session its own).
+    var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of
     /// them). Grows by ``historyChunkRows`` with each ``loadOlderHistory()``,
     /// and a reattach keeps it, so a reader keeps the rows they had.
@@ -203,13 +227,43 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac holds a size of this session's now (a sized attach or a
     /// `resize-surface` went out, and no release after it).
     private var sizeClaimed = false
-    /// The daemon lists `size-lease-v1`: a claim lasts only while refreshed.
+    /// The daemon lists `size-lease-v1` or `size-lease-v2`: a claim lasts
+    /// only while refreshed.
     private var leased = false
-    /// How often a claimed size is sent again while the daemon leases it.
-    /// The daemon's lease is 45 s.
+    /// The daemon lists `size-lease-v2`: its lease is 8 s, not 45 s.
+    private var shortLease = false
+    /// How often a claimed size is sent again under `size-lease-v1` (the
+    /// daemon's lease is 45 s).
     var sizeLeaseRefresh: Duration = .seconds(15)
+    /// How often under `size-lease-v2` (the daemon's lease is 8 s, so three
+    /// refreshes may go missing).
+    var shortLeaseRefresh: Duration = .seconds(2)
+    /// On screen, the Mac answered the phone's claim with another grid and
+    /// kept it past ``reclaimWait`` (its policy keeps that grid): its grid
+    /// changes are shown as they come, not held, until the phone's grid is
+    /// back or the page claims again.
+    private var macKeepsGrid = false
+    /// Releases sent at once (``releaseNow()``) and not answered yet: a stop
+    /// still sends its own, answered release before it closes the channel.
+    private var releasesInFlight = 0
+    /// When this view last told the Mac its size (a sized attach or a
+    /// `resize-surface`). A grid the phone did not ask for that arrives
+    /// within ``claimAnswerWindow`` of it is that claim's own round trip (an
+    /// attach's replay of the Mac's old grid), not a lost claim.
+    private var lastClaimAt: ContinuousClock.Instant?
+    /// How long a claim is still being answered (tests shorten it).
+    var claimAnswerWindow: Duration = .milliseconds(1500)
+    /// Claims ``claimAgain()`` sent (tests read it synchronously: it is set
+    /// in the same turn as the grid that caused it).
+    private(set) var reclaimsSent = 0
     private var leaseTask: Task<Void, Never>?
     private var draining = false
+    /// The request `drain()` has on its way (while `draining`) is a size.
+    private var drainingSize = false
+    /// Bumped on every show/hide (``setClaimsSize(_:)``): a size `drain()` took
+    /// under an older one is stale and never sent (a hide and show between
+    /// queuing and sending queued the current size again).
+    private var claimGeneration = 0
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
@@ -392,8 +446,10 @@ public final class DaemonTerminalSession: TerminalSession {
     public func setClaimsSize(_ claims: Bool) {
         guard claims != claimsSize else { return }
         claimsSize = claims
+        claimGeneration &+= 1
         outbox.removeAll { if case .size = $0 { true } else { false } }
         if claims {
+            macKeepsGrid = false
             if attached, let size = lastSize {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
@@ -405,7 +461,7 @@ public final class DaemonTerminalSession: TerminalSession {
             stopLeaseRefresh()
             if attached, sizeClaimed {
                 log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
-                enqueue(.release)
+                releaseNow()
             }
             sizeClaimed = false
         }
@@ -427,7 +483,8 @@ public final class DaemonTerminalSession: TerminalSession {
         // reads the close as a dropped link (which holds its grid for 30 s).
         if let client {
             // A claimed size, or a release still waiting behind another request.
-            let release = attached && (sizeClaimed || outbox.contains { if case .release = $0 { true } else { false } })
+            let release = attached && (sizeClaimed || releasesInFlight > 0
+                || outbox.contains { if case .release = $0 { true } else { false } })
             let surface = surface
             Task {
                 if release {
@@ -547,31 +604,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The Mac terminal's foreground program (`process-info`
-    /// `foreground_program`, the foreground job's program: its leader, or the
-    /// script a leading shell runs, as `man` on macOS), nil while
-    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
-    /// read, asked when the screen enters the alternate screen and when a drag
-    /// begins there (``TerminalPanRoute``).
-    public func foregroundProgram() async -> String? {
-        guard attached, let client else { return nil }
-        let surface = surface
-        do {
-            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
-            if let error = Self.error(in: reply) {
-                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
-                return nil
-            }
-            return TerminalAlternateScroll.program(processInfo: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:])
-        } catch {
-            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
-    nonisolated static let processInfoDeadline: Duration = .seconds(1)
-
     /// The reader scrolled up to the mirror's oldest row and the Mac has
     /// older ones (``historyRowsOmitted``): a second attach with
     /// ``historyChunkRows`` more rows of history (all of them when that many
@@ -580,13 +612,30 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reattach, but the connection stays attached throughout. One at a time;
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
-    public func loadOlderHistory() {
+    /// Returns whether the fetch was sent (its reset and replay follow).
+    @discardableResult
+    public func loadOlderHistory() -> Bool {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
-              let allowance = historyAllowance, inputInFlight == 0, let client else { return }
+              let allowance = historyAllowance, inputInFlight == 0, let client else { return false }
         historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next allowance \(self.historyAllowance.map(String.init) ?? "all", privacy: .public))")
         replacing = client
         Task { await attach() }
+        return true
+    }
+
+    /// The most history ``requestHistoryRows(_:)`` asks for ahead of time.
+    static let maxRequestedHistoryRows = 5 * historyChunkRows
+
+    /// A tab back from the warm set will put its reader back `rows` rows above
+    /// the end: the next attach asks for that much history, in whole
+    /// ``historyChunkRows`` (up to ``maxRequestedHistoryRows``), so the first
+    /// replay holds the reader's rows instead of the screen alone and a
+    /// second fetch.
+    public func requestHistoryRows(_ rows: Int) {
+        guard let allowance = historyAllowance, rows > allowance else { return }
+        let chunks = (rows + Self.historyChunkRows - 1) / Self.historyChunkRows
+        historyAllowance = max(allowance, min(Self.maxRequestedHistoryRows, chunks * Self.historyChunkRows))
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
@@ -657,8 +706,10 @@ public final class DaemonTerminalSession: TerminalSession {
             inbox.setPaused(outputPaused)
             self.inbox = inbox
             let surface = surface
+            let resumeFrom = hybridWanted ? hybridResume : nil
+            let resumeAlternate = resumeFrom != nil && isAlternateScreen
             eventTask = Task.detached { [weak self] in
-                var parser = DaemonTerminalEventParser(surface: surface)
+                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate)
                 for await line in events {
                     await inbox.push(parser.parse(line))
                 }
@@ -671,15 +722,19 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.clientCapabilities
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
             let identify = try? setup.last?.get()
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
-            leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
+            shortLease = identify.map { Self.lists(Self.shortSizeLeaseCapability, $0) } ?? false
+            leased = shortLease || (identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false)
             sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            // A daemon that does not list the hybrid stream would refuse a resume's fields
+            // (one older than it, or one this phone reached after a Mac update rolled back).
+            let hybridResumable = identify.map { Self.lists(Self.agentCLIHybridCapability, $0) } ?? false
             tailReplay = identify.map { Self.lists(Self.replayHistoryRowsCapability, $0) } ?? false
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
@@ -688,6 +743,17 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Each request gets its own literal: a dictionary sent to the
                 // client actor is never touched again here (Swift 6 regions).
                 func send(historyRows: Int?) async throws -> Data {
+                    // Settings → Transport → Agent CLI Screen Changes: a reattach resumes
+                    // the hybrid stream from the frame this mirror drew.
+                    if hybridWanted, hybridResumable, let resume = hybridResume {
+                        var params: [String: Any] = ["surface": surface, "hybrid_stream": resume.stream, "hybrid_frame": resume.frame]
+                        if let size {
+                            params["cols"] = size.columns
+                            params["rows"] = size.rows
+                        }
+                        if let historyRows { params["replay_history_rows"] = historyRows }
+                        return try await client.request("attach-surface", params: params)
+                    }
                     switch (size, historyRows) {
                     case let (size?, rows?):
                         return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
@@ -732,6 +798,7 @@ public final class DaemonTerminalSession: TerminalSession {
                     reply = try await attachSurface(nil)
                 } else {
                     attachedWithSize = size
+                    lastClaimAt = .now
                 }
             } else if initialSize, let size = lastSize ?? pendingSize {
                 reply = try await attachSurface(size)
@@ -741,6 +808,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 } else {
                     lastSize = size
                     attachedWithSize = size
+                    lastClaimAt = .now
                 }
             } else {
                 reply = try await attachSurface(nil)
@@ -762,8 +830,18 @@ public final class DaemonTerminalSession: TerminalSession {
             // blank for ~170 ms, then half drawn).
             // Hidden and holding the Mac's grid, the reset and the replay
             // after it are held too: what was held before is superseded.
-            reclaimHold.restart(alternate: isAlternateScreen)
-            show(.output(TerminalReclaimHold.reset))
+            // A resumed agent CLI stream (`agent-cli-hybrid-v1`) applies its first frame on
+            // the screen this mirror holds: no reset, or the frame would draw on a blank one.
+            let resumesHybrid = heldEvents?.contains { event in
+                if case .hybridFrame(_, _, resumed: true) = event { return true }
+                return false
+            } ?? false
+            macKeepsGrid = false
+            if !resumesHybrid {
+                hybridResume = nil
+                reclaimHold.restart(alternate: isAlternateScreen)
+                show(.output(TerminalReclaimHold.reset))
+            }
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
@@ -808,7 +886,7 @@ public final class DaemonTerminalSession: TerminalSession {
             openInputLane(for: client)
         } catch {
             heldEvents = nil
-            lastError = LinkController.reason(error)
+            lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
             if let old = replacing {
                 // A failed fetch of older rows: the old attach no longer
@@ -866,6 +944,12 @@ public final class DaemonTerminalSession: TerminalSession {
         markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
+        if resyncAfterClose {
+            // An agent CLI frame failed: attach again at once, for a keyframe or bytes.
+            resyncAfterClose = false
+            reconnect()
+            return
+        }
         handler?(.connection(connectionState))
         log.info("surface \(self.surface): link dropped, waiting to reattach")
     }
@@ -908,6 +992,16 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case .historyRowsOmitted(let rows):
             historyRowsOmitted = rows
+        case let .hybridFrame(stream, frame, _):
+            hybridResume = (stream, frame)
+        case .hybridFallback(let reason):
+            // The screen may be behind the Mac's: never resume from it.
+            hybridResume = nil
+            hybridFallbacks += 1
+            log.error("surface \(self.surface, privacy: .public): agent CLI frame not drawn (\(reason, privacy: .public)): \(self.hybridFallbacks < 2 ? "full resync" : "bytes mode", privacy: .public)")
+            guard let client, !resyncAfterClose else { break }
+            resyncAfterClose = true
+            Task { await client.close() }
         case .resetMirror(let alternate):
             // A `resized` replay holds the whole history.
             historyRowsOmitted = 0
@@ -950,18 +1044,87 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// An event for the screen, through the reclaim hold: hidden, the Mac's
     /// own grid and what follows it wait there (`TerminalReclaimHold`).
+    ///
+    /// On screen too, the phone never draws a grid it did not ask for while
+    /// its claim may still bring its own back: a grid other than the phone's
+    /// (its lease ended over a slow link, a reattach replayed the Mac's grid,
+    /// a claim not answered yet) starts the same hold, the phone claims its
+    /// grid again at once, and the hold shows what it has only when the Mac
+    /// keeps its grid past ``reclaimWait``.
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
+        var claims = claimsSize
+        var unwanted = false
+        if case .hostGrid(let columns, let rows) = event, let phoneGrid {
+            if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {
+                macKeepsGrid = false
+            } else if claimsSize, !macKeepsGrid, !reclaimHold.isHolding, client != nil {
+                // Held as if hidden: the claim below answers it. Only with
+                // a channel (attached, or replaying an attach that then
+                // settles the hold): nothing else could end the hold.
+                claims = false
+                unwanted = true
+            }
+        }
         let wasHolding = reclaimHold.isHolding
-        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        let events = reclaimHold.take(event, claims: claims, phoneGrid: phoneGrid, alternate: isAlternateScreen)
         if wasHolding != reclaimHold.isHolding {
-            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
+            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : unwanted ? "shown: holding a grid the phone did not ask for" : "hidden: holding the Mac's grid", privacy: .public)")
             if wasHolding {
                 reclaimDeadline?.cancel()
                 reclaimDeadline = nil
+            } else if unwanted, attached {
+                claimAgain()
+                armReclaimDeadline()
             }
         }
         for event in events { handler?(event) }
+    }
+
+    /// On screen with a grid the phone did not ask for: its size again, at
+    /// once (not behind the outbox), unless a size is already on its way.
+    /// The same size renews the lease and resizes nothing.
+    private func claimAgain() {
+        guard attached, replacing == nil, let client, let size = lastSize else { return }
+        // A size already queued or on its way answers the same grid (an
+        // attach's replay can land just after the attach queued its size).
+        guard !(draining && drainingSize),
+              !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
+        // A claim sent moments ago is still being answered; the hold's deadline covers it.
+        if let lastClaimAt, ContinuousClock.now - lastClaimAt < claimAnswerWindow { return }
+        log.notice("surface \(self.surface, privacy: .public): the Mac sent a grid the phone did not ask for, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public) again")
+        sizeClaimed = true
+        startLeaseRefresh()
+        let surface = surface
+        lastClaimAt = .now
+        reclaimsSent += 1
+        Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
+    }
+
+    /// Releases this view's size now, not behind the outbox: a request there
+    /// waits for the answer to the one before it, which comes back behind
+    /// the terminal's output, and the app may be suspended by then. The
+    /// daemon runs one connection's requests in order, so the release still
+    /// lands after any size sent before it. A link that fails under it
+    /// leaves the size to the Mac's lease.
+    private func releaseNow() {
+        guard attached, replacing == nil, let client else {
+            enqueue(.release)
+            return
+        }
+        let surface = surface
+        releasesInFlight += 1
+        Task { [weak self] in
+            defer { self?.releasesInFlight -= 1 }
+            do {
+                let reply = try await client.request("release-surface-size", params: ["surface": surface])
+                if let error = Self.error(in: reply) {
+                    log.error("release-surface-size failed: \(error, privacy: .public)")
+                }
+            } catch {
+                log.notice("surface \(surface, privacy: .public): release-surface-size not answered (\(LinkController.reason(error), privacy: .public)); the Mac's lease ends the size")
+            }
+        }
     }
 
     /// Shows what the reclaim hold has, in order (`from`: the Mac's grid
@@ -999,6 +1162,8 @@ public final class DaemonTerminalSession: TerminalSession {
             do { try await Task.sleep(for: wait) } catch { return }
             guard let self, self.claimsSize, self.attached else { return }
             self.reclaimDeadline = nil
+            // The Mac keeps its grid: later changes show as they come.
+            self.macKeepsGrid = true
             self.releaseReclaimHold()
         }
     }
@@ -1028,6 +1193,8 @@ public final class DaemonTerminalSession: TerminalSession {
         guard attached, replacing == nil, !draining, let client, !outbox.isEmpty else { return }
         draining = true
         let next = outbox.removeFirst()
+        if case .size = next { drainingSize = true } else { drainingSize = false }
+        let generation = claimGeneration
         let surface = surface
         Task { [weak self] in
             guard let self else { return }
@@ -1036,10 +1203,21 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 switch next {
                 case .size(let columns, let rows):
+                    // Hidden since it was queued (shown and hidden again in
+                    // one turn): never sent, or it would claim a size no
+                    // release follows. Hidden and shown again: the show
+                    // queued the current size, so this one is stale (it
+                    // would resize the Mac twice).
+                    guard claimsSize, generation == claimGeneration else {
+                        draining = false
+                        drain()
+                        return
+                    }
                     cmd = "resize-surface"
                     log.notice("surface \(surface, privacy: .public): resize-surface sent \(columns, privacy: .public)x\(rows, privacy: .public) cause=\(self.everAttached && self.attachRetries == 0 ? "requested" : "attach", privacy: .public)")
                     sizeClaimed = true
                     startLeaseRefresh()
+                    lastClaimAt = .now
                     reply = try await client.request(cmd, params: ["surface": surface, "cols": columns, "rows": rows])
                 case .release:
                     cmd = "release-surface-size"
@@ -1052,7 +1230,7 @@ public final class DaemonTerminalSession: TerminalSession {
             } catch {
                 // The channel failed under the request (a dead link): keep the
                 // keystrokes for the reattach instead of dropping them.
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 if self.client === client {
                     self.client = nil
                     attached = false
@@ -1176,7 +1354,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             } catch {
                 if !written { inputWriting = false }
-                lastError = LinkController.reason(error)
+                lastError = Self.diagnostic(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane || Self.inputDeliveryUncertain(error) {
                     inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
@@ -1382,6 +1560,9 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Listed in `set-client-info` and by the daemon in `identify`.
     static let sizeLeaseCapability = "size-lease-v1"
+    /// The 8 s lease, refreshed every 2 s: a phone that went away without a
+    /// release gives the Mac its grid back within 8 s, not 45 s.
+    static let shortSizeLeaseCapability = "size-lease-v2"
     /// Shared sizing: `size-state` on the attach stream, `note-size-activity`.
     static let sharedSizingCapability = "shared-sizing-v1"
     /// `host-grid-view-v1`: this phone renders a Mac grid larger than its
@@ -1391,14 +1572,32 @@ public final class DaemonTerminalSession: TerminalSession {
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+
+    /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
+    /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).
+    nonisolated static let agentCLIHybridCapability = "agent-cli-hybrid-v1"
+    /// The same frames packed (`agent-cli-lean`): a Mac that knows it sends those instead.
+    nonisolated static let agentCLIHybridLeanCapability = "agent-cli-hybrid-v2"
+    /// Settings → Transport → Agent CLI Screen Changes (off by default), the
+    /// `CmuxMobilePreferences.Key.agentCLIHybrid` key; read at each attach.
+    nonisolated static let agentCLIHybridDefaultsKey = "cmuxMobile.settings.agentCLIHybrid"
+
+    nonisolated static func agentCLIHybridEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: agentCLIHybridDefaultsKey)
+    }
+
+    /// What `set-client-info` declares: the hybrid stream only with the setting on.
+    static func capabilities(agentCLIHybrid: Bool) -> [String] {
+        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities
+    }
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews
     /// the lease and never resizes the terminal). One refresher at a time.
     private func startLeaseRefresh() {
         guard leased, claimsSize, leaseTask == nil else { return }
-        let interval = sizeLeaseRefresh
+        let interval = shortLease ? shortLeaseRefresh : sizeLeaseRefresh
         // The lease's own cadence (an intentional bounded delay), not a sync wait.
         leaseTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -1414,11 +1613,15 @@ public final class DaemonTerminalSession: TerminalSession {
         leaseTask = nil
     }
 
+    /// Sent at once, not behind the outbox: a request there waits for the
+    /// answer to the one before it, and on a slow link that wait could
+    /// outlast the 8 s lease while the phone is on screen. A size already
+    /// queued renews it when it goes out.
     private func refreshLease() {
-        guard attached, claimsSize, sizeClaimed, let size = lastSize else { return }
-        // A refresh already queued, or a resize on its way, renews it too.
+        guard attached, replacing == nil, claimsSize, sizeClaimed, let client, let size = lastSize else { return }
         guard !outbox.contains(where: { if case .size = $0 { true } else { false } }) else { return }
-        enqueue(.size(columns: size.columns, rows: size.rows))
+        let surface = surface
+        Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
     }
 
     nonisolated static func lists(_ capability: String, _ identify: Data) -> Bool {

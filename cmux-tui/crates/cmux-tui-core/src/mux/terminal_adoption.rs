@@ -104,6 +104,7 @@ impl Mux {
         let mut deferred: Vec<(
             crate::terminal_host_runtime::TerminalHostRecord,
             std::path::PathBuf,
+            terminal_host_records::KeptHostHold,
         )> = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
@@ -299,7 +300,8 @@ impl Mux {
                 }
                 anyhow::bail!("terminal {terminal_id} could not be marked adopting: {error}");
             }
-            if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
+            let (liveness, host_seat) = self.kept_host(&record_path, &record, public_id.as_ref());
+            if liveness == TerminalHostLiveness::Dead {
                 // Commit the durable exit before deleting the record. The
                 // record is the only proof that this host ever existed, so a
                 // failed commit must leave the next startup able to retry
@@ -343,7 +345,7 @@ impl Mux {
                     self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                 }
             }
-            deferred.push((record, record_path));
+            deferred.push((record, record_path, host_seat));
         }
 
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
@@ -353,12 +355,12 @@ impl Mux {
         let visible = self.with_state(|state| {
             state.workspaces.get(state.active_workspace).map(|workspace| workspace.key.clone())
         });
-        deferred.sort_by_key(|(record, _)| Some(&record.workspace_key) != visible.as_ref());
+        deferred.sort_by_key(|(record, _, _)| Some(&record.workspace_key) != visible.as_ref());
         // The Kitty budget is sized for every host before the first one
         // reserves (kitty_reservation.rs): otherwise the first adoption takes
         // the whole budget and the others wait for its connect.
         let kitty_expectations = self.expect_kitty_image_adoptions(deferred.len());
-        for ((record, record_path), kitty_expectation) in
+        for ((record, record_path, host_seat), kitty_expectation) in
             deferred.into_iter().zip(kitty_expectations)
         {
             self.schedule_terminal_adoption_after(
@@ -367,6 +369,7 @@ impl Mux {
                 record_path,
                 Duration::ZERO,
                 Some(kitty_expectation),
+                host_seat,
             );
         }
         for (record, record_path) in cleanup_retries {
@@ -377,6 +380,9 @@ impl Mux {
         // without a host-owned record therefore represents a closed crash
         // window, not permission to spawn a replacement shell.
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
+        // The terminal holder is asked one time, and it gets one deadline
+        // for all its terminals together (mux/holder_adoption.rs).
+        let mut holder_pass = self.holder_pass(&options);
         for terminal in snapshot.terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned
                 || handled_terminals.contains(&terminal.terminal_id)
@@ -388,9 +394,9 @@ impl Mux {
                 self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
-            self.adopt_from_holder_or_end(&terminal, &options)?;
+            self.adopt_from_holder_or_end(&terminal, &options, &mut holder_pass)?;
         }
-        self.release_unclaimed_holder_terminals(&options);
+        self.finish_holder_pass(holder_pass, &options);
         Ok(())
     }
 
@@ -843,20 +849,12 @@ impl Mux {
         insert_surface_checked(state, surface)?;
         {
             let workspace = &mut state.workspaces[workspace_index];
-            workspace.screens.push(Screen {
-                id: screen_id,
-                public_id: screen_public_id,
-                name: None,
-                root: Node::Leaf(pane_id),
-                active_pane: pane_id,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![pane_id]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+            workspace.screens.push(Screen::with_one_pane(
+                screen_id,
+                screen_public_id,
+                None,
+                pane_id,
+            ));
             workspace.active_screen = workspace.screens.len() - 1;
         }
         // Adoption materializes a live pane without stealing focus, but it
@@ -894,6 +892,7 @@ impl Mux {
             record_path,
             Duration::from_millis(100),
             None,
+            terminal_host_records::KeptHostHold::default(),
         );
     }
 
@@ -901,7 +900,8 @@ impl Mux {
     /// at a start, once the owner says ready), then retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
     /// start with hundreds of hosts does not hold every replay in memory together.
     /// `kitty_expectation` (a start's) keeps the host's Kitty share counted
-    /// until its first attempt reserves or ends.
+    /// until its first attempt reserves or ends. `host_seat` (a start's,
+    /// `Mux::kept_host`) is held to each end of the thread.
     pub(super) fn schedule_terminal_adoption_after(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -909,6 +909,7 @@ impl Mux {
         record_path: std::path::PathBuf,
         first_delay: Duration,
         kitty_expectation: Option<KittyImageAdoptionExpectation>,
+        host_seat: terminal_host_records::KeptHostHold,
     ) {
         let terminal_id = record.terminal_id.clone();
         if !self.terminal_adoptions.lock().unwrap().insert(terminal_id.clone()) {
@@ -921,6 +922,7 @@ impl Mux {
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
+                let _host_seat = host_seat;
                 if first_delay.is_zero() {
                     // A start's adoptions wait for the owner to say ready: their
                     // registry and state locks held the rest of its start back
@@ -1334,16 +1336,4 @@ fn derive_template_workspace_key(session_id: &str, builder_key: &str) -> String 
 }
 
 #[cfg(test)]
-mod template_workspace_key_tests {
-    use super::derive_template_workspace_key;
-
-    /// The key the first derivation (#27895) gave: a restart of a claim cut short finds its
-    /// workspace by this key, so the derivation's output must stay byte for byte the same.
-    #[test]
-    fn the_template_workspace_key_is_the_same_uuidv8_as_the_first_derivation() {
-        assert_eq!(
-            derive_template_workspace_key("sess-0123", "6b0c1a52-7d3e-4f6a-9b1c-2d3e4f5a6b7c"),
-            "c20bfc16-7d4f-8de7-a6a2-8ec42b62a821"
-        );
-    }
-}
+mod template_workspace_key_tests;

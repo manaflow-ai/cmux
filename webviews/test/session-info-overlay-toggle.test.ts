@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -98,8 +99,8 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       bridge.applyHeaderState({ inspector: true, version: 2 });
     }, tabRow);
     if (setting === "push") await sessionInfoPushAlways(page);
-    const panel = page.locator("aside.acpmux-session-info");
-    const toggle = page.locator("button.acpmux-session-info-toggle");
+    const panel = page.locator(SESSION_INFO);
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator(`aside.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`).waitFor({
@@ -121,12 +122,12 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           const x = box.x + box.width / 2;
           const y = box.y + box.height / 2;
           const hit = await page.evaluate(
-            ([px, py]) => {
-              const element = document.elementFromPoint(px!, py!);
-              if (element?.closest("button.acpmux-session-info-toggle")) return "the toggle";
+            ({ px, py, SESSION_INFO_TOGGLE }) => {
+              const element = document.elementFromPoint(px, py);
+              if (element?.closest(SESSION_INFO_TOGGLE)) return "the toggle";
               return element ? `${element.tagName.toLowerCase()}.${element.className}` : "nothing";
             },
-            [x, y],
+            { px: x, py: y, SESSION_INFO_TOGGLE },
           );
           // The panel starts at the header's foot (in the tab row, the row's), not over it.
           const header = (await page.locator("header.acpmux-header").boundingBox())!;
@@ -217,23 +218,26 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     test(`${name}: over the chat Session Info is as tall as its sections, and scrolls when they are taller`, async () => {
       current = browsers.get(name)!;
       const measure = (page: Page) =>
-        page.evaluate(() => {
-          const panel = document.querySelector("aside.acpmux-session-info")!;
-          const body = panel.querySelector(".acpmux-session-info__body")!;
-          // The card's last drawn row: its last section, or the Show more line under the sections.
-          const slots = [...panel.querySelectorAll(".acpmux-session-info-sections > [data-slot]")];
-          const sections = slots.length > 0 ? slots : [...panel.querySelectorAll("[data-section]")];
-          const last = sections[sections.length - 1]!.getBoundingClientRect();
-          const box = panel.getBoundingClientRect();
-          return {
-            empty: Math.round(box.bottom - last.bottom),
-            top: box.top,
-            height: box.height,
-            bottom: box.bottom,
-            pane: window.innerHeight,
-            scrolls: body.scrollHeight > body.clientHeight + 1,
-          };
-        });
+        page.evaluate(
+          ({ SESSION_INFO }) => {
+            const panel = document.querySelector(SESSION_INFO)!;
+            const body = panel.querySelector(".acpmux-session-info__body")!;
+            // The card's last drawn row: its last section, or the Show more line under the sections.
+            const slots = [...panel.querySelectorAll(".acpmux-session-info-sections > [data-slot]")];
+            const sections = slots.length > 0 ? slots : [...panel.querySelectorAll("[data-section]")];
+            const last = sections[sections.length - 1]!.getBoundingClientRect();
+            const box = panel.getBoundingClientRect();
+            return {
+              empty: Math.round(box.bottom - last.bottom),
+              top: box.top,
+              height: box.height,
+              bottom: box.bottom,
+              pane: window.innerHeight,
+              scrolls: body.scrollHeight > body.clientHeight + 1,
+            };
+          },
+          { SESSION_INFO },
+        );
       const tall = await pane!.open({ width: 1600, height: 1400 });
       // The card's own height and top in the tall pane: its sections at rest, unclipped.
       let natural = { top: 0, height: 0 };
@@ -419,15 +423,18 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
         const keptInComposer = (await toggle.getAttribute("aria-pressed")) === "true";
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         // An open popover takes Esc first: Session Info stays.
-        await page.evaluate(() => {
-          const popover = document.createElement("dialog");
-          popover.open = true;
-          popover.className = "ui-popup";
-          popover.innerHTML = "<button>Item</button>";
-          // Inside the panel, where Esc would otherwise close it.
-          document.querySelector("aside.acpmux-session-info")!.append(popover);
-          popover.querySelector("button")!.focus();
-        });
+        await page.evaluate(
+          ({ SESSION_INFO }) => {
+            const popover = document.createElement("dialog");
+            popover.open = true;
+            popover.className = "ui-popup";
+            popover.innerHTML = "<button>Item</button>";
+            // Inside the panel, where Esc would otherwise close it.
+            document.querySelector(SESSION_INFO)!.append(popover);
+            popover.querySelector("button")!.focus();
+          },
+          { SESSION_INFO },
+        );
         await page.keyboard.press("Escape");
         await frames(page);
         // Still open, not leaving (a leaving panel stays drawn while it slides out).
@@ -456,7 +463,9 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   // the turn (escapeStop.ts). Esc closes Session Info only while the keyboard is in it or on its
   // toggle; elsewhere Esc keeps its meaning. A close by Esc gives the keyboard to the toggle.
   const onToggle = (page: Page) =>
-    page.evaluate(() => document.activeElement?.matches("button.acpmux-session-info-toggle") ?? false);
+    page.evaluate(({ SESSION_INFO_TOGGLE }) => document.activeElement?.matches(SESSION_INFO_TOGGLE) ?? false, {
+      SESSION_INFO_TOGGLE,
+    });
   /// Whether the daemon heard `method` after the first `from` calls, within about a second of frames.
   const heard = async (page: Page, from: number, method: string) => {
     for (let tries = 0; tries < 60; tries++) {
@@ -550,7 +559,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
               content: ".acpmux-main > .acpmux-dock { display: contents !important; position: static !important; }",
             });
           await openSessionInfo(page, 0, "push", "overlay");
-          const panel = page.locator("aside.acpmux-session-info");
+          const panel = page.locator(SESSION_INFO);
           await page.addStyleTag({ content: "aside.acpmux-session-info [data-section] { min-height: 1600px; }" });
           await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
           const { covers, scrolls } = await panel.evaluate((node) => {

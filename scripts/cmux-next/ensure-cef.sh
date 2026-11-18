@@ -113,6 +113,10 @@ if [[ "$arch" == "arm64" ]]; then
 else
   prefix="$arch."; suffix="-$arch"
   [[ -n "$(field "${prefix}asset")" ]] || fail "manifest $MANIFEST has no $arch artifact"
+  # Architecture releases may advance separately. The retained archive keeps
+  # its own top-level directory, cache identity, and release download tag.
+  arch_version="$(field "${prefix}version")"; arch_tag="$(field "${prefix}tag")"
+  version="${arch_version:-$version}"; tag="${arch_tag:-$tag}"
 fi
 asset="$(field "${prefix}asset")"; url="$(field "${prefix}url")"; sha="$(field "${prefix}sha256")"
 r2_key="$(field "${prefix}r2_key")"
