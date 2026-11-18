@@ -53,6 +53,7 @@
     "cmux-next-cua-driver-sdk-publish.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of the upstream SDK in a job-local toolchain and target, once per dispatch of a new release"},
     "cmux-next-cua-helper-dev-sign.yml:build": {"class": "mac-build", "warm": [], "exempt": "cold: swift build of the helper package into a fresh .build, once per dispatch; no warm source wired yet"},
     "cmux-next-cua-helper-dev-sign.yml:sign": {"class": "mac-sign", "warm": [], "exempt": "signing only: signs and publishes the helper an earlier job built, compiles nothing"},
+    "cmux-next-cua-helper-publish.yml:publish": {"class": "tooling", "warm": [], "exempt": "publish only: checks and uploads the helper a nightly built and a git bundle of its source; build-cmux-cua.sh is a sparse-checkout data path, compiles nothing"},
     "cmux-next-dev-daily.yml:rcodesign": {"class": "dev-release-compile", "warm": ["actions-cache"]},
     "cmux-next-dev-daily.yml:tip-deltas": {"class": "dev-release-compile", "warm": [], "exempt": "Sparkle deltas from DMGs earlier jobs built and published; compiles nothing"},
     "cmux-next-dev-daily.yml:tip-dmg-build": {"class": "dev-release-compile", "warm": [], "exempt": "packages the DMG from the signed app an earlier job built; compiles nothing"},
