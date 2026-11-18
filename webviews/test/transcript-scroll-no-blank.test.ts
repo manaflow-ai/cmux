@@ -83,6 +83,19 @@ await requireBrowserLane("transcript-scroll-no-blank.test.ts", async () => {
         await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
         const blanks: string[] = [];
         let frames = 0;
+        // Every stand-in the scroll puts up (conversation/standIns.ts): an empty box with no class.
+        await page.evaluate(() => {
+          const seen = { count: 0, dressed: 0 };
+          (window as unknown as { __standIns: typeof seen }).__standIns = seen;
+          new MutationObserver((records) => {
+            for (const record of records)
+              for (const node of record.addedNodes)
+                if (node instanceof HTMLElement && node.parentElement?.classList.contains("acpmux-stand-ins")) {
+                  seen.count += 1;
+                  if (node.className || node.childNodes.length > 0) seen.dressed += 1;
+                }
+          }).observe(document.querySelector(".acpmux-scroll")!, { childList: true, subtree: true });
+        });
         for (let round = 0; round < ROUNDS; round++) {
           const trace = await page.evaluate(traceUpwardAnchors, {
             steps: Array.from({ length: FRAMES }, (_, frame) => scroll.step(round * FRAMES + frame)),
@@ -102,7 +115,13 @@ await requireBrowserLane("transcript-scroll-no-blank.test.ts", async () => {
               );
           }
         }
-        console.log(`transcript-scroll-no-blank ${scroll.name}: ${frames} frames, ${blanks.length} blank`);
+        const standIns = await page.evaluate(
+          () => (window as unknown as { __standIns: { count: number; dressed: number } }).__standIns,
+        );
+        console.log(
+          `transcript-scroll-no-blank ${scroll.name}: ${frames} frames, ${blanks.length} blank, ${standIns.count} stand-ins`,
+        );
+        expect(standIns.dressed).toBe(0);
         for (const line of blanks) console.log(`transcript-scroll-no-blank ${scroll.name} blank ${line}`);
         expect(frames).toBe(ROUNDS * FRAMES);
         expect(blanks).toEqual([]);
