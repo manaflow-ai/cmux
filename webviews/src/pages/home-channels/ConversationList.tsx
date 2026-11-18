@@ -162,9 +162,11 @@ export function ConversationList({
   };
   // A new selection scrolls its row into view (each row was in the page when all were mounted). A
   // selection whose conversation has not come yet (a link opened before the inbox reply) is revealed
-  // when it comes.
+  // when it comes. A revealed row that leaves the list (archived, filtered out) is forgotten, so
+  // selecting it again once it is back scrolls to it again.
   const revealed = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
+    if (revealed.current !== undefined && !list.index.has(revealed.current)) revealed.current = undefined;
     if (selected === revealed.current || (selected !== undefined && selectedItem < 0)) return;
     revealed.current = selected;
     if (selectedItem >= 0) virtualizer.scrollToIndex(selectedItem, { align: "auto" });

@@ -124,6 +124,8 @@ const all = (n: number) => new Map(Array.from({ length: n }, (_, index) => conve
 interface Driver {
   select(id: string | undefined): void;
   load(n: number): void;
+  /** All `n` conversations but `id`: archived, or filtered out. */
+  without(id: string, n?: number): void;
 }
 
 /** The list between a control before it (inside it: the search field) and one after it (the
@@ -133,6 +135,12 @@ function Host({ n, driver }: { n: number; driver: Driver }) {
   const [selected, setSelected] = useState<string | undefined>(undefined);
   driver.select = setSelected;
   driver.load = (count) => setConversations(all(count));
+  driver.without = (id, count = n) =>
+    setConversations(() => {
+      const next = all(count);
+      next.delete(id);
+      return next;
+    });
   return (
     <>
       <ConversationList
@@ -278,6 +286,43 @@ test("a selection that comes before its conversation is revealed once the conver
   await settle();
   const active = host.querySelector<HTMLElement>("[data-list-row][aria-current]");
   expect(active?.dataset.listRow).toBe("c995");
+  expect(inView(list, active!)).toBe(true);
+});
+
+test("a selection that left the list, then came back and is selected again, scrolls into view", async () => {
+  const { driver, list } = await mount();
+  await act(async () => driver.select("c990"));
+  await settle();
+  expect(inView(list, rowEl("c990")!)).toBe(true);
+  // c990 is archived (or filtered out), and a conversation the list does not show is selected.
+  await act(async () => driver.without("c990"));
+  await settle();
+  await act(async () => driver.select("c-unlisted"));
+  await settle();
+  await scrollTo(list, 0);
+  // c990 comes back and is selected again.
+  await act(async () => driver.load(N));
+  await settle();
+  await act(async () => driver.select("c990"));
+  await settle();
+  const active = host.querySelector<HTMLElement>("[data-list-row][aria-current]");
+  expect(active?.dataset.listRow).toBe("c990");
+  expect(inView(list, active!)).toBe(true);
+});
+
+test("the selected row that left the list scrolls into view when it comes back", async () => {
+  const { driver, list } = await mount();
+  await act(async () => driver.select("c990"));
+  await settle();
+  await act(async () => driver.without("c990"));
+  await settle();
+  await scrollTo(list, 0);
+  await act(async () => driver.load(N));
+  await settle();
+  await act(async () => driver.select("c990"));
+  await settle();
+  const active = host.querySelector<HTMLElement>("[data-list-row][aria-current]");
+  expect(active?.dataset.listRow).toBe("c990");
   expect(inView(list, active!)).toBe(true);
 });
 
