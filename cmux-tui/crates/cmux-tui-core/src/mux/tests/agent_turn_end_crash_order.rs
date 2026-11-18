@@ -10,7 +10,9 @@
 //! commit. When the daemon stops before that commit, the receipt is
 //! `indeterminate` at the next start: the notification is not posted again
 //! and it has no record (a person does not see it after the restart), and
-//! the hook's retry row keeps the report.
+//! the hook's retry row keeps the report. The save of the terminal's
+//! relaunch record, a commit of its own when the record changes, comes
+//! before the receipt is `executing`, so it is not in that span.
 //!
 //! Each row reads the journal's rows of the turn end, the hooks that wait for
 //! a retry and the notifications in the daemon's memory. No clock.
@@ -25,6 +27,7 @@ const TERMINAL: &str = "00000000000040008000000000000001";
 const INCARNATION: &str = "10000000000040008000000000000001";
 const SESSION: &str = "turn-end";
 const TURN_END: &str = "agent.turn.completed";
+const TOOL_ERROR: &str = "agent.error.reported";
 const NOTIFICATION: &str = "notification.create";
 const REPORT: &str = "agent.report";
 
@@ -45,6 +48,24 @@ const STOP_BEFORE_THE_OUTCOME: &str = "CREATE TEMP TRIGGER stop_before_the_outco
      BEFORE UPDATE OF state ON resource_effect_receipts
      WHEN NEW.state IN ('committed', 'indeterminate')
      BEGIN SELECT RAISE(ABORT, 'the daemon stops before the outcome commit'); END;";
+
+/// Each save of a terminal's relaunch record notes the state that the
+/// notification's receipt has then (`none`: there is no receipt yet).
+const NOTE_THE_RECEIPT_AT_A_RELAUNCH_SAVE: &str =
+    "CREATE TEMP TABLE relaunch_saves(receipt TEXT NOT NULL);
+     CREATE TEMP TRIGGER note_the_receipt_at_a_relaunch_save
+     AFTER UPDATE OF agent_json ON terminal_relaunch
+     BEGIN
+       INSERT INTO relaunch_saves
+       SELECT coalesce(
+         (SELECT group_concat(state, ' ') FROM resource_effect_receipts
+          WHERE operation = 'notification.create'),
+         'none');
+     END;";
+
+/// The noted states, one for each save, in order (`no save`: none was made).
+const RECEIPT_AT_EACH_RELAUNCH_SAVE: &str =
+    "SELECT coalesce(group_concat(receipt, ', '), 'no save') FROM relaunch_saves";
 
 /// One hook of the agent session on `terminal`, through the journal ingress
 /// path, as its hook helper sends it.
@@ -72,7 +93,9 @@ fn turn_end_rows(registry: &WorkspaceRegistry, mut sequence: u64) -> Vec<(String
         rows.extend(
             page.records
                 .iter()
-                .filter(|record| [TURN_END, NOTIFICATION, REPORT].contains(&record.kind.as_str()))
+                .filter(|record| {
+                    [TURN_END, TOOL_ERROR, NOTIFICATION, REPORT].contains(&record.kind.as_str())
+                })
                 .map(|record| (record.kind.clone(), record.resource_revision)),
         );
     }
@@ -95,6 +118,17 @@ impl OpenTurn {
     /// `shell`: the terminal is the shell of a workspace, which stays in the
     /// registry across a restart; otherwise a seeded terminal with no process.
     fn open(session: &str, shell: bool) -> Self {
+        let mut turn = Self::no_hook_yet(session, shell);
+        send(&turn.mux, &turn.terminal, "SessionStart");
+        send(&turn.mux, &turn.terminal, "UserPromptSubmit");
+        settled(&turn.mux);
+        turn.head = turn.mux.session_journal_head().unwrap();
+        turn
+    }
+
+    /// A daemon on a registry file and a terminal that no agent hook named
+    /// yet (`shell`: as for `open`).
+    fn no_hook_yet(session: &str, shell: bool) -> Self {
         let root = std::env::temp_dir()
             .join(format!("cmux-{session}-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = open_persistent_test_mux(session, &root);
@@ -107,9 +141,6 @@ impl OpenTurn {
             mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace).unwrap();
             mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap()
         };
-        send(&mux, &terminal, "SessionStart");
-        send(&mux, &terminal, "UserPromptSubmit");
-        settled(&mux);
         let head = mux.session_journal_head().unwrap();
         Self { root, mux, terminal, head }
     }
@@ -137,8 +168,19 @@ impl OpenTurn {
         self.mux.resource_notifications(16).len()
     }
 
+    /// What the commit of a notification installs: the feed's items and the
+    /// unread marker of the terminal (its source).
+    fn installed(&self) -> (usize, Option<NotificationSource>) {
+        let feed = self.mux.feed_local_list(&cmux_feed_core::ListFilter::default()).len();
+        (feed, self.mux.terminal_notification(&self.terminal).map(|marker| marker.source))
+    }
+
+    fn text(&self, sql: &str) -> String {
+        self.mux.workspace_registry.lock().unwrap().query_text_for_test(sql).unwrap()
+    }
+
     fn receipt(&self) -> String {
-        self.mux.workspace_registry.lock().unwrap().query_text_for_test(RECEIPT_STATE).unwrap()
+        self.text(RECEIPT_STATE)
     }
 
     fn close(self) {
@@ -150,9 +192,18 @@ impl OpenTurn {
 #[test]
 fn the_notification_record_is_one_revision_below_the_agent_report() {
     let turn = OpenTurn::open("turn-end-order", false);
+    let events = turn.mux.subscribe();
     turn.end_turn();
+    let events: Vec<&str> = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(_) => Some("notification"),
+            MuxEvent::AgentChanged { .. } => Some("agent"),
+            _ => None,
+        })
+        .collect();
     let rows = turn.rows();
-    let (pending, posted) = (turn.pending(), turn.posted());
+    let (pending, posted, installed) = (turn.pending(), turn.posted(), turn.installed());
     turn.close();
 
     let revisions: Vec<Option<u64>> = rows.iter().map(|(_, revision)| *revision).collect();
@@ -171,6 +222,65 @@ fn the_notification_record_is_one_revision_below_the_agent_report() {
         (pending, posted),
         (0, 1),
         "the hook is projected (no retry row) and its notification is posted one time"
+    );
+    assert_eq!(
+        installed,
+        (1, Some(NotificationSource::Agent)),
+        "the commit of both installed the notification: one feed item and the terminal's \
+         unread marker"
+    );
+    assert_eq!(
+        events,
+        ["notification", "agent"],
+        "the notification's event comes before the agent report's event"
+    );
+}
+
+#[test]
+fn a_hook_that_reports_nothing_commits_its_notification_alone() {
+    let turn = OpenTurn::open("turn-end-no-report", false);
+    // A failed tool call of a working agent: a notification, and the roster
+    // state stays as it is, so the hook has no agent report.
+    send(&turn.mux, &turn.terminal, "PostToolUseFailure");
+    let rows = kinds(turn.rows());
+    let seen = (turn.pending(), turn.posted(), turn.installed(), turn.receipt());
+    turn.close();
+
+    assert_eq!(
+        rows,
+        [TOOL_ERROR, NOTIFICATION],
+        "the hook's journal row and the notification's record; no agent report"
+    );
+    assert_eq!(
+        (seen.0, seen.1, seen.2, seen.3.as_str()),
+        (0, 1, (1, Some(NotificationSource::Agent)), "committed"),
+        "no retry row; the notification is posted one time, with its feed item and the \
+         terminal's unread marker; its receipt is `committed`"
+    );
+}
+
+#[test]
+fn the_relaunch_record_is_saved_before_the_notification_receipt_is_executing() {
+    // The turn end is the first hook of its agent session on the terminal,
+    // so the terminal's relaunch record takes the session: one more commit.
+    let turn = OpenTurn::no_hook_yet("turn-end-relaunch-save", true);
+    turn.sql(NOTE_THE_RECEIPT_AT_A_RELAUNCH_SAVE);
+    turn.end_turn();
+    let (rows, receipt) = (kinds(turn.rows()), turn.receipt());
+    let saves = turn.text(RECEIPT_AT_EACH_RELAUNCH_SAVE);
+    turn.close();
+
+    assert_eq!(
+        (rows, receipt.as_str()),
+        (vec![TURN_END.to_owned(), NOTIFICATION.to_owned(), REPORT.to_owned()], "committed"),
+        "setup: the turn end has its notification and its report in the journal"
+    );
+    assert_eq!(
+        saves, "none",
+        "the state of the notification's receipt at each save of the terminal's relaunch \
+         record. `none` = one save, before the receipt is there. `executing` = the save is in \
+         the span where a daemon stop loses the notification. `no save` = setup: the record \
+         did not change"
     );
 }
 
