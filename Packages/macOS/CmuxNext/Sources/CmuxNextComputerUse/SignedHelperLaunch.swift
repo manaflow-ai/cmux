@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import CmuxNextAgentActivity
 import CmuxNextCompat
 public import Darwin
 public import Foundation
@@ -9,7 +10,11 @@ public import Foundation
 /// bundle as the outermost app) and started with responsibility disclaimed
 /// (``DisclaimedHelperSpawner``), so macOS checks, prompts for and lists the helper by its own
 /// name, never cmux. A grant then restarts at most the helper, never this app.
-/// Used by the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md).
+/// Used by the screen sharing host (plans/cmux-next/screen-sharing-helper.md): in a release,
+/// NIGHTLY or RC build its `cmux-screen-sharing` executable ships inside the Computer Use helper
+/// (``computerUse(bundleID:)``), so screen sharing and computer use ask for, and System Settings
+/// lists, one app ("cmux Computer Use"). A DEV build, or a build made before that, has the
+/// separate `<app> Screen Sharing.app` (``screenSharing(bundleID:)``).
 public nonisolated struct SignedHelperLaunch: Sendable {
     public enum Failure: Error, Equatable {
         /// libsystem has no `responsibility_spawnattrs_setdisclaim`: starting the helper without
@@ -20,7 +25,22 @@ public nonisolated struct SignedHelperLaunch: Sendable {
 
     private let staging: ComputerUseHelperStaging
 
-    /// The Screen Sharing helper's copy, one per app build (`bundleID`'s scope).
+    /// The Computer Use helper's bundle name in `Contents/Library` (`cmux Computer Use.app`).
+    public static let computerUseAppName = CuaHelperIdentity.appName
+
+    /// The Computer Use helper's own copy, one per app build (`bundleID`'s scope): the folder
+    /// ``ComputerUseHelperDaemon`` stages and launches it from
+    /// (``ComputerUseHelperStaging/legacy(bundleID:home:)``, checked against the release helper's
+    /// Developer ID requirement), so the screen sharing executable inside it runs from that one
+    /// copy and its grants are the Computer Use helper's.
+    public static func computerUse(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> SignedHelperLaunch {
+        SignedHelperLaunch(staging: .legacy(bundleID: bundleID))
+    }
+
+    /// The separate Screen Sharing helper's copy, one per app build (`bundleID`'s scope): the
+    /// fallback for a DEV build (its Computer Use helper is a fixed dev copy without the screen
+    /// sharing executable) and for builds made before that executable moved into the Computer
+    /// Use helper.
     public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> SignedHelperLaunch {
         SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID))
     }
