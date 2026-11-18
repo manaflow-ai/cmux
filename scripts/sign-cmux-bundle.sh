@@ -28,8 +28,8 @@
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
-#                              service processes the helpers (Computer Use and the
-#                              Screen Sharing helper, one submission), then
+#                              service processes the Computer Use helper (with
+#                              the screen sharing executable inside), then
 #                              main-only after stapling so the submitted helper
 #                              CDHashes survive.
 #
@@ -145,6 +145,15 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # signature in all-except-computer-use mode; changing it would invalidate the
   # ticket that finish is waiting to staple.
   if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
+    # The screen sharing executable inside it (one permission identity for screen sharing and
+    # computer use, bundle-screen-sharing-helper.sh) first: nested code is signed before the
+    # bundle that seals it, with the helper's identifier, so a macOS that checks the process by
+    # its own signature finds the same com.cmuxterm.cua row. No entitlements.
+    if [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing" ]]; then
+      echo "==> signing cmux-screen-sharing inside $(basename "$COMPUTER_USE_HELPER")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua \
+        "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing"
+    fi
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     "$SCRIPT_DIR/codesign-retry.sh" \
       "${COMMON[@]}" \
@@ -152,8 +161,11 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       "$COMPUTER_USE_HELPER"
   fi
 
-  # 2b. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
-  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # 2b. A separate Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md), which only an app packaged before the screen
+  # sharing executable moved into the Computer Use helper carries (--stamp removes it from an
+  # app whose Computer Use helper has the executable; verify-computer-use-helper.sh fails a
+  # release app that keeps both): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build), then signed as its own app with the
   # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
   # Screen Recording and Accessibility grants under, so a grant survives every update.
@@ -166,11 +178,13 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # notarization then covers its new signature; its old stapled ticket is dropped.
   restamp_screen_helper=0
   if [[ "$SIGN_MODE" == "all-except-computer-use" ]]; then
-    app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-    app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    app_bundle_id="" app_bundle_name=""
+    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
     for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
       [[ -d "$screen_helper" ]] || continue
-      helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
+      helper_bundle_id=""
+      [[ -f "$screen_helper/Contents/Info.plist" ]] && helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
       if [[ "$helper_bundle_id" != "$app_bundle_id.screen-sharing" || "$(basename "$screen_helper")" != "$app_bundle_name Screen Sharing.app" ]]; then
         echo "==> the Screen Sharing helper is stamped for $helper_bundle_id; re-stamping it for $app_bundle_id"
         restamp_screen_helper=1
@@ -311,6 +325,7 @@ for entitlement in \
   com.apple.security.personal-information.calendars \
   com.apple.security.personal-information.location \
   com.apple.security.personal-information.photos-library; do
+  # plist-exists: codesign -d wrote $SIGNED_ENTITLEMENTS above or the script exited
   value="$(/usr/libexec/PlistBuddy -c "Print :$entitlement" "$SIGNED_ENTITLEMENTS" 2>/dev/null || true)"
   if [[ "$value" != "true" ]]; then
     echo "error: signed app missing enabled $entitlement" >&2

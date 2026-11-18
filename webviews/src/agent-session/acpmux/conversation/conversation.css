@@ -2606,10 +2606,10 @@ pre.cv-math-source {
   height: var(--cv-footer-row);
   padding-top: 0;
 }
-/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
-   its ⌃B hint on its line. */
+/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+   scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -7042,12 +7042,13 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-row);
 }
-/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+/* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
+   TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-tool-row-height);
+  min-height: var(--cv-live-step-height);
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
