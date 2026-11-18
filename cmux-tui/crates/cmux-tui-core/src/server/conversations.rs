@@ -391,19 +391,22 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
     if !super::cloud_conversations::is_person(mux, client) {
         return (Vec::new(), "signed_out");
     }
-    // The read holds one of the Cloud's request slots, as cloud-inbox-list does.
+    // The inbox as last read whole, kept from the live inbox stream's
+    // entries: a `cloud-inbox-changed` (which the app answers with this
+    // read) costs no Cloud page. Without one, the read holds one of the
+    // Cloud's request slots, as cloud-inbox-list does.
     let listed = super::cloud_conversations::lease_user(mux, client).and_then(|service| {
+        if let Some(entries) = service.home_inbox_kept() {
+            return Ok(entries);
+        }
         let _permit = service.begin_request()?;
         service
-            .inbox_list_all(false, crate::cloud_conversations::INBOX_ALL_BUDGET)
+            .home_inbox_read(crate::cloud_conversations::INBOX_ALL_BUDGET)
             .map_err(anyhow::Error::from)
     });
-    let value = match listed {
-        Ok(value) => value,
+    let entries = match listed {
+        Ok(entries) => entries,
         Err(error) => return (Vec::new(), cloud_rows_failure(&error)),
-    };
-    let Some(entries) = value.get("entries").and_then(Value::as_array) else {
-        return (Vec::new(), "unavailable");
     };
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

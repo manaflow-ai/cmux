@@ -118,13 +118,73 @@ fn to_u64(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
 
+/// The retention in days stored on `connection` ([`DEFAULT_COMMAND_RETENTION_DAYS`] until set).
+fn retention_days(connection: &rusqlite::Connection) -> anyhow::Result<u32> {
+    Ok(meta_value(connection, RETENTION_KEY)?
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|days| (1..=MAX_COMMAND_RETENTION_DAYS).contains(days))
+        .unwrap_or(DEFAULT_COMMAND_RETENTION_DAYS))
+}
+
+/// One read of [`terminal_command_rows`].
+pub(crate) struct TerminalCommandRows {
+    pub(crate) commands: Vec<CommandHistoryRow>,
+    /// Older rows were left out.
+    pub(crate) truncated: bool,
+    pub(crate) retention_days: u32,
+}
+
+/// The newest `limit` unexpired rows with an id above `after_id`, oldest
+/// first, read on any connection to the registry: the registry's own (under
+/// its lock) or one of its committed readers, which takes no registry lock
+/// (the History page's command rows, `history.entries.list`).
+pub(crate) fn terminal_command_rows(
+    connection: &rusqlite::Connection,
+    after_id: Option<u64>,
+    limit: usize,
+    now_ms: u64,
+) -> anyhow::Result<TerminalCommandRows> {
+    anyhow::ensure!(
+        (1..=MAX_COMMAND_LIST_LIMIT).contains(&limit),
+        "bad request: limit must be 1...{MAX_COMMAND_LIST_LIMIT}"
+    );
+    let retention_days = retention_days(connection)?;
+    let cutoff = expiry_cutoff(retention_days, now_ms);
+    let after = to_i64(after_id.unwrap_or(0));
+    let mut statement = connection.prepare(
+        "SELECT id, terminal_id, command, cwd, exit_code, started_at_ms, duration_ms
+         FROM (
+           SELECT * FROM terminal_commands
+           WHERE id > ?1 AND (?3 IS NULL OR started_at_ms > ?3)
+           ORDER BY id DESC LIMIT ?2
+         )
+         ORDER BY id ASC",
+    )?;
+    // One more than asked, to tell whether older rows were left out.
+    let mut commands = statement
+        .query_map(params![after, to_i64(limit as u64 + 1), cutoff.map(to_i64)], |row| {
+            Ok(CommandHistoryRow {
+                id: to_u64(row.get(0)?),
+                terminal_id: row.get(1)?,
+                command: row.get(2)?,
+                cwd: row.get(3)?,
+                exit_code: row.get(4)?,
+                started_at_ms: to_u64(row.get(5)?),
+                duration_ms: to_u64(row.get(6)?),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let truncated = commands.len() > limit;
+    if truncated {
+        commands.remove(0);
+    }
+    Ok(TerminalCommandRows { commands, truncated, retention_days })
+}
+
 impl WorkspaceRegistry {
     /// The retention in days ([`DEFAULT_COMMAND_RETENTION_DAYS`] until set).
     pub(crate) fn terminal_command_retention_days(&self) -> anyhow::Result<u32> {
-        Ok(meta_value(&self.connection.get(), RETENTION_KEY)?
-            .and_then(|value| value.parse::<u32>().ok())
-            .filter(|days| (1..=MAX_COMMAND_RETENTION_DAYS).contains(days))
-            .unwrap_or(DEFAULT_COMMAND_RETENTION_DAYS))
+        retention_days(&self.connection.get())
     }
 
     /// Stores the retention. Lists hide what it expires at once; the worker
@@ -182,41 +242,8 @@ impl WorkspaceRegistry {
         limit: usize,
         now_ms: u64,
     ) -> anyhow::Result<CommandHistoryPage> {
-        anyhow::ensure!(
-            (1..=MAX_COMMAND_LIST_LIMIT).contains(&limit),
-            "bad request: limit must be 1...{MAX_COMMAND_LIST_LIMIT}"
-        );
-        let retention_days = self.terminal_command_retention_days()?;
-        let cutoff = expiry_cutoff(retention_days, now_ms);
-        let after = to_i64(after_id.unwrap_or(0));
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT id, terminal_id, command, cwd, exit_code, started_at_ms, duration_ms
-             FROM (
-               SELECT * FROM terminal_commands
-               WHERE id > ?1 AND (?3 IS NULL OR started_at_ms > ?3)
-               ORDER BY id DESC LIMIT ?2
-             )
-             ORDER BY id ASC",
-        )?;
-        // One more than asked, to tell whether older rows were left out.
-        let mut commands = statement
-            .query_map(params![after, to_i64(limit as u64 + 1), cutoff.map(to_i64)], |row| {
-                Ok(CommandHistoryRow {
-                    id: to_u64(row.get(0)?),
-                    terminal_id: row.get(1)?,
-                    command: row.get(2)?,
-                    cwd: row.get(3)?,
-                    exit_code: row.get(4)?,
-                    started_at_ms: to_u64(row.get(5)?),
-                    duration_ms: to_u64(row.get(6)?),
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        let truncated = commands.len() > limit;
-        if truncated {
-            commands.remove(0);
-        }
+        let TerminalCommandRows { commands, truncated, retention_days } =
+            terminal_command_rows(&self.connection.get(), after_id, limit, now_ms)?;
         Ok(CommandHistoryPage {
             commands,
             truncated,

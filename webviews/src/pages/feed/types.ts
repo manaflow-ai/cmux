@@ -17,6 +17,9 @@ export interface FeedViewParams {
   filter?: FeedViewFilter;
   tz_offset_min?: number;
   limit?: number;
+  /** A delta read: only these items come in full; every other one is `{id, same: true}` (FeedItemSame),
+   * which the page fills from its last view. Groups, order and counts are always whole. */
+  only?: string[];
 }
 
 export type FeedItemState = "open" | "answered" | "cancelled" | "expired";
@@ -228,6 +231,14 @@ export interface FeedView {
 
 export interface FeedChanged {
   revision: number;
+  /** The items whose visible value moved; empty for a change of the view itself (the connection). */
+  changed?: string[];
+}
+
+/** An item a delta read did not send again: the page has it from its last view. */
+export interface FeedItemSame {
+  id: string;
+  same: true;
 }
 
 export type FeedIntentKind = "answer" | "decline" | "read" | "archive" | "snooze" | "mark_all_read";

@@ -1,6 +1,7 @@
 // The Feed page's state owner on the page side. The feed is a projection of the daemon's feed
-// client (`cmux.feed.view.read`): the page reads it on open and again on every
-// `cmux.feed.view.changed`, a newer read supersedes an older reply, and nothing polls. Every
+// client (`cmux.feed.view.read`): the page reads it on open, and on every
+// `cmux.feed.view.changed` reads again only the items it names (a delta read); a newer read
+// supersedes an older reply, and nothing polls. Every
 // change (an answer, triage, read) is an intent the owner settles; while it waits, the owner's
 // `pending` dims the item. The page keeps only client view state: the route, the Inbox filter, the
 // selection, unsent drafts and the reports basket's reply. React reads it through
@@ -50,6 +51,10 @@ import {
   type FeedIntentParams,
   type FeedReport,
   type FeedReportsResult,
+  type FeedChanged,
+  type FeedEntry,
+  type FeedGroup,
+  type FeedItemSame,
   type FeedView,
   type FeedViewParams,
   type GitHubAction,
@@ -116,6 +121,11 @@ export class FeedStore {
   private reportsWatch: "none" | "starting" | "on" = "none";
   /** The first Inbox read picks GitHub when it is connected, once (FeedInboxView.pickedConnection). */
   private pickedConnection = false;
+  /** Items changed since the last view the page applied: the next delta read asks for them in full. */
+  private readonly changedSince = new Set<string>();
+  /** A whole read is on its way (a route or filter change, a change without ids): every read until
+   * it lands is whole, so a delta read never fills from a view for other params. */
+  private wholeWanted = true;
   /** Each report's last reply that was not sent: sent again, it keeps its id. */
   private readonly unsent = new Map<string, ReportReply>();
   readonly notices: NoticeQueue = createNoticeQueue();
@@ -199,8 +209,8 @@ export class FeedStore {
     if (!this.client || this.viewWatch !== "none") return;
     this.viewWatch = "starting";
     try {
-      const stop = await this.client.subscribe(FeedOps.viewChanged, () => {
-        if (lifetime === this.lifetime) void this.reload();
+      const stop = await this.client.subscribe<FeedChanged>(FeedOps.viewChanged, (event) => {
+        if (lifetime === this.lifetime) this.onViewChanged(event);
       });
       if (lifetime === this.lifetime) {
         this.stops.push(stop);
@@ -286,13 +296,49 @@ export class FeedStore {
     };
   }
 
-  /** Re-reads the view; an older reply that arrives late is dropped. */
-  async reload(): Promise<void> {
+  /** `feed-view-changed`: the items it names are read again, and only those (a delta read); a change
+   * without ids (the connection, the GitHub setting) reads the whole view. Each change re-read every
+   * item of the view (up to 2,000, each with its place over every tab) before. */
+  private onViewChanged(event: FeedChanged | undefined): void {
+    const changed = event?.changed ?? [];
+    if (changed.length === 0) {
+      void this.reload();
+      return;
+    }
+    for (const id of changed) this.changedSince.add(id);
+    void this.reload("delta");
+  }
+
+  /** Re-reads the view; an older reply that arrives late is dropped. A delta read asks in full only
+   * for the items changed since the last view it applied (`changedSince`) and fills the rest from
+   * that view; one it cannot fill (an item it never had) reads the whole view. */
+  async reload(mode: "whole" | "delta" = "whole"): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
+    const only =
+      mode === "delta" && !this.wholeWanted && this.snapshot.view && this.changedSince.size <= MAX_DELTA_ITEMS
+        ? [...this.changedSince]
+        : undefined;
+    if (!only) this.wholeWanted = true;
     try {
-      const view = await this.client.call<FeedView>(FeedOps.viewRead, this.params());
+      const reply = await this.client.call<FeedView>(
+        FeedOps.viewRead,
+        only ? { ...this.params(), only } : this.params(),
+      );
       if (generation !== this.generation) return;
+      let view = reply;
+      if (only) {
+        const filled = this.snapshot.view && fillDelta(this.snapshot.view, reply);
+        if (!filled) {
+          this.wholeWanted = true;
+          return this.reload();
+        }
+        view = filled;
+        for (const id of only) this.changedSince.delete(id);
+      } else {
+        this.wholeWanted = false;
+        this.changedSince.clear();
+      }
       // The first Inbox read: GitHub is the first tab when it is connected. Read it before drawing,
       // so the Feed's rows never show and then swap.
       if (this.snapshot.route.view === "inbox" && !this.pickedConnection) {
@@ -653,4 +699,39 @@ export function rejectOf(error: unknown): FeedReject {
     default:
       return { kind: "refused", message: message(error) };
   }
+}
+
+/** The most ids one delta read asks for; past it the page reads the whole view. */
+const MAX_DELTA_ITEMS = 64;
+
+const isSame = (item: ViewItem | FeedItemSame): item is FeedItemSame => (item as FeedItemSame).same === true;
+
+/** A delta read's view with each item it did not send again (`{id, same: true}`) taken from `base`,
+ * the last view the page applied; undefined when one is not there (the page then reads it whole).
+ * Groups, order and counts are the reply's own. */
+export function fillDelta(base: FeedView, reply: FeedView): FeedView | undefined {
+  const held = new Map<string, ViewItem>();
+  for (const group of base.groups)
+    for (const entry of group.entries) {
+      held.set(entry.item.id, entry.item);
+      for (const member of entry.members) held.set(member.id, member);
+    }
+  const fill = (item: ViewItem | FeedItemSame): ViewItem | undefined => (isSame(item) ? held.get(item.id) : item);
+  const groups: FeedGroup[] = [];
+  for (const group of reply.groups) {
+    const entries: FeedEntry[] = [];
+    for (const entry of group.entries) {
+      const item = fill(entry.item);
+      if (!item) return undefined;
+      const members: ViewItem[] = [];
+      for (const member of entry.members) {
+        const filled = fill(member);
+        if (!filled) return undefined;
+        members.push(filled);
+      }
+      entries.push({ ...entry, item, members });
+    }
+    groups.push({ ...group, entries });
+  }
+  return { ...reply, groups };
 }
