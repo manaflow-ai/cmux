@@ -2052,6 +2052,8 @@ const HIDDEN_DRAW_MS = 50;
 const OTHER_CHATS_DRAW_MS = 500;
 /// How long after the person's last wheel tick or scroll other chats' changes still wait.
 const SCROLL_QUIET_MS = 150;
+/// The longest a scroll holds them: a page that keeps scrolling itself never rests.
+const SCROLL_HOLD_MAX_MS = 2_000;
 
 /// When the person last scrolled anything in this page (a wheel tick or a scroll), on the monotonic
 /// clock, from one passive capture listener per window, added the first time a client asks.
@@ -3163,6 +3165,8 @@ export class AcpmuxDirectClient {
   /// Other chats' changes waiting for their turn to draw (`drawOtherChats`), and when they last drew.
   private otherChatsDraw?: ReturnType<typeof setTimeout>;
   private otherChatsDrawnAt = Number.NEGATIVE_INFINITY;
+  /// When the first of the waiting changes came (`drawOtherChats`).
+  private otherChatsSince?: number;
   /// The frame this client waits for, if any: one at a time, cancelled on close (`emitInFrame`).
   private frameRequest?: { cancel?: () => void };
   private socket?: WebSocket;
@@ -8152,9 +8156,14 @@ export class AcpmuxDirectClient {
       return;
     }
     const now = performance.now();
-    const wait = Math.max(this.otherChatsDrawnAt + OTHER_CHATS_DRAW_MS - now, lastScrollAt() + SCROLL_QUIET_MS - now);
-    if (wait <= 0) {
+    this.otherChatsSince ??= now;
+    // A scroll that never rests (a page that scrolls itself) holds them at most SCROLL_HOLD_MAX_MS.
+    const scrollWait = Math.min(lastScrollAt() + SCROLL_QUIET_MS, this.otherChatsSince + SCROLL_HOLD_MAX_MS) - now;
+    const wait = Math.max(this.otherChatsDrawnAt + OTHER_CHATS_DRAW_MS - now, scrollWait);
+    // A timer may fire a fraction of a millisecond early: that counts as due, not as another wait.
+    if (wait < 1) {
       this.otherChatsDrawnAt = now;
+      this.otherChatsSince = undefined;
       return this.emitInFrame("session changed");
     }
     this.otherChatsDraw = setTimeout(() => {
@@ -11506,6 +11515,7 @@ export class AcpmuxDirectClient {
     this.frameSnapshot = undefined;
     clearTimeout(this.otherChatsDraw);
     this.otherChatsDraw = undefined;
+    this.otherChatsSince = undefined;
     // A new session list (the watch's page, a reread): chats whose counts moved are read again.
     if (this.askedSessions !== this.sessions) {
       this.askedSessions = this.sessions;

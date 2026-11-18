@@ -516,8 +516,8 @@ test("other chats' changes wait while the person scrolls; the pane's own chat do
     jest.advanceTimersByTime(1000);
     flushFrames();
     const before = snapshots();
-    // 2 s of scrolling, a wheel tick every 16 ms, while other chats change.
-    for (let tick = 0; tick < 125; tick++) {
+    // 1.5 s of scrolling, a wheel tick every 16 ms, while other chats change.
+    for (let tick = 0; tick < 94; tick++) {
       window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
       if (tick % 5 === 0) burst(socket, 3, tick);
       jest.advanceTimersByTime(16);
@@ -543,6 +543,31 @@ test("other chats' changes wait while the person scrolls; the pane's own chat do
     jest.advanceTimersByTime(1000);
     flushFrames();
     expect(snapshots() - before).toBe(2);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+// A page that keeps scrolling itself (a smooth scroll elsewhere in it) never rests: other chats'
+// changes wait at most 2 s for it, not for ever.
+test("a scroll that never rests holds other chats' changes at most 2 s", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    burst(socket, 1, 0);
+    let drawnAt: number | undefined;
+    for (let tick = 0; tick < 250 && drawnAt === undefined; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      jest.advanceTimersByTime(16);
+      flushFrames();
+      if (snapshots() > before) drawnAt = (tick + 1) * 16;
+    }
+    expect(drawnAt).toBeGreaterThanOrEqual(1900);
+    expect(drawnAt).toBeLessThanOrEqual(2100);
   } finally {
     jest.useRealTimers();
     client.close();
