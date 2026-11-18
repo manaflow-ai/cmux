@@ -108,6 +108,8 @@ final class PaneCommitMotion {
     var serial = 0
     /// Each animation in flight.
     var moved: [(layer: CALayer, key: String)] = []
+    /// The layers of `moved`: which layer has a move of this motion on it, with no search of that list.
+    var moving: Set<ObjectIdentifier> = []
     /// The pane hosts that show ground strips, and the largest size each showed in this motion.
     var grounds: [ObjectIdentifier: (layer: CALayer, extent: CGSize)] = [:]
     /// The contents that keep their own old picture until the motion's end (``PaneCommitMotionHolding``), by pane host,
@@ -254,10 +256,15 @@ final class PaneCommitMotion {
         CATransaction.setDisableActions(true)
         dropLastFrame() // a second act in an unzoom's time: no old picture shows over a new layout
         keepUnder(leaving)
-        // A pane or a divider whose way is all out of sight (a column of a strip that is scrolled away before and after
-        // the act) gets no move: no part of that way shows in the motion's time.
-        let sight = screen.bounds
-        for change in changes where change.old.union(change.new).intersects(sight) {
+        // A pane or a divider gets no move only when no point of its way can show in the motion's time (``Sight``: a
+        // column of a strip that is scrolled away before and after the act, and at the camera's target) and its layer
+        // has no move of this motion on it. A layer with a move still shows on that move's way: it gets this act's
+        // move too and goes on from where it shows.
+        let sight = Sight(of: screen)
+        let seen = changes.filter { change in
+            change.host.layer.map { moving.contains(ObjectIdentifier($0)) } == true || sight.meets(change.old.union(change.new))
+        }
+        for change in seen {
             guard let layer = change.host.layer else { continue }
             move(layer, spring, origin: change.origin, size: change.size)
             showGround(beside: change)
@@ -272,10 +279,11 @@ final class PaneCommitMotion {
             guard let layer = view.layer else { continue }
             let new = layer.frame
             if let old = armed.frames[ObjectIdentifier(view)] {
-                guard old != new, old.union(new).intersects(sight) else { continue }
+                guard old != new, moving.contains(ObjectIdentifier(layer)) || sight.meets(old.union(new)) else { continue }
                 move(layer, spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
                      size: CGSize(width: old.width - new.width, height: old.height - new.height))
-            } else if let edge = changes.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
+            } else if let edge = seen.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
+                // A new line goes with the edge of a pane that gets a move, and with no other.
                 move(layer, spring, origin: edge, size: .zero)
             }
         }
@@ -344,6 +352,7 @@ final class PaneCommitMotion {
             CATransaction.setDisableActions(true)
             for (layer, key) in moved { layer.removeAnimation(forKey: key) }
             moved = []
+            moving = []
             for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
             grounds = [:]
             for (host, z) in under { host.layer?.zPosition = z }

@@ -23,6 +23,7 @@ extension PaneCommitMotion {
         let key = "pane.commit.\(serial).\(keyPath)"
         layer.add(animation, forKey: key)
         moved.append((layer: layer, key: key))
+        moving.insert(ObjectIdentifier(layer))
     }
 
     /// A pane that gets smaller has its content at its new size from the frame that shows the change: until the
