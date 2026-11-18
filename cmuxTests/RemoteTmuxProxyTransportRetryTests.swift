@@ -432,12 +432,13 @@ import Testing
         let argv = host.transport
             .profile(port: host.transportPort)
             .controlStreamArgv(host: host, sessionName: "work", mode: .attach)
-        #expect(consecutive(argv, "--port", "2022"))
-        #expect(
-            consecutive(argv, "--command", "exec 'tmux' '-CC' 'attach-session' '-t' 'work'")
-        )
-        #expect(!argv.contains("-c"))
-        #expect(!argv.contains("-p"))
+        // The whole argv, so the options also have to stay ahead of `--`: after it et reads
+        // everything as the destination and its command words.
+        #expect(argv == [
+            "--port", "2022",
+            "--command", "exec 'tmux' '-CC' 'attach-session' '-t' 'work'",
+            "--", "somehost",
+        ])
     }
 
     /// ssh ignores a broker on purpose: ProxyCommand/ProxyJump already do this, configured where
