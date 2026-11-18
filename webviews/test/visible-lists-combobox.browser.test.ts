@@ -8,7 +8,10 @@
 // - a hover re-renders at most the two rows it moved between, one scroll step at most the rows that
 //   came in, one changed item only the mounted rows (see below);
 // - the arrows and Return still reach and pick rows that were not mounted, and the
-//   active descendant always names a mounted row in view with its place in the whole list.
+//   active descendant always names a mounted row in view with its place in the whole list;
+// - with pinned actions (above or under the list, as the folder popover has them), End, Home and
+//   the arrows land in view at every step with the action in its place, and the view scrolled
+//   anywhere has no blank and no overlapping rows.
 // The main-thread times per step are printed, not asserted.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -202,4 +205,119 @@ await requireBrowserLane("visible-lists-combobox.browser.test.ts", async () => {
     expect(after.wrong).toEqual([]);
     await open.close();
   });
+
+  // The pinned path the folder popover takes (pinned actions over a ScrollArea viewport that the
+  // rows window in), with the action above the list and under it.
+  type Page = Awaited<ReturnType<VisibleListsServer["open"]>>["page"];
+  const frame = (page: Page) => page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+  /** The active row as `activeRow` reads it, and the pinned action: an option outside the scroller,
+   * on the page, and on its side of the scroller's view. */
+  async function pinnedState(page: Page, placement: "top" | "bottom") {
+    const active = await activeRow(page);
+    const pinned = await page.evaluate((placement) => {
+      const scroller = (
+        window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+      ).__visibleListControls.scroller();
+      const row = document.querySelector<HTMLElement>(".ui-combobox-pinned [role='option']");
+      if (!row) return { mounted: false, placed: false, active: false };
+      const view = scroller.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      const onPage = box.height > 0 && box.top >= 0 && box.bottom <= window.innerHeight;
+      const side = placement === "top" ? box.bottom <= view.top + 0.5 : box.top >= view.bottom - 0.5;
+      const owner = document.activeElement?.closest("[aria-activedescendant]") ?? document.activeElement;
+      return {
+        mounted: true,
+        placed: onPage && side && !scroller.contains(row),
+        active: owner?.getAttribute("aria-activedescendant") === row.id,
+      };
+    }, placement);
+    return { active, pinned };
+  }
+
+  for (const placement of ["top", "bottom"] as const) {
+    for (const n of [1000, 10000]) {
+      const name = `combobox-pinned&placement=${placement}`;
+      test(`combobox-pinned (${placement}) at ${n}: End, Home, the arrows and Return reach rows that were not mounted`, async () => {
+        const open = await server.open(name, n);
+        const { page } = open;
+        await page.evaluate(() =>
+          (window as unknown as { __visibleListControls: { filter(): HTMLElement } }).__visibleListControls
+            .filter()
+            .focus(),
+        );
+        const press = async (key: string) => {
+          await page.keyboard.press(key);
+          await frame(page);
+          return pinnedState(page, placement);
+        };
+        const onRow = (position: number) => ({
+          active: { mounted: true, inView: true, posinset: String(position), setsize: String(n) },
+          pinned: { mounted: true, placed: true, active: false },
+        });
+        const onPinned = { pinned: { mounted: true, placed: true, active: true } };
+        // End reaches the last of the collection, the pinned action; the row above it is the
+        // list's last, off-screen until then.
+        expect(await press("End")).toMatchObject(onPinned);
+        expect(await press("ArrowUp")).toMatchObject(onRow(n));
+        await page.keyboard.press("Enter");
+        expect(await submitted(page)).toBe(`id-${n - 1}`);
+        expect(await press("Home")).toMatchObject(onRow(1));
+        for (let step = 1; step <= 40; step++) expect(await press("ArrowDown")).toMatchObject(onRow(1 + step));
+        await page.keyboard.press("Enter");
+        expect(await submitted(page)).toBe("id-40");
+        // Up from the top leaves the list for the field, then wraps to the pinned action and on to
+        // the last row.
+        expect(await press("Home")).toMatchObject(onRow(1));
+        expect(await press("ArrowUp")).toMatchObject({
+          active: { mounted: false },
+          pinned: { mounted: true, placed: true, active: false },
+        });
+        expect(await press("ArrowUp")).toMatchObject(onPinned);
+        expect(await press("ArrowUp")).toMatchObject(onRow(n));
+        expect((await open.counts()).rows).toBeLessThanOrEqual(MOUNTED_BOUND);
+        await open.close();
+      });
+
+      test(`combobox-pinned (${placement}) at ${n}: scrolled anywhere, the view has no blank and no overlap`, async () => {
+        const open = await server.open(name, n);
+        const { page } = open;
+        const found: string[] = [];
+        for (const fraction of [0, 0.1, 0.37, 0.5, 0.83, 1]) {
+          await page.evaluate((fraction) => {
+            const scroller = (
+              window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+            ).__visibleListControls.scroller();
+            scroller.scrollTop = Math.round(fraction * (scroller.scrollHeight - scroller.clientHeight));
+          }, fraction);
+          await frame(page);
+          found.push(
+            ...(await page.evaluate((fraction) => {
+              const scroller = (
+                window as unknown as { __visibleListControls: { scroller(): HTMLElement } }
+              ).__visibleListControls.scroller();
+              const view = scroller.getBoundingClientRect();
+              const options = [...scroller.querySelectorAll<HTMLElement>("[role='option']")];
+              const rows = options.map((row) => row.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+              const at = `${Math.round(fraction * 100)}%`;
+              if (!rows.length) return [`${at}: no rows`];
+              // The rows' spacer spans exactly the rows: outside it is the list's own padding.
+              const spacer = options[0]!.parentElement!.getBoundingClientRect();
+              const wrong: string[] = [];
+              for (let y = Math.max(view.top, spacer.top); y < Math.min(view.bottom, spacer.bottom); y += 4)
+                if (!rows.some((row) => row.top <= y && y < row.bottom))
+                  wrong.push(`${at}: blank at ${(y - view.top).toFixed(0)} px`);
+              for (let index = 1; index < rows.length; index++) {
+                const overlap = rows[index - 1]!.bottom - rows[index]!.top;
+                if (overlap > 0.75) wrong.push(`${at}: rows overlap by ${overlap.toFixed(1)} px`);
+              }
+              return wrong;
+            }, fraction)),
+          );
+        }
+        expect(found).toEqual([]);
+        expect((await open.counts()).rows).toBeLessThanOrEqual(MOUNTED_BOUND);
+        await open.close();
+      });
+    }
+  }
 });

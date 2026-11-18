@@ -2,6 +2,7 @@
 // the caller filters on each key. `?vary=1` gives every third row a second line (rows of two
 // heights), `window.__removeItem(id)` takes an item out of the open list, and `?start=K` opens it
 // with the first K items until `window.__grow()` hands it all N (suggestions arriving late).
+// `?placement=bottom` puts the pinned action under the list, as the folder popover does.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -23,6 +24,7 @@ let changeOne = () => {};
 const params = new URLSearchParams(location.search);
 const vary = params.get("vary") === "1";
 const start = params.has("start") ? Number(params.get("start")) : undefined;
+const placement = params.get("placement") === "bottom" ? "bottom" : "top";
 
 function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
   const [items, setItems] = useState(() => caseItems(Math.min(n, start ?? n)));
@@ -45,6 +47,7 @@ function CaseCombobox({ n, pinned }: { n: number; pinned: boolean }) {
       inline
       suggestions={pinned ? [...suggestions, "new"] : suggestions}
       pinnedSuggestions={pinned ? ["new"] : undefined}
+      pinnedPlacement={placement}
       onQuery={setQuery}
       onSubmit={(value) => {
         (window as unknown as { __submitted: string[] }).__submitted.push(value);
