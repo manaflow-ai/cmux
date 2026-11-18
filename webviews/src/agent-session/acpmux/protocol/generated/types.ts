@@ -14,6 +14,7 @@ export interface AcpmuxRequestMeta {
   callerSession?: unknown;
   cancelToken?: unknown;
   class?: unknown;
+  cliCommand?: unknown;
   cliHost?: unknown;
   compression?: unknown;
   context?: unknown;
@@ -2038,6 +2039,13 @@ export interface SessionsParams {
   limit?: (number | null);
   /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
   localOnly?: (boolean | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions with this whole name as
+   * the list shows it, or a peer's listed as `PEER/NAME`. Empty is no filter. A caller that
+   * needs one name's sessions is sent those rows, not the list. An older daemon sends the
+   * whole list: a caller still matches the name in what it gets.
+   */
+  name?: (string | null);
   /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
   orderBy?: (string | null);
   /**

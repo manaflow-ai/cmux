@@ -234,3 +234,99 @@ async fn a_link_that_read_row_pages_follows_from_its_cursor_when_it_links_again(
     link.abort();
     server.abort();
 }
+
+/// A peer that left out notices (`_acpmux/lagged`) is followed from where the hole began when
+/// the link comes back: the cursor stays at the last change the hub got before the lag, never
+/// moves past it on a later notice, and the next link asks for what changed since, not the whole
+/// list (a 10K-session host sent its peers 323 whole lists in 7.7 min, 2026-11-18).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lagged_link_follows_from_where_the_hole_began_not_the_whole_list() {
+    use crate::rpc::{Message, method};
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
+
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (asked_tx, mut asked) = mpsc::unbounded_channel::<serde_json::Value>();
+    let server = tokio::spawn(async move {
+        let mut first = true;
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let lagging = std::mem::take(&mut first);
+            while let Some(Ok(Frame::Text(text))) = ws.next().await {
+                let msg: serde_json::Value = serde_json::from_str(&text).unwrap();
+                let Some(id) = msg.get("id").cloned() else { continue };
+                let params = msg["params"].clone();
+                let at = |seq: u64| json!({"listEpoch": "run-1", "listSeq": seq});
+                let (result, watch) = match msg["method"].as_str() {
+                    Some(method::INITIALIZE) => (
+                        json!({"_meta": {"acpmux": {"origin": "peer", "build": "b1",
+                            "capabilities": [crate::hub::row_log::CAPABILITY]}}}),
+                        false,
+                    ),
+                    Some(method::MUX_WATCH) => {
+                        let _ = asked_tx.send(params.clone());
+                        let mut reply = at(9);
+                        if params.get("afterSeq").is_some() {
+                            reply = at(21);
+                            reply["follow"] = json!(true);
+                            reply["gone"] = json!([]);
+                            reply["sessions"] =
+                                json!([{"sessionId": "s-2", "status": "idle", "updatedAt": 21}]);
+                        } else {
+                            reply["sessions"] = json!((0..3)
+                                .map(|i| json!({"sessionId": format!("s-{i}"), "status": "idle", "updatedAt": i}))
+                                .collect::<Vec<_>>());
+                        }
+                        (reply, true)
+                    }
+                    _ => (json!({}), false),
+                };
+                let line = Message::ok(id, result).to_line().trim_end().to_owned();
+                if ws.send(Frame::Text(line.into())).await.is_err() {
+                    break;
+                }
+                if !(watch && lagging) {
+                    continue;
+                }
+                let changed = |seq: u64| {
+                    let session =
+                        json!({"sessionId": "s-1", "status": "running", "updatedAt": seq});
+                    let params =
+                        json!({"session": session, "kind": "status", "seq": seq, "listSeq": seq});
+                    Message::notification(method::MUX_SESSION_CHANGED, params)
+                };
+                let lagged = Message::notification("_acpmux/lagged", json!({"dropped": 4}));
+                for notice in [changed(10), lagged, changed(20)] {
+                    let line = notice.to_line().trim_end().to_owned();
+                    ws.send(Frame::Text(line.into())).await.unwrap();
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let restart = CloseFrame { code: CloseCode::Restart, reason: "restarting".into() };
+                let _ = ws.send(Frame::Close(Some(restart))).await;
+                break;
+            }
+        }
+    });
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("lagger", &format!("ws://{address}"), Some(TOKEN.into()), None, tx);
+    let link = tokio::spawn(peer.clone().run());
+    assert_eq!(once(&whole(linked(&mut notices).await)), 3);
+    let first = asked.recv().await.unwrap();
+    assert!(first.get("afterSeq").is_none(), "a first link reads the list: {first}");
+    let Listed::Patch(changed, _) = linked(&mut notices).await else {
+        panic!("a lagged link follows from its cursor, not the whole list")
+    };
+    assert_eq!(ids(&changed), ["s-2"]);
+    let again = asked.recv().await.unwrap();
+    assert_eq!(
+        (again["afterSeq"].as_u64(), again["listEpoch"].as_str()),
+        (Some(10), Some("run-1")),
+        "followed from the last change before the lag, not past it: {again}"
+    );
+    peer.stop();
+    link.abort();
+    server.abort();
+}

@@ -13,8 +13,10 @@
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
-//! `peer`, `status`, `localOnly` and `excludeStatus` narrow the list before it
-//! is paged. A caller that only needs this daemon's live sessions can therefore
+//! `peer`, `status`, `name`, `localOnly` and `excludeStatus` narrow the list before it
+//! is paged. `name` is a whole name as the list shows it, or a peer row's past its `PEER/`
+//! (`session_order::name_matches`): a caller that needs one name's sessions (`acpmux ensure`,
+//! `new --host auto`) is sent those rows, not the list. A caller that only needs this daemon's live sessions can therefore
 //! avoid walking the peer mirror. Only
 //! `_acpmux/sessions` takes them: a watch streams every session's changes, so
 //! a filtered first page would promise a scope its events do not keep
@@ -78,6 +80,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
     };
     let peer = text_filter(params, "peer")?;
     let status = text_filter(params, "status")?;
+    let name = text_filter(params, "name")?;
     let local_only = bool_filter(params, "localOnly")?;
     if order.is_some() && !local_only {
         return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
@@ -89,6 +92,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
         .filter(|(_, s)| peer.is_none_or(|p| s.peer() == Some(p)))
         .filter(|(_, s)| status.is_none_or(|st| s.status() == Some(st)))
         .filter(|(_, s)| !local_only || s.peer().is_none())
+        .filter(|(_, s)| name.is_none_or(|n| s.named(n)))
         .filter(|(_, s)| s.status().is_none_or(|st| !excluded.contains(&st)))
         .map(|(at, _)| at)
         .collect();
@@ -269,7 +273,7 @@ fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcE
 
 /// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
 pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
-    for name in ["peer", "status", "localOnly", "pendingOnly", "excludeStatus", "orderBy"] {
+    for name in ["peer", "status", "name", "localOnly", "pendingOnly", "excludeStatus", "orderBy"] {
         if name == "localOnly" || name == "pendingOnly" {
             if bool_filter(params, name)? {
                 return Err(RpcError::invalid_params(format!(

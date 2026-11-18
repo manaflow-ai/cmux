@@ -508,6 +508,13 @@ pub struct Peer {
     /// after it, not the list.
     list_follow: AtomicBool,
     list_cursor: StdMutex<Option<(String, u64)>>,
+    /// The peer left out notices (`_acpmux/lagged`): the cursor stays where the hole began, so
+    /// no later notice moves it past a change the hub never got, and the next link follows from
+    /// there (what changed since) instead of reading the whole list. Cleared once a list or a
+    /// follow is read. The peer sends lagged in the place of what it left out, before any newer
+    /// notice (`server/fanout.rs`, `Conn::left_out_too_large`), so every change left out is
+    /// after the cursor.
+    cursor_held: AtomicBool,
     /// Whether the list the cursor is in was read with tools: a follow is asked for the same way.
     cursor_tools: AtomicBool,
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON

@@ -875,6 +875,12 @@ pub struct SessionsParams {
     /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions with this whole name as
+    /// the list shows it, or a peer's listed as `PEER/NAME`. Empty is no filter. A caller that
+    /// needs one name's sessions is sent those rows, not the list. An older daemon sends the
+    /// whole list: a caller still matches the name in what it gets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// `_acpmux/sessions` only: exclude peer sessions before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_only: Option<bool>,

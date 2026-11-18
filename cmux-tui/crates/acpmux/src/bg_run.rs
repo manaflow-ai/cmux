@@ -99,6 +99,10 @@ pub struct Record {
     pub command: String,
     pub cwd: String,
     pub pid: u32,
+    /// The runner's own pid: it holds `<id>.lock` until it wrote the exit, so the daemon waits
+    /// for its exit as a kernel event (`hub/bg_notify.rs`). None in an older runner's record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_pid: Option<u32>,
     pub started_at: u64,
     pub ended_at: Option<u64>,
     pub exit_code: Option<i32>,
@@ -582,6 +586,7 @@ pub fn main() -> anyhow::Result<()> {
             command: spec.command.clone(),
             cwd: spec.cwd.to_string_lossy().into_owned(),
             pid,
+            runner_pid: Some(std::process::id()),
             started_at: crate::store::now_ms(),
             generation: spec.generation.clone(),
             description: spec.description.clone(),

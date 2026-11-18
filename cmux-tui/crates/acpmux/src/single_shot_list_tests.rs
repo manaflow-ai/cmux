@@ -142,8 +142,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
-    // `deliver::sessions` has no caller outside its own test.
-    ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions` and its test; no caller"),
+    // `deliver::sessions_filtered`: the cmux-tui roster and host shares, filtered by the daemon.
+    ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions_filtered` and its test"),
     // Row 7b part one's callers, moved to `cli/list_read.rs`: each v1 read is the fallback for a
     // daemon without the list surface or `info-rows-v1` (`Via::open` gave none).
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),

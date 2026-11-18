@@ -18,6 +18,17 @@ pub(crate) fn original_args() -> Option<&'static [String]> {
     ORIGINAL_ARGS.get().map(Vec::as_slice)
 }
 
+/// The command word this CLI runs (`ls` of `acpmux --json ls`), past the global flags
+/// `command_index` skips: a short word of letters and `-`, else None. Its `initialize` names it
+/// (`_meta.acpmux.cliCommand`), so the daemon's `listReplies` says which command reads the list
+/// (`list_bytes.rs`), not only "acpmux-cli".
+pub(crate) fn command_word() -> Option<&'static str> {
+    let args = original_args()?;
+    let word = args.iter().find(|a| a.as_str() != "--json" && a.as_str() != "--suppress-reads")?;
+    let plain = |c: char| c.is_ascii_lowercase() || c == '-';
+    (!word.starts_with('-') && word.len() <= 32 && word.chars().all(plain)).then_some(word.as_str())
+}
+
 pub struct Invocation {
     /// `acpmux`, or `cmux acp` inside cmux.
     pub display_name: String,

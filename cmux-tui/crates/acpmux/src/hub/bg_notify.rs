@@ -5,9 +5,11 @@
 //! calls/parsing of them seem kinda good? we should bea bel to do that AND have condensed tools
 //! that are callable in acpmux/cmux-next..."
 //!
-//! - The end is learned from the runner's own lock (`bg_run.rs`): a thread per watched task
-//!   blocks on it (`flock`), which the runner holds until it wrote its exit, or the kernel frees
-//!   when the runner dies. Nothing polls.
+//! - The end is learned from the runner's own lock (`bg_run.rs`), which the runner holds until it
+//!   wrote its exit, or the kernel frees when the runner dies. The runner's exit is a kernel
+//!   event (`agent/leader_exit.rs`: a pidfd, a kqueue `NOTE_EXIT`) on tokio's reactor, so a
+//!   watched task costs no thread; only a record of an older runner (no `runnerPid`) or a kernel
+//!   with no exit event has a thread block on the lock (`flock`). Nothing polls.
 //! - The message is a tool's notice (`prompt_provenance::notice`, sender `acpmux`): its title is
 //!   the task's summary line (`bg_run::outcome`), its body the last [`NOTICE_LINES`] lines of
 //!   output. It is never steered into a running turn: it waits behind it, as a lane's report does.
@@ -49,6 +51,27 @@ impl Hub {
         let session = record.session_id.clone();
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
+        // The runner's exit as a kernel event: no thread waits (16 sat in flock on a 10K-session
+        // Mac, 2026-11-18). Registered before the lock is checked, so while the lock is held the
+        // pid is the runner's own, never a reused one.
+        if let Some(runner) = record.runner_pid
+            && let Some(exit) = crate::agent::leader_exit::LeaderExit::open(runner)
+        {
+            handle.spawn(async move {
+                if lock_held(&lock) {
+                    exit.exited().await;
+                }
+                // The kernel freed the lock with the runner; one still held is waited for as
+                // before (never expected: the lock is close-on-exec).
+                if lock_held(&lock) {
+                    let _ = tokio::task::spawn_blocking(move || wait_unlocked(&lock)).await;
+                }
+                if let Some(hub) = hub.upgrade() {
+                    hub.bg_notify(&dir, &session, &id).await;
+                }
+            });
+            return;
+        }
         let spawned = std::thread::Builder::new().name("acpmux-bg-watch".into()).spawn(move || {
             wait_unlocked(&lock);
             handle.spawn(async move {
@@ -357,6 +380,16 @@ fn wait_unlocked(path: &Path) {
 }
 #[cfg(not(unix))]
 fn wait_unlocked(_path: &Path) {}
+
+/// Whether something holds the lock at `path` now (a missing file holds nothing). Never blocks;
+/// leaves no lock behind (`FileLock::held_elsewhere`, on a description of its own).
+fn lock_held(path: &Path) -> bool {
+    let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(path) else {
+        return false;
+    };
+    cmux_file_lock::FileLock::held_elsewhere(&file, cmux_file_lock::Kind::Exclusive)
+        .unwrap_or(false)
+}
 
 #[cfg(test)]
 mod tests {

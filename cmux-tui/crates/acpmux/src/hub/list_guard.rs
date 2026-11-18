@@ -431,6 +431,15 @@ impl PageRow for BuiltRow {
             Self::Peer(_, r) => r.summary.status(),
         }
     }
+
+    fn named(&self, name: &str) -> bool {
+        match self {
+            Self::Tree(row) => PageRow::named(row, name),
+            Self::Peer(_, r) => {
+                crate::session_order::name_matches(r.summary.name(), r.summary.peer(), name)
+            }
+        }
+    }
 }
 
 /// A row [`serialize_in_order`] writes: its text, and its paging keys.

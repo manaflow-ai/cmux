@@ -131,6 +131,7 @@ impl Peer {
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
+            cursor_held: AtomicBool::new(false),
             cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
         })

@@ -174,6 +174,9 @@ pub struct Conn {
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
+    /// The CLI command word its `initialize` named (`_meta.acpmux.cliCommand`): `listReplies`
+    /// counts the list it is sent under `acpmux-cli ls`, not only `acpmux-cli`.
+    cli_command: StdMutex<Option<String>>,
     /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
     /// it only observes marks it, so it keeps nothing once the owner app exited.
     presence: crate::daemon::unused_exit::Presence,
@@ -682,7 +685,11 @@ impl Conn {
         {
             let name = self.name.lock_or_recover().clone();
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
-            crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
+            let key = match self.cli_command.lock_or_recover().as_deref() {
+                Some(word) => format!("{name} {word} ({:?})", self.origin),
+                None => format!("{name} ({:?})", self.origin),
+            };
+            crate::list_bytes::global().observe(&key, bytes);
         }
         // A cheap list read goes ahead of the bulk lane (`outbound.rs`), so a notice may pass it: the
         // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
@@ -1675,6 +1682,7 @@ async fn serve_connection_from(
         carrier,
         raw_text,
         name: StdMutex::new(String::new()),
+        cli_command: StdMutex::new(None),
         presence: client.presence(),
         out,
         gate,
@@ -2504,6 +2512,10 @@ mod session_list_pages_tests;
 #[cfg(test)]
 #[path = "list_follow_link_tests.rs"]
 mod list_follow_link_tests;
+
+#[cfg(all(test, unix))]
+#[path = "list_caller_scale_tests.rs"]
+mod list_caller_scale_tests;
 
 #[cfg(test)]
 #[path = "compressed_link_tests.rs"]

@@ -82,7 +82,9 @@ pub async fn resolve(
     here_if_none: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
-        let list = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+        // That name's rows on every host only (`name` filter), never the whole list; an older
+        // daemon sends the list and `running_on` still finds the name in it.
+        let list = client.whole_list(method::MUX_SESSIONS, json!({"name": name})).await?;
         match running_on(&list, name).as_slice() {
             [] => {}
             [host] if reuse => return Ok(host.clone()),

@@ -134,6 +134,9 @@ impl Client {
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
         let mut meta = serde_json::Map::new();
+        if let Some(word) = crate::cli::entry::command_word() {
+            meta.insert(crate::list_bytes::CLI_COMMAND_FIELD.to_owned(), json!(word));
+        }
         if include_caller
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),

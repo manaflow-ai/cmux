@@ -1070,7 +1070,9 @@ mod live {
         let listed = runtime().and_then(|runtime| {
             runtime.block_on(async {
                 let client = acpmux::deliver::connect().await?;
-                acpmux::deliver::sessions(&client).await
+                // This machine's only: no peer's row is read.
+                acpmux::deliver::sessions_filtered(&client, serde_json::json!({"localOnly": true}))
+                    .await
             })
         });
         listed

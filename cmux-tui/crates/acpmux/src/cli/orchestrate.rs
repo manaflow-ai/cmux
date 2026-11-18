@@ -578,7 +578,10 @@ pub(crate) async fn ensure(
     let mut reconnects = 0;
     let (v, created) = loop {
         let attempt = async {
-            let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            // That name's rows only (`name` filter): never the whole list. An older daemon sends
+            // the list, and the match below still finds the name in it.
+            let by_name = json!({"name": full});
+            let existing = client.whole_list(method::MUX_SESSIONS, by_name).await?;
             let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
                 a.iter()
                     .find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str()))

@@ -23,6 +23,18 @@ pub(crate) trait PageRow {
     fn updated_ms(&self) -> u64;
     fn peer(&self) -> Option<&str>;
     fn status(&self) -> Option<&str>;
+    /// Whether the row is named `name` (the `name` filter, [`name_matches`]).
+    fn named(&self, name: &str) -> bool;
+}
+
+/// The `name` filter of a row whose list name is `listed`, of `peer` when a peer's: its whole
+/// name as the list shows it, or (a peer's row) that name past its `PEER/`, so `name` finds a
+/// name on every host (`new --host auto`) and `PEER/NAME` one host's.
+pub(crate) fn name_matches(listed: Option<&str>, peer: Option<&str>, name: &str) -> bool {
+    let Some(listed) = listed else { return false };
+    listed == name
+        || peer
+            .is_some_and(|p| listed.strip_prefix(p).and_then(|r| r.strip_prefix('/')) == Some(name))
 }
 
 impl<R: PageRow + ?Sized> PageRow for &R {
@@ -41,6 +53,10 @@ impl<R: PageRow + ?Sized> PageRow for &R {
     fn status(&self) -> Option<&str> {
         (**self).status()
     }
+
+    fn named(&self, name: &str) -> bool {
+        (**self).named(name)
+    }
 }
 
 impl PageRow for Value {
@@ -58,5 +74,9 @@ impl PageRow for Value {
 
     fn status(&self) -> Option<&str> {
         self.get("status").and_then(Value::as_str)
+    }
+
+    fn named(&self, name: &str) -> bool {
+        name_matches(self.get("name").and_then(Value::as_str), self.peer(), name)
     }
 }

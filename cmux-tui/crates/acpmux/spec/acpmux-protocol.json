@@ -2368,6 +2368,7 @@
         "callerSession": true,
         "cancelToken": true,
         "class": true,
+        "cliCommand": true,
         "cliHost": true,
         "compression": true,
         "context": true,
@@ -7187,6 +7188,13 @@
           "description": "`_acpmux/sessions` only: exclude peer sessions before pagination.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions with this whole name as\nthe list shows it, or a peer's listed as `PEER/NAME`. Empty is no filter. A caller that\nneeds one name's sessions is sent those rows, not the list. An older daemon sends the\nwhole list: a caller still matches the name in what it gets.",
+          "type": [
+            "string",
             "null"
           ]
         },

@@ -89,6 +89,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerSession",
     "cancelToken",
     "class",
+    "cliCommand",
     "cliHost",
     "compression",
     "context",

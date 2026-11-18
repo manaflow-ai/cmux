@@ -4074,6 +4074,11 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
         *conn.name.lock_or_recover() = name.to_owned();
     }
+    // The CLI's command word (`cli::entry::command_word`), for its share of the list
+    // (`list_bytes.rs`); bounded, since it comes from the client.
+    let word = params.pointer("/_meta/acpmux/cliCommand").and_then(Value::as_str);
+    let plain = |w: &&str| w.len() <= 32 && w.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+    *conn.cli_command.lock_or_recover() = word.filter(plain).map(str::to_owned);
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
     // handshake is done.

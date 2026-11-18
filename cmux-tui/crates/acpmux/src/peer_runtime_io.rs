@@ -990,6 +990,7 @@ impl Peer {
                         Ok(None) => {
                             let mut stopped = false;
                             *self.list_cursor.lock_or_recover() = list_at.take();
+                            self.cursor_held.store(false, Ordering::SeqCst);
                             listed = true;
                             let list = if follow {
                                 PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
@@ -1320,10 +1321,11 @@ impl Peer {
                                 continue;
                             }
                             // The peer left out notices (a full queue, one too large, a lagging
-                            // reader): the hub's copy is no longer current to any position, so
-                            // the next link reads the whole list.
+                            // reader): the hub's copy is current to the cursor and no further,
+                            // so the cursor stays there (`cursor_held`) and the next link reads
+                            // what changed since it, not the whole list.
                             if m == "_acpmux/lagged" {
-                                *self.list_cursor.lock_or_recover() = None;
+                                self.cursor_held.store(true, Ordering::SeqCst);
                             }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
@@ -1338,6 +1340,7 @@ impl Peer {
                                 // The hub's copy of the list is current to here, once this link's
                                 // list reached it (`listed`).
                                 if listed
+                                    && !self.cursor_held.load(Ordering::SeqCst)
                                     && let Some(seq) = p.get("listSeq").and_then(Value::as_u64)
                                     && let Some((_, at)) = self.list_cursor.lock_or_recover().as_mut()
                                 {

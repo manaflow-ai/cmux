@@ -713,8 +713,9 @@ async fn tag_recipients(
     tag: &str,
 ) -> Result<Vec<(String, String)>, String> {
     if sessions.is_none() {
+        // Live sessions only, as `tag_targets` keeps: never every closed chat's row.
         let listed = daemon
-            .whole_list(method::MUX_SESSIONS, json!({}))
+            .whole_list(method::MUX_SESSIONS, json!({"excludeStatus": ["closed"]}))
             .await
             .map_err(|e| format!("cannot list the sessions: {e:#}"))?;
         *sessions =
