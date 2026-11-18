@@ -10,7 +10,8 @@
 #   sign-files-host-dev.sh UNSIGNED.zip [--identity NAME] [--keychain PATH] [--timestamp] [--out DIR]
 #
 # Then publish the zip where builds read it, by its sha256: `cmux-ci artifact-put` (the fleet
-# store) and, with the R2 write credentials, publish-cua-pinned-asset.sh.
+# store) and, with the R2 write credentials, publish-cua-pinned-asset.sh --prefix cua-helper-dev
+# (the sibling dev helpers' R2 prefix).
 set -euo pipefail
 zip="${1:?usage: sign-files-host-dev.sh UNSIGNED.zip [--identity NAME] [--keychain PATH] [--timestamp] [--out DIR]}"; shift
 identity=""; keychain=(); timestamp=--timestamp=none; out="$PWD"
@@ -57,7 +58,7 @@ pin = {
     "arch": "arm64",
     "sha256": sha,
     "r2_bucket": "cmux-cef",
-    "r2_key": f"files-host-dev/{sha}/{asset}",
+    "r2_key": f"cua-helper-dev/{sha}/{asset}",
     "bundle_id": bundle_id,
     "signing": kind or "unknown",
     "team_id": team,
