@@ -1,4 +1,4 @@
-"""hover-sweep: the hover rules' main-thread cost per pointer move, in ns (B8 step B's A/B).
+"""hover-sweep: the hover rules' main-thread cost per pointer move, in us (B8 step B's A/B).
 
 Runs Lawrence's HoverCardSweepBench (CmuxNextDesignTests) in a release build on a fleet Mac, `runs` test
 processes: a pointer resting on a sidebar row until its card opens, then sweeping 60 rows down and back with the
@@ -17,7 +17,7 @@ Two routes to a fleet Mac:
                      controller runs an unlisted scripts/measure script only at a commit on feat-cmux-next or main,
                      so this route works once hover-sweep.sh has landed there.
 
-Rows: pointer_move_p50, pointer_move_p95, pointer_move_p99, pointer_move_max (ns, lower), one sample per test
+Rows: pointer_move_p50, pointer_move_p95, pointer_move_p99, pointer_move_max (us, lower; the test prints ns), one sample per test
 process (value = the median process); moves (count, none). Before and after are two runs at two commits:
 
   cmux-bench hover-sweep --host fleet --build <before sha>
@@ -46,13 +46,13 @@ QUANTILES = ("p50", "p95", "p99", "max")
 
 class HoverSweep(Bench):
     name = "hover-sweep"
-    summary = "Hover rules per pointer move (ns): a 60-row sidebar sweep through HoverCardMachine, release build"
-    units = "ns"
+    summary = "Hover rules per pointer move (us): a 60-row sidebar sweep through HoverCardMachine, release build"
+    units = "us"
     owner = "hover rules in Rust (B8 step B)"
     hosts = ("fleet",)
     harness = "scripts/measure/hover-sweep.sh"
     version = "1"
-    floors = {f"pointer_move_{q}": 50.0 for q in QUANTILES}
+    floors = {f"pointer_move_{q}": 0.05 for q in QUANTILES}  # 50 ns
 
     def run(self, ctx: Context) -> None:
         ref = ctx.build.get("sha") if ctx.build.get("channel") == "sha" else None
@@ -87,7 +87,7 @@ class HoverSweep(Bench):
             if ctx.host.get("name") in (None, "", "fleet"):
                 ctx.host["name"] = host.group(1)
         for i, q in enumerate(QUANTILES):
-            ctx.row(f"pointer_move_{q}", unit="ns", samples=[float(r[2 + i]) for r in runs])
+            ctx.row(f"pointer_move_{q}", unit="us", samples=[int(r[2 + i]) / 1000.0 for r in runs])
         ctx.row("moves", float(runs[0][0]), "count", better="none")
 
 
