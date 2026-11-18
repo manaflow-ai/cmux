@@ -209,7 +209,7 @@ test("Sign Out removes a Claude token after its confirm; Cancel keeps it", async
   const rendered = await render(mockModels.claudeForCloud);
   await click(action(rendered, "claude", "signOut")!);
   const confirm = () => row(rendered, "claude").querySelector<HTMLElement>("[data-cloud-sign-out]");
-  expect(confirm()?.textContent).toContain("Sign out of Claude Code token? Cloud chats stop using it.");
+  expect(confirm()?.textContent).toContain("Remove Claude Code token? Threads stop using it.");
   await click(confirm()!.querySelector<HTMLElement>("button:not([data-cloud-action])")!);
   expect(confirm()).toBeNull();
   expect(rendered.provider.modelRuns).toEqual([]);
@@ -238,4 +238,31 @@ test("Edit on a Claude token adds the new token, then removes the old one", asyn
   const ids = rendered.provider.models!.personal.connections.map((c) => c.id);
   expect(ids).toContain("claude-token-2");
   expect(ids).not.toContain("claude-token");
+});
+
+test("Edit, then Back and another provider, adds that one beside the old connection and removes nothing", async () => {
+  const rendered = await render(mockModels.claudeForCloud);
+  await click(action(rendered, "claude", "edit")!);
+  await click(sheet()!.querySelector('[data-models-action="back"]')!);
+  await click(sheet()!.querySelector('[data-models-choice="openai"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>('[data-models-key-form="openai"]')!;
+  await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-proj-new-key");
+  await click(form.querySelector('[data-models-action="addKey"]')!);
+  expect(rendered.provider.modelRuns.map((r) => r.action)).toEqual(["addKey"]);
+  expect(statuses(rendered).claude).toBe("ready");
+});
+
+test("Sign Out waits while a ChatGPT sign-in is pending, and a turned-off Codex CLI login offers none", async () => {
+  const rendered = await render(mockModels.chatgptForCloud);
+  await click(action(rendered, "chatgpt", "reconnect")!);
+  expect(action(rendered, "chatgpt", "signOut")).toBeNull();
+  page?.unmount();
+  const off = structuredClone(mockModels.codexLoginForCloud);
+  off.personal.connections = off.personal.connections.map((c) =>
+    c.id === "codex-login" ? { ...c, enabled: false } : c,
+  );
+  const login = await render(off);
+  expect(statuses(login).chatgpt).toBe("off");
+  expect(action(login, "chatgpt", "signOut")).toBeNull();
+  expect(action(login, "chatgpt", "reconnect")).not.toBeNull();
 });

@@ -161,11 +161,13 @@ function CloudModelRow({
 }) {
   const router = useSettingsRouter();
   const nameId = useId();
-  const [confirming, setConfirming] = useState(false);
+  // The connection whose Sign Out is being confirmed: a confirm never carries over to another connection.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const { state, via, macOnly, connection } = cloudReadiness(models, row);
   // Reconnect / Edit and Sign Out: the Claude and ChatGPT rows, on a connection of the person's own.
   const own = row === "apiKey" ? null : connection;
   const redo = cloudRedo(own);
+  const confirming = own !== null && confirmingId === own.id;
   const title = row === "apiKey" ? t("settingsWindow.harnesses.accounts.apiKey") : ROW_NAMES[row];
   const status =
     state === "ready"
@@ -183,6 +185,8 @@ function CloudModelRow({
           ? [t("settingsWindow.cloud.chatgpt.macOnly"), t("settingsWindow.cloud.chatgpt.needs")]
           : [t("settingsWindow.cloud.apiKey.macOnly")];
   const pending = row === "chatgpt" && (models.chatgpt.attempt !== null || models.chatgpt.error !== null);
+  // Sign Out: never while a ChatGPT sign-in is pending, and not on a built-in Mac login already turned off.
+  const canSignOut = own !== null && !pending && (removable(own) || own.enabled);
   return (
     <div
       className="row accounts-row"
@@ -245,13 +249,13 @@ function CloudModelRow({
               {t(redo.label === "reconnect" ? "settingsWindow.cloud.reconnect" : "settingsWindow.cloud.edit")}
             </Button>
           )}
-          {own && (
+          {canSignOut && (
             <Button
               type="button"
               className="button"
               data-cloud-action="signOut"
               disabled={busy || confirming}
-              onClick={() => setConfirming(true)}
+              onClick={() => setConfirmingId(own?.id ?? null)}
             >
               {t("settingsWindow.cloud.signOut")}
             </Button>
@@ -306,7 +310,7 @@ function CloudModelRow({
           <div className="accounts-form" role="alertdialog" aria-labelledby={nameId} data-cloud-sign-out="">
             <span className="row-help">
               {removable(own)
-                ? t("settingsWindow.cloud.signOutConfirm", own.label)
+                ? t("settingsWindow.models.removeConfirm", own.label)
                 : t("settingsWindow.cloud.turnOffConfirm", own.label)}
             </span>
             <div className="accounts-buttons">
@@ -317,7 +321,7 @@ function CloudModelRow({
                 data-cloud-action="confirmSignOut"
                 disabled={busy}
                 onClick={() => {
-                  setConfirming(false);
+                  setConfirmingId(null);
                   void run(
                     removable(own) ? { action: "remove", id: own.id } : { action: "enable", id: own.id, on: false },
                   );
@@ -325,7 +329,7 @@ function CloudModelRow({
               >
                 {t("settingsWindow.cloud.signOut")}
               </Button>
-              <Button type="button" className="button" onClick={() => setConfirming(false)}>
+              <Button type="button" className="button" onClick={() => setConfirmingId(null)}>
                 {t("settingsWindow.cancel")}
               </Button>
             </div>

@@ -120,7 +120,10 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case "agent_session.host_unverified":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.hostUnverified",
                                   "%@ could not confirm what kind of Cloud machine it is, so no agent chat starts there.", machine)
-        case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported", AgentSessionAttachClient.credentialUpdateNeeded:
+        case AgentSessionAttachClient.credentialUpdateNeeded:
+            RefusalStrings.format("handlers.refusal.agentRemoteStart.chatgptUpdate",
+                                  "cmux on %@ can't take your ChatGPT sign-in yet. Update cmux on that machine.", machine)
+        case AgentSessionAttachClient.startUnsupported, "agent_session.unsupported":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateRemote",
                                   "cmux on %@ can't start agent chats yet. Update cmux on that machine.", machine)
         case "agent_session.acpmux_unavailable":
