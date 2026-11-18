@@ -10,10 +10,12 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { dispatchCall } from "./dispatchCalls";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { ToolRow } from "./ToolRow";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { dispatchCall } = await importWithDom(() => import("./dispatchCalls"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

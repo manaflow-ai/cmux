@@ -5,14 +5,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { InboxNoticeCard } from "./InboxNoticeCard";
-import { inboxThreadKey, type InboxMessage, type InboxNotice } from "./inboxNotice";
-import { PendingMessagesCard } from "./PendingMessagesCard";
-import { IncomingMessageLine } from "./IncomingMessageCard";
-import { pendingMessagesRow } from "./pendingMessages";
+import type { InboxMessage, InboxNotice } from "./inboxNotice";
 import type { AcpmuxRow } from "../model";
-import { setDigestOpened, setMessageOpened } from "./incomingOpened";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { InboxNoticeCard } = await importWithDom(() => import("./InboxNoticeCard"));
+const { inboxThreadKey } = await importWithDom(() => import("./inboxNotice"));
+const { PendingMessagesCard } = await importWithDom(() => import("./PendingMessagesCard"));
+const { IncomingMessageLine } = await importWithDom(() => import("./IncomingMessageCard"));
+const { pendingMessagesRow } = await importWithDom(() => import("./pendingMessages"));
+const { setDigestOpened, setMessageOpened } = await importWithDom(() => import("./incomingOpened"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

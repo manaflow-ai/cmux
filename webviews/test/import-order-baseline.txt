@@ -7,36 +7,3 @@
 # test/
 
 # src/
-src/agent-session/acpmux/ClaudeConnectDialog.test.tsx
-src/agent-session/acpmux/HarnessStatusCard.dom.test.tsx
-src/agent-session/acpmux/cloudErgonomics/cloudErgonomics.test.tsx
-src/agent-session/acpmux/composer/pasteMarks.test.tsx
-src/agent-session/acpmux/conversation/AgentCallCard.test.tsx
-src/agent-session/acpmux/conversation/BackgroundMark.test.tsx
-src/agent-session/acpmux/conversation/FileResultCard.test.tsx
-src/agent-session/acpmux/conversation/InboxNoticeCard.test.tsx
-src/agent-session/acpmux/conversation/InlinePromptContent.test.tsx
-src/agent-session/acpmux/conversation/MessageCardOpen.test.tsx
-src/agent-session/acpmux/conversation/NoticeRow.test.tsx
-src/agent-session/acpmux/conversation/PreviewChip.test.tsx
-src/agent-session/acpmux/conversation/RewindButton.test.tsx
-src/agent-session/acpmux/conversation/RowGrammar.test.tsx
-src/agent-session/acpmux/conversation/RunElsewhere.test.tsx
-src/agent-session/acpmux/conversation/SentMessageGroup.test.tsx
-src/agent-session/acpmux/conversation/SentMessageLine.test.tsx
-src/agent-session/acpmux/conversation/ThoughtRow.test.tsx
-src/agent-session/acpmux/conversation/ToolDetail.test.tsx
-src/agent-session/acpmux/conversation/ToolGroupExpanded.test.tsx
-src/agent-session/acpmux/conversation/ToolVerb.test.tsx
-src/agent-session/acpmux/conversation/TruncatedRowsReachable.test.tsx
-src/agent-session/acpmux/conversation/UnverifiedMark.test.tsx
-src/agent-session/acpmux/conversation/UserBubble.test.tsx
-src/agent-session/acpmux/conversation/disclosureBound.test.tsx
-src/agent-session/acpmux/conversation/heldMessage.test.tsx
-src/agent-session/acpmux/conversation/hugePrompt.test.tsx
-src/agent-session/acpmux/conversation/pinnedToolRows.test.tsx
-src/agent-session/acpmux/conversation/sendStateCoherence.test.tsx
-src/agent-session/acpmux/conversation/toolGroupOpenState.test.tsx
-src/agent-session/acpmux/finish/finishRows.test.tsx
-src/agent-session/acpmux/liveToolOutput.test.tsx
-src/agent-session/acpmux/stopHeldMessages.test.tsx

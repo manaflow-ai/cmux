@@ -6,18 +6,20 @@
 import { expect, test } from "bun:test";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PromptText, PromptTyped } from "./PromptText";
-import { InlinePromptContent } from "./InlinePromptContent";
-import {
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { PromptText, PromptTyped } = await importWithDom(() => import("./PromptText"));
+const { InlinePromptContent } = await importWithDom(() => import("./InlinePromptContent"));
+const {
   COLLAPSED_PROMPT_LINES,
   HUGE_PROMPT_CHARS,
   HUGE_PROMPT_HEAD_CHARS,
   PROMPT_MORE_HEIGHT,
   isHugePrompt,
   promptHead,
-} from "./promptCollapse";
-import { layoutConversation } from "../model";
-import { currentChatMetrics } from "../chatDisplay";
+} = await importWithDom(() => import("./promptCollapse"));
+const { layoutConversation } = await importWithDom(() => import("../model"));
+const { currentChatMetrics } = await importWithDom(() => import("../chatDisplay"));
 
 const same = (text: string) => text;
 // Base64-like: no spaces, a `/` every 64 characters, so softBreaks would put a <wbr> after each.

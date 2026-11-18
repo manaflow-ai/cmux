@@ -5,10 +5,16 @@
 // in which every state renders, so a refactor that moves a card shows up here instead of as a quiet zero.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { failureKind } from "../failureCopy";
-import { classifyError, controlsIn, controlWay, etaIn, outOfAppWords, waitReason } from "./classify";
-import { measureCloudErgonomics } from "./measure";
-import { cloudErgonomicsStates, KINDS, NOT_ON_CLOUD, TURN_FAILURE_FIXTURES, turnFailureRoute } from "./states";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { failureKind } = await importWithDom(() => import("../failureCopy"));
+const { classifyError, controlsIn, controlWay, etaIn, outOfAppWords, waitReason } = await importWithDom(
+  () => import("./classify"),
+);
+const { measureCloudErgonomics } = await importWithDom(() => import("./measure"));
+const { cloudErgonomicsStates, KINDS, NOT_ON_CLOUD, TURN_FAILURE_FIXTURES, turnFailureRoute } = await importWithDom(
+  () => import("./states"),
+);
 
 const html = (body: string) => new JSDOM(`<!doctype html><body>${body}</body>`).window.document.body;
 

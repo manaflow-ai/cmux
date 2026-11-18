@@ -7,14 +7,18 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { IncomingMessageLine } from "./IncomingMessageCard";
-import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { incomingPrompt, type IncomingMessage } from "./incomingMessage";
-import { projectInboxRows } from "./laneNoticeBatches";
-import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { findSkipped } from "./chatFind";
-import { isVisiblyEmptyMessage } from "./visibleMessage";
+import type { IncomingMessage } from "./incomingMessage";
+import type { AcpmuxRow } from "../model";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { IncomingMessageLine } = await importWithDom(() => import("./IncomingMessageCard"));
+const { LaneNoticeBatch } = await importWithDom(() => import("./LaneNoticeBatch"));
+const { incomingPrompt } = await importWithDom(() => import("./incomingMessage"));
+const { projectInboxRows } = await importWithDom(() => import("./laneNoticeBatches"));
+const { LANE_NOTICE_BATCH } = await importWithDom(() => import("../model"));
+const { findSkipped } = await importWithDom(() => import("./chatFind"));
+const { isVisiblyEmptyMessage } = await importWithDom(() => import("./visibleMessage"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

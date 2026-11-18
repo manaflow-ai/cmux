@@ -9,18 +9,23 @@ import { settleReact } from "../../../test/support/domTeardown";
 import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { OrderedRows } from "./direct";
-import { liveToolOutput, rowsWithLiveOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
-import { transcriptRangeText } from "./conversation/transcriptCopy";
-import { type ChatFind, useChatFind } from "./conversation/chatFind";
-import { copyRow } from "./header/copyRow";
+import type { ChatFind } from "./conversation/chatFind";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { markOneRowChange, oneRowChange, oneRowChangeFrom } from "./rowChanges";
-import { ToolActivityRow } from "./rows/ToolActivityRow";
 import type { RowProps } from "./rows/rowProps";
-import { RowContent } from "./VirtualTranscript";
-import { sendEntries, toolGroups } from "./conversation/toolGroups";
-import { latestLocalUrl } from "./conversation/previewUrl";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { OrderedRows } = await importWithDom(() => import("./direct"));
+const { liveToolOutput, rowsWithLiveOutput, toolOutputOnly, useLiveToolRow } = await importWithDom(
+  () => import("./liveToolOutput"),
+);
+const { transcriptRangeText } = await importWithDom(() => import("./conversation/transcriptCopy"));
+const { useChatFind } = await importWithDom(() => import("./conversation/chatFind"));
+const { copyRow } = await importWithDom(() => import("./header/copyRow"));
+const { markOneRowChange, oneRowChange, oneRowChangeFrom } = await importWithDom(() => import("./rowChanges"));
+const { ToolActivityRow } = await importWithDom(() => import("./rows/ToolActivityRow"));
+const { RowContent } = await importWithDom(() => import("./VirtualTranscript"));
+const { sendEntries, toolGroups } = await importWithDom(() => import("./conversation/toolGroups"));
+const { latestLocalUrl } = await importWithDom(() => import("./conversation/previewUrl"));
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 

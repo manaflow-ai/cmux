@@ -8,11 +8,13 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { exactPretty, inputFields, rawMembers } from "./toolInputFields";
-import { ToolRow } from "./ToolRow";
-import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { exactPretty, inputFields, rawMembers } = await importWithDom(() => import("./toolInputFields"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const { ToolRows } = await importWithDom(() => import("./TurnRows"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

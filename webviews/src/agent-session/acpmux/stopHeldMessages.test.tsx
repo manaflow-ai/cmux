@@ -8,11 +8,13 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "./i18n";
 import type { QueuedPrompt } from "./model";
-import { QueuedMessageCard } from "./conversation/QueuedMessageCard";
-import { queuedMessageRows } from "./conversation/queuedMessages";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("./i18n"));
+const { QueuedMessageCard } = await importWithDom(() => import("./conversation/QueuedMessageCard"));
+const { queuedMessageRows } = await importWithDom(() => import("./conversation/queuedMessages"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

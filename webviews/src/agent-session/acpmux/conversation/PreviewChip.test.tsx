@@ -7,15 +7,21 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxBackgroundState } from "../model";
-import { mergeProcess, processesOf, serverOf, serverUrl, type ProcessPreview } from "../session-info/processes";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { CommandRow } from "./CommandRow";
-import { ToolRow } from "./ToolRow";
-import { PreviewChipsContext, previewAddress, previewsOf, type PreviewChips } from "./previewChipModel";
-import { workingParts } from "./workingForModel";
+import type { ProcessPreview } from "../session-info/processes";
+import type { PreviewChips } from "./previewChipModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { mergeProcess, processesOf, serverOf, serverUrl } = await importWithDom(
+  () => import("../session-info/processes"),
+);
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { CommandRow } = await importWithDom(() => import("./CommandRow"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const { PreviewChipsContext, previewAddress, previewsOf } = await importWithDom(() => import("./previewChipModel"));
+const { workingParts } = await importWithDom(() => import("./workingForModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

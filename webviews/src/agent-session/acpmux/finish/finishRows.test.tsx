@@ -2,12 +2,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { WorkedFor } from "../conversation/TurnRows";
-import { PullRequestChip } from "../header/PullRequestChip";
 import type { HeaderPullRequest } from "../header/headerState";
 import type { AcpmuxRow } from "../model";
-import { endFinishMoment, startFinishMoment } from "./finishMoments";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { WorkedFor } = await importWithDom(() => import("../conversation/TurnRows"));
+const { PullRequestChip } = await importWithDom(() => import("../header/PullRequestChip"));
+const { endFinishMoment, startFinishMoment } = await importWithDom(() => import("./finishMoments"));
 
 let dom: JSDOM;
 let root: Root | undefined;

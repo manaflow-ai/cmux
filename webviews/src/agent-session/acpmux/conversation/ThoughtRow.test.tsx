@@ -10,8 +10,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { StepThought, ThoughtRow } from "./ThoughtRow";
-import {
+import type { ThoughtFoldThreshold, ThoughtHeader } from "./thoughtRowModel";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { StepThought, ThoughtRow } = await importWithDom(() => import("./ThoughtRow"));
+const {
   THOUGHT_LIVE_PX,
   thoughtDuration,
   thoughtLayout,
@@ -19,12 +23,9 @@ import {
   THOUGHT_LINE_CHARS,
   thoughtParts,
   thoughtPreview,
-  type ThoughtFoldThreshold,
-  type ThoughtHeader,
-} from "./thoughtRowModel";
-import { foldMotion } from "./fold";
-import { ANCHORED_COLLAPSE_EVENT } from "./useAnchoredCollapse";
-import { settleReact } from "../../../../test/support/domTeardown";
+} = await importWithDom(() => import("./thoughtRowModel"));
+const { foldMotion } = await importWithDom(() => import("./fold"));
+const { ANCHORED_COLLAPSE_EVENT } = await importWithDom(() => import("./useAnchoredCollapse"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

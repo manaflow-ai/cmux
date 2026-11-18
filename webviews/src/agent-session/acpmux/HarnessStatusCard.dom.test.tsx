@@ -3,11 +3,13 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
-import { HarnessStatusCard } from "./HarnessStatusCard";
-import { SummaryCard } from "./summary/SummaryCard";
-import { PreviewCard } from "./threadMinimap/PreviewCard";
-import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HarnessStatusCard } = await importWithDom(() => import("./HarnessStatusCard"));
+const { SummaryCard } = await importWithDom(() => import("./summary/SummaryCard"));
+const { PreviewCard } = await importWithDom(() => import("./threadMinimap/PreviewCard"));
+const { useEscapeCloses } = await importWithDom(() => import("../../ui/escapeDismiss"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

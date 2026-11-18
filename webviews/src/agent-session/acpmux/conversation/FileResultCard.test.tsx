@@ -7,14 +7,16 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { HARNESS_CALLS } from "../toolNamesFixture";
-import { setChipHost } from "../chips/host";
-import { resetLinkStore } from "../chips/linkStore";
-import { activityText } from "./chatFind";
-import { TranscriptReadOnly } from "./readOnly";
-import { ToolRow } from "./ToolRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { HARNESS_CALLS } = await importWithDom(() => import("../toolNamesFixture"));
+const { setChipHost } = await importWithDom(() => import("../chips/host"));
+const { resetLinkStore } = await importWithDom(() => import("../chips/linkStore"));
+const { activityText } = await importWithDom(() => import("./chatFind"));
+const { TranscriptReadOnly } = await importWithDom(() => import("./readOnly"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

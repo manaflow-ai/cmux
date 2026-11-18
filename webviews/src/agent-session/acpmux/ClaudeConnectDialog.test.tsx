@@ -6,19 +6,19 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { isClaudeToken } from "../shared/claudeSetupToken";
-import { isClaudeToken as settingsCheck } from "../../pages/settings/components/ModelsCard";
-import {
-  ClaudeConnectContext,
-  checkToken,
-  connectRequest,
-  refusalText,
-  setupConnect,
-  type ClaudeConnect,
-} from "./claudeConnect";
+import type { ClaudeConnect } from "./claudeConnect";
 import type { CloudSetupAction } from "./cloudSetup";
-import { ClaudeConnectDialog } from "./ClaudeConnectDialog";
-import { ClaudeConnectRow, useClaudeConnectFlow } from "./ClaudeConnectRow";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { isClaudeToken } = await importWithDom(() => import("../shared/claudeSetupToken"));
+const { isClaudeToken: settingsCheck } = await importWithDom(
+  () => import("../../pages/settings/components/ModelsCard"),
+);
+const { ClaudeConnectContext, checkToken, connectRequest, refusalText, setupConnect } = await importWithDom(
+  () => import("./claudeConnect"),
+);
+const { ClaudeConnectDialog } = await importWithDom(() => import("./ClaudeConnectDialog"));
+const { ClaudeConnectRow, useClaudeConnectFlow } = await importWithDom(() => import("./ClaudeConnectRow"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

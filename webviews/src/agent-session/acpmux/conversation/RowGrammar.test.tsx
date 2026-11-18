@@ -14,15 +14,17 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { SubagentHarnessContext } from "../subagents/subagentGroupModel";
-import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
-import { acpmuxSendCall } from "./acpmuxSends";
-import { agentMessage } from "./agentMessages";
-import { MessageCard } from "./MessageCard";
-import { AcpmuxSendLine } from "./SentMessageLine";
-import { ToolGroupRow } from "./ToolGroupRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { SubagentHarnessContext } = await importWithDom(() => import("../subagents/subagentGroupModel"));
+const { SubagentDoneLine } = await importWithDom(() => import("../subagents/SubagentDoneLine"));
+const { acpmuxSendCall } = await importWithDom(() => import("./acpmuxSends"));
+const { agentMessage } = await importWithDom(() => import("./agentMessages"));
+const { MessageCard } = await importWithDom(() => import("./MessageCard"));
+const { AcpmuxSendLine } = await importWithDom(() => import("./SentMessageLine"));
+const { ToolGroupRow } = await importWithDom(() => import("./ToolGroupRow"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

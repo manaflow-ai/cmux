@@ -9,21 +9,20 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { translatorFor } from "../i18n";
-import { FindReveal } from "./chatFind";
-import { ToolRows } from "./TurnRows";
-import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { WorkingFor } from "./WorkingFor";
-import {
-  resetTranscriptDisclosure,
-  DisclosureSession,
-  forgetInsideTurn,
-  useTranscriptDisclosure,
-} from "./transcriptDisclosureModel";
-import { turnFoldStyle } from "./turnFoldStyle";
-import { messageRunRowId } from "./messageRuns";
-import { workedLabel, mergeShortNotes, toggleTurnFold, turnInsideIds } from "./turns";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translatorFor } = await importWithDom(() => import("../i18n"));
+const { FindReveal } = await importWithDom(() => import("./chatFind"));
+const { ToolRows } = await importWithDom(() => import("./TurnRows"));
+const { TranscriptDisclosureProvider } = await importWithDom(() => import("./transcriptDisclosure"));
+const { WorkingFor } = await importWithDom(() => import("./WorkingFor"));
+const { resetTranscriptDisclosure, DisclosureSession, forgetInsideTurn, useTranscriptDisclosure } = await importWithDom(
+  () => import("./transcriptDisclosureModel"),
+);
+const { turnFoldStyle } = await importWithDom(() => import("./turnFoldStyle"));
+const { messageRunRowId } = await importWithDom(() => import("./messageRuns"));
+const { workedLabel, mergeShortNotes, toggleTurnFold, turnInsideIds } = await importWithDom(() => import("./turns"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

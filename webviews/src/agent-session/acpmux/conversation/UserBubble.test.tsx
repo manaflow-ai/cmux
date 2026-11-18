@@ -4,13 +4,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import type { ComposerAttachment } from "../attachments";
-import { translate } from "../i18n";
-import { PresentationContext } from "./presentationContextModel";
-import { TurnActionsContext, type TurnActions } from "./turnActions";
-import { UserBubble } from "./UserBubble";
-import { PromptActions } from "./MessageActions";
+import type { TurnActions } from "./turnActions";
 import { settleReact } from "../../../../test/support/domTeardown";
-import { resendsAttachments, restoreInline } from "../inlinePrompt";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { PresentationContext } = await importWithDom(() => import("./presentationContextModel"));
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
+const { UserBubble } = await importWithDom(() => import("./UserBubble"));
+const { PromptActions } = await importWithDom(() => import("./MessageActions"));
+const { resendsAttachments, restoreInline } = await importWithDom(() => import("../inlinePrompt"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -8,12 +8,14 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { agentMessage } from "./agentMessages";
-import { AgentNamesContext, AgentOpenContext, agentViews } from "./agentNames";
-import { MessageCard } from "./MessageCard";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import type { Subagent } from "../subagents/subagentFold";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { agentMessage } = await importWithDom(() => import("./agentMessages"));
+const { AgentNamesContext, AgentOpenContext, agentViews } = await importWithDom(() => import("./agentNames"));
+const { MessageCard } = await importWithDom(() => import("./MessageCard"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

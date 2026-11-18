@@ -9,10 +9,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
-import { IncomingMessageLine } from "./IncomingMessageCard";
-import { incomingPrompt } from "./incomingMessage";
-import { programMarkText, UnverifiedMark } from "./UnverifiedMark";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { IncomingMessageLine } = await importWithDom(() => import("./IncomingMessageCard"));
+const { incomingPrompt } = await importWithDom(() => import("./incomingMessage"));
+const { programMarkText, UnverifiedMark } = await importWithDom(() => import("./UnverifiedMark"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

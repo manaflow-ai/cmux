@@ -5,13 +5,16 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type ComposerAttachment, inlineToken, promptBlocks, withoutInlineTokens } from "../attachments";
-import { agentText, readsAsAgent } from "../agentText";
+import type { ComposerAttachment } from "../attachments";
 import sharedCases from "../../../../../cmux-tui/crates/acpmux/src/agent_text_cases.json";
-import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
-import { PastedText, PromptText } from "../conversation/PromptText";
-import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { inlineToken, promptBlocks, withoutInlineTokens } = await importWithDom(() => import("../attachments"));
+const { agentText, readsAsAgent } = await importWithDom(() => import("../agentText"));
+const { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } = await importWithDom(() => import("../pastedText"));
+const { PastedText, PromptText } = await importWithDom(() => import("../conversation/PromptText"));
+const { markPastes, marksPaste, remember, unmarkPastes } = await importWithDom(() => import("./pasteMarks"));
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 const MINE = "Merge and deploy whenever you want.";

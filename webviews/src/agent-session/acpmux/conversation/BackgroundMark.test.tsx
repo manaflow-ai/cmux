@@ -11,22 +11,24 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxBackgroundState, AcpmuxBackgroundTask } from "../model";
-import { BackgroundTaskNote } from "./BackgroundTaskNote";
-import { SubagentNavContext } from "../subagents/subagentGroupModel";
-import {
+import type { BackgroundTaskOutputReader } from "./backgroundTaskOutput";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { BackgroundTaskNote } = await importWithDom(() => import("./BackgroundTaskNote"));
+const { SubagentNavContext } = await importWithDom(() => import("../subagents/subagentGroupModel"));
+const {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
   prefetchBackgroundTaskOutput,
   readBackgroundTaskOutput,
   tailLines,
-  type BackgroundTaskOutputReader,
-} from "./backgroundTaskOutput";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { CommandRow } from "./CommandRow";
-import { ToolRow } from "./ToolRow";
-import { settleReact } from "../../../../test/support/domTeardown";
+} = await importWithDom(() => import("./backgroundTaskOutput"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { CommandRow } = await importWithDom(() => import("./CommandRow"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

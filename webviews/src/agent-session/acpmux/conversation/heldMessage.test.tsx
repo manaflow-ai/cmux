@@ -10,10 +10,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Participant } from "../multiplayer/participants";
-import { QueuedMessageCard, type HeldAnswer, type QueuedMessageActionsValue } from "./QueuedMessageCard";
-import { ownQueue, queuedMessageRows } from "./queuedMessages";
-import { TurnActionsContext } from "./turnActions";
+import type { HeldAnswer, QueuedMessageActionsValue } from "./QueuedMessageCard";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { QueuedMessageCard } = await importWithDom(() => import("./QueuedMessageCard"));
+const { ownQueue, queuedMessageRows } = await importWithDom(() => import("./queuedMessages"));
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
 
 const CY: Participant = { id: "guest:sh-1.g-1", name: "Cy Park" };
 const ANA: Participant = { id: "tailnet:ana@example.com", name: "Ana" };

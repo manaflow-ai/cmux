@@ -12,11 +12,15 @@ import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { CommandRow } from "./CommandRow";
-import { ToolRow } from "./ToolRow";
-import {
+import type { RunElsewhere, RunOutput, RunPlan } from "./runElsewhereModel";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { CommandRow } = await importWithDom(() => import("./CommandRow"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const {
   RUN_ELSEWHERE_AFTER_MS,
   RunElsewhereContext,
   RunElsewhereStore,
@@ -27,12 +31,8 @@ import {
   nextReadDelay,
   resetHostRelays,
   RUN_OUTPUT_KEEP,
-  type RunElsewhere,
-  type RunOutput,
-  type RunPlan,
-} from "./runElsewhereModel";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { settleReact } from "../../../../test/support/domTeardown";
+} = await importWithDom(() => import("./runElsewhereModel"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

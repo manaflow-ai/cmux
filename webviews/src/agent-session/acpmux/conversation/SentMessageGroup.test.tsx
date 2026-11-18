@@ -13,11 +13,13 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { sendEntries, toolGroups } from "./toolGroups";
-import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { turnView } from "./turns";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { sendEntries, toolGroups } = await importWithDom(() => import("./toolGroups"));
+const { ToolRows } = await importWithDom(() => import("./TurnRows"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { turnView } = await importWithDom(() => import("./turns"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

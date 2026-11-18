@@ -9,14 +9,16 @@ import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { McpCallDetails } from "./McpCallRows";
-import { paintFindHighlights } from "./chatFind";
-import { splitToolLabel } from "./toolVerbModel";
-import { ToolRows } from "./TurnRows";
-import { ToolRow } from "./ToolRow";
-import { ToolVerbColumn } from "./ToolVerb";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { McpCallDetails } = await importWithDom(() => import("./McpCallRows"));
+const { paintFindHighlights } = await importWithDom(() => import("./chatFind"));
+const { splitToolLabel } = await importWithDom(() => import("./toolVerbModel"));
+const { ToolRows } = await importWithDom(() => import("./TurnRows"));
+const { ToolRow } = await importWithDom(() => import("./ToolRow"));
+const { ToolVerbColumn } = await importWithDom(() => import("./ToolVerb"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

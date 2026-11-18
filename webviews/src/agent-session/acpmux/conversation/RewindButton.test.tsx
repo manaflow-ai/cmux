@@ -6,12 +6,15 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
-import { translate } from "../i18n";
-import { TranscriptReadOnly } from "./readOnly";
-import { TurnActionsContext, type TurnActions } from "./turnActions";
-import { UserBubble } from "./UserBubble";
-import { rewindSeconds } from "./MessageActions";
+import type { TurnActions } from "./turnActions";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { TranscriptReadOnly } = await importWithDom(() => import("./readOnly"));
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
+const { UserBubble } = await importWithDom(() => import("./UserBubble"));
+const { rewindSeconds } = await importWithDom(() => import("./MessageActions"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

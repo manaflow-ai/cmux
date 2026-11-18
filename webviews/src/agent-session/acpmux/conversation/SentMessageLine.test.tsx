@@ -6,15 +6,18 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { acpmuxSendCall } from "./acpmuxSends";
-import { sendEntries, toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
-import { configureSentLook } from "./sentMessageLineModel";
-import { configureMessageLineLook } from "./messageLineLook";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
-import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+type SubsessionStore = import("../subagents/subsessions").SubsessionStore;
+const { acpmuxSendCall } = await importWithDom(() => import("./acpmuxSends"));
+const { sendEntries, toolGroups } = await importWithDom(() => import("./toolGroups"));
+const { AcpmuxSendLine } = await importWithDom(() => import("./SentMessageLine"));
+const { configureSentLook } = await importWithDom(() => import("./sentMessageLineModel"));
+const { configureMessageLineLook } = await importWithDom(() => import("./messageLineLook"));
+const { resetTranscriptDisclosure } = await importWithDom(() => import("./transcriptDisclosureModel"));
+const { SubsessionContext, SubsessionStore } = await importWithDom(() => import("../subagents/subsessions"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

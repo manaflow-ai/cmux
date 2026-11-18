@@ -11,11 +11,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, PromptDelivery } from "../model";
-import { translate } from "../i18n";
-import { PresentationContext } from "./presentationContextModel";
-import { TurnActionsContext } from "./turnActions";
-import { UserBubble } from "./UserBubble";
-import { DeliveryFailure } from "./PromptDelivery";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { translate } = await importWithDom(() => import("../i18n"));
+const { PresentationContext } = await importWithDom(() => import("./presentationContextModel"));
+const { TurnActionsContext } = await importWithDom(() => import("./turnActions"));
+const { UserBubble } = await importWithDom(() => import("./UserBubble"));
+const { DeliveryFailure } = await importWithDom(() => import("./PromptDelivery"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

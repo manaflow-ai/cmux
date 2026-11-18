@@ -3,8 +3,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { PromptContentPart } from "../model";
-import { InlinePromptContent } from "./InlinePromptContent";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { InlinePromptContent } = await importWithDom(() => import("./InlinePromptContent"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -5,9 +5,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { resetTranscriptDisclosure, useRowDisclosure } from "./transcriptDisclosureModel";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { TranscriptDisclosureProvider } = await importWithDom(() => import("./transcriptDisclosure"));
+const { resetTranscriptDisclosure, useRowDisclosure } = await importWithDom(
+  () => import("./transcriptDisclosureModel"),
+);
 
 const STORAGE_KEY = "cmux.acpmux.transcriptDisclosure";
 let dom: JSDOM | undefined;
