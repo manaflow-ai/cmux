@@ -567,7 +567,7 @@ impl Translator {
                             if let Some(workflow) =
                                 workflow_ask::workflow_ask(&input, cwd.as_deref()).await
                             {
-                                call["_meta"]["claude"]["workflow"] = workflow;
+                                call.set_path(&["_meta", "claude", "workflow"], workflow);
                             }
                         }
                         out.push(Message::request(

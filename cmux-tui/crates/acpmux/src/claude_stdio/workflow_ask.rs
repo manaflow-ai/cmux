@@ -10,6 +10,7 @@
 //! (`resumeFromRunId`) or a name with no file found is described by its name
 //! alone. Nothing here runs the script.
 
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -47,16 +48,16 @@ pub(super) async fn workflow_ask(input: &Value, cwd: Option<&Path>) -> Option<Va
     let phases: Vec<String> = meta.phases.into_iter().take(MAX_PHASES).map(|t| clip(&t)).collect();
     let mut out = json!({"phases": phases});
     if let Some(name) = name {
-        out["name"] = json!(clip(&name));
+        out.set("name", json!(clip(&name)));
     }
     if let Some(description) = description {
-        out["description"] = json!(clip(&description));
+        out.set("description", json!(clip(&description)));
     }
     if more > 0 {
-        out["morePhases"] = json!(more);
+        out.set("morePhases", json!(more));
     }
     if let Some(run) = resume {
-        out["resume"] = json!(run);
+        out.set("resume", json!(run));
     }
     Some(out)
 }
@@ -122,12 +123,12 @@ pub(super) struct Meta {
 pub(super) fn meta_literal(script: &str) -> Option<&str> {
     // `const meta` as a whole word: never `const metaData`.
     let at = script.match_indices("const meta").map(|(at, _)| at).find(|at| {
-        let next = script[at + "const meta".len()..].chars().next();
+        let next = script.get(at + "const meta".len()..).and_then(|rest| rest.chars().next());
         !next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
     })?;
-    let open = at + script[at..].find('{')?;
-    let close = open + matching(&script[open..], '{', '}')?;
-    Some(&script[open..=close])
+    let open = at + script.get(at..)?.find('{')?;
+    let close = open + matching(script.get(open..)?, '{', '}')?;
+    script.get(open..=close)
 }
 
 /// The byte offset of the bracket closing the one `text` starts with, skipping strings and comments.
@@ -192,7 +193,7 @@ fn string_at(text: &str) -> Option<String> {
     let text = text.trim_start();
     let quote = text.chars().next().filter(|c| matches!(c, '"' | '\'' | '`'))?;
     let mut out = String::new();
-    let mut chars = text[1..].chars();
+    let mut chars = text.get(quote.len_utf8()..)?.chars();
     while let Some(c) = chars.next() {
         match c {
             '\\' => match chars.next()? {
@@ -219,8 +220,10 @@ fn top_level_key(object: &str, key: &str) -> Option<usize> {
                 let start = i;
                 skip_string(&mut chars, c);
                 let end = chars.peek().map(|(j, _)| *j).unwrap_or(object.len());
-                if depth == 1 && object[start + 1..end.saturating_sub(1)] == *key {
-                    let rest = &object[end..];
+                let quoted = object.get(start + 1..end.saturating_sub(1));
+                if let (1, Some(quoted), Some(rest)) = (depth, quoted, object.get(end..))
+                    && quoted == key
+                {
                     let colon = rest.len() - rest.trim_start().len();
                     if rest.trim_start().starts_with(':') {
                         return Some(end + colon + 1);
@@ -232,12 +235,11 @@ fn top_level_key(object: &str, key: &str) -> Option<usize> {
             '{' | '[' | '(' => depth += 1,
             '}' | ']' | ')' => depth = depth.saturating_sub(1),
             c if depth == 1 && (c.is_ascii_alphabetic() || c == '_') => {
-                let before = object[..i].chars().next_back();
+                let before = object.get(..i).and_then(|head| head.chars().next_back());
                 if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == '_' || b == '$') {
                     continue;
                 }
-                if object[i..].starts_with(key) {
-                    let rest = &object[i + key.len()..];
+                if let Some(rest) = object.get(i..).and_then(|tail| tail.strip_prefix(key)) {
                     let trimmed = rest.trim_start();
                     if trimmed.starts_with(':') {
                         return Some(object.len() - trimmed.len() + 1);
@@ -257,23 +259,27 @@ fn array_objects(text: &str) -> Vec<&str> {
         return Vec::new();
     }
     let Some(end) = matching(text, '[', ']') else { return Vec::new() };
-    let inner = &text[1..end];
+    let Some(inner) = text.get(1..end) else { return Vec::new() };
     let mut out = Vec::new();
     let mut rest = inner;
-    while let Some(open) = rest.find('{') {
-        let Some(close) = matching(&rest[open..], '{', '}') else { break };
-        out.push(&rest[open..=open + close]);
-        rest = &rest[open + close + 1..];
+    while let Some(tail) = rest.find('{').and_then(|open| rest.get(open..)) {
+        let Some(close) = matching(tail, '{', '}') else { break };
+        let (Some(object), Some(after)) = (tail.get(..=close), tail.get(close + 1..)) else {
+            break;
+        };
+        out.push(object);
+        rest = after;
     }
     out
 }
 
 pub(super) fn parse_meta(literal: &str) -> Meta {
     let field = |object: &str, key: &str| {
-        top_level_key(object, key).and_then(|at| string_at(&object[at..]))
+        top_level_key(object, key).and_then(|at| string_at(object.get(at..)?))
     };
     let phases = top_level_key(literal, "phases")
-        .map(|at| array_objects(&literal[at..]))
+        .and_then(|at| literal.get(at..))
+        .map(array_objects)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|phase| field(phase, "title"))
