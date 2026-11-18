@@ -277,3 +277,7 @@ fn layout(written: &[Value], at: &str, problems: &mut Vec<Problem>) -> Response 
 #[cfg(test)]
 #[path = "sidebar_row_layout_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sidebar_row_layout_stress_tests.rs"]
+mod stress_tests;
