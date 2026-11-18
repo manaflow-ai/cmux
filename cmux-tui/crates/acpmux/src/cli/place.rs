@@ -73,6 +73,8 @@ pub fn here_is_interactive() -> bool {
 /// leaves every interactive machine out of the pick. `here_if_none` (a `new` that named no
 /// host): when that leaves none, the session starts here with a warning, as load and lane caps
 /// only warn, unless the registry holds this machine; an explicit `--host auto` still stops.
+/// `skip`: the machines whose remote chain refused this start already (`try_next`), which the
+/// pick leaves out for the rest of it.
 pub async fn resolve(
     client: &Client,
     work: &str,
@@ -80,6 +82,7 @@ pub async fn resolve(
     reuse: bool,
     off_interactive: bool,
     here_if_none: bool,
+    skip: &[String],
 ) -> Result<Option<String>> {
     if let Some(name) = name {
         let list = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
@@ -99,6 +102,9 @@ pub async fn resolve(
     let mut params = json!({"work": work});
     if off_interactive {
         params.set("offInteractive", json!(true));
+    }
+    if !skip.is_empty() {
+        params.set("skip", json!(skip));
     }
     let v = client.request("_acpmux/place", params).await?;
     let (Some(pick), Some(placed)) =
@@ -122,10 +128,13 @@ pub const PLACE_TRIES: usize = 3;
 
 /// Whether an automatic start (`placed`: the host came from the pick, not `--machine HOST`) that
 /// failed with `error` on `host` goes on to the next candidate: the host's own remote chain refused
-/// it (`start_refusals.rs`), so nothing started and the same start there is refused again. The
-/// daemon recorded the refusal, so the next `_acpmux/place` skips that host. `tried`: the hosts
-/// started on so far, this one included; at `PLACE_TRIES` it stops. A named machine is always
-/// tried, never moved off: that is how its record clears once it is fixed.
+/// it (`start_refusals.rs`, `remote.sandbox_refused`: its sandbox, keeper or platform), so nothing
+/// started and the same start there is refused again. The next `_acpmux/place` leaves it out of
+/// this start (`skip`), and the daemon's record puts it last for later ones. A refusal of the
+/// start's own inputs (`remote.start_refused`: its folder, session id, a profile argument or env
+/// value) would be refused on every machine, so it ends the start at once with its reason.
+/// `tried`: the hosts started on so far, this one included; at `PLACE_TRIES` it stops. A named
+/// machine is always tried, never moved off: that is how its record clears once it is fixed.
 pub fn try_next(placed: bool, host: Option<&str>, tried: usize, error: &anyhow::Error) -> bool {
     placed
         && host.is_some()
@@ -290,6 +299,10 @@ mod tests {
         assert!(!try_next(false, Some("vm"), 1, &refused), "a named machine is not moved off");
         assert!(!try_next(true, None, 1, &refused), "this machine runs no remote chain");
         assert!(!try_next(true, Some("vm"), 1, &error("remote.credential_expiring")));
+        assert!(
+            !try_next(true, Some("vm"), 1, &error(crate::start_refusals::START_REASON)),
+            "the start's own inputs are refused on every machine: it ends at once"
+        );
         assert!(!try_next(true, Some("vm"), 1, &anyhow::anyhow!("remote chain refused")));
         // Through `new`'s own target: `--machine auto` places, `--machine vm` names the host.
         let placed = |h: &str| matches!(new_target(Some(h), false, false), Target::Place(_));

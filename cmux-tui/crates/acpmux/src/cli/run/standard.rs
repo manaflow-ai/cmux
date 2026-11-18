@@ -267,6 +267,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.reuse,
                             interactive,
                             args.host.is_none(),
+                            &[],
                         ),
                     )
                     .await?
@@ -368,8 +369,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 })
             };
             let mut key = key_on(&host);
-            // The machines this automatic start went to (`place::try_next`).
-            let mut tried = 1;
+            // The machines whose remote chain refused this automatic start (`place::try_next`).
+            let mut refused_here: Vec<String> = Vec::new();
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -407,16 +408,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
                     }
                     // The pick's own remote chain refused the start, so nothing started there:
-                    // place it again, which skips that machine now, and start on the next one.
+                    // place it again without that machine for the rest of this start, and start on the next one.
                     Err(error)
                         if crate::cli::place::try_next(
                             placed_work.is_some(),
                             host.as_deref(),
-                            tried,
+                            refused_here.len() + 1,
                             &error,
                         ) =>
                     {
                         let refused = host.clone().unwrap_or_default();
+                        refused_here.push(refused.clone());
                         let said = error.to_string();
                         eprintln!("{}", said.lines().next().unwrap_or_default());
                         eprintln!("{}", crate::cli::place::next_line(&refused));
@@ -430,6 +432,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 launch.reuse,
                                 interactive,
                                 args.host.is_none(),
+                                &refused_here,
                             ),
                         )
                         .await
@@ -442,11 +445,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                                 )));
                             }
                         };
-                        // A daemon that kept no record may pick it again: that is no next machine.
-                        if next.as_deref() == Some(refused.as_str()) {
+                        // A daemon without `skip` may pick it again: that is no next machine.
+                        if next.as_ref().is_some_and(|n| refused_here.contains(n)) {
                             return Err(error);
                         }
-                        tried += 1;
                         host = next;
                         key = key_on(&host);
                         match &host {

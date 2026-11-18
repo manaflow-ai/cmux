@@ -510,16 +510,59 @@ fn linux_secure_path_with(
     reached.then_some(()).ok_or_else(|| format!("{} is outside its trusted root", path.display()))
 }
 
+/// Why a remote chain refused a start, by whose fault: the machine's own state (its sandbox
+/// canary, keeper, bwrap, platform), which every later start there meets too, or the start's own
+/// inputs (its folder, session id, a profile argument or env value, `sr` options), which every
+/// machine refuses the same way. The pickers record only the first against the machine
+/// (`start_refusals.rs`) and end a start at once on the second.
+#[derive(Debug)]
+pub(super) enum Refused {
+    Host(String),
+    Start(String),
+}
+
+impl From<String> for Refused {
+    fn from(why: String) -> Self {
+        Refused::Host(why)
+    }
+}
+
+impl From<&str> for Refused {
+    fn from(why: &str) -> Self {
+        Refused::Host(why.to_owned())
+    }
+}
+
+impl Refused {
+    pub(super) fn why(&self) -> &str {
+        match self {
+            Refused::Host(why) | Refused::Start(why) => why,
+        }
+    }
+
+    /// The start's error: `remote chain refused:` (`remote.sandbox_refused`) for the machine's
+    /// state, `remote start refused:` (`remote.start_refused`) for the start's own inputs.
+    pub(super) fn error(&self) -> RpcError {
+        let (said, reason) = match self {
+            Refused::Host(_) => ("remote chain refused", crate::start_refusals::REASON),
+            Refused::Start(_) => ("remote start refused", crate::start_refusals::START_REASON),
+        };
+        RpcError::new(-32000, format!("{said}: {}", self.why()))
+            .with_data(json!({"reason": reason}))
+    }
+}
+
 impl Bound {
     /// The bound for a session folder, its own temporary folder created
     /// (named for `session_id`); refused off macOS/Linux and for a folder that is
-    /// not a project folder (`refused_folder`).
+    /// not a project folder (`refused_folder`). The folder and the session id are the start's
+    /// own (`Refused::Start`); the rest is the machine's.
     #[cfg(unix)]
     pub(super) fn for_session(
         cwd: &Path,
         session_id: &str,
         endpoint: Option<Endpoint>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Refused> {
         let linux = cfg!(target_os = "linux");
         if !cfg!(target_os = "macos") && !linux {
             return Err(
@@ -535,7 +578,7 @@ impl Bound {
             crate::linux_sandbox::bwrap::probe(Path::new("/usr/bin/bwrap"))
                 .map_err(|e| format!("bwrap unavailable: {e}"))?;
         }
-        let cwd = canon(cwd)?;
+        let cwd = canon(cwd).map_err(Refused::Start)?;
         let path_dirs: Vec<PathBuf> = crate::chats::login_var("PATH")
             .unwrap_or_default()
             .split(':')
@@ -544,12 +587,12 @@ impl Bound {
             .map(|d| std::fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d)))
             .collect();
         if let Some(why) = refused_folder(&cwd, &home, &shared_tmp, &path_dirs) {
-            return Err(format!("a remote chain does not run here: {why}"));
+            return Err(Refused::Start(format!("a remote chain does not run here: {why}")));
         }
         let safe: String =
             session_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
         if safe.is_empty() {
-            return Err("a remote chain needs a session id".into());
+            return Err(Refused::Start("a remote chain needs a session id".into()));
         }
         let tmp = shared_tmp.join(format!("acpmux-remote-{safe}"));
         crate::home_fs::create_dir_all(&tmp, 0o700)
@@ -577,7 +620,8 @@ impl Bound {
             own_dir(&claude_project, uid)?;
             own_dir(&claude_project.join("memory"), uid)?;
             let cwd_boundary = if cwd.starts_with(&home) { &home } else { &shared_tmp };
-            linux_secure_path(&cwd, cwd_boundary, uid, cwd_boundary == &shared_tmp)?;
+            linux_secure_path(&cwd, cwd_boundary, uid, cwd_boundary == &shared_tmp)
+                .map_err(Refused::Start)?;
             linux_secure_path(&tmp, &shared_tmp, uid, true)?;
             linux_secure_path(&claude_tmp_project, &shared_tmp, uid, true)?;
             linux_secure_path(&claude_project, &home, uid, false)?;
@@ -598,7 +642,7 @@ impl Bound {
         _cwd: &Path,
         _session_id: &str,
         _endpoint: Option<Endpoint>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, Refused> {
         Err("a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into())
     }
 
@@ -688,7 +732,7 @@ fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
 fn boundary_plan(
     profile: &HarnessProfile,
     plan: crate::claude_stdio::SpawnPlan,
-) -> Result<crate::claude_stdio::SpawnPlan, String> {
+) -> Result<crate::claude_stdio::SpawnPlan, Refused> {
     let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
     let endpoint = endpoint(
         profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
@@ -715,7 +759,7 @@ pub(super) fn wrap(
     profile: &HarnessProfile,
     program: String,
     args: Vec<String>,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(String, Vec<String>), Refused> {
     let args = claude_args(bound.endpoint.as_ref(), profile, args)?;
     let mut out = bound.sandbox_args();
     out.push("/usr/bin/env".into());
@@ -760,20 +804,26 @@ fn refused_arg(argv: &[String]) -> Option<&String> {
     None
 }
 
+/// The chain's Claude arguments; a refused profile argument or env value is the start's own
+/// (`Refused::Start`).
 fn claude_args(
     endpoint: Option<&Endpoint>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, Refused> {
     if let Some(bad) = refused_arg(&profile.argv) {
-        return Err(format!("a remote chain never runs Claude Code with {bad}"));
+        return Err(Refused::Start(format!("a remote chain never runs Claude Code with {bad}")));
     }
     #[cfg(target_os = "linux")]
     if let Some(bad) = profile.env.keys().find(|k| k.as_str() != "TMPDIR" && loader_env_key(k)) {
-        return Err(format!("a remote chain never runs Claude Code with {bad} set"));
+        return Err(Refused::Start(format!(
+            "a remote chain never runs Claude Code with {bad} set"
+        )));
     }
     if let Some(bad) = REFUSED_ENV.iter().find(|k| profile.env.contains_key(**k)) {
-        return Err(format!("a remote chain never runs Claude Code with {bad} set"));
+        return Err(Refused::Start(format!(
+            "a remote chain never runs Claude Code with {bad} set"
+        )));
     }
     args.push("--settings".into());
     let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
@@ -871,8 +921,8 @@ fn linux_wrap(
     profile: &HarnessProfile,
     program: String,
     args: Vec<String>,
-) -> Result<(String, Vec<String>), String> {
-    linux_keeper_args(bound, program, claude_args(bound.endpoint.as_ref(), profile, args)?)
+) -> Result<(String, Vec<String>), Refused> {
+    Ok(linux_keeper_args(bound, program, claude_args(bound.endpoint.as_ref(), profile, args)?)?)
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
@@ -1308,7 +1358,8 @@ impl Hub {
     ) -> Result<(), String> {
         #[cfg(target_os = "linux")]
         {
-            let bound = Bound::for_session(&cwd, "integration-canary", None)?;
+            let bound = Bound::for_session(&cwd, "integration-canary", None)
+                .map_err(|r| r.why().to_owned())?;
             return canary(&exec, &bound, true).await;
         }
         #[cfg(not(target_os = "linux"))]
@@ -1339,10 +1390,7 @@ impl Hub {
         if !session.meta().remote_origin {
             return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
-        let refused = |why: String| {
-            RpcError::new(-32000, format!("remote chain refused: {why}"))
-                .with_data(json!({"reason": "remote.sandbox_refused"}))
-        };
+        let refused = |why: Refused| why.error();
         let (plan, mut profile) = if crate::config::is_subrouter_proxy(&profile.argv) {
             let claude = self
                 .config
@@ -1361,8 +1409,8 @@ impl Hub {
                     .or_else(|| crate::login_env::var("SUBROUTER_URL"));
                 crate::config::subrouter_route(env.as_deref(), &servers)
             };
-            let (program, args, routed) =
-                subrouter_plan(profile, plan.args, claude, route).map_err(refused)?;
+            let (program, args, routed) = subrouter_plan(profile, plan.args, claude, route)
+                .map_err(|why| refused(Refused::Start(why)))?;
             (crate::claude_stdio::SpawnPlan { program, args }, routed)
         } else {
             (plan, profile.clone())
@@ -1396,7 +1444,7 @@ impl Hub {
         // Bypass mode stays off (above); the session's policy answers Claude's prompts.
         if self.vm_boundary_unsandboxed(&session.meta()).await {
             let plan = boundary_plan(&profile, plan).map_err(|why| {
-                self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
+                self.append(session, "mux", "remote_sandbox", json!({"refused": why.why()}));
                 refused(why)
             })?;
             scrub_env(&mut profile, false);
@@ -1446,7 +1494,7 @@ impl Hub {
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
-                    return Err("the Linux sandbox is unavailable on this platform".into());
+                    return Err(Refused::from("the Linux sandbox is unavailable on this platform"));
                 }
             } else {
                 wrap(&exec, &bound, profile, program, args)?
@@ -1463,7 +1511,7 @@ impl Hub {
             #[cfg(not(target_os = "linux"))]
             let canary_exec = exec.clone();
             canary(&canary_exec, &bound, linux).await?;
-            Ok::<_, String>(plan)
+            Ok::<_, Refused>(plan)
         }
         .await;
         match result {
@@ -1481,10 +1529,9 @@ impl Hub {
                 Ok(plan)
             }
             Err(why) => {
-                tracing::warn!(session = %session.id, "remote chain sandbox refused: {why}");
-                self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
-                Err(RpcError::new(-32000, format!("remote chain refused: {why}"))
-                    .with_data(json!({"reason": "remote.sandbox_refused"})))
+                tracing::warn!(session = %session.id, "remote chain sandbox refused: {why:?}");
+                self.append(session, "mux", "remote_sandbox", json!({"refused": why.why()}));
+                Err(why.error())
             }
         }
     }
@@ -1599,6 +1646,30 @@ mod endpoint_tests {
         ] {
             assert!(!ok(argv), "{argv:?}");
         }
+    }
+
+    /// A refusal of the start's own inputs (a profile argument or env value, `sr` options, its
+    /// folder or session id) says `remote start refused:` with `remote.start_refused`; the
+    /// machine's own state (bwrap, the canary, the platform: every `String` the chain's checks
+    /// give) says `remote chain refused:` with `remote.sandbox_refused`, the one the pickers record.
+    #[test]
+    fn each_refusal_says_whether_the_start_or_the_machine_refused() {
+        let start = |e: Refused| {
+            let error = e.error();
+            assert!(error.message.starts_with("remote start refused: "), "{}", error.message);
+            let reason = crate::start_refusals::reason(error.data.as_ref());
+            assert_eq!(reason, Some(crate::start_refusals::START_REASON), "{}", error.message);
+        };
+        let argv = claude_args(None, &profile(&["claude", "--settings", "{}"], &[]), vec![]);
+        start(argv.unwrap_err());
+        let env = claude_args(None, &profile(&["claude"], &[(REFUSED_ENV[0], "x")]), vec![]);
+        start(env.unwrap_err());
+        let sr = profile(&["sr", "claude", "proxy", "--extra"], &[]);
+        start(Refused::Start(subrouter_plan(&sr, vec![], None, None).unwrap_err()));
+        start(Refused::Start("a remote chain needs a session id".into()));
+        let host = Refused::from(format!("bwrap unavailable: {}", "bwrap not installed")).error();
+        assert_eq!(host.message, "remote chain refused: bwrap unavailable: bwrap not installed");
+        assert!(crate::start_refusals::is_chain_refusal(&host), "{host:?}");
     }
 
     #[cfg(target_os = "linux")]
@@ -2024,7 +2095,7 @@ mod endpoint_tests {
     #[test]
     fn linux_default_checks_the_real_sandbox_preconditions() {
         let error = Bound::for_session(Path::new("/"), "wire-default", None).unwrap_err();
-        assert!(!error.contains("platform has none"), "{error}");
+        assert!(!error.why().contains("platform has none"), "{error:?}");
     }
 
     /// A fresh `root/project` tree with `root` at `mode`, removed on drop.
