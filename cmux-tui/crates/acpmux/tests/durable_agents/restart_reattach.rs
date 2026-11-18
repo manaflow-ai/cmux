@@ -449,3 +449,120 @@ async fn status_and_attach_answer_while_the_session_store_is_loading() {
         e["kind"] == "turn_result" && e["msg"]["status"] == "completed"
     });
 }
+
+/// The phases of a restart, for `ACPMUX_PHASES_HOSTED` live chats (their agents outlive the
+/// daemon) and `ACPMUX_PHASES_IDLE` stored idle chats of 500 records, restarted
+/// `ACPMUX_PHASES_RUNS` times (default 5; the agents keep running through every restart). Each
+/// run prints `acpmux-restart-phases: {...}`, in ms from the daemon's spawn: the ready line
+/// (socket accepting), the first status, the first attach of a restored live chat and of a
+/// stored idle one (with the daemon's own loading phase when each was answered), and when
+/// adoption ended (`liveAgents`) and startup ended, with the daemon's own start phases
+/// (`gauges.startup`). Run on the Linux pool with
+/// `--test durable_agents restart_phases -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "startup performance harness; run on the Linux pool"]
+async fn restart_phases() {
+    let hosted = env_or("ACPMUX_PHASES_HOSTED", 10) as usize;
+    let idle = env_or("ACPMUX_PHASES_IDLE", 0);
+    let runs = env_or("ACPMUX_PHASES_RUNS", 5);
+    let mut daemon = Daemon::new("phases", "approve-all");
+    let mut live_ids = Vec::new();
+    for _ in 0..hosted {
+        let mut rpc = daemon.rpc().await;
+        let created = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
+        let id = created["sessionId"].as_str().unwrap().to_owned();
+        let gate = daemon.home.join(format!("gate-{id}"));
+        make_fifo(&gate);
+        rpc.send(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+        daemon.wait_event(&id, "before-gate", |e| chunk(e, "before-gate"));
+        live_ids.push(id);
+    }
+    daemon.sigterm();
+    let mut cfg: Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let idle_id = format!("01a15800-0000-7000-9000-{:012}", 0);
+    {
+        let store = acpmux::store::open(&cfg.store, &daemon.home).unwrap();
+        for i in 0..idle {
+            let id = format!("01a15800-0000-7000-9000-{i:012}");
+            stored_chat(&*store, &id, &daemon.home, "idle", 500);
+        }
+        store.flush().unwrap();
+    }
+    for run in 0..runs {
+        let started = Instant::now();
+        daemon.start();
+        let ready_line_ms = started.elapsed().as_millis();
+        let mut rpc = daemon.rpc().await;
+        let first_status = rpc.call("_acpmux/status", json!({})).await;
+        let status_ms = started.elapsed().as_millis();
+        let mut hosted_attach = Value::Null;
+        if let Some(chosen) = live_ids.last() {
+            let mut attached =
+                rpc.call("_acpmux/attach", json!({"sessionId": chosen, "limit": 20})).await;
+            assert_eq!(attached["session"]["sessionId"].as_str(), Some(chosen.as_str()));
+            let at = started.elapsed().as_millis();
+            let events = attached["events"].as_array().map_or(0, Vec::len);
+            let _ = attached.take();
+            let during = rpc.call("_acpmux/status", json!({})).await;
+            hosted_attach = json!({"ms": at, "events": events,
+                "adopted_when_asked": first_status["liveAgents"] == hosted,
+                "loading_after": during["loading"]["phase"]});
+        }
+        let mut idle_attach = Value::Null;
+        if idle > 0 {
+            let attached =
+                rpc.call("_acpmux/attach", json!({"sessionId": idle_id, "limit": 20})).await;
+            assert_eq!(attached["session"]["sessionId"].as_str(), Some(idle_id.as_str()));
+            idle_attach = json!({"ms": started.elapsed().as_millis(),
+                "events": attached["events"].as_array().map_or(0, Vec::len)});
+        }
+        let (startup_ms, adopted_ms, phases) =
+            tokio::time::timeout(Duration::from_secs(300), async {
+                let mut startup_ms = None;
+                let mut adopted_ms = None;
+                let mut status = first_status;
+                let mut ticks = tokio::time::interval(Duration::from_millis(10));
+                loop {
+                    let elapsed = started.elapsed().as_millis();
+                    if status["ready"] == true {
+                        startup_ms.get_or_insert(elapsed);
+                    }
+                    if status["liveAgents"] == hosted {
+                        adopted_ms.get_or_insert(elapsed);
+                    }
+                    if let (Some(startup), Some(adopted)) = (startup_ms, adopted_ms) {
+                        break (startup, adopted, status["gauges"]["startup"].clone());
+                    }
+                    ticks.tick().await;
+                    status = rpc.call("_acpmux/status", json!({})).await;
+                }
+            })
+            .await
+            .expect("startup completed within the harness deadline");
+        println!(
+            "acpmux-restart-phases: {}",
+            json!({"run": run, "hosted": hosted, "idle": idle, "ready_line_ms": ready_line_ms,
+                   "status_ms": status_ms, "hosted_attach": hosted_attach,
+                   "idle_attach": idle_attach, "adopted_ms": adopted_ms,
+                   "startup_ms": startup_ms})
+        );
+        // The daemon's own start phases, one line apart so a log that cuts long lines keeps both.
+        let ends: Vec<String> = phases
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| format!("{}={}", p["name"].as_str().unwrap_or("?"), p["atMs"]))
+            .collect();
+        println!("acpmux-restart-gauges: run={run} hosted={hosted} idle={idle} {}", ends.join(";"));
+        drop(rpc);
+        daemon.sigterm();
+    }
+    for id in &live_ids {
+        std::fs::write(daemon.home.join(format!("gate-{id}")), b"go").unwrap();
+    }
+}

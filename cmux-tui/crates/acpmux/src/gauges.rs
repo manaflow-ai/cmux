@@ -90,8 +90,14 @@ impl Gauges {
             let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
             phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms})).collect()
         };
+        // Wall-clock ends, so a harness lines the phases up with the app's own launch marks: the
+        // start every `atMs` counts from, and the process's exec before it (macOS; null elsewhere).
+        let born_epoch_ms =
+            epoch_ms(std::time::SystemTime::now()).saturating_sub(millis(self.born.elapsed()));
         json!({
             "uptimeMs": millis(self.born.elapsed()),
+            "bornEpochMs": born_epoch_ms,
+            "execEpochMs": exec_epoch_ms(),
             "startup": phases,
             "memory": memory(),
             "peerLists": peer_lists().status(),
@@ -149,6 +155,35 @@ pub fn daemon_status() -> Value {
         fields.insert("queues".into(), crate::server::queue_gauge::status());
     }
     status
+}
+
+fn epoch_ms(at: std::time::SystemTime) -> u64 {
+    at.duration_since(std::time::UNIX_EPOCH).map(millis).unwrap_or(0)
+}
+
+/// When this process was started (exec), in ms since 1970: the time before [`Gauges::born`] is
+/// the binary's load and `main`'s setup.
+#[cfg(target_os = "macos")]
+fn exec_epoch_ms() -> Option<u64> {
+    // SAFETY: proc_bsdinfo is plain integers; proc_pidinfo fills at most `size` bytes of it.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: the pointer is to a live local of `size` bytes.
+    let got = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    (got == size).then(|| info.pbi_start_tvsec * 1000 + info.pbi_start_tvusec / 1000)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn exec_epoch_ms() -> Option<u64> {
+    None
 }
 
 /// This process's resident bytes now and at its peak; null where unknown.
@@ -227,5 +262,18 @@ mod tests {
         assert_eq!(phases[1]["ms"], 0);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert!(status["memory"]["rssBytes"].as_u64().unwrap() > 0, "{status}");
+    }
+
+    #[test]
+    fn the_start_and_the_exec_are_wall_clock_times_before_now() {
+        let gauges: &'static Gauges = Box::leak(Box::new(Gauges::new()));
+        let status = gauges.status();
+        let now = epoch_ms(std::time::SystemTime::now());
+        let born = status["bornEpochMs"].as_u64().unwrap();
+        assert!(born <= now && now - born < 60_000, "{status}");
+        #[cfg(target_os = "macos")]
+        assert!(status["execEpochMs"].as_u64().unwrap() <= born, "{status}");
+        #[cfg(not(target_os = "macos"))]
+        assert!(status["execEpochMs"].is_null(), "{status}");
     }
 }

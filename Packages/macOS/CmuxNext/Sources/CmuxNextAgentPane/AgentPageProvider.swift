@@ -424,6 +424,13 @@ public final class AgentPageProvider: PageProvider {
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
+        // The handshake's marks, as the legacy bridge makes them (``AgentPaneBridge/reply(to:)``): its start is when
+        // the page's script asked, so the span before it is the page's load and parse.
+        if request == .ready {
+            AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start")
+            defer { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
+            return try Self.value(of: await model.respond(to: request, userGesture: context.userGesture))
+        }
         // `context.userGesture` is host-authenticated PageRouter state; it cannot be supplied by
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.

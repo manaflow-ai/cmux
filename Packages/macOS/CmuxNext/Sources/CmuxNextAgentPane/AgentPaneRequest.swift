@@ -332,7 +332,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
-    case painted(fromKeptTail: Bool, settled: Bool)
+    /// `pageMarks` (`pane.painted {pageMarks}`, the first report only): the page's own boot times, ms since
+    /// 1970 by name (navigation start, document and pane.js fetched, modules evaluated), kept as launch marks.
+    case painted(fromKeptTail: Bool, settled: Bool, pageMarks: [String: Double] = [:])
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready
