@@ -9,6 +9,7 @@
 //! (`publish.rs`).
 
 mod daemon;
+mod design;
 mod dev;
 #[cfg(test)]
 mod kinds_tests;
@@ -83,6 +84,9 @@ cmux ext: make a cmux extension and watch it change as you work.
                                shows, and a script that does not load names file:line while the
                                last good view stays; exit 1 when one did not load
   cmux reload-config           cmux-next.json, the Ghostty config and every local extension, at once
+  cmux ext design FILE... [--widget] [--json]
+                               the design check ext dev runs, on recorded scenes (a JSON array
+                               of scene ops, or an object of them by name); exit 1 on a warning
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -135,6 +139,11 @@ pub(super) enum Request {
     Publish(publish::PublishOptions),
     /// `ext pack [DIR]`: the release assets.
     Pack(pack::PackOptions),
+    /// `ext design FILE... [--widget]`: the design check on recorded scenes.
+    Design {
+        files: Vec<PathBuf>,
+        widget: bool,
+    },
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -263,6 +272,23 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
                 _ => Err(usage("ext shot")),
             }
+        }
+        "design" => {
+            let mut files = Vec::new();
+            let mut widget = false;
+            for word in rest {
+                match word.as_str() {
+                    "--widget" => widget = true,
+                    flag if flag.starts_with('-') => {
+                        return Err(usage(&format!("unknown option {flag}")));
+                    }
+                    _ => files.push(PathBuf::from(word)),
+                }
+            }
+            if files.is_empty() {
+                return Err(usage("ext design needs a scene FILE"));
+            }
+            Ok(Request::Design { files, widget })
         }
         "pack" => {
             let mut options = pack::PackOptions { dir: PathBuf::from("."), out: None };
@@ -472,6 +498,10 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::List | Request::Remove { .. } => list_or_remove(global, request, json_out),
         Request::Reload { app } => reload(global, app.as_deref(), json_out),
         Request::Capabilities { op } => capabilities(global, op.as_deref(), json_out),
+        Request::Design { files, widget } => {
+            let surface = if widget { design::Surface::Widget } else { design::Surface::Other };
+            design::run(&files, surface, json_out)
+        }
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
