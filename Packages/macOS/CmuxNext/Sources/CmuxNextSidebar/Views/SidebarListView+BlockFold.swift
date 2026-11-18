@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxVisibleRows
 
 // A top section's fold (Leo 2026-11-08: "there's the sidebar where when things maybe open or shift a bit, there's like
 // still a bit of a flicker on that, like individual top group"). A section of the sidebar document draws as one block
@@ -33,13 +34,14 @@ extension SidebarListViewComponents {
         // The full layout this one stands for, for a later one-row splice (`spliceInsertion`).
         spliceBase?.options.blockHeights[id] = height
         spliceBase?.options.collapsedDocSections = Set(model.collapsedLayoutSections.map(\.rawValue))
-        applyBlockFold(row: resized, by: dy)
+        applyBlockFold(row: resized, at: position, from: row.height)
         return true
     }
 
     /// Moves the realized rows to the spliced layout: the block springs to its new height (its region clips its items to
-    /// it, `SidebarRegionView.beginFoldMove`), the rows below it move by `dy`, and rows the move brings into view get views.
-    private func applyBlockFold(row block: SidebarRow, by dy: CGFloat) {
+    /// it, `SidebarRegionFoldMove`), the rows below it move by `dy`, and rows the move brings into view get views.
+    private func applyBlockFold(row block: SidebarRow, at position: Int, from oldHeight: CGFloat) {
+        let dy = block.height - oldHeight
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
         defer {
@@ -59,9 +61,13 @@ extension SidebarListViewComponents {
             if key == block.key { configure(view, row: row, animated: true) }
             targets.append((view, target))
         }
-        // The rows a close brings up into view start where they were, `dy` lower.
+        // The rows a close brings up into view start where they were, `dy` lower: found by the pure splice
+        // (`RowSpans.resize`, tested on any platform), which reads O(log n) rows and walks none.
         let realize = realizationRect()
-        for index in layout.rowIndices(from: realize.minY, to: realize.maxY) {
+        let resize = RowSpans.resize(row: position, from: Double(oldHeight), to: Double(block.height), count: layout.rows.count,
+                                     viewportMinY: Double(realize.minY), maxY: Double(realize.maxY),
+                                     tallest: Double(max(realize.height, block.height, oldHeight))) { Double(layout.rows[$0].y) }
+        for index in resize.revealed.joined() {
             let row = layout.rows[index]
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
