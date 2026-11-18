@@ -2867,8 +2867,9 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
-                                                (1, "1", "ubuntu-24.04"),
+            # Blacksmith on every attempt, never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735).
+            for attempt, overflow, expected in ((1, "", "blacksmith-8vcpu-ubuntu-2404"),
+                                                (1, "1", "blacksmith-16vcpu-ubuntu-2404"),
                                                 (2, "", "blacksmith-8vcpu-ubuntu-2404"),
                                                 (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
