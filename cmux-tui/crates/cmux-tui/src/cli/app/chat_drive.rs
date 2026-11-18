@@ -19,6 +19,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::super::OutputMode;
 use super::{AppCommand, GlobalArgs, Options, UsageError};
@@ -121,7 +122,8 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
 
     let text = options.value("type");
     match text {
-        Some(text) if text.is_empty() || text.chars().count() > MAX_TEXT => {
+        // Characters as the app and the page count them: graphemes (an emoji with a skin tone is one).
+        Some(text) if text.is_empty() || text.graphemes(true).count() > MAX_TEXT => {
             return Err(UsageError::new(messages.text));
         }
         Some(text) => {
@@ -264,10 +266,10 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
         ],
     );
     // A count of what the run typed; a page from before that sent the text itself, and the
-    // summary counts it rather than printing it.
+    // summary counts it (in graphemes, as the page does) rather than printing it.
     let typed = match &page["typed"] {
         Value::Number(count) => count.as_u64().unwrap_or(0),
-        Value::String(typed) => typed.chars().count() as u64,
+        Value::String(typed) => typed.graphemes(true).count() as u64,
         _ => 0,
     };
     if typed > 0 {

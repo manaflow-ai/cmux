@@ -426,8 +426,12 @@ private struct DriveRun {
                 guard !release.isDone, ContinuousClock.now < stop else { break }
                 if await input.wheel(at: point, deltaY: Double(wheel.delta)) { delivered += 1 }
                 if tick + 1 < wheel.ticks {
-                    // wakeup-allow: the caller's tick spacing (8 to 200 ms, at most 200 ticks); cancelled with the call
-                    try await Task.sleep(for: .milliseconds(wheel.tickMilliseconds))
+                    // Between two ticks (up to 200 ms apart) the person, the window and the app are watched every
+                    // DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
+                    let surroundings = surroundings
+                    _ = try await DriveWatch.watch(until: ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), isUsing: {
+                        Self.outside(surroundings, release) != nil || person.isUsing(since: started)
+                    })
                 }
             }
         }
@@ -504,6 +508,10 @@ final class DriveRelease {
     static let retryWaits: [Duration] = [50, 100, 200, 400, 800, 1000, 1000, 1000].map { Duration.milliseconds($0) }
     /// The triggers that stop a run that is still going (`interrupted`); the others only retry a pending release.
     static let interrupting: Set<String> = ["teardown", "window_close", "resign", "detached"]
+    /// The trigger that can make a send go in that failed before (the view back in a window): one that
+    /// comes while a round runs gets a round of its own after it, never only the rest of that one. A
+    /// teardown needs none: the round ends at its next send (``tornDown``).
+    static let fresh: Set<String> = ["window"]
 
     /// Sends the pointer-leave.
     private let send: @MainActor () async -> Outcome
@@ -575,7 +583,7 @@ final class DriveRelease {
         }
         // task-owner: one bounded release round (about 4.5 s at most), joined by a round already running
         // main-hop-allow: a trigger's release is not frame work: one pointer-leave per send, at most 9 sends a round
-        Task { @MainActor in await self.release(name) }
+        Task { @MainActor in await self.release(name, fresh: Self.fresh.contains(name)) }
     }
 
     /// Its view moved to another window or out of every one (``AgentPaneView/viewDidMoveToWindow()``).
@@ -583,10 +591,16 @@ final class DriveRelease {
         trigger(inWindow ? "window" : "detached")
     }
 
-    /// Gives the hover back: one bounded round of sends, or the round already running.
-    func release(_ reason: String) async {
+    /// Gives the hover back: one bounded round of sends, or the round already running. With `fresh` (a
+    /// trigger in ``fresh``), a round already running that ends without the release is followed by a new one.
+    func release(_ reason: String, fresh: Bool = false) async {
         guard !released else { return }
-        if let round { return await round.value }
+        if let round {
+            await round.value
+            // That round's sends came before this event; one after it can now go in.
+            guard fresh else { return }
+            return await release(reason)
+        }
         // The round clears itself as it ends, so a release asked for after it starts the next one.
         // main-hop-allow: its own task so a cancelled call can't cut the round short; one pointer-leave per send, at most 9
         let attempt = Task { @MainActor in

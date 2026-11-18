@@ -45,6 +45,8 @@ struct AgentChatDriveReleaseTests {
         var answers: [Outcome]
         var count = 0
         var waits: [Duration] = []
+        /// Runs at each wait of a round, after which the round yields (a trigger's task gets its turn).
+        var onWait: ((Int) -> Void)?
 
         init(_ answers: [Outcome] = []) {
             self.answers = answers
@@ -54,7 +56,11 @@ struct AgentChatDriveReleaseTests {
             let release = DriveRelease(send: { [self] in
                 count += 1
                 return answers.isEmpty ? .wentIn : answers.removeFirst()
-            }, sleep: { [self] in waits.append($0) })
+            }, sleep: { [self] in
+                waits.append($0)
+                onWait?(waits.count)
+                await Task.yield()
+            })
             release.armed = armed
             return release
         }
@@ -201,6 +207,23 @@ struct AgentChatDriveReleaseTests {
 
     /// Every way a run ends leaves the release done: its own paths, the backstop, each trigger, and a
     /// send that fails any number of times under the cap first.
+    /// The view comes back to a window while a round is failing: that round runs out, and the re-attach
+    /// gets a round of its own, whose send goes in, rather than only the failing round's rest. (A
+    /// teardown in a round ends it there: nothing is left to hold.)
+    @Test func aReattachDuringAFailingRoundStartsItsOwnRound() async throws {
+        let sends = Sends(Array(repeating: .failed, count: 1 + DriveRelease.retryWaits.count))
+        let release = sends.release()
+        release.runEnded = true
+        sends.onWait = { wait in
+            if wait == 2 { release.viewMoved(inWindow: true) }
+        }
+        await release.release("end")
+        try await settled(release)
+        #expect(release.released, "the release stayed pending after a re-attach during a failing round")
+        #expect(release.how == "window")
+        #expect(sends.count == 2 + DriveRelease.retryWaits.count, "\(sends.count) sends")
+    }
+
     @Test func everyWayARunEndsReleases() async throws {
         for path in ["end", "error", "cancel", "person"] {
             for fails in 0...DriveRelease.retryWaits.count {

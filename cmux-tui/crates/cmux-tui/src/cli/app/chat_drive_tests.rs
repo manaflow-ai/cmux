@@ -197,3 +197,20 @@ fn app_chat_drive_summary_counts_what_was_typed() {
     typed["page"]["typed"] = json!(null);
     assert!(!human(&typed, &english().app_control).contains("Typed"));
 }
+
+/// An older page's typed text is counted in graphemes, as the page counts what it types: a thumbs-up
+/// with a skin tone and a family joined with zero-width joiners are two characters, not seven scalars.
+#[test]
+fn app_chat_drive_counts_typed_emoji_as_graphemes() {
+    let emoji = "\u{1F44D}\u{1F3FD}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    assert_eq!(emoji.chars().count(), 7);
+    let mut typed = report();
+    typed["page"]["typed"] = json!(emoji);
+    let text = human(&typed, &english().app_control);
+    assert!(text.contains("Typed 2 characters; they stay in the draft\n"), "{text}");
+    // The --type cap counts the same way: 500 of them pass, 501 do not.
+    let at_cap = emoji.repeat(250);
+    assert!(parse(&args(&["app", "chat", "drive", "--tab", "t", "--type", &at_cap])).is_ok());
+    let over = format!("{at_cap}x");
+    assert!(parse(&args(&["app", "chat", "drive", "--tab", "t", "--type", &over])).is_err());
+}
