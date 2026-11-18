@@ -91,8 +91,11 @@ export async function open120Hz(
       // (composerStates.css), and the motion contract hung in "settle after typing" until its
       // 180 s limit (run 43399332571).
       "--disable-features=CompositeClipPathAnimation,CompositeBGColorAnimation",
-      // DIAGNOSTIC (comes out before land): extra switches for a bisect of Chromium 158's hang.
-      ...(process.env.CMUX_FRAMES120_ARGS ?? "").split(" ").filter(Boolean),
+      // The class, not one property at a time: every animation runs on the main thread, as the app's
+      // WebKit runs them. chrome-headless-shell 158 runs another on the compositor once typed text
+      // makes the idle composer's send ready, and that frame never finished either: the motion
+      // contract's two idle-chat sends waited out their 400 s (157.0.8103.78 passes the same tree).
+      "--disable-threaded-animation",
     ],
   });
   let browser: Browser | undefined;
