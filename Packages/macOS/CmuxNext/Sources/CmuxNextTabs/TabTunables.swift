@@ -24,6 +24,26 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// Where a titled tab's trailing status mark sits (the spinner, the unread or status dot), `TabTunables.statusMarkPlacement`;
+/// the tab bar playground's Status Spacing page compares them. Leo 2026-10-22 (ask-a8b97f1201): "... + the spacing is off".
+public nonisolated enum TabStatusMarkPlacement: String, Sendable, CaseIterable, TunableChoice {
+    /// Before: centered in the x's slot, 13 pt from the pill's end at Default, nearer the edge than the icon is to the start.
+    case closeSlot
+    /// The mark mirrors the icon: its center as far from the trailing edge as the icon's from the leading one. The
+    /// hovered x keeps its own place.
+    case mirrorIcon
+    /// The mark and the hovered x both mirror the icon.
+    case mirrorAll
+
+    public var tunableTitle: String {
+        switch self {
+        case .closeSlot: "Before: in the close button's slot"
+        case .mirrorIcon: "Mirrors the icon"
+        case .mirrorAll: "Mark and close button mirror the icon"
+        }
+    }
+}
+
 /// How a busy tab with unread output draws its two states (`TabTunables.busyUnreadMark`; the tab bar playground's
 /// Busy + Unread page compares them). Leo 2026-10-22 (ask-a8b97f1201): "the tab unread + simultaneous ongoing thing
 /// feels weird idk if there is a way to combine + the spacing is off". Every look but `pair` draws one mark in the
@@ -230,12 +250,18 @@ public nonisolated enum TabTunables {
         "tabs.busyUnreadMark", .tabs, "Busy and unread tab mark",
         help: "How a busy tab with unread output draws: one mark in the status slot, or the old dot and spinner side by side.",
         default: .spinner, code: "TabTunables.busyUnreadMark")
+    // @intent Leo 2026-10-22 (ask-a8b97f1201): "the spacing is off"; the trailing mark mirrors the icon's inset. The
+    // tab bar playground's Status Spacing page compares the placements.
+    public static let statusMarkPlacement = Tunable<TabStatusMarkPlacement>.choice(
+        "tabs.statusMarkPlacement", .tabs, "Tab status mark placement",
+        help: "Where a tab's trailing spinner or unread dot sits: mirroring the icon, or in the close button's slot.",
+        default: .mirrorIcon, code: "TabTunables.statusMarkPlacement")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }

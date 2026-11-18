@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 97a07a09a20fb1a5bbb8c4b72409b23f43937d33f8a21dc275d88e08947ee560
+// app-ffi-pin-checksum: 9478c1ee2ae40ac0c6c7e35b0422307b730b3643e99e81ceb7eecb6cff14b8c4
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1088,6 +1088,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPagesTestSupport",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2354,7 +2355,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextPaletteTests",
             // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
+            // CmuxNextActions: the tests import it. A target that reads a module only through another target's
+            // list is not compiled again when that module's interface changes, and its old objects then fail the link.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextPalette",
                 "CmuxNextTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
@@ -2615,6 +2619,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextAgentLanes",
+                "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
                 "CmuxNextAgentUpdates",
                 "CmuxNextApp",
