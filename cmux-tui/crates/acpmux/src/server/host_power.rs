@@ -236,33 +236,30 @@ pub(crate) fn read_linux(supply: &Path, lid: &Path) -> Option<Power> {
 /// runs past `limit` (it is then killed and reaped).
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn run_bounded(program: &str, args: &[&str], limit: Duration) -> Option<String> {
-    use std::io::Read as _;
+    use std::io::{Read as _, Seek as _};
+    // Its stdout goes to an unnamed file, not a pipe: a pipe that fills up (ioreg prints the
+    // root domain's every property) would hold the child until the wait below gave up.
+    let mut out = tempfile::tempfile().ok()?;
     let mut child = cmux_process::Command::new(program)
         .args(args)
         .stdin(cmux_process::Stdio::null())
-        .stdout(cmux_process::Stdio::piped())
+        .stdout(out.try_clone().ok()?)
         .stderr(cmux_process::Stdio::null())
         .spawn()
         .ok()?;
-    // Read on its own thread so a full pipe never blocks the child past the wait below; it ends
-    // at the child's exit or kill (end of file).
-    let mut out = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = out.read_to_end(&mut buf);
-        buf
-    });
-    let status = match child.wait_timeout(limit) {
-        Ok(Some(status)) => Some(status),
+    match child.wait_timeout(limit) {
+        Ok(Some(status)) if status.success() => {}
+        Ok(Some(_)) => return None,
         _ => {
             let _ = child.kill();
             let _ = child.wait();
-            None
+            return None;
         }
-    };
-    let buf = reader.join().ok()?;
-    status.filter(|s| s.success())?;
-    String::from_utf8(buf).ok()
+    }
+    out.rewind().ok()?;
+    let mut text = String::new();
+    out.read_to_string(&mut text).ok()?;
+    Some(text)
 }
 
 /// One reading now, on a blocking thread (spawned commands, sysfs reads that ask the ACPI
