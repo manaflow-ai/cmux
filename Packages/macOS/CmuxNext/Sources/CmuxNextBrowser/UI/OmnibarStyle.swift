@@ -88,7 +88,7 @@ enum OmnibarStyle {
     static func starPlateCornerRadius(side: CGFloat) -> CGFloat { side / 4 }
     /// The plate's hover fill: Helium's over its dark bar, white at 12.8% (the bar's 68 to the plate's 92 of 255, measured
     /// from Lucas's screenshot 2026-11-18); over a light bar black at 6%, Chrome's light hover tone (not measured in Helium).
-    static func starHoverFill(isDark: Bool) -> NSColor { isDark ? NSColor(white: 1, alpha: 0.128) : NSColor(white: 0, alpha: 0.06) }
+    static func starHoverFill(isDark: Bool) -> NSColor { isDark ? NSColor(white: 1, alpha: 0.128) : NSColor(white: 0, alpha: 0.06) } // colour-allow: Helium's measured star plate over its bar (Lucas 2026-11-18: "match it 1:1"); no theme token is this step
     /// The Extensions puzzle's drawing side (`OmnibarMetrics.extensionsIconSize`): 16 pt of ink at Compact.
     static var extensionsIconSize: CGFloat { metrics.extensionsIconSize }
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
