@@ -934,6 +934,8 @@ pub(super) struct Outcome {
     pub probe: Option<String>,
     /// The outline of the probe's first scene (`scene.rs`): what the view rendered.
     pub scene: Vec<String>,
+    /// The design check of that scene (`design.rs`): warnings, never a failed load.
+    pub design: Vec<super::design::Finding>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
@@ -961,6 +963,7 @@ impl Outcome {
             placed: Vec::new(),
             probe: None,
             scene: Vec::new(),
+            design: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
@@ -1002,6 +1005,7 @@ impl Outcome {
             "placed": self.placed,
             "probe": self.probe,
             "scene": self.scene,
+            "design": self.design.iter().map(super::design::Finding::to_json).collect::<Vec<_>>(),
             "logs": self.logs,
             "next": self.next,
             "typesUpdated": self.types_updated,
@@ -1043,6 +1047,17 @@ impl Outcome {
                 }
                 if let Some(version) = &self.types_updated {
                     line.push_str(&format!("; {TYPES_FILE} now matches this cmux (API {version})"));
+                }
+                if !self.design.is_empty() {
+                    let count = self.design.len();
+                    line.push_str(&format!(
+                        "; {count} design warning{}:",
+                        if count == 1 { "" } else { "s" }
+                    ));
+                    for text in super::design::lines(&self.design) {
+                        line.push_str("\n  ");
+                        line.push_str(&text.replace('\n', "\n  "));
+                    }
                 }
                 line
             }
@@ -1238,7 +1253,11 @@ impl Session {
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
                 let base = probe_context(&pkg.manifest, &interface);
                 match self.probe(&pkg.id, &interface, base, !installed) {
-                    Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
+                    Ok(Ok(ops)) => {
+                        outcome.scene = super::scene::outline(&[&ops]);
+                        outcome.design =
+                            super::design::check(&[&ops], super::design::Surface::of(&interface));
+                    }
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
                         return outcome.failed(Phase::Load, vec![problem]);
