@@ -295,6 +295,18 @@ fn attach_leased_phone(
     rows: u16,
     request_id: u64,
 ) -> (Box<dyn transport::Stream>, BufReader<Box<dyn transport::Stream>>) {
+    attach_phone_leased_as(path, surface, cols, rows, request_id, &["size-lease-v1"])
+}
+
+/// A phone view with the lease `capabilities` it lists.
+fn attach_phone_leased_as(
+    path: &Path,
+    surface: u64,
+    cols: u16,
+    rows: u16,
+    request_id: u64,
+    capabilities: &[&str],
+) -> (Box<dyn transport::Stream>, BufReader<Box<dyn transport::Stream>>) {
     let stream = transport::connect(path).unwrap();
     stream.set_read_timeout(Some(test_timeout(Duration::from_secs(10)))).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
@@ -304,7 +316,7 @@ fn attach_leased_phone(
         &mut reader,
         serde_json::json!({
             "id": request_id + 1000, "cmd": "set-client-info", "name": "phone",
-            "kind": "ios", "device_kind": "iphone", "capabilities": ["size-lease-v1"],
+            "kind": "ios", "device_kind": "iphone", "capabilities": capabilities,
         }),
     );
     stream_request(
@@ -323,8 +335,15 @@ fn lease_harness(name: &str, lease_ms: &str) -> (RecoveryHarness, u64) {
 }
 
 fn lease_harness_with_hold(name: &str, lease_ms: &str, hold_ms: &str) -> (RecoveryHarness, u64) {
+    lease_harness_env(name, Some(lease_ms), hold_ms)
+}
+
+/// `lease_ms`: the test override of both leases; `None` keeps the real ones.
+fn lease_harness_env(name: &str, lease_ms: Option<&str>, hold_ms: &str) -> (RecoveryHarness, u64) {
     let mut harness = RecoveryHarness::start_unstarted(name);
-    harness.extra_env.push(("CMUX_TUI_TEST_SIZE_LEASE_MS".into(), lease_ms.into()));
+    if let Some(lease_ms) = lease_ms {
+        harness.extra_env.push(("CMUX_TUI_TEST_SIZE_LEASE_MS".into(), lease_ms.into()));
+    }
     // The grid hold is long, so a test that passes is not the hold ending.
     harness.extra_env.push(("CMUX_TUI_TEST_DEPARTED_GRID_HOLD_MS".into(), hold_ms.into()));
     harness.restart();
@@ -349,6 +368,10 @@ fn the_daemon_advertises_the_size_lease() {
     assert!(
         capabilities.iter().any(|capability| capability == "size-lease-v1"),
         "identify lists no size-lease-v1: {identify}"
+    );
+    assert!(
+        capabilities.iter().any(|capability| capability == "size-lease-v2"),
+        "identify lists no size-lease-v2: {identify}"
     );
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
@@ -386,6 +409,48 @@ fn a_phone_size_claim_ends_when_its_lease_is_not_refreshed() {
 
     close_terminal_surface(&harness.socket, surface, 50);
     wait_for_no_host_records(&harness.host_root());
+}
+
+/// `size-lease-v2` is the short lease, at its real length (no test override):
+/// a phone that lists it (alone, or with `size-lease-v1`) and stops
+/// refreshing gives the Mac its grid back about 8 s after its last report,
+/// not 45 s.
+#[test]
+fn a_size_lease_v2_claim_ends_after_the_short_lease() {
+    for (name, capabilities) in [
+        ("size-lease-v2-alone", &["size-lease-v2"][..]),
+        ("size-lease-v2-preferred", &["size-lease-v1", "size-lease-v2"][..]),
+    ] {
+        let (harness, surface) = lease_harness_env(name, None, "60000");
+        let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
+        let (_phone_writer, _phone_reader) =
+            attach_phone_leased_as(&harness.socket, surface, 53, 42, 3, capabilities);
+        wait_for_vt_size(&harness.socket, surface, 53, 39);
+        let claimed = Instant::now();
+
+        // Polled here, not with `wait_for_vt_size` (its 10 s limit is too
+        // close to the 8 s lease on a loaded host).
+        let deadline = claimed + Duration::from_secs(30);
+        loop {
+            let state = request(
+                &harness.socket,
+                serde_json::json!({"cmd": "vt-state", "surface": surface}),
+            );
+            if state["cols"].as_u64() == Some(120) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{name}: the v2 claim did not end in 30 s");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let ended = claimed.elapsed();
+        assert!(
+            ended >= Duration::from_secs(6) && ended <= Duration::from_secs(20),
+            "{name}: the v2 claim ended {ended:?} after it was made (want about 8 s)"
+        );
+
+        close_terminal_surface(&harness.socket, surface, 50);
+        wait_for_no_host_records(&harness.host_root());
+    }
 }
 
 /// A phone that refreshes its size inside the lease keeps it, and a refresh
