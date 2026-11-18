@@ -1,5 +1,7 @@
 //! Reading an overlay upper directory into a change set.
 
+#![cfg(unix)]
+
 mod common;
 
 use std::os::unix::fs::symlink;

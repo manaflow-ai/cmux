@@ -71,13 +71,20 @@ pub enum ReadError {
     Io(String),
 }
 
+/// The errno of [`ReadError::HostDown`]: `EHOSTDOWN` where the platform has it.
+#[cfg(unix)]
+const HOST_DOWN: i32 = libc::EHOSTDOWN;
+/// The errno of [`ReadError::HostDown`]: this platform has no `EHOSTDOWN`, so a plain I/O error.
+#[cfg(not(unix))]
+const HOST_DOWN: i32 = libc::EIO;
+
 impl ReadError {
     pub fn errno(&self) -> i32 {
         match self {
             ReadError::NotFound => libc::ENOENT,
             ReadError::NotAFile => libc::EISDIR,
             ReadError::Withheld => libc::EACCES,
-            ReadError::HostDown => libc::EHOSTDOWN,
+            ReadError::HostDown => HOST_DOWN,
             ReadError::Io(_) => libc::EIO,
         }
     }

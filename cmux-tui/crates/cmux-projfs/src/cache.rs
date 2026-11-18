@@ -15,7 +15,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -243,7 +242,7 @@ impl ChunkCache {
     fn read_range(&self, key: &ChunkKey, start: u64, end: u64) -> Option<Vec<u8>> {
         let file = File::open(self.path(key)).ok()?;
         let mut buf = vec![0u8; (end - start) as usize];
-        file.read_exact_at(&mut buf, HEADER + start).ok()?;
+        read_exact_at(&file, &mut buf, HEADER + start).ok()?;
         Some(buf)
     }
 
@@ -333,6 +332,22 @@ fn write_chunk(tmp: &Path, bytes: &[u8]) -> io::Result<()> {
     header.extend_from_slice(&Sha256::digest(bytes));
     f.write_all(&header)?;
     f.write_all(bytes)
+}
+
+/// Fills `buf` from `file` at `offset` without moving a shared file position.
+#[cfg(unix)]
+fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    use std::os::unix::fs::FileExt;
+    file.read_exact_at(buf, offset)
+}
+
+/// Fills `buf` from `file` at `offset`; the file is this read's own, so seeking it is safe.
+#[cfg(not(unix))]
+fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = file;
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(buf)
 }
 
 /// Collects the chunks in one `DIR/xx` directory and removes what cannot be one.

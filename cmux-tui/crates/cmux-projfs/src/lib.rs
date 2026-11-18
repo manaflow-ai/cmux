@@ -15,7 +15,7 @@
 //!   fetches, directory batching, read-ahead and the rules for changed, gone, withheld and
 //!   unreachable files.
 //! - `fuse` (Linux only): the read-only FUSE filesystem over [`core`].
-//! - [`upper`]: reads an overlay upper directory into the change set for the way back.
+//! - `upper` (unix only): reads an overlay upper directory into the change set for the way back.
 //! - [`helper`]: the mount helper (`cmux-tui projfs …`, or the small `cmux-projfs` binary):
 //!   FUSE lower plus overlay on a Cloud machine, bytes fetched through the session daemon.
 
@@ -26,6 +26,7 @@ pub mod fuse;
 pub mod helper;
 pub mod manifest;
 pub mod source;
+#[cfg(unix)]
 pub mod upper;
 
 pub use crate::cache::{CHUNK, ChunkCache, ChunkKey};
