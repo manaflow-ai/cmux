@@ -266,27 +266,32 @@ pub fn apply(
 /// checked as [`AgentCredential::parse`] checks a sent one. None when the agent was not launched on
 /// a credential, or what its env says is not one.
 pub fn recovered(environ: &[u8]) -> Option<AgentCredential> {
-    let vars: BTreeMap<&[u8], &[u8]> = environ
+    let vars: BTreeMap<&str, &str> = environ
         .split(|b| *b == 0)
-        .filter_map(|entry| {
-            let eq = entry.iter().position(|b| *b == b'=')?;
-            Some((&entry[..eq], &entry[eq + 1..]))
-        })
+        .filter_map(|entry| std::str::from_utf8(entry).ok()?.split_once('='))
         .collect();
-    let name = std::str::from_utf8(vars.get(MARKER.as_bytes())?).ok()?;
+    recovered_in(&vars)
+}
+
+/// [`recovered`] over an agent's env already split into `NAME` to value.
+fn recovered_in(vars: &BTreeMap<&str, &str>) -> Option<AgentCredential> {
+    let name = *vars.get(MARKER)?;
     if !NAMES.contains(&name) {
         return None;
     }
-    let value = std::str::from_utf8(vars.get(name.as_bytes())?).ok()?;
+    let value = *vars.get(name)?;
     AgentCredential::parse(&serde_json::json!({"env": {name: value}})).ok()
 }
 
-/// [`recovered`] for the running process `pid` (this daemon's adopted agent). Linux only: elsewhere
-/// (and when its env cannot be read) None.
+/// [`recovered`] for the running process `pid` (this daemon's adopted agent), read through the
+/// one-pid env reader `agent_host::tree::environ` (the env its exec was given). Linux only:
+/// elsewhere (and when its env cannot be read) None.
 pub fn recovered_from_pid(pid: u32) -> Option<AgentCredential> {
     #[cfg(target_os = "linux")]
     {
-        std::fs::read(format!("/proc/{pid}/environ")).ok().as_deref().and_then(recovered)
+        let pairs = crate::agent_host::tree::environ(pid)?;
+        let vars = pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        recovered_in(&vars)
     }
     #[cfg(not(target_os = "linux"))]
     {
