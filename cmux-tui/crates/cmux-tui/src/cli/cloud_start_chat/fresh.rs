@@ -79,9 +79,14 @@ pub(super) fn stuck(
     }
     let error = step_result(ran).err()?;
     let message = at(&error, "message").as_str().unwrap_or_default().to_owned();
-    STUCK_WORDS.iter().any(|words| message.contains(words)).then(|| {
-        failed(STUCK_CODE, message, json!({"machine_name": name, "why": "app", "app": error}), 1)
-    })
+    if !STUCK_WORDS.iter().any(|words| message.contains(words)) {
+        return None;
+    }
+    // The app's own next steps (`machine-status`, `start-session --target` on that machine) are for a machine this
+    // run then deletes: only its reason is kept.
+    let reason = message.split(". Check it").next().unwrap_or_default();
+    let reason = reason.split(". Run `").next().unwrap_or_default().trim_end_matches('.');
+    Some(failed(STUCK_CODE, reason, json!({"machine_name": name, "why": "app", "app": error}), 1))
 }
 
 /// What became of a machine given up on.
@@ -153,15 +158,23 @@ pub(super) fn replace_stuck(
         let released = release(runner, &name);
         replaced.push(released.json(&name, &why));
         if !released.gone {
+            // The very command `release` ran, so the person's retry of it is the same step.
             let delete = released.machine_id.as_ref().map_or_else(
-                || "cmux vm ls".to_owned(),
-                |id| format!("cmux vm kill-machine --target vm:{id} --confirm"),
+                || {
+                    "find it with `cmux cloud list-machines`, then delete it with `cmux cloud \
+                     kill-machine --target machine:ID --confirm`"
+                        .to_owned()
+                },
+                |id| {
+                    format!(
+                        "delete it with `cmux cloud kill-machine --target machine:{id} --confirm`"
+                    )
+                },
             );
             if let Outcome::Failed { error, .. } = &mut outcome
                 && let Some(message) = error.get("message").and_then(Value::as_str)
             {
-                let message =
-                    format!("{message}. It could not be deleted; delete it with `{delete}`");
+                let message = format!("{message}. It could not be deleted; {delete}");
                 error["message"] = json!(message);
             }
             break;

@@ -136,6 +136,10 @@ fn a_second_stuck_machine_ends_the_run_with_both_deleted() {
     assert_eq!(replaced.len(), 2);
     assert!(replaced.iter().all(|row| row["deleted"] == true));
     assert!(error["message"].as_str().unwrap().contains("cmux deleted it"), "{error}");
+    assert!(
+        !error["message"].as_str().unwrap().contains("machine-status"),
+        "no advice for a deleted machine: {error}"
+    );
 }
 
 /// A machine that could not be deleted stops the retries (a fresh one would add a machine), and the answer
@@ -161,7 +165,7 @@ fn a_stuck_machine_that_cannot_be_deleted_stops_the_retry_and_names_the_delete()
         error["message"]
             .as_str()
             .unwrap()
-            .contains("cmux vm kill-machine --target vm:vm-stuck --confirm"),
+            .contains("cmux cloud kill-machine --target machine:vm-stuck --confirm"),
         "{error}"
     );
 }

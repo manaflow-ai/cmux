@@ -1232,7 +1232,11 @@ fn make_room(runner: &mut dyn Runner, request: &Request, outcome: Outcome) -> Ou
             1,
         );
     }
-    run_once(runner, &Request { make_room: false, ..request.clone() })
+    // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
+    let again = Request { make_room: false, ..request.clone() };
+    let began = runner.now();
+    let outcome = run_once(runner, &again);
+    fresh::replace_stuck(runner, &again, began, outcome)
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
