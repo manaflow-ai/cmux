@@ -136,8 +136,14 @@ MAX_ORPHAN_CANCELS_LIMIT = 10
 # unchanged. A protected run's jobs are never read; the summary counts those runs.
 DEFAULT_LINUX_JOB_READS = 30
 LINUX_JOB_READS_LIMIT = 60
-DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 20
+DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 40
 MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
+# What bounds the Linux cap: a cancel costs up to ORPHAN_CANCEL_CALLS requests (cancel, recheck, force-cancel), and the
+# Linux cancels never take the token's core budget below LINUX_CANCEL_BUDGET_FLOOR, which every other user of the
+# cmux-bot App's 12,500 an hour shares (linux_cancel_cap). At 40 a sweep and about 6 sweeps an hour, a 2,500 backlog
+# drains in about 10 h instead of 21 h at 20.
+ORPHAN_CANCEL_CALLS = 3
+LINUX_CANCEL_BUDGET_FLOOR = 2000
 # The run list is newest first and stops at MAX_RUN_PAGES, so at a backlog of thousands the oldest runs, the likely
 # orphans, were never listed. One more listing per OLD_RUN_STATUSES, created before the orphan age, reads its LAST
 # pages (old_runs). in_progress too: a run whose other jobs finished is in_progress while its lost job waits, and the
@@ -1238,6 +1244,15 @@ class OrphanDecision:
     note: str = ""
 
 
+def linux_cancel_cap(cap: int, limits: Mapping[str, Mapping[str, int]]) -> int:
+    """CAP, lowered so this sweep's Linux cancels leave LINUX_CANCEL_BUDGET_FLOOR of the core budget; CAP when no
+    budget header was seen."""
+    remaining = (limits.get("core") or {}).get("remaining")
+    if remaining is None:
+        return cap
+    return max(0, min(cap, (remaining - LINUX_CANCEL_BUDGET_FLOOR) // ORPHAN_CANCEL_CALLS))
+
+
 def build_orphan_plan(
     orphans: Sequence[Orphan],
     prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]],
@@ -1815,9 +1830,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
     )
-    # The Linux-only runs' orphans under their own cap, with the same protections and order.
+    # The Linux-only runs' orphans under their own cap, with the same protections and order, lowered near the
+    # budget floor.
+    linux_cap = linux_cancel_cap(max_linux_orphan_cancels, github.rate_limits)
     orphan_decisions += build_orphan_plan(
-        linux_orphans, prs_by_branch, max_cancels=max_linux_orphan_cancels, exclude_ids=set(), now=now,
+        linux_orphans, prs_by_branch, max_cancels=linux_cap, exclude_ids=set(), now=now,
     )
     orphan_results: dict[int, str] = {}
     if not args.dry_run:
@@ -1827,6 +1844,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
+    if linux_cap < max_linux_orphan_cancels:
+        summary += f"\n_Linux orphan cap lowered from {max_linux_orphan_cancels} to {linux_cap}: the core budget is " \
+                   f"near its floor of {LINUX_CANCEL_BUDGET_FLOOR}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(linux_jobs)} Linux job listings, " \
                f"{len(linux_orphans)} Linux orphans, {github.calls} API calls._\n"

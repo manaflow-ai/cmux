@@ -804,6 +804,13 @@ class LinuxOrphanTests(unittest.TestCase):
                                                         min_age=dt.timedelta(minutes=120), budget=10, now=NOW), [],
                              run["path"])
 
+    def test_the_linux_cap_keeps_the_budget_floor(self):
+        self.assertEqual(janitor.DEFAULT_MAX_LINUX_ORPHAN_CANCELS, 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {}), 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 6670}}), 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 2030}}), 10)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 1500}}), 0)
+
     def test_the_linux_cap_is_its_own(self):
         runs = [make_run(status="queued", age=600 - n, path=".github/workflows/pr-checks.yml") for n in range(4)]
         served = make_run(status="in_progress", age=20)
