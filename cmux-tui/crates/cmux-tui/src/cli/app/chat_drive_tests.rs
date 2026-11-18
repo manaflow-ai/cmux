@@ -208,9 +208,55 @@ fn app_chat_drive_counts_typed_emoji_as_graphemes() {
     typed["page"]["typed"] = json!(emoji);
     let text = human(&typed, &english().app_control);
     assert!(text.contains("Typed 2 characters; they stay in the draft\n"), "{text}");
-    // The --type cap counts the same way: 500 of them pass, 501 do not.
-    let at_cap = emoji.repeat(250);
+    // The --type cap counts the same way: 500 of them pass, 501 do not (a thumbs-up is 2 UTF-16 units,
+    // so 500 stay under the 2000-unit cap).
+    let at_cap = "\u{1F44D}".repeat(500);
     assert!(parse(&args(&["app", "chat", "drive", "--tab", "t", "--type", &at_cap])).is_ok());
     let over = format!("{at_cap}x");
     assert!(parse(&args(&["app", "chat", "drive", "--tab", "t", "--type", &over])).is_err());
+}
+
+/// `--delta` is range-checked without `abs()`: `i64::MIN` (which has no absolute value) is refused,
+/// not a panic or a wrap past the bound.
+#[test]
+fn app_chat_drive_refuses_the_most_negative_delta() {
+    for delta in [i64::MIN, i64::MIN + 1, -2001, 2001, i64::MAX] {
+        let delta = delta.to_string();
+        let words = [
+            "app", "chat", "drive", "--tab", "t", "--hover", "a", "--wheel", "3", "--delta", &delta,
+        ];
+        assert!(parse(&args(&words)).is_err(), "--delta {delta} should be refused");
+    }
+    for delta in ["-2000", "2000", "-1"] {
+        let words = [
+            "app", "chat", "drive", "--tab", "t", "--hover", "a", "--wheel", "3", "--delta", delta,
+        ];
+        assert!(parse(&args(&words)).is_ok(), "--delta {delta} should pass");
+    }
+}
+
+/// The CLI refuses the `--type` text the app answers `invalid_params` to, from the table both sides
+/// check (cmux-tui/spec/fixtures/chat-drive-type-text.json; the app's AgentChatDriveControlTests reads it too).
+#[test]
+fn app_chat_drive_type_text_matches_the_shared_table() {
+    let table: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../spec/fixtures/chat-drive-type-text.json"
+    )))
+    .unwrap();
+    assert_eq!(table["max_graphemes"], json!(super::MAX_TEXT));
+    assert_eq!(table["max_utf16"], json!(super::MAX_TEXT_UTF16));
+    let text = |case: &serde_json::Value| {
+        case["text"].as_str().unwrap().repeat(case["repeat"].as_u64().unwrap_or(1) as usize)
+    };
+    let typed = |text: &str| parse(&args(&["app", "chat", "drive", "--tab", "t", "--type", text]));
+    for case in table["typable"].as_array().unwrap() {
+        let text = text(case);
+        assert!(typed(&text).is_ok(), "{text:?} should be typable");
+    }
+    for case in table["refused"].as_array().unwrap() {
+        let text = text(case);
+        assert!(typed(&text).is_err(), "{text:?} ({}) should be refused", case["why"]);
+        assert!(!(super::fits(&text) && super::typable(&text)), "{text:?}");
+    }
 }

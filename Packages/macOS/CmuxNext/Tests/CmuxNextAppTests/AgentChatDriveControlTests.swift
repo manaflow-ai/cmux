@@ -76,21 +76,48 @@ import Testing
 
     /// The page types the text as a person's keys: nothing a key can't type, nothing that would start a
     /// composer command in an empty draft (the host can't see the draft, so a leading `!` is always refused).
+    /// The `--type` cases both sides check: the CLI refuses what the app answers `invalid_params` to
+    /// (cmux-tui `app_chat_drive_type_text_matches_the_shared_table` reads the same file).
+    private struct TypeTable: Decodable {
+        struct Case: Decodable {
+            let text: String
+            let repeatCount: Int?
+            let why: String?
+            enum CodingKeys: String, CodingKey { case text, repeatCount = "repeat", why }
+            var full: String { String(repeating: text, count: repeatCount ?? 1) }
+        }
+        let maxGraphemes: Int
+        let maxUTF16: Int
+        let typable: [Case]
+        let refused: [Case]
+        enum CodingKeys: String, CodingKey { case maxGraphemes = "max_graphemes", maxUTF16 = "max_utf16", typable, refused }
+
+        static func load() throws -> TypeTable {
+            var root = URL(fileURLWithPath: #filePath)
+            while !FileManager.default.fileExists(atPath: root.appendingPathComponent("cmux-tui/spec").path) {
+                let parent = root.deletingLastPathComponent()
+                try #require(parent.path != root.path, "no cmux-tui/spec above \(#filePath)")
+                root = parent
+            }
+            let data = try Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/fixtures/chat-drive-type-text.json"))
+            return try JSONDecoder().decode(TypeTable.self, from: data)
+        }
+    }
+
     @Test func typedTextIsPlainKeysOnly() throws {
-        for good in ["hello", "a!b", "naïve 👩‍👩‍👧 ok", "tab\u{00A0}space", String(repeating: "👍", count: 500)] {
+        let table = try TypeTable.load()
+        #expect(table.maxGraphemes == 500 && table.maxUTF16 == 2000)
+        for good in table.typable.map(\.full) {
             #expect(Params.isTypable(good), "\(good)")
             #expect(try Params(["tab": "t", "type": ["text": .string(good)]]).type?.text == good)
         }
-        for bad in ["!help", "  !x", "a\nb", "a\rb", "a\tb", "\u{0}", "\u{1B}[2J", "a\u{7F}", "a\u{85}b", "a\u{9F}", "a\u{2028}b", "a\u{2029}b"] {
-            #expect(!Params.isTypable(bad), "\(bad.debugDescription)")
+        for bad in table.refused {
             for draft in [false, true] {
-                #expect(throws: ControlError.self) { try Params(["tab": "t", "type": ["text": .string(bad), "allow_draft": .bool(draft)]]) }
+                #expect(throws: ControlError.self, "\(bad.full.debugDescription) (\(bad.why ?? ""))") {
+                    try Params(["tab": "t", "type": ["text": .string(bad.full), "allow_draft": .bool(draft)]])
+                }
             }
         }
-        // 500 graphemes, but more than 2000 UTF-16 units: each family emoji is 8.
-        let long = String(repeating: "👩‍👩‍👧", count: 300)
-        #expect(long.count == 300 && long.utf16.count > 2000)
-        #expect(throws: ControlError.self) { try Params(["tab": "t", "type": ["text": .string(long)]]) }
     }
 
     @Test func aTestIDIsANameNeverASelector() {

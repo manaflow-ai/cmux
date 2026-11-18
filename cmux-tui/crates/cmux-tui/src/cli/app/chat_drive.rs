@@ -35,6 +35,7 @@ pub(super) const DEFAULT_DELTA: i64 = 100;
 pub(super) const TICK_MS: (u64, u64) = (8, 200);
 pub(super) const MAX_HOLD_MS: u64 = 10_000;
 pub(super) const MAX_TEXT: usize = 500;
+pub(super) const MAX_TEXT_UTF16: usize = 2000;
 /// The app answers within the run plus 15 s; the CLI waits a little longer.
 const MARGIN: Duration = Duration::from_secs(20);
 
@@ -68,6 +69,25 @@ fn whole(
         .transpose()
 }
 
+/// `--type` text the app takes by length: 1 to 500 characters as the app and the page count them
+/// (graphemes: an emoji with a skin tone is one), and at most 2000 UTF-16 units.
+pub(super) fn fits(text: &str) -> bool {
+    (1..=MAX_TEXT).contains(&text.graphemes(true).count())
+        && text.encode_utf16().count() <= MAX_TEXT_UTF16
+}
+
+/// `--type` text the app types as a person's keys (AgentChatDriveControl.Params.isTypable): no C0 or C1
+/// control character (DEL too), no line or paragraph separator, and no `!` first after any spaces, which
+/// in an empty draft would start a shell command. The CLI refuses what the app would; the cases are
+/// cmux-tui/spec/fixtures/chat-drive-type-text.json, checked on both sides.
+pub(super) fn typable(text: &str) -> bool {
+    let control = text.chars().any(|c| {
+        let c = u32::from(c);
+        c < 0x20 || (0x7F..=0x9F).contains(&c) || c == 0x2028 || c == 0x2029
+    });
+    !control && !text.trim_start_matches(char::is_whitespace).starts_with('!')
+}
+
 /// `rest` starts with `chat`.
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control.chat_drive;
@@ -99,7 +119,8 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
             value
                 .parse::<i64>()
                 .ok()
-                .filter(|delta| *delta != 0 && delta.abs() <= MAX_DELTA)
+                // A range check, not `abs()`: `i64::MIN` has no absolute value.
+                .filter(|delta| *delta != 0 && (-MAX_DELTA..=MAX_DELTA).contains(delta))
                 .ok_or_else(|| UsageError::new(messages.delta))
         })
         .transpose()?;
@@ -122,10 +143,8 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
 
     let text = options.value("type");
     match text {
-        // Characters as the app and the page count them: graphemes (an emoji with a skin tone is one).
-        Some(text) if text.is_empty() || text.graphemes(true).count() > MAX_TEXT => {
-            return Err(UsageError::new(messages.text));
-        }
+        Some(text) if !fits(text) => return Err(UsageError::new(messages.text)),
+        Some(text) if !typable(text) => return Err(UsageError::new(messages.text_keys)),
         Some(text) => {
             params.insert(
                 "type".into(),
