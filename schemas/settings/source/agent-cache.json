@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Compact Before the Cache Expires settings: the acpmux daemon's timer that compacts an idle Claude chat while its prompt cache is still warm (cmux-tui/crates/acpmux/src/hub/cache_compact.rs). The daemon reads these keys from the settings file each time it arms the timer and checks this file's defaults and ranges in its tests; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "$comment": "HAND-EDITED source of the Compact Claude Chats settings: when acpmux compacts a Claude chat around its prompt cache (cmux-tui/crates/acpmux/src/hub/cache_compact.rs): before the cache expires (a timer on an idle chat, while the cache is still warm) or when you return (the next message, once the cache expired, compacts first). The daemon reads these keys from the settings file each time it arms the timer or sends a message and checks this file's defaults and ranges in its tests; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
   "lists": [
     {
       "name": "agentCache",
@@ -11,9 +11,63 @@
       "note": "Settings > General > Prompt Cache (Leo, 2026-11-03: \"idk if we maybe also wanna be showing that/opt-in autocompact around that 5min mark\"; \"we ought to make these all accessibly toggle-able ofc\"). Off by default: a compaction is a model call that counts toward usage.",
       "rows": [
         {
+          "key": "agents.cacheCompact.mode",
+          "name": "cacheCompactMode",
+          "note": "When acpmux compacts a Claude chat. Absent: agents.cacheCompact.enabled decides (true is beforeExpiry, else off). Off by default: a compaction is a model call that counts toward usage.",
+          "title": {
+            "key": "settings.agents.cacheCompact.mode",
+            "text": "Compact Claude Chats"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.mode.help",
+            "text": "A compacted chat's next message costs less."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "CacheCompactMode"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cacheCompactOff",
+                "text": "Never"
+              },
+              "note": "acpmux never compacts a chat on its own."
+            },
+            {
+              "value": "beforeExpiry",
+              "title": {
+                "key": "settings.choice.cacheCompactBeforeExpiry",
+                "text": "Before the Cache Expires"
+              },
+              "note": "An idle chat over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types)."
+            },
+            {
+              "value": "onReturn",
+              "title": {
+                "key": "settings.choice.cacheCompactOnReturn",
+                "text": "When You Return"
+              },
+              "note": "The first message sent after the prompt cache expired, to a chat over agents.cacheCompact.returnMinTokens, runs /compact first and is sent after it."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "cache",
+            "prompt cache",
+            "compact",
+            "autocompact",
+            "context",
+            "ttl",
+            "claude",
+            "return"
+          ]
+        },
+        {
           "key": "agents.cacheCompact.enabled",
           "name": "cacheCompactEnabled",
-          "note": "On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off (the default): acpmux arms no timer.",
+          "note": "Legacy switch, replaced by agents.cacheCompact.mode (its row is hidden on the Settings page): when mode is absent, true means \"beforeExpiry\" and false (the default) means \"off\". A set mode wins over it.",
           "title": {
             "key": "settings.agents.cacheCompact.enabled",
             "text": "Compact Before the Cache Expires"
@@ -59,6 +113,35 @@
             "compact",
             "threshold",
             "context"
+          ]
+        },
+        {
+          "key": "agents.cacheCompact.returnMinTokens",
+          "name": "cacheCompactReturnMinTokens",
+          "note": "When You Return only: the context size (tokens) a chat must be over before its first message after the cache expired compacts it first.",
+          "title": {
+            "key": "settings.agents.cacheCompact.returnMinTokens",
+            "text": "When You Return: Only Above (Tokens)"
+          },
+          "help": {
+            "key": "settings.agents.cacheCompact.returnMinTokens.help",
+            "text": "Smaller chats are sent without compacting."
+          },
+          "kind": "number",
+          "range": {
+            "min": 20000,
+            "max": 1000000,
+            "step": 10000,
+            "unit": "count"
+          },
+          "default": 200000,
+          "keywords": [
+            "cache",
+            "compact",
+            "threshold",
+            "context",
+            "tokens",
+            "return"
           ]
         }
       ]

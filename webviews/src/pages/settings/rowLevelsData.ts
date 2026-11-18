@@ -335,7 +335,10 @@ export const ROW_LEVELS: {
     "agents.subsessions.maxRunning": "hidden",
     "agents.subsessions.maxDepth": "hidden",
     "agents.autoRetry.intervalSeconds": "hidden",
+    // The mode row replaces the legacy on/off toggle (agents.cacheCompact.enabled still works when mode is absent).
+    "agents.cacheCompact.enabled": "hidden",
     "agents.cacheCompact.minContextPercent": "hidden",
+    "agents.cacheCompact.returnMinTokens": "hidden",
     "home.bubbleColors.sent": "hidden",
     "home.bubbleColors.sentText": "hidden",
     "home.bubbleColors.received": "hidden",

@@ -2,13 +2,20 @@
 // schemas/settings/source/agent-cache.json. Do not edit; edit the JSON and rerun.
 
 extension AgentCacheSettings {
-    /// `agents.cacheCompact.enabled`: On: an idle Claude chat whose context is over agents.cacheCompact.minContextPercent runs /compact about 30 s before its prompt cache expires (once per idle stretch; never mid-turn, with a prompt queued, or while someone types). Off (the default): acpmux arms no timer.
+    /// `agents.cacheCompact.mode`: When acpmux compacts a Claude chat. Absent: agents.cacheCompact.enabled decides (true is beforeExpiry, else off). Off by default: a compaction is a model call that counts toward usage.
+    public nonisolated static let cacheCompactModePath = ["agents", "cacheCompact", "mode"]
+    public nonisolated static let cacheCompactModeDefault: CacheCompactMode = .off
+    /// `agents.cacheCompact.enabled`: Legacy switch, replaced by agents.cacheCompact.mode (its row is hidden on the Settings page): when mode is absent, true means "beforeExpiry" and false (the default) means "off". A set mode wins over it.
     public nonisolated static let cacheCompactEnabledPath = ["agents", "cacheCompact", "enabled"]
     public nonisolated static let cacheCompactEnabledDefault = false
     /// `agents.cacheCompact.minContextPercent`: The share of the context window (percent) a chat must be using before the timer compacts it.
     public nonisolated static let cacheCompactMinContextPath = ["agents", "cacheCompact", "minContextPercent"]
     public nonisolated static let cacheCompactMinContextDefault: Double = 50
     public nonisolated static let cacheCompactMinContextRange: ClosedRange<Double> = 10...95
+    /// `agents.cacheCompact.returnMinTokens`: When You Return only: the context size (tokens) a chat must be over before its first message after the cache expired compacts it first.
+    public nonisolated static let cacheCompactReturnMinTokensPath = ["agents", "cacheCompact", "returnMinTokens"]
+    public nonisolated static let cacheCompactReturnMinTokensDefault: Double = 200_000
+    public nonisolated static let cacheCompactReturnMinTokensRange: ClosedRange<Double> = 20_000...1_000_000
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -17,6 +24,20 @@ nonisolated enum AgentCacheSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentCache", "Prompt Cache")
         return [
+            SettingDescriptor(
+                AgentCacheSettings.cacheCompactModePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.cacheCompact.mode", "Compact Claude Chats"),
+                help: SettingsText.keyed("settings.agents.cacheCompact.mode.help", "A compacted chat's next message costs less."),
+                kind: .choice([
+                    SettingChoice(CacheCompactMode.off.rawValue, SettingsText.keyed("settings.choice.cacheCompactOff", "Never")),
+                    SettingChoice(CacheCompactMode.beforeExpiry.rawValue, SettingsText.keyed("settings.choice.cacheCompactBeforeExpiry", "Before the Cache Expires")),
+                    SettingChoice(CacheCompactMode.onReturn.rawValue, SettingsText.keyed("settings.choice.cacheCompactOnReturn", "When You Return")),
+                ]),
+                default: .string(AgentCacheSettings.cacheCompactModeDefault.rawValue),
+                keywords: ["cache", "prompt cache", "compact", "autocompact", "context", "ttl", "claude", "return"]
+            ),
             SettingDescriptor(
                 AgentCacheSettings.cacheCompactEnabledPath,
                 section: .general,
@@ -36,6 +57,16 @@ nonisolated enum AgentCacheSettingsSchema {
                 kind: .number(SettingNumber(AgentCacheSettings.cacheCompactMinContextRange, step: 5, unit: .count)),
                 default: .number(AgentCacheSettings.cacheCompactMinContextDefault),
                 keywords: ["cache", "compact", "threshold", "context"]
+            ),
+            SettingDescriptor(
+                AgentCacheSettings.cacheCompactReturnMinTokensPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.cacheCompact.returnMinTokens", "When You Return: Only Above (Tokens)"),
+                help: SettingsText.keyed("settings.agents.cacheCompact.returnMinTokens.help", "Smaller chats are sent without compacting."),
+                kind: .number(SettingNumber(AgentCacheSettings.cacheCompactReturnMinTokensRange, step: 10_000, unit: .count)),
+                default: .number(AgentCacheSettings.cacheCompactReturnMinTokensDefault),
+                keywords: ["cache", "compact", "threshold", "context", "tokens", "return"]
             ),
         ]
     }
