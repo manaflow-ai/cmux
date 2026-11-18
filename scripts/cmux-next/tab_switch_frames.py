@@ -1046,6 +1046,10 @@ class Harness:
             if spec.get("cpu") and cpu is None:
                 cpu = CpuLoad(self.root)
             pending = []  # (scenario name, what to judge), in the order driven
+            blocks = []  # (that block's pending, frames, flips)
+            # The matrix records a block per round: CuaDriver ends a session with no tool call for a while, and one
+            # block of five rounds at Leo's scale (about 20 minutes) lost every row on cmux21 (2026-11-18).
+            per_round = any(s in scenarios for s in matrix.MATRIX_SCENARIOS)
             setup = []
             try:
                 setup = self.enter_load(spec, agents, cpu)
@@ -1071,28 +1075,38 @@ class Harness:
                     if any(s in scenarios for s in matrix.MATRIX_SCENARIOS if s not in ("new-workspace", "launch-restore")):
                         pending += matrix.matrix_round(self, load, r, scenarios, agents)
                     say(f"  round {r} driven")
-                frames, flips = self.rec.end()
+                    if per_round:
+                        done = sum(len(b[0]) for b in blocks)
+                        frames, flips = self.rec.end()
+                        blocks.append((pending[done:], frames, flips))
+                        if r < rounds:
+                            self.rec.begin()
+                if not per_round:
+                    frames, flips = self.rec.end()
+                    blocks.append((pending, frames, flips))
             except Exception as error:  # noqa: BLE001 - this load's rows say why; the next load still records
-                for name, _item in pending or [(s, None) for s in scenarios]:
+                judged = sum(len(b[0]) for b in blocks)
+                for name, _item in pending[judged:] or [(s, None) for s in scenarios]:
                     notes.setdefault((name, load), f"{type(error).__name__}: {error}"[:600])
                 try:
                     self.rec.end()  # a block a driving fault left open
                 except Exception:  # noqa: BLE001 - it was already closed
                     pass
-                frames = None
             finally:
                 # After the block's recording: ending a load can recalibrate, which records a block of its own.
                 self.exit_load(spec, agents, cpu)
-            if frames is None:
+            if not blocks:
                 continue
-            for (name, _), (_item, switch) in zip(pending, self.settle_block([p for _, p in pending], frames, flips)):
-                if name in scenarios:
-                    if _item.get("chat_perf") is not None:
-                        switch["chat_perf"] = _item["chat_perf"]
-                    if setup:
-                        switch["load_setup"] = setup
-                    rows.setdefault((name, load), []).append(switch)
-            say(f"load {load}: {len(pending)} switches judged on {len(frames)} frames")
+            for block, frames, flips in blocks:
+                for (name, _), (_item, switch) in zip(block, self.settle_block([p for _, p in block], frames, flips)):
+                    if name in scenarios:
+                        if _item.get("chat_perf") is not None:
+                            switch["chat_perf"] = _item["chat_perf"]
+                        if setup:
+                            switch["load_setup"] = setup
+                        rows.setdefault((name, load), []).append(switch)
+            say(f"load {load}: {sum(len(b[0]) for b in blocks)} switches judged on "
+                f"{sum(len(b[1]) for b in blocks)} frames in {len(blocks)} blocks")
         for key, note in (getattr(self, "matrix_notes", None) or {}).items():
             if key not in rows:
                 notes.setdefault(key, note)
