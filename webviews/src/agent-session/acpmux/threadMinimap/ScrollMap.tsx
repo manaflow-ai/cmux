@@ -30,6 +30,7 @@ import {
   replyMore,
 } from "./model";
 import { useCountedRender } from "../perfRender";
+import { focusRoute } from "../../../ui/focusRoute";
 import {
   MAP_HIT,
   MAP_MARGIN,
@@ -217,7 +218,12 @@ export function ScrollMap({
   useLayoutEffect(() => {
     if (reveal === undefined) return;
     const turn = marks[byKey.get(reveal) ?? -1]?.turn;
-    if (turn !== undefined) rail.current?.querySelector<HTMLButtonElement>(`[data-tick="${turn}"]`)?.focus();
+    if (turn !== undefined)
+      focusRoute(
+        rail.current?.querySelector<HTMLButtonElement>(`[data-tick="${turn}"]`),
+        "person",
+        "the arrows reached a prompt its band did not draw: that prompt, once drawn",
+      );
     setReveal(undefined);
   }, [reveal, marks, byKey]);
 
@@ -295,7 +301,7 @@ export function ScrollMap({
   const focusTick = (turn: number) => {
     const to = Math.max(0, Math.min(turns.length - 1, turn));
     const node = rail.current?.querySelector<HTMLButtonElement>(`[data-tick="${to}"]`);
-    if (node) return node.focus();
+    if (node) return void focusRoute(node, "person", "the arrows, Home or End: the prompt they reach");
     // Its band draws another prompt: draw it, then focus it (the effect above).
     const row = turns[to]?.index;
     if (row === undefined || row < 0) return;
