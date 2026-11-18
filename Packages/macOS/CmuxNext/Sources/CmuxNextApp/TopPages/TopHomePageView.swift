@@ -48,6 +48,8 @@ final class TopHomePageView: NSView {
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
+    /// A bare launch's Chief page, keys before the Chief's owner answers (``HomeLaunchComposer``; `host` while it shows).
+    private(set) var launch: HomeLaunchComposer?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -194,11 +196,18 @@ final class TopHomePageView: NSView {
                 list.update(sidebar.model())
                 // Archive Chief on the conversation that shows: the default conversation takes its place.
                 if let shown, Self.isHidden(shown, rows: rows, home: home) { conversationLeft(shown, next: nil) }
-                if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) {
+                let first = Self.defaultConversation(rows: rows, home: home)
+                if shown == nil, !isComposingNewMessage, let first {
                     show(first)
                     // The page opened it, not the person, so a Chief that arrives later replaces it.
                     followedChief = first.rawValue
+                } else if launch == nil, let services, HomeLaunchComposer.shows(shown: shown, composing: isComposingNewMessage, defaultConversation: first,
+                                                                                launchChief: store.launchChief, classic: HomeDock.classic) {  // a bare launch: the Chief's own view over a provisional Chief, as `host`; `shown` stays nil
+                    launch = HomeLaunchComposer(home: store, me: home.homeSource.me, title: HomeStrings.chiefName, in: transcriptColumn) { page in home.launchPage = page; return HomeHostView(services: services, conversation: HomeLaunchChiefSource.conversation.rawValue, owner: page.store) }
+                    host = launch?.view as? HomeHostView; DebugTimings.markLaunch("home.launch_composer")
+                    if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
                 }
+                launch = launch?.handingOff(toChief: Self.chief(home), showing: shown)
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
@@ -212,6 +221,7 @@ final class TopHomePageView: NSView {
                 guard let self, key != last else { continue }
                 last = key
                 let chief = key.chief
+                launch = launch?.handingOff(toChief: chief, showing: shown)
                 if let chief, shownIsGone(home.homeStore) {
                     replaceGone(with: ConversationID(chief), store: home.homeStore)
                     followedChief = chief
@@ -355,11 +365,7 @@ final class TopHomePageView: NSView {
             store.setDraftAttachments([], for: gone)
         }
         let text = store.draft(for: gone) ?? ""
-        if !text.isEmpty {
-            let own = store.draft(for: chief) ?? ""
-            store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
-            store.setDraft("", for: gone)
-        }
+        if HomeLaunchComposer.appendDraft(text, to: chief, store: store) { store.setDraft("", for: gone) }
         // Its view says the Chief restarted and that Return sends what was carried.
         if !text.isEmpty || !pictures.isEmpty { store.noteCarriedDraft(to: chief) }
         show(chief)
@@ -381,15 +387,19 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
+        // The Chief: the launch page's draft and sends (or a quit one's) are its, and it replaces that page in one transaction.
+        let launched = Self.chief(services.home) == id.rawValue ? launch : nil, hadKeyboard = launch?.holdsKeyboard == true
+        if let launched { launched.handOff(to: id); launch = nil } else if Self.chief(services.home) == id.rawValue { HomeLaunchComposer.claimParked(to: id, in: services.home.homeStore) }
+        CATransaction.begin(); host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
+        launched?.end(); CATransaction.commit()
         services.home.homeDidOpen(asked: true)
-        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
+        if hadKeyboard { view.takeKeyboardOnOpen() } else if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the

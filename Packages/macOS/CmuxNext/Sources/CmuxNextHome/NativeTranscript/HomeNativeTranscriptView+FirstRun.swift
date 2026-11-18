@@ -36,9 +36,10 @@ extension HomeNativeTranscriptView {
 
     /// The Chief's avatar as the host resolved it (its picture, else its profile's text, else nil:
     /// the monogram of its name, "CH" for "Chief"), on the header and the first-run hero.
+    /// While ``holdsChiefFace``, an empty disc (one blank character) instead.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
-        avatarPicture = picture
-        avatarText = text
+        avatarPicture = holdsChiefFace ? nil : picture
+        avatarText = holdsChiefFace ? " " : text
         applyHeroFace()
     }
 

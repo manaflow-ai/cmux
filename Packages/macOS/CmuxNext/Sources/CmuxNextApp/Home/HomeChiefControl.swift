@@ -61,10 +61,10 @@ struct HomeChiefControl {
     /// The mux home of the brain that answers here (ChiefHome.brainHome).
     var brainHome: URL { ChiefHome.brainHome(muxHome: muxHome, chief: named) }
 
-    /// The settings panel's source for this Chief.
-    func engineSource() -> any HomeChiefEngineSource {
-        let files = HomeChiefFiles(muxHome: brainHome)
-        let services = services
+    /// The settings panel's source for this Chief (a bare launch's page: its changes wait for the real Chief, then go to it).
+    func engineSource() -> any HomeChiefEngineSource { HomeLaunchChiefEngine.source(for: conversation, own: ownEngineSource(), hold: services.home.launchPage?.hold) { [services, muxHome] in HomeChiefControl(services: services, conversation: $0, muxHome: muxHome).engineSource() } }
+    private func ownEngineSource() -> any HomeChiefEngineSource {
+        let files = HomeChiefFiles(muxHome: brainHome), services = services
         guard isCloud else {
             // The owner daemon starts a named Chief's brain (chief_brains.rs);
             // only the default Chief's host is this app's to start.

@@ -26,8 +26,8 @@ final class HomeNewMessageView: NSView {
     private(set) var existing: ConversationID?
     private(set) var host: HomeHostView?
     /// The blank page's message box, over a store that only knows the draft.
-    private(set) var composer: HomeNativeTranscriptView?
-    private var composerStore: HomeStore?
+    private var blank: HomeLocalComposer?
+    var composer: HomeNativeTranscriptView? { blank?.view }
     private var spellCheckingWatch: Task<Void, Never>?
     private weak var services: AppServices?
     /// The first send made this conversation (the Home page shows it).
@@ -98,12 +98,11 @@ final class HomeNewMessageView: NSView {
     // prune tasks and flushes its cache, so the stops run on the main actor. A guard that returned off main
     // skipped them, and the store ran on.
     nonisolated deinit {
-        let composer = composer, composerStore = composerStore
+        let blank = blank
         spellCheckingWatch?.cancel()
         // task-owner: the main-actor half of this view's release; one call each, then it ends
         Task { @MainActor in
-            composer?.stop()
-            composerStore?.stop()
+            blank?.stop()
         }
     }
 
@@ -114,7 +113,7 @@ final class HomeNewMessageView: NSView {
     /// The message box's text (the blank page's, or the shown conversation's draft).
     var messageText: String {
         if let existing { return services?.home.homeStore.draft(for: existing) ?? "" }
-        return composerStore?.draft(for: HomeNewMessageComposerSource.conversation) ?? ""
+        return blank?.store.draft(for: HomeNewMessageComposerSource.conversation) ?? ""
     }
 
     /// Where the keyboard goes when the page shows: To: until someone is
@@ -146,8 +145,7 @@ final class HomeNewMessageView: NSView {
     func stop() {
         guard !stopped else { return }
         stopped = true
-        composer?.stop()
-        composerStore?.stop()
+        blank?.stop()
     }
 
     // MARK: Recipients
@@ -187,9 +185,9 @@ final class HomeNewMessageView: NSView {
         host?.removeFromSuperview()
         host = nil
         existing = nil
-        if let composerStore {
-            composerStore.setDraft(text, for: HomeNewMessageComposerSource.conversation)
-            composer.map { content.addSubview($0) }
+        if let blank {
+            blank.store.setDraft(text, for: HomeNewMessageComposerSource.conversation)
+            content.addSubview(blank.view)
             return
         }
         let me = services.home.homeStore.me ?? services.home.homeSource.me
@@ -197,18 +195,12 @@ final class HomeNewMessageView: NSView {
             guard let self else { throw HomeRejection.invalid("new_message.closed") }
             return try await firstSend(parts)
         }
-        let store = HomeStore(source: source)
-        store.start()
-        if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
-        let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel)
-        view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
-        view.attachmentPreparer = nil
-        view.setAccessibilityIdentifier("cmux.home.newMessage.composer")
-        content.addSubview(view)
-        composer = view
-        composerStore = store
+        let box = HomeLocalComposer(source: source, conversation: HomeNewMessageComposerSource.conversation, me: me.id, draft: text,
+                                    openPanel: services.openPanel, spellChecking: services.settings?.snapshot.agentPaneComposer.spellChecking ?? false,
+                                    identifier: "cmux.home.newMessage.composer")
+        content.addSubview(box.view)
+        blank = box
     }
 
     private func removeComposer() { composer?.removeFromSuperview() }
@@ -278,10 +270,4 @@ final class HomeNewMessageView: NSView {
         let height = min(suggestions.preferredHeight, max(0, bounds.height - listTop - 18))
         suggestions.frame = NSRect(x: 10, y: listTop, width: max(0, width - 20), height: height)
     }
-}
-
-/// The page's content area: flipped, so the conversation's header can sit
-/// above its top edge, and clipped, so it never draws over the To: field.
-final class HomeNewMessageClip: NSView {
-    nonisolated override var isFlipped: Bool { true }
 }

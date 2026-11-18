@@ -321,6 +321,13 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header views that run ``onNamePill`` (the pill and the avatar).
     public var namePillToggles: [NSView] { transcript.namePillToggles }
 
+    /// The Chief's face is not known yet (a bare launch's page before its Chief's owner answers):
+    /// the header and the hero draw an empty disc of the same size, whatever face the host sets,
+    /// so the real Chief's page swaps in its face without anything moving.
+    public var holdsChiefFace = false {
+        didSet { if holdsChiefFace { setChiefAvatar(picture: nil, text: nil) } }
+    }
+
     /// The header avatar's text; nil shows the monogram of the header's name (`MonogramAvatar`).
     public var avatarText: String? {
         get { transcript.avatarText }

@@ -78,10 +78,11 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     var debugConversation: String { control.conversation.rawValue }
     #endif
 
-    init(services: AppServices, conversation: String) {
+    init(services: AppServices, conversation: String, owner: HomeStore? = nil) {  // owner: another store (a bare launch's provisional Chief): same view, its data
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
+        let store = owner ?? service.homeStore
+        transcript = HomeNativeTranscriptView(store: store, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
                                               openPanel: services.openPanel, composerFocused: { DebugTimings.markLaunch($0.window?.isKeyWindow == true ? "window_usable" : "home.composer_focused_not_key") }) // window_usable: the next key goes in (piece 8)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
@@ -196,7 +197,6 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }
-        let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the
         // settings' last turn on each new message.
@@ -308,14 +308,14 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore). The only Chief welcomes once per
         // install in the chat itself (ChiefWelcome: its typing dots, then its messages, drawn by the iMessage
-        // transcript); a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's
+        // transcript); a Chief made beside others asks what to focus on, once per Chief. It shows on the real Chief's
         // front page (no messages yet). A fresh install hides the first-run panel from the start, so it never
         // flashes before the welcome.
         let intro = ChiefIntroStore(defaults: .standard)
         transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
         chiefIntroWatch = Task { [weak self] in
             for await kind in ObservationStream({ () -> ChiefIntroKind? in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                guard owner == nil, let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
                       summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let me = store.me?.id
                 let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
@@ -376,7 +376,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             // placed on a server) needs no local Chief owner.
             for await (available, explained, online, why, notice) in ObservationStream({
                 (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
-                 service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
+                 store.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
                 // An unanswered availability check is still loading: keep Home's existing
                 // transcript loading/connecting treatment visible instead of leaving a blank pane.
