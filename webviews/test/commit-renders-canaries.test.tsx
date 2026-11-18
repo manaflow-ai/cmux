@@ -7,6 +7,10 @@
 // written and compiled by the React Compiler (babel-plugin-react-compiler, as the app builds).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { transformSync } from "@babel/core";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as React from "react";
 import { act } from "react";
@@ -100,7 +104,9 @@ type Rows = {
   code: string;
 };
 
-function build(compiled: boolean): Rows {
+/// The rows as a module: as written, or as the compiler writes them. It reads React from a global,
+/// so it can live in a temporary directory with no node_modules beside it.
+async function build(compiled: boolean): Promise<Rows> {
   let code = SOURCE;
   if (compiled)
     code = transformSync(SOURCE, {
@@ -109,17 +115,17 @@ function build(compiled: boolean): Rows {
       configFile: false,
       plugins: [["babel-plugin-react-compiler", { target: "19" }]],
     })!.code!;
-  const names = [...code.matchAll(/export (?:const|function) (\w+)/g)].map((match) => match[1]);
-  const body = code
-    .replace(/^import \{ c as _c \} from "react\/compiler-runtime";$/m, "const _c = runtime.c;")
-    .replace(/^export /gm, "");
-  // oxlint-disable-next-line typescript/no-implied-eval -- the canary rows' own source, run as written or as the compiler wrote it
-  const make = new Function(
-    "React",
-    "runtime",
-    `const { createElement: h, createContext, memo, useState, useContext, useSyncExternalStore } = React;\n${body}\nreturn { ${names.join(", ")} };`,
+  const module = code.replace(
+    /^import \{ c as _c \} from "react\/compiler-runtime";$/m,
+    "const _c = globalThis.__canaryReact.runtime.c;",
   );
-  return { ...(make(React, compilerRuntime) as Omit<Rows, "code">), code };
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "row-canaries-")), "rows.mjs");
+  fs.writeFileSync(
+    file,
+    `const { createElement: h, createContext, memo, useState, useContext, useSyncExternalStore } = globalThis.__canaryReact.React;\n${module}`,
+  );
+  (globalThis as { __canaryReact?: unknown }).__canaryReact = { React, runtime: compilerRuntime };
+  return { ...((await import(pathToFileURL(file).href)) as Omit<Rows, "code">), code };
 }
 
 type Store = { subscribe(listener: () => void): () => void; get(): number; fire(): void };
@@ -154,9 +160,10 @@ const type = (input: HTMLInputElement, text: string) => {
   input.dispatchEvent(new input.ownerDocument.defaultView!.Event("input", { bubbles: true }));
 };
 
+const built = { written: await build(false), compiled: await build(true) };
 for (const compiled of [false, true])
   describe(compiled ? "compiled" : "as written", () => {
-    const rows = build(compiled);
+    const rows = compiled ? built.compiled : built.written;
 
     test("compiled rows really are compiled, and the inline list really is not", () => {
       if (!compiled) return;
