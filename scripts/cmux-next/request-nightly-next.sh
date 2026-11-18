@@ -280,19 +280,62 @@ request_tree_pending() {
   (( verify == 1 )) || return 1
   while read -r commit; do
     [[ "$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" == "$tip_key" ]] || break
+    # "<active> <started>": runs not completed, and of those the ones in progress.
     runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$commit" --limit 5 --json status \
-      --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || continue
+      --jq '[.[] | select(.status != "completed") | .status] | "\(length) \([.[] | select(. == "in_progress")] | length)"' 2>/dev/null)" || continue
+    read -r runs started <<<"$runs"
     if [[ "$runs" =~ ^[1-9][0-9]*$ ]]; then active="$commit"; break; fi
   done < <(git rev-list --first-parent -n 40 "$sha" 2>/dev/null)
   if [[ -z "$active" ]]; then
     echo "not requesting ${sha:0:12} before its tree: no active cmux-tui-artifacts run builds tree $tip_key"
     return 1
   fi
+  # The tip is cut before its tree only once that tree's build has started. A run still
+  # queued behind the pool made three cuts in a row (2026-11-18: ef2a62ef94, 6c95f793ec
+  # twice) wait the nightly's full 45 minutes for a tree and fail; the newest commit whose
+  # tree is already published and that the feed does not have yet is cut instead. None:
+  # the tip is cut as before. TREE_YIELD_SUPERSEDED=0 (the repo variable) restores that.
+  if [[ "${started:-}" == 0 && "${TREE_YIELD_SUPERSEDED:-1}" != 0 ]]; then
+    echo "${sha:0:12}: tree $tip_key is queued, not started, in the cmux-tui-artifacts run of ${active:0:12}"
+    local prc=0
+    request_newest_published_since_feed || prc=$?
+    (( prc == 1 )) || return "$prc"
+    echo "${sha:0:12}: no commit newer than the feed has a published tree; cutting the tip before its tree"
+  fi
   echo "${sha:0:12}: tree $tip_key is building in the cmux-tui-artifacts run of ${active:0:12}"
   tree_pending_request="$sha"
   local rc=0
   request "$sha" || rc=$?
   return "$rc"
+}
+
+# request_newest_published_since_feed: while the tip's tree build is queued and unstarted,
+# request the newest first-parent ancestor of the tip that is newer than the commit the
+# feed published (the nightly-next tag) and than nightly-next, whose cmux-tui tree is
+# published (verify-key 0, never a read failure), and whose app differs from the feed's.
+# Returns request()'s codes, or 1 when no such commit is promotable.
+request_newest_published_since_feed() {
+  [[ -n "$published" ]] && git cat-file -e "$published^{commit}" 2>/dev/null || return 1
+  local bounds=(^"$published") commit k checked=" " refused=0 rc
+  if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then bounds+=(^"$promoted"); fi
+  while read -r commit; do
+    [[ "$commit" != "$sha" ]] || continue
+    k="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" || continue
+    [[ "$k" =~ ^[0-9a-f]{40}$ && "$checked" != *" $k "* ]] || continue
+    checked+="$k "
+    bash "$script_dir/pin-cmux-tui.sh" verify-key "$k" >/dev/null 2>&1 || continue
+    if app_unchanged "$commit"; then
+      echo "not cutting ${commit:0:12} for the queued tip: its app is the feed's ($app_unchanged_reason)"
+      return 1
+    fi
+    echo "cutting ${commit:0:12} for the queued tip: the newest commit since the feed (${published:0:12}) with a published tree ($k)"
+    rc=0
+    request "$commit" || rc=$?
+    (( rc == 1 )) || return "$rc"
+    refused=$((refused + 1))
+    (( refused < 5 )) || return 1
+  done < <(git rev-list --first-parent -n 40 "$sha" "${bounds[@]}" 2>/dev/null)
+  return 1
 }
 
 # backfill <reason>: one cmux-tui-artifacts dispatch on feat-cmux-next, which
