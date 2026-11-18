@@ -153,6 +153,13 @@ def git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
+def tour_folders(results, ids, roles):
+    """The folders tour.py writes for each tour that ran (RESULTS/ROLE/ID)."""
+    for role in roles:
+        for clip_id in ids:
+            (Path(results) / role / clip_id).mkdir(parents=True, exist_ok=True)
+
+
 class NightlyTourTests(unittest.TestCase):
     """What the nightly media tour records: the plan, a spec as a tour, the clip cut out of a tour folder."""
 
@@ -285,18 +292,88 @@ class NightlyTourTests(unittest.TestCase):
             previous = self.commit(repo, "previous tip", t0 + day + 180, {"README": "p\n"})
             tip = self.commit(repo, "tip", t0 + 2 * day, self.highlight("fresh", "improved"))
             rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
-            # The tip's own one first, before on the previous tip; then the earlier ones, oldest first, each
-            # on its own commit's parent, with one extra before app a tour: `later` waits for its before.
+            # The tip's own one first, before on the previous tip; then the earlier ones, oldest first, both on
+            # the one extra app: the parent of the oldest one's commit, which predates both changes.
             self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows],
                              [("fresh", ["after", "before"], previous),
                               ("better", ["after", "before"], root),
-                              ("later", ["after"], None)])
+                              ("later", ["after", "before"], root)])
             self.assertNotEqual(other, better)
+            # With only `later` left, its before is on its own commit's parent.
             done = {clips.auto_url(i, "after") for i in ("fresh", "better", "later")} | {
                 clips.auto_url(i, "before") for i in ("fresh", "better")}
             again = clips.plan(tip, self.commit(repo, "next", t0 + 3 * day, {"README": "n\n"}), Path(tmp, "t2"),
                                exists=lambda url: url in done, root=repo)
             self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in again], [("later", ["before"], other)])
+
+    def test_waiting_befores_from_different_commits_share_one_older_app(self):
+        # 2026-11-16: five Improved highlights from earlier nightlies, each with its after published, waited for
+        # a before on its own commit's parent, one such app a tour, so they drained at one a nightly.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            self.commit(repo, "root", t0, {"README": "r\n"})
+            names = ("w1", "w2", "w3", "w4", "w5")
+            parents = []
+            for index, name in enumerate(names):
+                parents.append(self.commit(repo, f"before {name}", t0 + day + 120 * index, {"README": f"{name}\n"}))
+                self.commit(repo, name, t0 + day + 120 * index + 60, self.highlight(name, "improved"))
+            previous = self.commit(repo, "previous tip", t0 + 2 * day, {"README": "p\n"})
+            tip = self.commit(repo, "tip", t0 + 2 * day + 60, self.highlight("fresh", "improved"))
+            done = {clips.auto_url(name, "after") for name in names}
+            tours = Path(tmp, "t")
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, tours, limit=6, exists=lambda url: url in done, root=repo)
+            # The tip's own one on the previous tip as before; all five waiting befores on the parent of the
+            # oldest one's commit, so the tour builds one extra app, not five over five nightlies.
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows],
+                             [("fresh", ["after", "before"], previous)]
+                             + [(name, ["before"], parents[0]) for name in names])
+            plan = Path(tmp, "plan.json")
+            plan.write_text(json.dumps(rows))
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                clips.main(["tours", "--plan", str(plan), "--role", "before", "--dir", str(tours),
+                            "--before", previous, "--other-befores"])
+            # The workflow builds an app for each line: one.
+            self.assertEqual(out.getvalue().split(), [parents[0]])
+            # A waiting one whose tour already failed with this spec still goes after the ones not tried, and
+            # the shared app is still the oldest of the ones planned.
+            digest = clips.spec_digest("w1", repo / "release-notes/next/clips")
+            failed = {clips.failed_url("w1", "before"): {"spec": digest}}
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t2"), limit=6, exists=lambda url: url in done, root=repo,
+                                  marker=failed.get)
+            self.assertEqual([r["id"] for r in rows], ["fresh", "w2", "w3", "w4", "w5", "w1"])
+            self.assertEqual({r["before"] for r in rows[1:]}, {parents[0]})
+            # Past the limit the failed one waits, and the shared app is the oldest of the ones left (the
+            # before-only rows count against their own limit).
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t3"), limit=5, exists=lambda url: url in done, root=repo,
+                                  marker=failed.get, before_only=4)
+            self.assertEqual([(r["id"], r.get("before")) for r in rows],
+                             [("fresh", previous)] + [(name, parents[1]) for name in names[1:]])
+
+    def test_an_improvement_with_a_clip_line_still_records_its_before(self):
+        # A hand-published `clip:` line is the after; an Improved one's before still comes from its spec
+        # (buttons-always-visible-minimal-mode shipped in a nightly with no before). A New one has nothing left.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            previous = self.commit(repo, "root", t0, {"README": "r\n"})
+            files = {}
+            for name, category in (("tidy", "improved"), ("fresh", "new")):
+                files[f"release-notes/next/highlights/{name}.md"] = (
+                    f"title: {name.title()}\ncategory: {category}\nclip: {URL} | {SHA}\n\nBody.\n")
+                files[f"release-notes/next/clips/{name}.json"] = json.dumps(SPEC)
+            tip = self.commit(repo, "clip lines", t0 + day, files)
+            rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: False, root=repo)
+            self.assertEqual([(r["id"], r["roles"], r.get("before")) for r in rows], [("tidy", ["before"], previous)])
+            self.assertEqual(sorted(p.stem for p in Path(tmp, "t").glob("*.json")), ["tidy"])
+            done = {clips.auto_url("tidy", "before")}
+            self.assertEqual(clips.plan(previous, tip, Path(tmp, "t2"), exists=lambda url: url in done, root=repo), [])
 
     def test_a_spec_added_after_its_highlight_shipped_is_planned(self):
         day = 86400
@@ -313,6 +390,196 @@ class NightlyTourTests(unittest.TestCase):
             # Past the window it is not reconsidered.
             late = self.commit(repo, "late", t0 + day + (clips.CLIP_REANNOUNCE_DAYS + 1) * day, {"README": "l\n"})
             self.assertEqual(clips.plan(tip, late, Path(tmp, "t2"), exists=lambda url: False, root=repo), [])
+
+    def failing_four_then_a_newer_one(self, tmp):
+        """Four highlights whose tours fail, then a newer one added before the previous tip (the nightly of
+        2026-11-15: four failing specs held all four slots and omnibar-preload was never planned)."""
+        day = 86400
+        repo = self.history(tmp)
+        t0 = 1_800_000_000
+        self.commit(repo, "root", t0, {"README": "r\n"})
+        for index, name in enumerate(("f1", "f2", "f3", "f4")):
+            self.commit(repo, f"failing {name}", t0 + day + 60 * index, self.highlight(name))
+        self.commit(repo, "newer", t0 + 2 * day, self.highlight("newer"))
+        previous = self.commit(repo, "previous tip", t0 + 2 * day + 60, {"README": "p\n"})
+        tip = self.commit(repo, "tip", t0 + 3 * day, {"README": "t\n"})
+        return repo, previous, tip
+
+    def test_a_spec_whose_tour_failed_leaves_its_slot_to_one_not_tried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, previous, tip = self.failing_four_then_a_newer_one(tmp)
+            digest = clips.spec_digest("f1", repo / "release-notes/next/clips")
+            failed = {clips.failed_url(name, "after"): {"tip": "a" * 40, "spec": digest} for name in ("f1", "f2", "f3", "f4")}
+            with mock.patch("sys.stdout"):
+                before = clips.plan(previous, tip, Path(tmp, "t0"), limit=4, exists=lambda url: False, root=repo)
+                rows = clips.plan(previous, tip, Path(tmp, "t"), limit=4, exists=lambda url: False, root=repo,
+                                  marker=failed.get)
+            # With no markers: oldest first, the newer one waits behind the four.
+            self.assertEqual([r["id"] for r in before], ["f1", "f2", "f3", "f4"])
+            # The one never tried goes first; the failed ones still take the slots left, in their order.
+            self.assertEqual([r["id"] for r in rows], ["newer", "f1", "f2", "f3"])
+
+    def test_a_repaired_spec_is_planned_as_never_tried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, previous, tip = self.failing_four_then_a_newer_one(tmp)
+            # The markers name the spec the tours failed with; f1's spec has been repaired since.
+            old = {clips.failed_url(name, "after"): {"spec": "0" * 64} for name in ("f1",)}
+            digest = clips.spec_digest("f2", repo / "release-notes/next/clips")
+            old.update({clips.failed_url(name, "after"): {"spec": digest} for name in ("f2", "f3", "f4")})
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t"), limit=2, exists=lambda url: False, root=repo,
+                                  marker=old.get)
+            self.assertEqual([r["id"] for r in rows], ["f1", "newer"])
+
+    def test_publish_auto_marks_each_clip_whose_tour_failed_with_its_tip_and_spec(self):
+        def render_tour(clip_id, tour_dir, out, keep):
+            raise clips.ClipError("the tour did not run every step")
+        put = mock.Mock()
+        module = mock.Mock(put_files=put)
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = Path(tmp, "clips")
+            specs.mkdir()
+            (specs / "better.json").write_text(json.dumps(SPEC))
+            tour_folders(Path(tmp), ["better"], ["after", "before"])
+            with mock.patch.object(clips, "render_tour", render_tour), \
+                    mock.patch.object(clips, "pr_media_module", lambda: module):
+                problems = clips.publish_auto([{"id": "better", "roles": ["after", "before"]}], Path(tmp), Path(tmp),
+                                              tip="c" * 40, specs=specs)
+                self.assertEqual(len(problems), 2)
+                (_, _, markers, _), _ = put.call_args
+                self.assertEqual(sorted(markers), ["whats-new/better/clip-auto-after.failed.json",
+                                                   "whats-new/better/clip-auto-before.failed.json"])
+                marker = json.loads(markers["whats-new/better/clip-auto-after.failed.json"].read_text())
+            digest = clips.spec_digest("better", specs)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(marker, {"tip": "c" * 40, "spec": digest})
+        self.assertEqual(clips.failed_url("better", "after"),
+                         clips.URL_PREFIX + "better/clip-auto-after.failed.json")
+
+    def test_waiting_befores_share_the_newest_nightly_tip_at_or_before_them(self):
+        # 2026-11-16: the shared before was the bare parent of the oldest waiting highlight, 62da55823d7, which
+        # did not compile (SetupCardRoute.swift: no JSONValue); two tours lost every before they planned.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            self.commit(repo, "root", t0, {"README": "r\n"})
+            shipped = self.commit(repo, "a nightly tip", t0 + day, {"README": "s\n"})
+            broken = self.commit(repo, "does not compile", t0 + day + 60, {"README": "b\n"})
+            self.commit(repo, "w1", t0 + day + 120, self.highlight("w1", "improved"))
+            later_tip = self.commit(repo, "a later nightly tip", t0 + day + 180, {"README": "l\n"})
+            self.commit(repo, "w2", t0 + day + 240, self.highlight("w2", "improved"))
+            previous = self.commit(repo, "previous tip", t0 + 2 * day, {"README": "p\n"})
+            tip = self.commit(repo, "tip", t0 + 2 * day + 60, {"README": "t\n"})
+            done = {clips.auto_url(name, "after") for name in ("w1", "w2")}
+            asked = []
+
+            def tips(until):
+                asked.append(until)
+                # Newest first; one tip is past this checkout's history (a shallow boundary).
+                return [later_tip, "f" * 40, shipped]
+            rows = clips.plan(previous, tip, Path(tmp, "t"), exists=lambda url: url in done, root=repo, tips=tips)
+            self.assertEqual([(r["id"], r["roles"], r["before"]) for r in rows],
+                             [("w1", ["before"], shipped), ("w2", ["before"], shipped)])
+            self.assertEqual(len(asked), 1)
+            self.assertGreaterEqual(asked[0], t0 + day + 60)
+            # The parent itself, when it is a nightly tip.
+            rows = clips.plan(previous, tip, Path(tmp, "t2"), exists=lambda url: url in done, root=repo,
+                              tips=lambda until: [broken, shipped])
+            self.assertEqual({r["before"] for r in rows}, {broken})
+            # No tip read: the parent, as before.
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t3"), exists=lambda url: url in done, root=repo,
+                                  tips=lambda until: [])
+            self.assertEqual({r["before"] for r in rows}, {broken})
+
+    def test_nightly_tips_are_the_successful_nightly_next_push_runs_newest_first(self):
+        paths = []
+
+        def get(path):
+            paths.append(path)
+            return {"workflow_runs": [{"head_sha": "a" * 40, "created_at": "2026-11-15T10:00:00Z"},
+                                      {"head_sha": "b" * 40, "created_at": "2026-11-15T12:00:00Z"},
+                                      {"head_sha": "not a sha", "created_at": "2026-11-15T13:00:00Z"},
+                                      {"head_sha": "a" * 40, "created_at": "2026-11-15T09:00:00Z"}]}
+        self.assertEqual(clips.nightly_tips(1_800_000_000, get=get), ["b" * 40, "a" * 40])
+        self.assertIn("actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status=success", paths[0])
+        self.assertIn("created=%3C%3D2027-01-15T08:00:00Z", paths[0])
+
+        def fails(path):
+            raise clips.ClipError("gh exited 1")
+        with mock.patch("sys.stdout"):
+            self.assertEqual(clips.nightly_tips(1_800_000_000, get=fails), [])
+
+    def test_before_only_rows_take_no_plan_limit_slot(self):
+        # The tour of 2026-11-16 (nightly-next 3674b7fcca): one row of the tip, six Improved highlights waiting
+        # for a before alone, all six marked failed (their app had not built). PLAN_LIMIT 4 planned the three
+        # oldest and left screen-sharing-sidebar, pane-close-and-unzoom-are-quicker and zoom-dims-other-panes
+        # waiting, though each is one short tour on the one shared app.
+        day = 86400
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.history(tmp)
+            t0 = 1_800_000_000
+            self.commit(repo, "root", t0, {"README": "r\n"})
+            names = ("b1", "b2", "b3", "b4", "b5", "b6")
+            for index, name in enumerate(names):
+                self.commit(repo, name, t0 + day + 60 * index, self.highlight(name, "improved"))
+            self.commit(repo, "both roles", t0 + day + 600, self.highlight("both", "improved"))
+            previous = self.commit(repo, "previous tip", t0 + 2 * day, {"README": "p\n"})
+            tip = self.commit(repo, "tip", t0 + 2 * day + 60, self.highlight("fresh", "improved"))
+            done = {clips.auto_url(name, "after") for name in names}
+            digest = clips.spec_digest("b1", repo / "release-notes/next/clips")
+            failed = {clips.failed_url(name, "before"): {"spec": digest} for name in names}
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t"), limit=4, exists=lambda url: url in done,
+                                  root=repo, marker=failed.get)
+            self.assertEqual([(r["id"], r["roles"]) for r in rows],
+                             [("fresh", ["after", "before"]), ("both", ["after", "before"])]
+                             + [(name, ["before"]) for name in names])
+            # They have their own limit.
+            with mock.patch("sys.stdout"):
+                rows = clips.plan(previous, tip, Path(tmp, "t2"), limit=1, exists=lambda url: url in done,
+                                  root=repo, marker=failed.get, before_only=2)
+            self.assertEqual([r["id"] for r in rows], ["fresh", "b1", "b2"])
+
+    def test_publish_auto_marks_no_failure_for_a_tour_that_never_ran(self):
+        # "no app at 62da558...; its befores wait": the before tours never ran, and publish-auto marked them
+        # failed with their spec, which put them behind every other row on the next plan.
+        def render_tour(clip_id, tour_dir, out, keep):
+            raise clips.ClipError("the tour did not run every step")
+        put = mock.Mock()
+        module = mock.Mock(put_files=put)
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = Path(tmp, "clips")
+            specs.mkdir()
+            (specs / "better.json").write_text(json.dumps(SPEC))
+            tour_folders(Path(tmp), ["better"], ["after"])  # the after ran and failed; the before never ran
+            with mock.patch.object(clips, "render_tour", render_tour), \
+                    mock.patch.object(clips, "pr_media_module", lambda: module):
+                problems = clips.publish_auto([{"id": "better", "roles": ["after", "before"]}], Path(tmp), Path(tmp),
+                                              tip="c" * 40, specs=specs)
+                (_, _, markers, _), _ = put.call_args
+            self.assertEqual(sorted(markers), ["whats-new/better/clip-auto-after.failed.json"])
+            self.assertEqual(len(problems), 2)
+            self.assertIn("did not run", problems[1])
+            # No tour ran at all: nothing is marked.
+            put.reset_mock()
+            with mock.patch.object(clips, "render_tour", render_tour), \
+                    mock.patch.object(clips, "pr_media_module", lambda: module):
+                clips.publish_auto([{"id": "other", "roles": ["before"]}], Path(tmp), Path(tmp), specs=specs)
+            put.assert_not_called()
+
+    def test_a_spec_carries_its_harness_fixture_and_the_tour_fills_in_the_checkout(self):
+        fixture = {"harnesses": {"fake": {"argv": ["/usr/bin/python3", "{repo}/agent.py"]}}}
+        self.assertEqual(clips.spec_problems({**SPEC, "harnessFixture": fixture}), [])
+        self.assertTrue(clips.spec_problems({**SPEC, "harnessFixture": ["fake"]}))
+        tour = clips.tour_from_spec({**SPEC, "harnessFixture": fixture}, "T")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "t.json")
+            path.write_text(json.dumps(tour))
+            loaded = clips.tour_module().load_tour(path)
+        argv = loaded["harness_fixture"]["harnesses"]["fake"]["argv"]
+        self.assertEqual(argv, ["/usr/bin/python3", str(SCRIPT.parents[3] / "agent.py")])
 
     def test_write_tours_makes_the_route_jobs_plan_into_tours_and_drops_a_row_with_no_spec(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +663,7 @@ class NightlyTourTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(clips, "render_tour", render_tour), \
                 mock.patch.dict("os.environ", {"PR_MEDIA_PRIVACY_OCR": "none"}):
+            tour_folders(Path(tmp), ["better"], ["after", "before"])
             with self.assertRaisesRegex(clips.ClipError, "no OCR"):
                 clips.publish_auto([{"id": "better", "roles": ["after", "before"]}], Path(tmp), Path(tmp))
         self.assertEqual(rendered, [("better", "after", "better"), ("better", "before", "better")])
@@ -431,6 +699,7 @@ class NightlyTourTests(unittest.TestCase):
             with mock.patch.object(clips, "render_tour", render_tour), \
                     mock.patch.object(clips, "pr_media_module", pr_media_module), \
                     mock.patch.dict("os.environ", env, clear=True), mock.patch("sys.stderr"), mock.patch("sys.stdout"):
+                tour_folders(tmp, ["clean", "leaky"], ["after"])
                 self.assertEqual(clips.publish_auto([{"id": "clean", "roles": ["after"]}], tmp, tmp / "a"), [])
                 self.assertEqual([c.args[2] for c in put.call_args_list], ["whats-new/clean/clip-auto-after.webp"])
                 put.reset_mock()

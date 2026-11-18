@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -345,7 +346,9 @@ class ThisTree(unittest.TestCase):
         for test in ("tests/test_webviews_tests_per_file.py", "tests/test_web_lint_prepush.py"):
             with self.subTest(test=test):
                 self.assertIn(test, text)
-                self.assertIn(f"python3 {test}", runs)
+                # A step runs the file itself: `python3 FILE` or `python3 -m pytest ... FILE`
+                # (pytest-xdist, the job's two slowest steps), never a mere mention.
+                self.assertRegex(runs, rf"(?m)^python3 (?:-m pytest [^\n]*?)?{re.escape(test)}(?:\s|$)")
 
     def test_tests_of_feat_files_run_on_feat_pull_requests(self):
         """Tests whose code feat-cmux-next pull requests edit ran only on main, a push, a schedule, or nowhere.
@@ -401,15 +404,15 @@ class ThisTree(unittest.TestCase):
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
         calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        # A pull request's head call (ci and the routed groups, release-notary among them), a push's head call
-        # (release-notary left to nightly-guards), then the base.
-        self.assertEqual(len(calls), 3, calls)
+        # The head call (ci and the routed groups, release-notary among them, on a pull request and a push alike),
+        # then the base.
+        self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
                 self.assertIn("--feat-routes", call)
+                self.assertNotIn("--skip-group", call)
         self.assertNotIn("--group", calls[0])
-        self.assertIn("--skip-group release-notary", calls[1])
-        self.assertIn("--root .guard-base", calls[2])
+        self.assertIn("--root .guard-base", calls[1])
 
 
 if __name__ == "__main__":

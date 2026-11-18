@@ -5,6 +5,7 @@
 // panel is open draws that panel dashed: the click closes it. It stands in for the tooltip, so the
 // two never stack. No new strings: the name, key and address are the button's own.
 import { createPortal } from "react-dom";
+import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { interfaceScale } from "../../../ui/interfaceScale";
 import { HeaderIcon } from "./HeaderIcon";
 
@@ -25,8 +26,9 @@ const PREVIEW_WIDTH = 176;
 const PREVIEW_GAP = 6;
 const PREVIEW_EDGE = 8;
 
-/** How long the pointer rests on an icon before its preview shows (a hover intent, not a motion). */
-export const PREVIEW_INTENT_DELAY = 350;
+/** How long the pointer rests on an icon before its preview shows: a tooltip-sized label, so the
+ * tooltip delay (`HOVER_INTENT.tooltipDelay`); hover cards wait `HOVER_INTENT.cardDwell`. */
+export const PREVIEW_INTENT_DELAY: number = HOVER_INTENT.tooltipDelay;
 
 /** The preview's width and its `right` (CSS px from the window's right edge) under a button whose
  * box ends at `boxRight`, at Text Size `scale`. Its right edge lines up with the button's, and it

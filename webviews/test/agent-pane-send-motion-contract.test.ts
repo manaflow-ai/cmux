@@ -39,6 +39,7 @@ import {
 import { installPaintedFrames } from "./support/paintedFrames";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => {
   setDefaultTimeout(400_000);
@@ -142,7 +143,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
   /// Until the transcript, the stack and every finite animation hold still over 12 painted frames.
   const settle = (page: Page) =>
     page.evaluate(
-      () =>
+      ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
           let last = "";
           let still = 0;
@@ -151,7 +152,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
             frames += 1;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
             const thread = document.querySelector<HTMLElement>(".acpmux-thread");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock");
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK);
             const now = [
               scroller?.scrollTop,
               scroller?.scrollHeight,
@@ -172,6 +173,7 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
             return false;
           });
         }),
+      { MAIN_DOCK },
     );
   const fromEnd = (page: Page) =>
     page.evaluate(() => {

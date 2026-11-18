@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Make the App Store Connect signing setup of cmux-next-ios exist, then hand
-out its App Store profiles: the "ensure" step of .github/workflows/ios-app-store.yml.
+out its App Store profiles: the "ensure" step of the App Store lane for com.cmux.app,
+which is not wired yet (.github/workflows/ios-app-store.yml still builds the classic app).
 
 For the app's bundle id and its two notification extensions
 (<bundle id>.notification-content, <bundle id>.notification-service), through the
 public App Store Connect API with the release environment's key:
 
   1. the bundle id is registered (iOS), or registered now;
-  2. the app's capabilities are on: Push Notifications and Sign in with Apple
-     (the extensions need none; their Keychain group is the team's own);
+  2. the app's capabilities are on: Push Notifications, Time Sensitive
+     notifications (the entitlements sign the key; testflight-build.sh refuses
+     a profile without it) and Sign in with Apple (the extensions need none;
+     their Keychain group is the team's own). Associated Domains is left to a
+     person: turning it on invalidates every profile of the App ID, and
+     testflight-build.sh signs the universal links only when it is on;
   3. an ACTIVE IOS_APP_STORE profile with the given name exists for it and
      lists the distribution certificate CI signs with (named by its SHA-1); a
      profile of that name that is invalid (a capability changed) or lists other
@@ -50,6 +55,7 @@ DISTRIBUTION_TYPES = ("DISTRIBUTION", "IOS_DISTRIBUTION")
 # The app's capabilities, with the settings App Store Connect needs for each.
 APP_CAPABILITIES: dict[str, list[dict[str, Any]] | None] = {
     "PUSH_NOTIFICATIONS": None,
+    "USERNOTIFICATIONS_TIMESENSITIVE": None,
     "APPLE_ID_AUTH": [
         {"key": "APPLE_ID_AUTH_APP_CONSENT", "options": [{"key": "PRIMARY_APP_CONSENT"}]},
     ],

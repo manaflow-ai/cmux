@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -157,6 +157,12 @@ pub struct ServerConnection {
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
+    /// When the connection opened; [`Self::input_at_ms`] counts from it.
+    opened: Instant,
+    /// Milliseconds after [`Self::opened`] of the last client frame
+    /// [`Self::receive`] delivered (not connection control): the snapshot's
+    /// `input_idle_ms`. One relaxed store per frame.
+    input_at_ms: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -331,6 +337,8 @@ impl ServerConnection {
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
+            opened: Instant::now(),
+            input_at_ms: AtomicU64::new(0),
         })
     }
 
@@ -357,7 +365,14 @@ impl ServerConnection {
             resume_lease_remaining_ms,
             lane_bindings: diagnostics.lane_bindings.clone(),
             physical_link_count: diagnostics.lane_bindings.len(),
+            input_idle_ms: Some(
+                self.opened_ms().saturating_sub(self.input_at_ms.load(Ordering::Relaxed)),
+            ),
         }
+    }
+
+    fn opened_ms(&self) -> u64 {
+        self.opened.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub async fn send(
@@ -437,7 +452,10 @@ impl ServerConnection {
             let generation = session.generation();
             match session.receive().await {
                 Ok(Some(frame)) => match self.handle_connection_control(&frame).await? {
-                    ConnectionControlAction::Deliver => return Ok(Some(frame)),
+                    ConnectionControlAction::Deliver => {
+                        self.input_at_ms.store(self.opened_ms(), Ordering::Relaxed);
+                        return Ok(Some(frame));
+                    }
                     ConnectionControlAction::Continue => continue,
                     ConnectionControlAction::Close => return Ok(None),
                 },

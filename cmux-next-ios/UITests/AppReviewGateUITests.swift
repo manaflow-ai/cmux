@@ -14,8 +14,8 @@ import XCTest
 ///
 /// Every past rejection is a test here or a rule in
 /// `cmux-next-ios/scripts/app_review_gate.py` (`cmux-next-ios/AppStoreReview/rejection-history.json`
-/// maps each one). Screenshots of each step are kept in the result bundle for
-/// the agent reviewer pass (`cmux-next-ios/scripts/app_review_agent_pass.py`).
+/// maps each one). Screenshots of each step are kept in the result bundle and
+/// exported to the gate's artifact for a person to review.
 ///
 /// The dead-control walk is the detector for "the button did nothing"
 /// (2.1(a), 2026-11-07): on each screen it taps every enabled, hittable

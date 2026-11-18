@@ -502,7 +502,9 @@ impl App {
         let tx = self.tx.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
-            let mut params = json!({"sessionId": id, "limit": 3000});
+            // The person's terminal shows it: an open, so a hibernated agent wakes
+            // (`server/requests.rs` `attach_shows`).
+            let mut params = json!({"sessionId": id, "limit": 3000, "visible": true});
             if let Some(after) = after_seq {
                 params.set("afterSeq", json!(after));
             }
@@ -778,7 +780,7 @@ impl App {
 }
 
 fn session_route_id(session: &Value) -> Option<String> {
-    crate::cli::resolve::routed_id(session).ok()
+    crate::session_identity::routed_id(session).ok()
 }
 
 /// A session or transcript status with a turn still open: running, or waiting on a permission.

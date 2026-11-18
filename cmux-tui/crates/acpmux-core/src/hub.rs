@@ -38,16 +38,27 @@ mod mirror_gates;
 #[cfg(test)]
 mod mirror_tests;
 mod origins;
+mod relay;
 pub use acpmux_book::index::MirrorMark;
 #[cfg(test)]
 mod peer_tests;
 pub use compaction::CompactionStats;
 use history::{History, PeerHistory};
-pub use mirror::{MAX_FRAME_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit, UnitChange};
+pub use mirror::{
+    MAX_FRAME_CHANGES, MAX_TURN_UNIT_CHANGES, MAX_UNIT_CHANGES, MirrorCounts, MirrorUnit,
+    TakeoverTurns, UnitChange,
+};
 pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
+pub use relay::{
+    PageRelay, RELAY_BUSY, RELAY_FAILED, RELAY_IN_FLIGHT, RELAY_PAGE_DEADLINE, RelayAnswer,
+    RelayError, RelayFailed, RelayFuture, Relayed, RelayedPage,
+};
 
 pub use crate::wire::{DeltaFrame, Window};
 
+/// The feature a link's serving side names when it answers a peer's `all` and `keys` pages
+/// (decision 266). A surface stays `list`.
+pub const PEER_PAGES_FEATURE: &str = "listPages";
 /// The default list window and the hard row count ceiling for one window.
 pub const DEFAULT_WINDOW_ROWS: usize = 100;
 pub const MAX_WINDOW_ROWS: usize = 400;
@@ -101,6 +112,8 @@ struct Pending {
     controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
     /// Origins whose unit failed its append and waits in the writer's retry.
     retrying: std::collections::HashSet<Arc<str>>,
+    /// The origin whose unit the last turn took last: the next turn's units start after it.
+    turn_after: Option<UpdateKey>,
 }
 
 impl Pending {
@@ -209,19 +222,60 @@ impl UpdateQueue {
 
     #[cfg(test)]
     fn take_batch(&self) -> Vec<(UpdateKey, PendingUpdate)> {
-        self.take_batch_limit(256)
+        self.take_batch_limit(256, MAX_TURN_UNIT_CHANGES)
     }
 
-    fn take_batch_limit(&self, limit: usize) -> Vec<(UpdateKey, PendingUpdate)> {
+    /// At most `limit` updates, and units of at most `unit_changes` changes
+    /// together (one unit at least): an origin's unit past that count waits in
+    /// its slot, with what queued behind it, for the next turn. Origin records
+    /// go first; the origins' slots start after the one whose unit the last
+    /// turn took last, so a unit the cap passed over is taken before any unit
+    /// queued after it (decision 279), and once the cap passes over a unit no
+    /// later unit is taken in that turn.
+    fn take_batch_limit(
+        &self,
+        limit: usize,
+        unit_changes: usize,
+    ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
+        let pending = &mut *pending;
         let mut batch = Vec::new();
-        while batch.len() < limit {
-            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
-            let Some(update) = updates.pop_front() else { continue };
-            if !updates.is_empty() {
-                pending.controls.insert(key.clone(), updates);
+        let mut changes = 0;
+        let mut passed_over = false;
+        let mut last = None;
+        // The controls hold at most 512 keys (`enqueue`), so the order costs one pass of them.
+        let (mut sources, records): (Vec<UpdateKey>, Vec<UpdateKey>) =
+            pending.controls.keys().cloned().partition(|key| matches!(key, UpdateKey::Source(_)));
+        let split = pending
+            .turn_after
+            .as_ref()
+            .map_or(0, |after| sources.partition_point(|key| key <= after));
+        // `partition_point` is at most the length, so the rotation stays in bounds.
+        sources.rotate_left(split);
+        let order = records.into_iter().chain(sources);
+        for key in order {
+            if batch.len() >= limit {
+                break;
             }
-            batch.push((key, update));
+            let Some(updates) = pending.controls.get_mut(&key) else { continue };
+            while batch.len() < limit {
+                if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                    if passed_over || (changes > 0 && changes + unit.changes.len() > unit_changes) {
+                        passed_over = true;
+                        break;
+                    }
+                    changes += unit.changes.len();
+                    last = Some(key.clone());
+                }
+                let Some(update) = updates.pop_front() else { break };
+                batch.push((key.clone(), update));
+            }
+            if updates.is_empty() {
+                pending.controls.remove(&key);
+            }
+        }
+        if last.is_some() {
+            pending.turn_after = last;
         }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
@@ -486,6 +540,8 @@ pub struct Hub {
     peer_history: Arc<Mutex<Option<PeerHistory>>>,
     folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
+    /// The relay a local page that names another origin asks (row 8b).
+    relay: Arc<relay::RelayState>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
@@ -500,6 +556,16 @@ pub struct Hub {
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
 pub trait PageProvider: Send + Sync {
     fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
+    /// A page of view `all` filtered by `origin`, another machine, read from outside the
+    /// index when the relay does not take that origin (decision 265), in the list's order.
+    /// `None`: this provider has no such read, and the index answers as before.
+    fn view_page(
+        &self,
+        _origin: &str,
+        _request: &crate::wire::Page,
+    ) -> std::io::Result<Option<crate::wire::PageResult<Arc<Summary>>>> {
+        Ok(None)
+    }
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -733,7 +799,13 @@ impl Hub {
             disk::HydrationState::Loading
         };
         let (hydrated_tx, hydrated_rx) = tokio::sync::watch::channel(state);
-        let sources = Arc::new(ArcSwap::from_pointee(HashMap::new()));
+        // Decision 264: a stored mark is the record of who held the origin.
+        // Every takeover as v1 writes it off before a v1 row goes in, so an
+        // origin whose mark is on opens as the mirror's: v1's tee stands aside
+        // for it, and the first dial resumes from the mark.
+        let sources: HashMap<String, Source> =
+            index.mirror_marks().map(|mark| (mark.origin, Source::Mirror)).collect();
+        let sources = Arc::new(ArcSwap::from_pointee(sources));
         let rebuild_requested = Arc::new(AtomicBool::new(false));
         let rebuild_count = Arc::new(AtomicU64::new(rebuilds));
         let rebuild_fenced = Arc::new(AtomicU64::new(0));
@@ -762,6 +834,7 @@ impl Hub {
             peer_history: peer_history.clone(),
             folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
+            relay: Arc::default(),
             sources: sources.clone(),
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
@@ -992,6 +1065,22 @@ impl Hub {
         )
     }
 
+    /// Copies one bounded replay span while holding the history mutex.
+    ///
+    /// This is test-only instrumentation for the replay cause probe: it models
+    /// the old lock-coupled copier so the probe can show the cost of sharing
+    /// the writer's history lock. Production replay never calls this path.
+    #[cfg(test)]
+    pub(crate) fn probe_history_locked_copy(
+        &self,
+        cursor: u64,
+        through: u64,
+        max_bytes: usize,
+    ) -> Option<u64> {
+        let history = self.history.lock().ok()?;
+        history.after_frame(cursor, through, max_bytes).map(|span| span.last_seq)
+    }
+
     pub fn set_page_provider(&self, provider: Arc<dyn PageProvider>) {
         if let Ok(mut slot) = self.page_provider.lock() {
             *slot = Some(provider);
@@ -1176,7 +1265,7 @@ impl Hub {
         let requested = validate_window(sub)?;
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     crate::wire::AnchorSide::Before => ReadSide::Before,
                     crate::wire::AnchorSide::After => ReadSide::After,
@@ -1212,21 +1301,24 @@ impl Hub {
         Ok(frame)
     }
 
+    /// A peer's page. `live` is the mirror's walk on its held sub; `all` and `keys`
+    /// (decision 266, the `listPages` feature) need no sub and read this machine's rows
+    /// only: `all` through `read_page` with the origin fixed to `local`, `keys` from the
+    /// index and the local provider. A shape [`peer_page_shape`] refuses reads nothing.
     pub fn peer_page(&self, request: &crate::wire::Page) -> Result<Frame, HubError> {
-        if request.stream.as_str() != "list"
-            || request.view != Some(crate::wire::ListView::Live)
-            || request.filter.is_some()
-            || request.keys.is_some()
-        {
-            return Err(HubError::InvalidPage);
-        }
+        let Some(shape) = peer_page_shape(request) else { return Err(HubError::InvalidPage) };
         let max = request.max_bytes as usize;
         if max > crate::wire::MAX_PAGE_BYTES || max <= 8192 + request.sid.len() {
             return Err(HubError::InvalidPage);
         }
+        match shape {
+            PeerPageShape::Live => {}
+            PeerPageShape::Keys(keys) => return self.keyed_page(request, keys, true),
+            PeerPageShape::All => return self.peer_all_page(request, max),
+        }
         let (key, side) = match request.side() {
             Some((side, Position::List(key))) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     PageSide::Before => ReadSide::Before,
                     PageSide::After => ReadSide::After,
@@ -1265,6 +1357,137 @@ impl Hub {
         Ok(frame)
     }
 
+    /// A peer's `all` page: this machine's rows, live and closed, through the same
+    /// `read_page` a local connection's `all` page reads, with the origin fixed to `local`.
+    fn peer_all_page(&self, request: &crate::wire::Page, max: usize) -> Result<Frame, HubError> {
+        let (key, side) = match request.side() {
+            Some((PageSide::Before, Position::List(key))) if key.past => {
+                (Some(peer_past_bound(key)?), ReadSide::Before)
+            }
+            Some((side, Position::List(key))) => (
+                Some(book_key(key)?),
+                match side {
+                    PageSide::Before => ReadSide::Before,
+                    PageSide::After => ReadSide::After,
+                },
+            ),
+            None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
+            _ => return Err(HubError::InvalidPage),
+        };
+        let mut filter = request.filter.clone().unwrap_or_default();
+        filter.origin = Some("local".to_owned());
+        let index = self.snapshot();
+        // `read_page` filters its candidates after it takes them, and its flags and keys name
+        // candidates of every origin (decision 93). A peer's keys name this machine's rows
+        // only: a piece that holds none of them is skipped here, from the key it ends on,
+        // and the reply's keys are its first and last selected rows. At most
+        // PEER_PAGE_PIECES pieces are read (decision 285); past them the page is empty, its
+        // flag stays set, and its key names a position, never another origin's row.
+        let mut anchor = key;
+        let mut pieces = 0;
+        let page = loop {
+            // The first piece is the read a local connection's page makes. A later one is read
+            // only because the one before held no row of this machine, and it is the full
+            // physical piece whatever the budget (decision 291): a skipped candidate costs
+            // nothing in the reply.
+            let read = if pieces == 0 {
+                SummaryIndex::read_page
+            } else {
+                SummaryIndex::read_page_full_piece
+            };
+            let page = read(
+                &index,
+                anchor.as_ref(),
+                side,
+                false,
+                MAX_WINDOW_ROWS,
+                max - 8192 - request.sid.len(),
+                Some(&filter),
+            )
+            .map_err(|error| self.page_error(error))?;
+            pieces += 1;
+            #[cfg(test)]
+            PEER_PIECES.with(|read| {
+                let (count, bytes) = read.get();
+                read.set((count + 1, bytes + page.bytes_read));
+            });
+            #[cfg(test)]
+            PEER_ANCHORS.with(|read| read.borrow_mut().push((anchor.clone(), page.bytes_read)));
+            let (more, next) = match side {
+                ReadSide::Before => (page.has_before, &page.before_key),
+                _ => (page.has_after, &page.after_key),
+            };
+            let Some(next) = next.as_ref().filter(|_| more && page.rows.is_empty()) else {
+                break page;
+            };
+            if pieces == PEER_PAGE_PIECES {
+                return self.peer_resume_page(request, side, next, max);
+            }
+            anchor = Some(next.clone());
+        };
+        let first = page.rows.first().map(|row| SortKey::of(row.as_ref()));
+        let last = page.rows.last().map(|row| SortKey::of(row.as_ref()));
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(|row| PeerRow(row.as_ref())).collect::<Vec<_>>(),
+            // The piece may go on past a selected edge with other origins' rows: a flag stays
+            // set, and the next page skips them.
+            has_before: page.has_before || (first.is_some() && first != page.before_key),
+            has_after: page.has_after || (last.is_some() && last != page.after_key),
+            cold_unread: page.cold_unread,
+            deeper: Vec::new(),
+            before_key: first.map(wire_key),
+            after_key: last.map(wire_key),
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
+    }
+
+    /// The empty page a peer's `all` walk gets when PEER_PAGE_PIECES pieces held none of its
+    /// rows and more follows on its side: that side's flag stays set, and its key is a `local`
+    /// position ([`peer_resume_key`]) past `last`, the last candidate read in the walk's
+    /// direction, so the next page moves on. When no `local` row can follow, the walk ends.
+    fn peer_resume_page(
+        &self,
+        request: &crate::wire::Page,
+        side: ReadSide,
+        last: &SortKey,
+        max: usize,
+    ) -> Result<Frame, HubError> {
+        let resume = peer_resume_key(side, last);
+        let more = resume.is_some();
+        let (before_key, after_key) = match side {
+            ReadSide::Before => (resume, None),
+            _ => (None, resume),
+        };
+        let reply = crate::wire::PageResult::<PeerRow<'_>> {
+            sid: request.sid.clone(),
+            rows: Vec::new(),
+            // The other side has rows only behind the request's own anchor: an unanchored page
+            // starts at the newest end and has none before it.
+            has_before: if side == ReadSide::Before { more } else { request.after.is_some() },
+            has_after: side == ReadSide::Before || more,
+            cold_unread: false,
+            deeper: Vec::new(),
+            before_key,
+            after_key,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > max {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(frame)
+    }
+
     fn window_frame_at_cursor(
         &self,
         sub: &Sub,
@@ -1277,7 +1500,7 @@ impl Hub {
         }
         let (key, side) = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     crate::wire::AnchorSide::Before => ReadSide::Before,
                     crate::wire::AnchorSide::After => ReadSide::After,
@@ -1377,11 +1600,11 @@ impl Hub {
             {
                 return Err(HubError::InvalidPage);
             }
-            return self.keyed_page(request, keys);
+            return self.keyed_page(request, keys, false);
         }
         let (key, side) = match request.side() {
             Some((side, Position::List(key))) => (
-                Some(book_key(key)),
+                Some(book_key(key)?),
                 match side {
                     PageSide::Before => ReadSide::Before,
                     PageSide::After => ReadSide::After,
@@ -1392,6 +1615,9 @@ impl Hub {
             None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
+        if let Some(frame) = self.provider_view_page(request)? {
+            return Ok(frame);
+        }
         let index = self.snapshot();
         let page = if matches!(request.view, Some(crate::wire::ListView::Live)) {
             index
@@ -1436,6 +1662,35 @@ impl Hub {
         Ok(frame)
     }
 
+    /// A view page of another origin the provider answers (decision 265), framed for `request`.
+    fn provider_view_page(&self, request: &crate::wire::Page) -> Result<Option<Frame>, HubError> {
+        let Some(origin) = relay::relayed_view_origin(request) else { return Ok(None) };
+        let Some(provider) = self.page_provider.lock().ok().and_then(|slot| slot.clone()) else {
+            return Ok(None);
+        };
+        let Some(page) = provider.view_page(origin, request).map_err(HubError::page_error)? else {
+            return Ok(None);
+        };
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            cold_unread: page.cold_unread,
+            deeper: page.deeper,
+            before_key: page.before_key,
+            after_key: page.after_key,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > request.max_bytes as usize {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(Some(frame))
+    }
+
     fn page_error(&self, error: std::io::Error) -> HubError {
         if acpmux_book::index::is_fatal_snapshot_read(&error) {
             self.request_rebuild();
@@ -1463,11 +1718,152 @@ pub(crate) fn parse_extra<T: serde::de::DeserializeOwned>(
     serde_json::from_str(extra.get()).ok()
 }
 
-fn book_key(key: &crate::wire::ListKey) -> SortKey {
-    SortKey {
+/// What a peer may page (decision 266).
+pub(crate) enum PeerPageShape<'a> {
+    /// The mirror's walk on its held sub: view `live`, no filter, no keys.
+    Live,
+    /// View `all` with a filter of `workspace` and `state` only, `origin` unset or `local`,
+    /// anchored, if at all, on a `local` key.
+    All,
+    /// 1 to 100 row keys, every one `local`, no filter and no anchor.
+    Keys(&'a [crate::wire::PageKey]),
+}
+
+/// The shape of a peer's page, or `None` when a peer may not ask it: another stream, a chat's
+/// `turns`, `edition` or `fold`, a table filter (`family`, `forks`, `folder`, `cold`), another
+/// origin's filter, key or anchor. It reads nothing, so a refused page reads no row.
+pub(crate) fn peer_page_shape(request: &crate::wire::Page) -> Option<PeerPageShape<'_>> {
+    use crate::wire::{ListFilter, ListView, PageKey};
+    if request.stream.as_str() != "list"
+        || request.turns
+        || request.edition.is_some()
+        || request.fold.is_some()
+    {
+        return None;
+    }
+    let local_anchor = match (&request.before, &request.after) {
+        (None, None) => true,
+        (Some(Position::List(key)), None) | (None, Some(Position::List(key))) => {
+            key.origin == "local" && !key.past
+        }
+        _ => false,
+    };
+    // A `past` key (decision 290) is the `before` anchor of a peer's `all` page only, in its
+    // one spelling; see [`peer_past_bound`].
+    let past_anchor = matches!(
+        (&request.before, &request.after),
+        (Some(Position::List(key)), None) if peer_past_bound(key).is_ok()
+    );
+    match (request.view, request.keys.as_deref()) {
+        (Some(ListView::Live), None) if request.filter.is_none() => Some(PeerPageShape::Live),
+        (Some(ListView::All), None) => {
+            // Every field is named, so a field added to the filter must be decided here.
+            let narrow = request.filter.as_ref().is_none_or(|filter| {
+                let ListFilter { workspace: _, origin, state: _, family, folder, forks, cold } =
+                    filter;
+                origin.as_deref().is_none_or(|origin| origin == "local")
+                    && family.is_none()
+                    && forks.is_none()
+                    && folder.is_none()
+                    && !cold
+            });
+            (narrow && (local_anchor || past_anchor)).then_some(PeerPageShape::All)
+        }
+        (None | Some(ListView::All), Some(keys)) => {
+            let local = !keys.is_empty()
+                && keys.len() <= 100
+                && keys
+                    .iter()
+                    .all(|key| matches!(key, PageKey::Summary(key) if key.origin == "local" && !key.past));
+            (local
+                && request.filter.is_none()
+                && request.before.is_none()
+                && request.after.is_none())
+            .then_some(PeerPageShape::Keys(keys))
+        }
+        _ => None,
+    }
+}
+
+/// The pieces one peer `all` page reads before it answers empty (decisions 285, 291 and 294):
+/// the first at the asker's budget, as a local page reads it, and up to three full ones.
+/// Computed, not measured: in memory a piece is MAX_WINDOW_ROWS + 1 hot candidates, so about
+/// 1,600 a page. From a snapshot a full piece is snapshot::PAGE_BYTES (256 KiB) or 400
+/// records, about 1,250 candidates a page at the serve_page gate's row size; an anchored piece
+/// also seeks, one block of at most snapshot::SEEK_BYTES (64 KiB) and a binary search of
+/// 552-byte checkpoints. So a page reads at most PEER_PAGE_PIECES x (PAGE_BYTES + SEEK_BYTES),
+/// 1.25 MiB, plus the checkpoint steps.
+pub(crate) const PEER_PAGE_PIECES: usize = 4;
+
+#[cfg(test)]
+thread_local! {
+    /// The pieces this thread's peer `all` pages read and their snapshot bytes, for the tests
+    /// that count them.
+    pub(crate) static PEER_PIECES: std::cell::Cell<(usize, usize)> =
+        const { std::cell::Cell::new((0, 0)) };
+    /// Each piece's anchor and snapshot bytes, in the order read, for the gate's seek probe.
+    pub(crate) static PEER_ANCHORS: std::cell::RefCell<Vec<(Option<SortKey>, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A `local` position past `last`, the last candidate a peer's `all` walk read on `side`,
+/// naming no other origin's row (decisions 285 and 290). Keys sort newest first, then by
+/// origin, then by chat id. With `last` = (T, o, c), on side `after`:
+/// - `o` local: `last` itself;
+/// - `o` before `local`: (T, local, ""), before every local row at T;
+/// - `o` after `local`: (T - 1, local, ""), past every row at T; at T = 0 the walk ends.
+///
+/// On side `before`, where the walk goes to newer keys:
+/// - `o` local: `last` itself;
+/// - `o` after `local`: (T, local, past), past every local key at T;
+/// - `o` before `local`: (T + 1, local, past), past every local key at T + 1; at
+///   T = u64::MAX the walk ends.
+fn peer_resume_key(side: ReadSide, last: &SortKey) -> Option<crate::wire::ListKey> {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    debug_assert!(!last.row.chat_id.is_empty(), "a row's chat id is never empty");
+    let origin = last.row.origin.as_ref().cmp("local");
+    if origin == Equal {
+        return Some(wire_key(last.clone()));
+    }
+    let (last_activity, past) = match (side, origin) {
+        (ReadSide::Before, Greater) => (last.last_activity, true),
+        (ReadSide::Before, _) => (last.last_activity.checked_add(1)?, true),
+        (_, Less) => (last.last_activity, false),
+        _ => (last.last_activity.checked_sub(1)?, false),
+    };
+    Some(crate::wire::ListKey {
+        last_activity,
+        chat_id: String::new(),
+        origin: "local".to_owned(),
+        past,
+    })
+}
+
+/// A wire key as the book's key. A `past` key is a position no row has, and only a peer's
+/// `all` page on side `before` takes one ([`peer_past_bound`]): here it is `InvalidPage`.
+fn book_key(key: &crate::wire::ListKey) -> Result<SortKey, HubError> {
+    if key.past {
+        return Err(HubError::InvalidPage);
+    }
+    Ok(SortKey {
         last_activity: key.last_activity,
         row: RowKey::new(key.origin.as_str(), key.chat_id.as_str()),
+    })
+}
+
+/// The origin of the bound a `past` key reads before: "local" followed by the least char.
+/// Every origin after `local` in the order is at least this, and `local` is less, so
+/// (T, PAST_LOCAL, "") is past every (T, local, *) key and before every other origin's at T.
+/// It is a position for the read only; no row and no reply carries it.
+const PAST_LOCAL: &str = "local\u{0}";
+
+/// The book position a peer's `past` key names (decision 290), in its one spelling: origin
+/// `local`, chat id "" and `past` true. Any other spelling is `InvalidPage`.
+fn peer_past_bound(key: &crate::wire::ListKey) -> Result<SortKey, HubError> {
+    if !key.past || key.origin != "local" || !key.chat_id.is_empty() {
+        return Err(HubError::InvalidPage);
     }
+    Ok(SortKey { last_activity: key.last_activity, row: RowKey::new(PAST_LOCAL, "") })
 }
 
 fn wire_key(key: SortKey) -> crate::wire::ListKey {
@@ -1475,6 +1871,7 @@ fn wire_key(key: SortKey) -> crate::wire::ListKey {
         last_activity: key.last_activity,
         chat_id: key.row.chat_id.to_string(),
         origin: key.row.origin.to_string(),
+        past: false,
     }
 }
 
@@ -1740,6 +2137,13 @@ impl HubWriter {
         }
     }
 
+    /// One writer turn, for a caller that drives the writer itself in place
+    /// of [`Self::run`]: a test that orders the writer's turns against other
+    /// work (a dialer's takeover and an origin's removal in one turn).
+    pub fn turn(&mut self) {
+        self.process_batch();
+    }
+
     /// Disk writes, group syncs and hydration run off runtime workers.
     pub async fn run(mut self) -> Result<(), HubError> {
         loop {
@@ -1880,6 +2284,10 @@ mod origin_gates;
 #[cfg(test)]
 mod origin_tests;
 #[cfg(test)]
+mod peer_page_gates;
+#[cfg(test)]
+mod peer_page_tests;
+#[cfg(test)]
 mod rebuild_tests;
 #[cfg(test)]
 mod storage_tests;
@@ -1887,326 +2295,4 @@ mod storage_tests;
 mod writer_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::wire::{Cursor, Stream};
-    use acpmux_book::index::replay_log;
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    use std::time::{Duration, Instant};
-    use tempfile::tempdir;
-
-    fn summary(id: &str, at: u64) -> Summary {
-        let mut summary = Summary::new(id);
-        summary.last_activity = at;
-        summary
-    }
-
-    fn gate(name: &str, small: u128, god: u128, god_all: u128) {
-        let line = format!(
-            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{god_all},\"unit\":\"ns\"}}"
-        );
-        eprintln!("{line}");
-        if let Ok(path) = std::env::var("V2_GATE_OUT")
-            && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
-        {
-            let _ = writeln!(file, "{line}");
-        }
-    }
-
-    fn populated_index(prefix: &str, count: usize) -> SummaryIndex {
-        (0..count).fold(SummaryIndex::new(), |index, n| {
-            index.apply((n + 1) as u64, summary(&format!("{prefix}{n}"), n as u64))
-        })
-    }
-
-    fn p95(samples: &[u128]) -> u128 {
-        let mut sorted = samples.to_vec();
-        sorted.sort_unstable();
-        let rank = ((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1);
-        sorted[rank]
-    }
-
-    fn best_p95(rounds: &[Vec<u128>]) -> u128 {
-        rounds.iter().map(|round| p95(round)).min().unwrap_or(1)
-    }
-
-    async fn measure_first_windows(index: SummaryIndex, sid: &str) -> Vec<Vec<u128>> {
-        let (hub, writer) = Hub::new(index);
-        let task = tokio::spawn(writer.run());
-        let mut rounds = Vec::with_capacity(5);
-        for round in 0..5 {
-            let mut samples = Vec::with_capacity(200);
-            for sample in 0..200 {
-                let start = Instant::now();
-                let mut sub = Sub::new(format!("{sid}-{round}-{sample}"), Stream::from("list"));
-                sub.window = Some(20);
-                let subscription = hub.subscribe(&sub).unwrap();
-                let _: Window<Summary> = subscription.window.decode_json().unwrap();
-                samples.push(start.elapsed().as_nanos().max(1));
-                drop(subscription);
-            }
-            rounds.push(samples);
-        }
-        hub.close();
-        task.await.unwrap().unwrap();
-        rounds
-    }
-
-    fn measure_summary_changes(index: &SummaryIndex, chat_id: &str) -> Vec<Vec<u128>> {
-        let mut rounds = Vec::with_capacity(5);
-        for round in 0..5 {
-            let (hub, mut writer) = Hub::new(index.clone());
-            let _subscription =
-                hub.subscribe(&Sub::new(format!("change-{round}"), Stream::from("list"))).unwrap();
-            let mut samples = Vec::with_capacity(200);
-            for sample in 0..200 {
-                let start = Instant::now();
-                writer.apply(summary(chat_id, (round * 5 + sample + 1) as u64)).unwrap();
-                samples.push(start.elapsed().as_nanos().max(1));
-            }
-            rounds.push(samples);
-        }
-        rounds
-    }
-
-    #[test]
-    fn one_summary_change_publishes_without_walking_the_index() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("a", 1)).unwrap();
-        writer.apply(summary("b", 2)).unwrap();
-        let event = writer.apply(summary("a", 3)).unwrap();
-        assert_eq!(event.seq, 3);
-        assert_eq!(hub.snapshot().len(), 2);
-        let frame = hub.list_window(&Sub::new("sidebar", Stream::from("list"))).unwrap();
-        let window: Window<Summary> = frame.decode_json().unwrap();
-        assert_eq!(window.rows.first().map(|row| row.chat_id.as_str()), Some("a"));
-        assert!(window.rows.len() <= DEFAULT_WINDOW_ROWS);
-    }
-
-    #[test]
-    fn list_window_is_bounded_and_rejects_other_streams() {
-        let (hub, _) = Hub::new(SummaryIndex::new());
-        assert!(matches!(
-            hub.list_window(&Sub::new("chat", "chat:one")),
-            Err(HubError::WrongStream(_))
-        ));
-        assert!(matches!(
-            hub.list_window(&Sub::new("sidebar", "list").around(crate::wire::Anchor::End, 0)),
-            Err(HubError::InvalidWindow)
-        ));
-    }
-
-    #[test]
-    fn subscribe_rejects_oversized_window_before_registration() {
-        let (hub, _) = Hub::new(SummaryIndex::new());
-        let sub = Sub::new("oversized", "list").around(crate::wire::Anchor::End, u16::MAX);
-        assert!(matches!(hub.subscribe(&sub), Err(HubError::InvalidWindow)));
-        assert_eq!(hub.subscriber_count(), 0);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    #[ignore = "timing gate; run in release with --ignored --nocapture"]
-    async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
-        let small_rounds = measure_first_windows(populated_index("s", 20), "small").await;
-        let god_rounds = measure_first_windows(populated_index("g", 11_000), "god").await;
-        let small_p95 = best_p95(&small_rounds);
-        let god_p95 = best_p95(&god_rounds);
-        let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
-        let all_god_p95 = p95(&all_god_samples);
-        assert!(
-            god_p95 <= small_p95.saturating_mul(12) / 10,
-            "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
-        );
-        assert!(
-            all_god_p95 <= small_p95.saturating_mul(2),
-            "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
-        );
-        gate("v2.pr05.first_list_window", small_p95, god_p95, all_god_p95);
-
-        let small_index = populated_index("s", 20);
-        let god_index = populated_index("g", 11_000);
-        let small_changes = measure_summary_changes(&small_index, "s0");
-        let god_changes = measure_summary_changes(&god_index, "g0");
-        let small_change_p95 = best_p95(&small_changes);
-        let god_change_p95 = best_p95(&god_changes);
-        let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();
-        let all_god_change_p95 = p95(&all_god_change_samples);
-        assert!(
-            god_change_p95 <= small_change_p95.saturating_mul(37) / 10,
-            "summary change p95 grew beyond 3.7x: small={small_change_p95}ns god={god_change_p95}ns"
-        );
-        assert!(
-            all_god_change_p95 <= small_change_p95.saturating_mul(62) / 10,
-            "summary change all-sample p95 exceeded 6.2x small p95: small={small_change_p95}ns god={all_god_change_p95}ns"
-        );
-        assert!(
-            god_change_p95 <= 10_000,
-            "summary change god p95 exceeded 10us: {god_change_p95}ns"
-        );
-        gate("v2.pr05.summary_change", small_change_p95, god_change_p95, all_god_change_p95);
-    }
-
-    #[test]
-    fn opening_11k_rows_from_disk_reaches_first_window_under_200ms() {
-        let dir = tempdir().unwrap();
-        let log_path = dir.path().join("index.log");
-        {
-            let mut log = IndexLog::open(&log_path).unwrap();
-            for n in 0..11_000 {
-                log.append(summary(&format!("disk{n}"), n as u64)).unwrap();
-            }
-            log.sync().unwrap();
-        }
-
-        let start = Instant::now();
-        let log = IndexLog::open(&log_path).unwrap();
-        let index = replay_log(log.path(), SummaryIndex::new()).unwrap();
-        assert_eq!(index.len(), 11_000);
-        let (hub, _writer) = Hub::with_log(index, Some(log));
-        let window = hub.list_window(&Sub::new("disk", "list")).unwrap();
-        let _: Window<Summary> = window.decode_json().unwrap();
-        let elapsed = start.elapsed();
-        assert!(elapsed < Duration::from_millis(200), "disk startup took {elapsed:?}");
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn subscribe_recv_and_run_deliver_summary_then_removal() {
-        let (hub, writer) = Hub::new(SummaryIndex::new());
-        let task = tokio::spawn(writer.run());
-        let subscription = hub.subscribe(&Sub::new("live", "list")).unwrap();
-        hub.submit(summary("live-chat", 1)).unwrap();
-        match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => assert_eq!(event.summary.chat_id, "live-chat"),
-            other => panic!("expected summary, got {other:?}"),
-        }
-        hub.remove("local", "live-chat").unwrap();
-        match subscription.receiver.recv().await.unwrap() {
-            ListItem::Gone { chat_id, .. } => assert_eq!(chat_id, "live-chat"),
-            other => panic!("expected removal, got {other:?}"),
-        }
-        hub.close();
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn replay_does_not_replace_newer_live_item_for_same_chat() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("same", 1)).unwrap();
-        let subscription = hub.subscribe(&Sub::new("resume", "list").from_cursor(0)).unwrap();
-        writer.apply(summary("same", 2)).unwrap();
-        match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => assert_eq!(event.seq, 1),
-            other => panic!("expected replayed summary, got {other:?}"),
-        }
-        match subscription.receiver.recv().await.unwrap() {
-            ListItem::Summary(event) => assert_eq!(event.seq, 2),
-            other => panic!("expected newer summary, got {other:?}"),
-        }
-        subscription.receiver.reposition(2);
-        let state = subscription.receiver.subscriber.state.lock().unwrap();
-        assert!(!state.ended);
-        assert_eq!(state.cursor, 2);
-    }
-
-    #[test]
-    fn cursor_ahead_of_index_gets_a_fresh_current_window() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("current", 1)).unwrap();
-        let subscription =
-            hub.subscribe(&Sub::new("ahead", "list").from_cursor(Cursor(10))).unwrap();
-        let window: Window<Summary> = subscription.window.decode_json().unwrap();
-        assert_eq!(window.cursor, 1);
-        assert!(!subscription.receiver.subscriber.state.lock().unwrap().ended);
-    }
-
-    #[test]
-    fn dropping_a_list_receiver_unregisters_the_subscriber() {
-        let (hub, _) = Hub::new(SummaryIndex::new());
-        let subscription = hub.subscribe(&Sub::new("drop", "list")).unwrap();
-        assert_eq!(hub.subscriber_count(), 1);
-        drop(subscription);
-        assert_eq!(hub.subscriber_count(), 0);
-    }
-
-    #[test]
-    fn submit_coalesces_latest_summary_per_chat_without_an_item_cap() {
-        let (hub, _writer) = Hub::new(SummaryIndex::new());
-        for at in 0..11_000 {
-            hub.submit(summary("same", at)).unwrap();
-        }
-        let batch = hub.updates.take_batch();
-        assert_eq!(batch.len(), 1);
-        match &batch[0].1 {
-            PendingUpdate::Summary { summary, .. } => assert_eq!(summary.last_activity, 10_999),
-            PendingUpdate::Gone { .. } => panic!("summary slot was replaced by a removal"),
-            PendingUpdate::Origin { .. }
-            | PendingUpdate::Takeover { .. }
-            | PendingUpdate::Unit { .. } => {
-                panic!("origin update occupied summary slot")
-            }
-        }
-    }
-
-    #[test]
-    fn removal_publishes_a_gone_change_and_removes_the_row() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        writer.apply(summary("gone", 1)).unwrap();
-        assert!(writer.remove("local", "gone").unwrap());
-        assert!(hub.snapshot().get("gone").is_none());
-        assert!(!writer.remove("local", "gone").unwrap());
-    }
-
-    #[test]
-    fn source_ownership_refuses_cross_source_updates_until_takeover() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        let mut row = summary("remote", 1);
-        row.origin = "peer".into();
-        writer.apply_from(Source::Mirror, row.clone()).unwrap();
-        assert!(matches!(
-            writer.apply_from(Source::V1, row.clone()),
-            Err(HubError::SourceRefused { .. })
-        ));
-        writer.takeover("peer", Source::V1).unwrap();
-        writer.apply_from(Source::V1, row).unwrap();
-        assert!(hub.snapshot().get_row(&RowKey::new("peer", "remote")).is_some());
-        assert!(refused_source_submits() > 0);
-    }
-
-    #[test]
-    fn remote_close_emits_summary_but_is_absent_from_index_and_replay() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("index.log");
-        let log = IndexLog::open(&path).unwrap();
-        let (hub, mut writer) = Hub::with_log(SummaryIndex::new(), Some(log));
-        let mut row = summary("remote", 1);
-        row.origin = "peer".into();
-        writer.apply_from(Source::V1, row).unwrap();
-        let mut closed = summary("remote", 2);
-        closed.origin = "peer".into();
-        closed.state = "closed".into();
-        let event = writer.apply_from(Source::V1, closed).unwrap();
-        assert_eq!(event.summary.state, "closed");
-        assert!(hub.snapshot().get_row(&RowKey::new("peer", "remote")).is_none());
-        let restored = replay_log(&path, SummaryIndex::new()).unwrap();
-        assert!(restored.get_row(&RowKey::new("peer", "remote")).is_none());
-    }
-
-    #[test]
-    fn origin_state_is_one_record_and_removed_origin_hides_rows() {
-        let (hub, mut writer) = Hub::new(SummaryIndex::new());
-        assert!(writer.origin("peer", OriginState::Down, 10).unwrap());
-        assert!(!writer.origin("peer", OriginState::Down, 10).unwrap());
-        assert!(writer.origin("peer", OriginState::Stale, 20).unwrap());
-        let mut row = summary("remote", 1);
-        row.origin = "peer".into();
-        writer.apply_from(Source::V1, row).unwrap();
-        writer.origin("peer", OriginState::Removed, 30).unwrap();
-        assert!(hub.snapshot().iter().next().is_none());
-        let window: Window<Summary> =
-            hub.list_window(&Sub::new("origin", "list")).unwrap().decode_json().unwrap();
-        assert!(window.rows.is_empty());
-        assert_eq!(window.origins.len(), 1);
-        assert_eq!(window.origins[0].state, OriginState::Removed);
-    }
-}
+mod tests;
