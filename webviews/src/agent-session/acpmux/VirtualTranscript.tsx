@@ -99,6 +99,7 @@ import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/old
 import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { FrameGuard } from "./conversation/frameGuard";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
@@ -1919,15 +1920,13 @@ function TranscriptView({
   /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  /// The frame guard's pending frame and observer, when the offset last moved, the offset it last read and
-  /// the one it handled (`armFrameGuard`).
-  const frameGuard = useRef<{
-    handle: number | undefined;
-    observer: ResizeObserver | undefined;
-    movedAt: number;
-    seen: number | undefined;
-    handled: number | undefined;
-  }>({ handle: undefined, observer: undefined, movedAt: 0, seen: undefined, handled: undefined });
+  /// The frame guard (conversation/frameGuard.ts, `armFrameGuard` below), the offset it last read and the
+  /// one it handled.
+  const frameGuard = useRef<{ guard: FrameGuard | undefined; seen: number | undefined; handled: number | undefined }>({
+    guard: undefined,
+    seen: undefined,
+    handled: undefined,
+  });
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
     clearTimeout(scrollLeadTimer.current);
@@ -2141,10 +2140,7 @@ function TranscriptView({
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
       clearTimeout(scrollLeadTimer.current);
-      if (guard.handle !== undefined) cancelAnimationFrame(guard.handle);
-      guard.handle = undefined;
-      guard.observer?.disconnect();
-      guard.observer = undefined;
+      guard.guard?.stop();
     };
   }, []);
   /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
@@ -6096,45 +6092,34 @@ function TranscriptView({
   /// It runs until the offset has stood still SCROLL_GUARD_IDLE_MS. `handled` is the offset it handled,
   /// whose own scroll event (the next frame's) is then not handled again (`frameGuard`, above).
   const guardOffset = (node: HTMLDivElement) => {
-    const guard = frameGuard.current;
+    const state = frameGuard.current;
     const live = node.scrollTop;
     // Only a move restarts the idle clock: an offset the handler leaves unhandled (a chat not opened
     // yet, a hidden pane) would otherwise keep the guard running.
-    if (live !== guard.seen) guard.movedAt = performance.now();
+    if (live !== state.seen) state.guard?.moved();
     // The pacer may have committed this offset already, inside the room: given back only by the handler.
     if (Math.abs(live - scrollRef.current.top) > 0.5 || (node.clientHeight > 0 && inRoom(node, roomAbove()))) {
       motionScroll.current(node, true);
-      guard.handled = node.scrollTop;
+      state.handled = node.scrollTop;
     }
-    guard.seen = node.scrollTop;
+    state.seen = node.scrollTop;
   };
   const armFrameGuard = () => {
-    const guard = frameGuard.current;
-    guard.movedAt = performance.now();
-    if (guard.observer === undefined && typeof ResizeObserver === "function")
-      guard.observer = new ResizeObserver(() => {
+    const state = frameGuard.current;
+    state.guard ??= new FrameGuard({
+      read: () => {
         const node = ref.current;
         if (node && transcriptMounted.current) guardOffset(node);
-      });
-    // This frame too: an input that moves the offset in this frame's callbacks (a wheel's default) is
-    // read before this frame paints, not only from the next.
-    const watch = (node: HTMLDivElement) => {
-      if (!guard.observer) return guardOffset(node);
-      guard.observer.unobserve(node);
-      guard.observer.observe(node);
-    };
-    if (ref.current && transcriptMounted.current && guard.observer) watch(ref.current);
-    if (guard.handle !== undefined) return;
-    const tick = () => {
-      guard.handle = undefined;
+      },
       // An offset handled a frame ago has had its scroll event by now (or never gets one).
-      guard.handled = undefined;
-      const node = ref.current;
-      if (!node || !transcriptMounted.current) return;
-      watch(node);
-      if (performance.now() - guard.movedAt < SCROLL_GUARD_IDLE_MS) guard.handle = requestAnimationFrame(tick);
-    };
-    guard.handle = requestAnimationFrame(tick);
+      frame: () => {
+        state.handled = undefined;
+      },
+      node: () => (transcriptMounted.current ? ref.current : null),
+      idleMs: SCROLL_GUARD_IDLE_MS,
+      observer: (callback) => (typeof ResizeObserver === "function" ? new ResizeObserver(callback) : undefined),
+    });
+    state.guard.arm();
   };
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
     armFrameGuard();
