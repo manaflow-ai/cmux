@@ -240,6 +240,7 @@ jobs:
     # It reads the pool only to turn video off on owned Macs.
     needs: [runner]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     outputs:
       target: ${{ steps.filter.outputs.target }}
       filter: ${{ steps.filter.outputs.filter }}

@@ -43,6 +43,7 @@ jobs:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     outputs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}

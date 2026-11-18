@@ -17,6 +17,7 @@ concurrency:
 jobs:
   version:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -116,6 +117,7 @@ jobs:
   maven-central-todo:
     needs: bindings-e2e-java
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

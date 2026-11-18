@@ -15,6 +15,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -56,6 +57,7 @@ jobs:
     needs: validate
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -131,6 +133,7 @@ jobs:
             executable: coderouter.exe
             maturin_container: "off"
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
     defaults:
@@ -454,6 +457,7 @@ jobs:
     needs: [validate, prepare_release, build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
