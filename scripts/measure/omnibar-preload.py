@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""Omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold, warm and prerendered (bench `omnibar`).
+"""Omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold and prerendered (bench `omnibar`).
 
   scripts/measure/omnibar-preload.py --app "PATH/cmux DEV TAG.app" --tag TAG [--out DIR]
-      [--urls "https://example.com/ https://en.wikipedia.org/wiki/Web_browser"] [--rounds 5] [--settle 2.5]
+      [--urls "https://example.com/ https://en.wikipedia.org/wiki/Web_browser"] [--rounds 8] [--settle 2.5] [--learns 8]
 
 Runs on a Mac with a GUI session (cmux-lawrence-2 for captures). Launches the app with an automation socket,
 no activation and an empty config, opens one browser tab, and for every URL:
 
   learn       types the URL's host (the text a person types), waits for the popup rows (the app learns
-              from an Enter only while its popup is open) and presses Return, 3 times: Chrome's
-              AutocompleteActionPredictor needs 3 hits before it prerenders (confidence 1.0).
+              from an Enter only while its popup is open) and presses Return, --learns times: Chrome's
+              AutocompleteActionPredictor needs 3 hits once its database has loaded, and hits before that
+              are lost (run of 2026-11-17: example.com prerendered only from its 7th hit).
   prerendered types the same text, waits for the popup rows and --settle s for the predictor's prerender,
               then presses Return in the field (debug.key).
-  warm        in a second launch, loads each URL once, then types it with a fresh query (?cmuxfresh=N): a new
-              document with a warm connection, DNS and subresource cache, never prerendered (the fair
-              comparison for prerendered, whose learning warmed the same things).
-  cold        a new launch with an empty profile for each sample, the URL with a fresh query: nothing
-              cached, connected or prerendered (a first visit).
+  cold        a new launch with an empty profile for each sample, the full URL typed: nothing cached,
+              connected or prerendered (a first visit; CDNs still have the page).
 
-Each arm starts with the tag's data cleared (a tagged Debug app only): its own Application Support folder (browser
-profile, predictor database) and its daemon's state (`cmux-next/tags/TAG`, which holds the omnibox history: a URL
+Both arms load the same URL (no cache-busting query: a new query misses the CDN's cache, which only the cold
+arm would pay). Each launch starts with the tag's data cleared (a tagged Debug app only): its own
+Application Support folder (browser profile, predictor database) and its daemon's state (`cmux-next/tags/TAG`, which holds the omnibox history: a URL
 typed in an earlier run would otherwise autocomplete the typed text to that URL), moved aside by
 bench_launch.start_fresh_state once no process of the bundle runs.
 
@@ -27,7 +26,7 @@ Between samples the tab goes to about:blank. Enter is the wall clock just before
 runs on the same Mac as the app); paint is the page's own `performance.timeOrigin + FCP`, and for a page that
 was prerendered, `timeOrigin + max(FCP, activationStart)` (the page was painted while hidden; the person sees
 it at activation, as Chrome's own prerendered FCP counts it). A prerendered sample counts only when the page
-reports activationStart > 0. The page is read through `debug.omnibar` (page_timing), never `browser.page.eval`:
+reports activationStart > 0, a cold one only when it does not. The page is read through `debug.omnibar` (page_timing), never `browser.page.eval`:
 an agent's call marks the tab agent-driven, and an agent-driven tab never preloads.
 
 Prints one `OMNIBAR {json}` line and writes DIR/omnibar-preload.json:
@@ -58,8 +57,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=None)
 parser.add_argument("--urls", default="https://example.com/ https://en.wikipedia.org/wiki/Web_browser")
-parser.add_argument("--rounds", type=int, default=5)
+parser.add_argument("--rounds", type=int, default=8)
 parser.add_argument("--settle", type=float, default=2.5)
+parser.add_argument("--learns", type=int, default=8)
 opts = parser.parse_args()
 OUT = opts.out or tempfile.mkdtemp(prefix=f"omnibar-preload-{opts.tag}-")
 os.makedirs(OUT, exist_ok=True)
@@ -214,18 +214,15 @@ def quit_app(app):
         app.wait()
 
 
-def fresh(url, tag):
-    return f"{url}{'&' if '?' in url else '?'}cmuxfresh={tag}"
-
-
 samples = []
-# prerendered: learn each URL (3 hits), then type the same text; the default row must be the learned URL.
+# prerendered: one launch; per URL, learn the typed text --learns times (3 hits once the predictor's database has
+# loaded; hits before that are lost, so a few more), then type it again: Return activates the predictor's prerender.
 app = launch("prerendered")
 try:
     for url in URLS:
         host = urlsplit(url).netloc
         text = host + urlsplit(url).path.rstrip("/")
-        for _ in range(3):
+        for _ in range(opts.learns):
             blank()
             type_then_enter(text)
             wait(lambda: host in ((timing() or {}).get("url") or ""), 30, 0.2)
@@ -234,43 +231,31 @@ try:
             print(json.dumps(samples[-1]), flush=True)
 finally:
     quit_app(app)
-# warm: one launch; each URL loaded once first (not a sample), then each sample a new document of it (a fresh query):
-# no prerender, but its connection, DNS and subresources are warm, as for the prerendered arm.
-app = launch("warm")
-try:
-    for url in URLS:
-        host = urlsplit(url).netloc
-        sample(fresh(url, "warmup"), host, "warm", -1)
-        for r in range(opts.rounds):
-            samples.append(sample(fresh(url, r), host, "warm", r))
-            print(json.dumps(samples[-1]), flush=True)
-finally:
-    quit_app(app)
-# cold: a new launch with an empty profile per sample, so nothing is cached, connected or prerendered.
+# cold: a new launch with an empty profile per sample, the full URL typed: nothing cached, connected or prerendered.
 for url in URLS:
     host = urlsplit(url).netloc
     for r in range(opts.rounds):
         app = launch("cold")
         try:
-            samples.append(sample(fresh(url, r), host, "cold", r))
+            samples.append(sample(url, host, "cold", r))
             print(json.dumps(samples[-1]), flush=True)
         finally:
             quit_app(app)
 fresh_state()
 
 summary = {}
-for arm in ("cold", "warm", "prerendered"):
+for arm in ("cold", "prerendered"):
     vals = [s["enter_to_fcp_ms"] for s in samples if s["arm"] == arm and s["enter_to_fcp_ms"] is not None
-            and (arm != "prerendered" or s["activated"])]
+            and s["activated"] == (arm == "prerendered")]
     summary[arm] = {"n": len(vals), "median_ms": statistics.median(vals) if vals else None}
     navs = [s["enter_to_nav_ms"] for s in samples if s["arm"] == arm and s.get("enter_to_nav_ms") is not None
-            and (arm != "prerendered" or s["activated"])]
+            and s["activated"] == (arm == "prerendered")]
     summary[arm]["nav_median_ms"] = statistics.median(navs) if navs else None
 summary["prerender_activated"] = sum(s["activated"] for s in samples if s["arm"] == "prerendered")
 summary["prerender_tried"] = sum(s["arm"] == "prerendered" for s in samples)
 doc = {"build": {"tag": opts.tag, "version": info.get("CFBundleShortVersionString"),
                  "commit": info.get("CMUXCommit") or info.get("CMUXGitCommit")},
-       "urls": URLS, "rounds": opts.rounds, "settle_s": opts.settle, "samples": samples, "summary": summary}
+       "urls": URLS, "learns": opts.learns, "rounds": opts.rounds, "settle_s": opts.settle, "samples": samples, "summary": summary}
 with open(os.path.join(OUT, "omnibar-preload.json"), "w") as f:
     json.dump(doc, f, indent=1)
 print("OMNIBAR " + json.dumps(summary), flush=True)

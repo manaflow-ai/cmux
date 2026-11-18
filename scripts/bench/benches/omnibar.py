@@ -1,10 +1,9 @@
-"""omnibar: omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold, warm and prerendered.
+"""omnibar: omnibar Enter to first paint in a tagged cmux NEXT Debug app, cold and prerendered.
 
 Wraps scripts/measure/omnibar-preload.py, which runs on a Mac with a GUI session next to the app (cmux-lawrence-2
 for Lawrence's captures): it teaches Chrome's AutocompleteActionPredictor each URL (3 hits), then per round
-types the same text and waits for the predictor's prerender before Return (arm=prerendered); it types the URL
-with a fresh query after one load of it in the same launch (arm=warm: warm connection and cache, no prerender)
-and in a new launch with an empty profile per sample (arm=cold: a first visit). Enter is the wall clock before
+types the same text and waits for the predictor's prerender before Return (arm=prerendered); it types the full
+URL in a new launch with an empty profile per sample (arm=cold: a first visit). Enter is the wall clock before
 Return; paint is the page's `timeOrigin + max(FCP, activationStart)`; navigation is the page's start (a
 prerender's activation).
 
@@ -12,7 +11,7 @@ That host is not a controller worker, so this bench records the harness's output
 `cmux-bench omnibar --import omnibar-preload.json` (or the run's log, from its `OMNIBAR` line: medians only).
 
 Rows: enter_to_fcp_ms and enter_to_nav_ms (labels arm, url; and arm alone over every URL), prerender_activated
-and prerender_tried. A prerendered sample counts only when its page was activated.
+and prerender_tried. A prerendered sample counts only when its page was activated, a cold one only when it was not.
 """
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ from pathlib import Path
 from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/omnibar-preload.py"
-ARMS = ("cold", "warm", "prerendered")
+ARMS = ("cold", "prerendered")
 
 
 class Omnibar(Bench):
@@ -63,7 +62,7 @@ class Omnibar(Bench):
         for metric in ("enter_to_fcp_ms", "enter_to_nav_ms"):
             for arm in ARMS:
                 sel = [s for s in samples if s.get("arm") == arm and s.get(metric) is not None
-                       and (arm != "prerendered" or s.get("activated"))]
+                       and bool(s.get("activated")) == (arm == "prerendered")]
                 if not sel:
                     continue
                 ctx.row(metric, unit="ms", samples=[s[metric] for s in sel], labels={"arm": arm})
