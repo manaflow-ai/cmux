@@ -212,7 +212,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
@@ -579,6 +579,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .painted(let fromKeptTail, let settled):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            if settled, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.painted_settled") }
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
