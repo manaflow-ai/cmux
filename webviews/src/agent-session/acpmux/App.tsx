@@ -7940,8 +7940,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .catch((error: unknown) => {
           // The notice says it plainly with Retry; the host's own words go to the log.
           console.warn("agent pane: New Worktree failed", error);
-          // A clone's failure says why (no access, offline) in the host's own words.
-          const message = github ? errorMessage(error).trim() || undefined : undefined;
+          // A clone's failure says why (no access, offline, no free folder) in the host's own words; any other
+          // refusal reads as New Worktree's.
+          const code = (error as { code?: unknown } | null)?.code;
+          const cloneFailure = code === "github.clone_failed" || code === "github.clone_no_folder";
+          const message = github && cloneFailure ? errorMessage(error).trim() || undefined : undefined;
           if (pick === folderPick.current)
             setWorktreeError({ cwd, ...asked, ...(github ? { github } : {}), ...(message ? { message } : {}) });
         })

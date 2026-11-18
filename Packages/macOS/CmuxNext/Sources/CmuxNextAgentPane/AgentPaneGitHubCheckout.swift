@@ -95,12 +95,17 @@ public import Foundation
         let partial = owner.appending(path: ".\(parts[1]).cloning-\(UUID().uuidString)", directoryHint: .isDirectory).path
         let url = "https://github.com/\(repo).git"
         var cloned = false
+        // The person's own git is tried after the token only when git answered (no access with the token): a clone that
+        // timed out or never started is not run a second time on the same click.
+        var retry = true
         if let token = await token(repo) {
-            cloned = await clone(url, into: partial, environment: [Self.tokenVariable: token], helper: true)
+            let run = await clone(url, into: partial, environment: [Self.tokenVariable: token], helper: true)
+            cloned = run?.status == 0
+            retry = run != nil
         }
-        if !cloned {
+        if !cloned, retry {
             await Self.remove(partial)
-            cloned = await clone(url, into: partial, environment: [:], helper: false)
+            cloned = await clone(url, into: partial, environment: [:], helper: false)?.status == 0
         }
         let moved = cloned ? await Self.move(partial, to: destination) : false
         // A failed or cancelled clone, or one another clone beat into place, leaves nothing behind.
@@ -136,15 +141,15 @@ public import Foundation
         return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
     }
 
-    private func clone(_ url: String, into folder: String, environment: [String: String], helper: Bool) async -> Bool {
+    /// The clone's git run; nil when it timed out or did not start.
+    private func clone(_ url: String, into folder: String, environment: [String: String], helper: Bool) async -> GitRun? {
         // The helper answers only git's `get`, with the token from this git's own environment: an empty
         // `credential.helper=` first drops the person's helpers, so the token is not stored by one of them.
         let credential = helper
             ? ["-c", "credential.helper=", "-c", "credential.helper=!f() { test \"$1\" = get && echo username=x-access-token && echo \"password=$\(Self.tokenVariable)\"; }; f"]
             : []
         let arguments = credential + ["clone", "--quiet", "--", url, folder]
-        guard let run = await git(arguments, nil, environment, Self.cloneTimeout) else { return false }
-        return run.status == 0
+        return await git(arguments, nil, environment, Self.cloneTimeout)
     }
 
     /// `folder`'s checkout top folder when one of its remotes is `repo`; nil otherwise (no folder, no git, another repository).
@@ -161,7 +166,8 @@ public import Foundation
     }
 
     /// `owner/name`, lowercased, of a github.com remote URL (`https://github.com/o/n(.git)`, `git@github.com:o/n(.git)`,
-    /// `ssh://git@github.com/o/n`); nil for any other.
+    /// `ssh://git@github.com/o/n`); nil for any other. An ssh host alias (`git@github-work:o/n`) is not read as github.com:
+    /// such a checkout is not found, and the pick clones its own copy under ``root``.
     nonisolated static func gitHubRepository(ofRemote remote: String) -> String? {
         var text = remote.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if text.hasPrefix("git@github.com:") {

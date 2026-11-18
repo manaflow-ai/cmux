@@ -16,6 +16,9 @@ extension AgentPaneGitWriteReply {
         }
         // A clone writes to this Mac's disk: only on the person's own pick.
         guard userGesture || model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        // A clone can take minutes: a folder picked meanwhile (`workspace.useFolder`, another repository) wins, and this
+        // pick then makes no worktree (the clone stays, for the next pick of it).
+        let pick = model.beginPick()
         let found: AgentPaneGitHubCheckout.Checkout
         switch await checkout.checkout(repo: repo, candidates: candidates) {
         case .success(let checkout): found = checkout
@@ -23,6 +26,9 @@ extension AgentPaneGitWriteReply {
             return AgentPaneReply.failure(code: "github.clone_failed", message: AgentPaneModel.gitHubCloneFailedMessage(repo))
         case .failure(.noFolder):
             return AgentPaneReply.failure(code: "github.clone_no_folder", message: AgentPaneModel.gitHubCloneNoFolderMessage(repo))
+        }
+        guard pick == model.pickSequence, model.sessionId == nil else {
+            return AgentPaneModel.gitFailure(.sessionChanged, message: message)
         }
         var reply = await newWorktree(.worktree(cwd: found.path, name: nil, key: key), in: found.path, model: model, gestureSpent: true)
         if var value = reply["value"] as? [String: Any] {

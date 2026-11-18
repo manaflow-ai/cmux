@@ -32,10 +32,13 @@ struct AgentPaneGitHubCheckoutTests {
         let checkout: AgentPaneGitHubCheckout
     }
 
+    /// git with none of this Mac's global or system config (signing, url rewrites, templates): the tests' own only.
+    static let hermetic = ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]
+
     private static func git(_ arguments: [String]) async throws {
         let run = try #require(await AgentPaneGitHubCheckout.systemGit(
             ["-c", "user.name=cmux test", "-c", "user.email=test@cmux.invalid", "-c", "init.defaultBranch=main"] + arguments,
-            nil, [:], .seconds(60)))
+            nil, hermetic, .seconds(60)))
         #expect(run.status == 0, "git \(arguments)")
     }
 
@@ -52,7 +55,10 @@ struct AgentPaneGitHubCheckoutTests {
         try await git(["-C", work, "push", "--quiet", bare, "HEAD:refs/heads/main"])
     }
 
-    private static func rig(token: String? = "ghs_test0123") async throws -> Rig {
+    /// Runs on the main actor as a clone starts (the person picking another folder meanwhile).
+    @MainActor final class DuringClone { var run: (@MainActor () -> Void)? }
+
+    private static func rig(token: String? = "ghs_test0123", duringClone: DuringClone = DuringClone()) async throws -> Rig {
         let scratch = FileManager.default.temporaryDirectory.appending(path: "gh-checkout-\(UUID().uuidString)", directoryHint: .isDirectory)
         let hub = scratch.appending(path: "hub", directoryHint: .isDirectory)
         let root = scratch.appending(path: "repos", directoryHint: .isDirectory)
@@ -63,7 +69,8 @@ struct AgentPaneGitHubCheckoutTests {
         let rewrite = ["-c", "url.\(hub.absoluteString).insteadOf=https://github.com/", "-c", "protocol.file.allow=always"]
         let checkout = AgentPaneGitHubCheckout(root: root, token: { _ in token }, git: { arguments, folder, environment, timeout in
             await runs.add(arguments, environment)
-            return await AgentPaneGitHubCheckout.systemGit(rewrite + arguments, folder, environment, timeout)
+            if arguments.contains("clone") { await MainActor.run { duringClone.run?() } }
+            return await AgentPaneGitHubCheckout.systemGit(rewrite + arguments, folder, environment.merging(hermetic) { old, _ in old }, timeout)
         })
         let model = AgentPaneModel(host: NoHost())
         model.workspaceRoots = { [] }
@@ -111,6 +118,19 @@ struct AgentPaneGitHubCheckoutTests {
         #expect(!config.contains("ghs_"))
         #expect(!config.contains("credential"))
         #expect(config.contains("https://github.com/acme/api.git"))
+    }
+
+    /// A folder picked while the clone runs wins: the clone finishes (the next pick finds it), but no worktree is made.
+    @Test func aFolderPickedDuringTheCloneMakesNoWorktree() async throws {
+        let during = DuringClone()
+        let rig = try await Self.rig(duringClone: during)
+        defer { try? FileManager.default.removeItem(at: rig.scratch) }
+        during.run = { _ = rig.model.beginPick() }
+        rig.model.transport.gestures.record()
+        let reply = await rig.model.respond(to: Self.request("acme/api"))
+        #expect(reply["ok"] as? Bool == false)
+        #expect(rig.sent.calls.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: rig.root.appending(path: "acme/api/README.md").path))
     }
 
     @Test func aRepositoryAlreadyHereIsUsedAsItIsWithNoClone() async throws {
