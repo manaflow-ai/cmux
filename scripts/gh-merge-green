@@ -753,7 +753,7 @@ fi
 # branch posted newer skipped runs of every job it did not run, which hid an older red). A name
 # with only skipped runs stays skipped.
 if ! runs=$(jq -r '
-  (map(.check_runs) | add)
+  (map(.check_runs) | add // [])
   | sort_by(.name, (if .status == "completed" and .conclusion == "skipped" then 0 else 1 end), (.id // 0))
   | group_by(.name)[]
   | last
@@ -770,7 +770,7 @@ fi
 # as the latest successful ci-status. Missing or unrelated routing stays closed.
 # A reported compile-admission check is still required below, even with a skip.
 if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
-  (map(.check_runs) | add | sort_by(.name, (.id // 0))
+  (map(.check_runs) | add // [] | sort_by(.name, (.id // 0))
    | group_by(.name) | map(last)) as $latest
   | ($latest[] | select(.name == "ci-status")) as $ci
   | $ci.status == "completed" and $ci.conclusion == "success"
