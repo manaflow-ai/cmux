@@ -88,12 +88,18 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
     field.current?.focus();
     field.current?.select();
   }, [find.focusRequest]);
-  const count = find.matches.length;
+  // The transcript index's hits in turns not loaded count too (chatFind.ts `total`); while it is
+  // still answering, a query with no loaded match says nothing yet rather than "No results".
+  const count = find.total ?? find.matches.length;
+  const position = find.total === undefined ? find.active : (find.position ?? 0);
+  const searching = Boolean(find.busy) && !count;
   const status = !find.query
     ? ""
     : count
-      ? t("find.count", { current: find.active + 1, total: count })
-      : t("find.noResults");
+      ? t("find.count", { current: position + 1, total: count })
+      : searching
+        ? ""
+        : t("find.noResults");
   return (
     <div className="acpmux-find">
       <div className="acpmux-find__bar" ref={bar}>
@@ -101,7 +107,8 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
           query={find.query}
           onQueryChange={find.setQuery}
           status={status}
-          noMatches={Boolean(find.query) && !count}
+          noMatches={Boolean(find.query) && !count && !searching}
+          busy={Boolean(find.query) && Boolean(find.busy)}
           canStep={count > 0}
           onNext={find.next}
           onPrevious={find.previous}

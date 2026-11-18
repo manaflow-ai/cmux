@@ -457,6 +457,8 @@ import {
 } from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
+import { revealedFind, type FindRevealValue } from "./conversation/findReveal";
+import { rowsWindow, type FindIndexSource } from "./conversation/findIndex";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
@@ -2198,7 +2200,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showTimelineTurn = useRef<(turnId: string) => void>(() => undefined);
   /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
+  /// A `find:` reveal that came while no transcript (no Find) was shown: Find opens on it once it is.
+  const pendingFindReveal = useRef<FindRevealValue | undefined>(undefined);
   const reveal = (value: string) => {
+    // The command palette's chats page opens a chat on a hit of the transcript index: Find in Chat
+    // with its query, the hit nearest its time current, paged in when its turn is not loaded.
+    const find = revealedFind(value);
+    if (find !== undefined) {
+      const shown = findRef.current;
+      if (shown) shown.reveal(find);
+      else pendingFindReveal.current = find;
+      return;
+    }
     // The command palette's chats page opens a chat at the message it found by what was said:
     // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
     const said = revealedSaid(value);
@@ -6255,6 +6268,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   showMessage.current = (messageId) => showRows(() => directClient.current?.rowsOfMessage(messageId) ?? []);
   showSaid.current = (said) => showRows((rows) => saidRows(rows, said));
+  // Find in Chat over the whole chat (conversation/findIndex.ts): the daemon's transcript index
+  // answers for the turns this pane has not paged in, and a step to one of its hits pages through
+  // it (by seq when the daemon placed it in this chat's log, else older pages toward it).
+  const findHistoryFrom = snapshot.historyFrom;
+  const findIndex = useMemo<FindIndexSource | undefined>(
+    () =>
+      shownSessionId === undefined
+        ? undefined
+        : {
+            key: shownSessionId,
+            search: (search) => directClient.current?.searchTranscript(search) ?? Promise.resolve(undefined),
+            window: () => rowsWindow(counted.current.transcriptRows, transcriptInView.current?.()),
+            ...(findHistoryFrom !== undefined && { holdsSeq: (seq: number) => findHistoryFrom <= seq }),
+            rowsOfMessage: (messageId) => directClient.current?.rowsOfMessage(messageId) ?? [],
+            load: (hit) => {
+              const client = directClient.current;
+              if (!client) return Promise.resolve(false);
+              return hit.seq !== undefined ? client.loadThrough(hit.seq) : client.loadToward(hit);
+            },
+          },
+    [shownSessionId, findHistoryFrom],
+  );
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
   const sinceKey = snapshot.sinceKey;
@@ -11945,6 +11980,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               openFold={openFold}
                                                               showHeld={showHeldRuns}
                                                               findRef={findRef}
+                                                              index={childRows ? undefined : findIndex}
+                                                              pendingReveal={pendingFindReveal}
                                                             >
                                                               {(find) => (
                                                                 <VirtualTranscript
