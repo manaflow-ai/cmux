@@ -23,6 +23,17 @@ import Testing
         #expect(policy.releaseHeld() == nil)
     }
 
+    /// A view that owes a forced report (a new owner) is shown while it joins a pane on a spring: the join reports the
+    /// final grid, and that report must go even when the grid is the one already reported (the new owner has none). The
+    /// view dropped the force on a join (PL-ghostty review, minor).
+    @Test func aForcedReportGoesWithTheFinalGridOfAJoin() {
+        var policy = TerminalGridPolicy(ownsGeometry: true)
+        _ = policy.viewSized(grid(80, 40))
+        policy.forceNextReport()
+        #expect(policy.finalSized(grid(80, 40)) == grid(80, 40), "the new owner never got the grid")
+        #expect(policy.finalSized(grid(80, 40)) == nil, "the force went twice")
+    }
+
     /// A split or close reports the final grid at its start; every frame's size is held, and the landing at
     /// the final grid reports nothing more (one PTY resize, at the start).
     @Test func aFinalGridReportsAtTheStartAndTheLandingAtItReportsNothing() {

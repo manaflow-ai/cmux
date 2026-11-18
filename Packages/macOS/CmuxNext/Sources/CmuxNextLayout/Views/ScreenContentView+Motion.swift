@@ -238,7 +238,7 @@ extension ScreenContentView {
                 host.alphaValue = frame.alpha.value
                 changed = true
             }
-            if host.isDocked == scrolls { host.isDocked = !scrolls }
+            if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
         // The panes this change brought back from a zoom's cover show now, placed.
@@ -246,6 +246,7 @@ extension ScreenContentView {
         zoomDim.panesPlaced(on: self) // an unzoom shows: its dim is over the other panes in this frame, and goes
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
+        if presentFloatingCards() { changed = true }
         let above = panesAbove()
         for (host, scrolls) in clips {
             if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }
@@ -317,5 +318,24 @@ extension ScreenContentView {
     func areaWindow(of kind: DividerHandleView.Kind) -> CGRect? {
         guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
         return displayedAreaWindow(area)
+    }
+
+    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
+    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
+    /// of its panes is at its place in the frame that shows it.
+    func settleCarried() {
+        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
+        let shift = stripShift
+        for (pane, shown) in carriedShown {
+            guard var frame = paneFrames[pane] else { continue }
+            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
+            paneFrames[pane] = frame
+        }
+        for (kind, shown) in carriedDividers {
+            guard var frame = dividerFrames[kind] else { continue }
+            frame.x.value = shown - shift
+            dividerFrames[kind] = frame
+        }
+        (carriedShown, carriedDividers) = ([:], [:])
     }
 }
