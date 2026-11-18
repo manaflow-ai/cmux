@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, chromium: CEFLaunchPrefetch),
          cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchSnapshot: Task<LaunchSnapshot?, Never>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment; self.cloudEnvironment = cloudEnvironment; self.launchSnapshot = launchSnapshot
         self.launchReads = launchReads; self.launchCleanup = launchCleanup
@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
-        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(firstFrame); firstFrame.whenOpen { [cef = services.cache.cef] in cef.preload() } } // the framework map holds dyld's loader lock, which the window's build waits on: map it once the first frame is in (a restored chat's page that starts Chromium sooner loads it itself); CefInitialize waits for the first frame (CMUX-571)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); firstFrame.whenOpen { [cef = services.cache.cef] in cef.preload() } } // the framework map holds dyld's loader lock, which the window's build waits on: map it once the first frame is in (a restored chat's page that starts Chromium sooner loads it itself); CefInitialize waits for the first frame unless the last quit left a page on screen (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         firstFrame.whenOpen { [weak services] in services.map { WorkspaceAutoNameWiring(services: $0).start(settings: settings) } } // hq#1957; its per-workspace watches: after the first frame
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
