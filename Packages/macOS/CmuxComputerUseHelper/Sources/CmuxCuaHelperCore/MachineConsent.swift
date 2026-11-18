@@ -37,11 +37,16 @@ public struct MachineConsentStatus: Sendable, Equatable {
     public var consentRequired: Bool
     public var screen: Bool
     public var control: Bool
+    /// The person turned on `computerUse.whileLocked` in the cmux app: window-scoped tools
+    /// (``ConsentGate/runsWhileLocked``) keep running while the screen is locked. Only the app's
+    /// answer on the verified host connection sets it; no answer is off.
+    public var whileLocked: Bool
 
-    public init(consentRequired: Bool, screen: Bool, control: Bool) {
+    public init(consentRequired: Bool, screen: Bool, control: Bool, whileLocked: Bool = false) {
         self.consentRequired = consentRequired
         self.screen = screen
         self.control = control
+        self.whileLocked = whileLocked
     }
 
     /// No trusted answer: joined, nothing granted.
@@ -49,15 +54,17 @@ public struct MachineConsentStatus: Sendable, Equatable {
 
     /// acpmux's `_acpmux/machine_consent_get` result, read strictly:
     /// `consentRequired` a JSON boolean and `consent.screen` and
-    /// `consent.control` each "none" or "granted". Other fields (such as
-    /// `lastRefusal`) are ignored. Anything else is nil.
+    /// `consent.control` each "none" or "granted". `whileLocked`, which the
+    /// cmux app adds from its setting, counts only as JSON `true`. Other
+    /// fields (such as `lastRefusal`) are ignored. Anything else is nil.
     public init?(daemonResult data: Data) {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let required = Self.strictBool(object["consentRequired"]),
               let consent = object["consent"] as? [String: Any],
               let screen = Self.grant(consent["screen"]),
               let control = Self.grant(consent["control"]) else { return nil }
-        self.init(consentRequired: required, screen: screen, control: control)
+        self.init(consentRequired: required, screen: screen, control: control,
+                  whileLocked: Self.strictBool(object["whileLocked"]) == true)
     }
 
     /// The `machine/consent` answer, exactly
@@ -257,11 +264,22 @@ public struct ScreenLockedRefusal: Error, Sendable, Equatable, CustomStringConve
     public static let code = "mac_locked"
 
     public let tool: String
+    /// `computerUse.whileLocked` is on, and this call was refused because it drives the shared
+    /// screen (the desktop, the real cursor or the frontmost app) rather than one window.
+    public let whileLocked: Bool
 
-    public init(tool: String) { self.tool = tool }
+    public init(tool: String, whileLocked: Bool = false) {
+        self.tool = tool
+        self.whileLocked = whileLocked
+    }
 
     public var description: String {
-        "\(Self.code): this Mac's screen is locked, so nothing can see or use it. `\(tool)` did not run. "
+        if whileLocked {
+            return "\(Self.code): this Mac's screen is locked. `\(tool)` did not run: it uses the desktop, the "
+                + "pointer or the frontmost app, which show only the lock screen. Calls to one app's window "
+                + "(with its pid and window_id) still run while the Mac is locked."
+        }
+        return "\(Self.code): this Mac's screen is locked, so nothing can see or use it. `\(tool)` did not run. "
             + "It runs again once the person unlocks the Mac."
     }
 }
@@ -336,13 +354,36 @@ public final class ConsentGate: Sendable {
     }
 
     /// Throws `ConsentRefusal` unless consent allows `requirement` now, then
-    /// `ScreenLockedRefusal` if the screen is locked. No await follows the lock read.
-    public func admit(_ name: String, requirement: ConsentRequirement) async throws {
-        if let surface = await authority.current().missing(for: requirement) {
+    /// `ScreenLockedRefusal` if the screen is locked, unless the app's answer says
+    /// `whileLocked` and the call ``runsWhileLocked(_:footprint:)``. No await follows the lock read.
+    public func admit(_ name: String, requirement: ConsentRequirement,
+                      footprint: ActingFootprint = .anywhere) async throws {
+        let status = await authority.current()
+        if let surface = status.missing(for: requirement) {
             await authority.recordRefusal(surface: surface, tool: name)
             throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
         }
-        if screenLocked() { throw ScreenLockedRefusal(tool: name) }
+        if screenLocked() {
+            guard status.whileLocked, Self.runsWhileLocked(name, footprint: footprint) else {
+                throw ScreenLockedRefusal(tool: name, whileLocked: status.whileLocked)
+            }
+        }
+    }
+
+    /// Tools that read only what this Mac runs (no picture, no input): they name no window, and
+    /// the lock does not change their answer.
+    static let inventoryTools: Set<String> = ["list_apps", "list_windows", "check_permissions", "get_config"]
+
+    /// Whether `name` may run on a locked screen with `computerUse.whileLocked` on
+    /// (cmuxterm-hq docs/design/locked-screen-computer-use.md, measured by
+    /// scripts/measure/macos-locked-screen-cu.sh): a call to one app's window, whose picture comes
+    /// from the window's own backing store and whose input goes to its pid or through
+    /// Accessibility, or an inventory read. Anything ``ActingFootprint/shared`` (a desktop or
+    /// foreground scope, the real cursor, the frontmost app, the pasteboard, no app named) is
+    /// refused: on a locked Mac the desktop is the lock screen, and the global input queue types
+    /// into its password field.
+    static func runsWhileLocked(_ name: String, footprint: ActingFootprint) -> Bool {
+        inventoryTools.contains(name) || !footprint.shared
     }
 
     /// acpmux's bridge rule (cua_v2.rs `Helper::request`): the one entry

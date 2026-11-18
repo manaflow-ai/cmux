@@ -59,7 +59,12 @@ test("the card draws the Computer Use switch once, and the switch turns Computer
   const page = await renderPage({ path: "/settings/agents", mock: { values: { "computerUse.enabled": true } } });
   await settle();
   const element = card(page.container)!;
-  for (const key of ["computerUse.enabled", "computerUse.driver", "computerUse.livePreview"]) {
+  for (const key of [
+    "computerUse.enabled",
+    "computerUse.driver",
+    "computerUse.livePreview",
+    "computerUse.whileLocked",
+  ]) {
     expect(element.querySelector(`[data-row-key="${key}"]`)).not.toBeNull();
     expect(page.container.querySelectorAll(`[data-row-key="${key}"]`)).toHaveLength(1);
   }

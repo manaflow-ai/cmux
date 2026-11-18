@@ -19,6 +19,16 @@ nonisolated enum ComputerUseHelperV2Consent {
         return ComputerUseHelperV2.line(["type": "machine_consent", "id": id, "ok": true, "result": object])
     }
 
+    /// The daemon's result with `"whileLocked": true` added when `computerUse.whileLocked` is on.
+    /// The setting is the person's, in this app; the daemon's record never carries it. No result
+    /// stays no result, and a result that is not an object is passed on for ``answer`` to refuse.
+    static func result(_ result: Data?, whileLocked: Bool) -> Data? {
+        guard whileLocked, let result,
+              var object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any] else { return result }
+        object["whileLocked"] = true
+        return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
     /// Answers the helper's questions on `link` until it closes. Other lines
     /// (the helper's `{"ok":true}` or a refusal of this app) are logged.
     static func serve(_ link: ComputerUseHelperV2HostLink, pid: pid_t,

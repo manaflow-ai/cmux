@@ -198581,6 +198581,186 @@
         }
       }
     },
+    "settings.computerUse.whileLocked": {
+      "comment": "Settings > Computer Use toggle title: agents keep using app windows while the Mac's screen is locked.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة العمل أثناء القفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei gesperrtem Bildschirm weiterarbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Working While Locked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir trabajando con el Mac bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer quand le Mac est verrouillé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック中も作業を続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠긴 동안 계속 작업"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定时继续工作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定時繼續工作"
+          }
+        }
+      }
+    },
+    "settings.computerUse.whileLocked.help": {
+      "comment": "Help text under the Keep Working While Locked toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل الوكلاء رؤية نوافذ التطبيقات واستخدامها أثناء قفل هذا الـ Mac. أي شيء يحتاج إلى سطح المكتب أو المؤشر ينتظر حتى تفتح القفل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten sehen und bedienen App-Fenster weiter, während dieser Mac gesperrt ist. Alles, was den Schreibtisch oder den Zeiger braucht, wartet, bis du entsperrst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes siguen viendo y usando las ventanas de las apps mientras este Mac está bloqueado. Lo que necesite el escritorio o el puntero espera a que lo desbloquees."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents continuent de voir et d’utiliser les fenêtres des apps pendant que ce Mac est verrouillé. Ce qui a besoin du bureau ou du pointeur attend que vous le déverrouilliez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac がロックされている間も、エージェントはアプリのウインドウを見て操作し続けます。デスクトップやポインタが必要な操作は、ロックを解除するまで待ちます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 잠겨 있는 동안에도 에이전트가 앱 윈도우를 계속 보고 사용합니다. 데스크탑이나 포인터가 필요한 작업은 잠금을 해제할 때까지 기다립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 锁定时，代理仍可看到并使用 App 窗口。需要桌面或指针的操作会等你解锁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 鎖定時，代理仍可看見並使用 App 視窗。需要桌面或指標的動作會等你解鎖。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.whileLocked.summary": {
+      "comment": "One-line summary of the Keep Working While Locked setting, shown in search and the command palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح للوكلاء استخدام نوافذ التطبيقات أثناء قفل الـ Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können App-Fenster nutzen, während der Mac gesperrt ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents use app windows while the Mac is locked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite a los agentes usar ventanas de apps con el Mac bloqueado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet aux agents d’utiliser les fenêtres des apps quand le Mac est verrouillé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のロック中もエージェントがアプリのウインドウを使えるようにします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac이 잠겨 있어도 에이전트가 앱 윈도우를 사용할 수 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理在 Mac 锁定时使用 App 窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理在 Mac 鎖定時使用 App 視窗"
+          }
+        }
+      }
+    },
     "settings.default.neverDiscard": {
       "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
       "extractionState": "manual",

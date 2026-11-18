@@ -123,7 +123,7 @@ extension SettingsSchema {
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
-        "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
+        "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly, "computerUse.whileLocked": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.

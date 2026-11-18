@@ -11,6 +11,9 @@ extension ComputerUseSettings {
     /// `computerUse.livePreview`.
     public nonisolated static let livePreviewPath = ["computerUse", "livePreview"]
     public nonisolated static let livePreviewDefault = true
+    /// `computerUse.whileLocked`: Off by default. On, the helper runs calls to one app's window (its pid and window_id) while the screen is locked; calls that use the desktop, the pointer or the frontmost app are still refused (cmuxterm-hq docs/design/locked-screen-computer-use.md).
+    public nonisolated static let whileLockedPath = ["computerUse", "whileLocked"]
+    public nonisolated static let whileLockedDefault = false
 }
 
 extension FreeModelSettings {
@@ -131,6 +134,17 @@ nonisolated enum MachineSettingsSchema {
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.livePreviewDefault),
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
+            ),
+            SettingDescriptor(
+                ComputerUseSettings.whileLockedPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.whileLocked", "Keep Working While Locked"),
+                help: SettingsText.keyed("settings.computerUse.whileLocked.help", "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."),
+                summary: SettingsText.keyed("settings.computerUse.whileLocked.summary", "Lets agents use app windows while the Mac is locked"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.whileLockedDefault),
+                keywords: ["computer use", "locked", "lock screen", "screen lock", "background", "while locked"]
             ),
         ]
     }

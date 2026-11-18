@@ -16,12 +16,14 @@ import { SettingRow } from "./SettingRow";
 export const COMPUTER_USE_ENABLED = "computerUse.enabled";
 const COMPUTER_USE_DRIVER = "computerUse.driver";
 const COMPUTER_USE_LIVE_PREVIEW = "computerUse.livePreview";
+const COMPUTER_USE_WHILE_LOCKED = "computerUse.whileLocked";
 
 /** The schema rows the card draws itself. */
 export const COMPUTER_USE_ROWS: ReadonlySet<string> = new Set([
   COMPUTER_USE_ENABLED,
   COMPUTER_USE_DRIVER,
   COMPUTER_USE_LIVE_PREVIEW,
+  COMPUTER_USE_WHILE_LOCKED,
 ]);
 
 function helperText(state: ComputerUseState): string {
@@ -121,6 +123,7 @@ export function ComputerUseCard({ focus = null }: { focus?: string | null }) {
           grant("screenRecording", state.screen_recording, "palette.computerUse.screenRecording")}
         {row(COMPUTER_USE_DRIVER)}
         {row(COMPUTER_USE_LIVE_PREVIEW)}
+        {row(COMPUTER_USE_WHILE_LOCKED)}
       </div>
     </section>
   );
