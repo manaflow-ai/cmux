@@ -779,6 +779,218 @@ exit 0
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": '{"_dead":[]}'}), 1)
 
 
+class RawLabelVars(unittest.TestCase):
+    """RAW_LABEL_VARS leave a dead label with the pools and go back when it recovers (2026-11-18: LINUX_BUILD_RUNNER
+    and LINUX_RUNNER_DARWIN_CROSS stayed on a dead blacksmith-32vcpu-ubuntu-2404, about 1,706 jobs queued there)."""
+
+    NOW = dt.datetime(2026, 11, 18, 4, 30, tzinfo=dt.timezone.utc)
+    DEAD32 = "blacksmith-32vcpu-ubuntu-2404"
+    LIVE16 = "blacksmith-16vcpu-ubuntu-2404"
+    SIZES = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+             "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+
+    def switch(self, variables, stalled, now):
+        states = {label: ("stalled" if label in stalled else "started") for label in self.SIZES}
+        return Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health(states, checked=now)), **variables})
+
+    def run_pass(self, switch, pools_value, now):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        out = StringIO()
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health(
+            json.loads(switch.variables[runner_pools.HEALTH_VARIABLE])["labels"], checked=now))
+        switch.writes.clear()
+        with redirect_stdout(out):
+            code = runner_pools.main([], {"RUNNER_POOLS": pools_value}, api=Main.Api(None), switch=switch, now=now)
+        self.assertEqual(code, 0)
+        written = dict(switch.writes)
+        return written, json.loads(written.get("RUNNER_POOLS", pools_value)), out.getvalue()
+
+    def outage(self):
+        return self.switch({
+            "LINUX_RUNNER": self.LIVE16,
+            "LINUX_BUILD_RUNNER": self.DEAD32,
+            "LINUX_RUNNER_DARWIN_CROSS": self.DEAD32,
+            "CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404",
+            "CI_COMPILE_CHECK_GATEWAY": "glaeda-gateway-xcode-26.6",
+            "LINUX_ARM64_RUNNER": "ubuntu-24.04-arm",
+        }, {self.DEAD32}, self.NOW)
+
+    def test_a_dead_label_moves_the_variable_and_records_its_home(self) -> None:
+        switch = self.outage()
+        written, value, out = self.run_pass(switch, "", self.NOW)
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.LIVE16)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY], {
+            "LINUX_BUILD_RUNNER": {"home": self.DEAD32, "to": self.LIVE16},
+            "LINUX_RUNNER_DARWIN_CROSS": {"home": self.DEAD32, "to": self.LIVE16}})
+        self.assertIn(f"::warning title=Runner pools::LINUX_BUILD_RUNNER: {self.DEAD32} -> {self.LIVE16}", out)
+        self.assertIn(f"::warning title=Runner pools::LINUX_RUNNER_DARWIN_CROSS: {self.DEAD32} -> {self.LIVE16}", out)
+        # The next pass, still dead, moves nothing and keeps the homes.
+        again, kept, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertEqual(set(again) - {"RUNNER_POOLS"}, set())
+        self.assertEqual(kept[runner_pools.RAW_HOME_KEY], value[runner_pools.RAW_HOME_KEY])
+
+    def test_recovery_moves_it_back_and_then_forgets_the_home(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        later = self.NOW + dt.timedelta(minutes=10)
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health({label: "started" for label in self.SIZES}))
+        written, value, out = self.run_pass(switch, runner_pools.render(value), later)
+        self.assertNotIn(self.DEAD32, value["_dead"])
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.DEAD32)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.DEAD32)
+        self.assertIn(f"LINUX_BUILD_RUNNER: {self.LIVE16} -> {self.DEAD32} ({self.DEAD32} takes jobs again", out)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=10))
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+
+    def test_a_variable_on_a_live_label_is_never_touched(self) -> None:
+        switch = self.outage()
+        written, value, _ = self.run_pass(switch, "", self.NOW)
+        for name in ("CI_TRUSTED_RUNNER", "CI_COMPILE_CHECK_GATEWAY", "LINUX_ARM64_RUNNER", "CI_CONTROL_RUNNER"):
+            self.assertNotIn(name, written)
+            self.assertNotIn(name, value[runner_pools.RAW_HOME_KEY])
+
+    def test_a_variable_set_by_hand_to_a_non_pool_value_is_left_alone(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        switch.variables["LINUX_BUILD_RUNNER"] = "ubuntu-24.04"
+        written, value, out = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertNotIn("LINUX_BUILD_RUNNER", value[runner_pools.RAW_HOME_KEY])
+        self.assertIn("LINUX_BUILD_RUNNER=ubuntu-24.04 was set by hand", out)
+        # Nor is one a person set to another live pool size, even once its old home recovers.
+        switch.variables["LINUX_RUNNER_DARWIN_CROSS"] = "blacksmith-8vcpu-ubuntu-2404"
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health({label: "started" for label in self.SIZES}))
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=20))
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+
+    def stall(self, switch, *stalled):
+        switch.variables[runner_pools.HEALTH_VARIABLE] = json.dumps(health(
+            {label: ("stalled" if label in stalled else "started") for label in self.SIZES}))
+
+    def test_a_person_setting_the_var_while_its_home_is_dead_keeps_their_value(self) -> None:
+        # cmux#45915 F1: only the values the writer recorded are its own; a hand-set value is never written over,
+        # not while the home is dead and not once it recovers, and a dead one included.
+        dead4 = "blacksmith-4vcpu-ubuntu-2404"
+        switch = self.outage()
+        self.stall(switch, self.DEAD32, dead4)
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        self.assertEqual(switch.variables["LINUX_BUILD_RUNNER"], self.LIVE16)
+        switch.variables["LINUX_BUILD_RUNNER"] = "blacksmith-8vcpu-ubuntu-2404"
+        switch.variables["LINUX_RUNNER_DARWIN_CROSS"] = dead4
+        later = self.NOW + dt.timedelta(minutes=10)
+        written, value, out = self.run_pass(switch, runner_pools.render(value), later)
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        homes = value.get(runner_pools.RAW_HOME_KEY, {})
+        self.assertNotIn("LINUX_BUILD_RUNNER", homes)
+        self.assertEqual(homes["LINUX_RUNNER_DARWIN_CROSS"], {"hand": dead4})
+        self.assertIn(f"LINUX_RUNNER_DARWIN_CROSS={dead4} was set by hand", out)
+        # Still dead: the person's dead label stays.
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=10))
+        self.assertEqual(set(written) - {"RUNNER_POOLS"}, set())
+        # Every size recovers: nothing is restored over either person's value, and the hand mark goes.
+        self.stall(switch)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), later + dt.timedelta(minutes=20))
+        self.assertEqual(set(written) - {"RUNNER_POOLS", "LINUX_RUNNER"}, set())
+        self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+        self.assertEqual((switch.variables["LINUX_BUILD_RUNNER"], switch.variables["LINUX_RUNNER_DARWIN_CROSS"]),
+                         ("blacksmith-8vcpu-ubuntu-2404", dead4))
+
+    def test_a_substitute_that_dies_too_is_replaced_and_the_home_still_comes_back(self) -> None:
+        switch = self.outage()
+        _, value, _ = self.run_pass(switch, "", self.NOW)
+        self.stall(switch, self.DEAD32, self.LIVE16)
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY]["LINUX_BUILD_RUNNER"],
+                         {"home": self.DEAD32, "to": "blacksmith-8vcpu-ubuntu-2404", "was": self.LIVE16})
+        written, value, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=20))
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(value[runner_pools.RAW_HOME_KEY]["LINUX_BUILD_RUNNER"],
+                         {"home": self.DEAD32, "to": "blacksmith-8vcpu-ubuntu-2404"})
+        self.stall(switch)
+        written, _, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=30))
+        self.assertEqual(written["LINUX_BUILD_RUNNER"], self.DEAD32)
+
+    def test_a_variable_the_overflow_switch_changed_is_left_to_it(self) -> None:
+        switch = self.outage()
+        switch.variables[runner_pools.OVERFLOW_RECORD] = json.dumps(
+            {"changed": {"LINUX_BUILD_RUNNER": {"before": self.DEAD32, "after": self.LIVE16}}})
+        written, value, _ = self.run_pass(switch, "", self.NOW)
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+
+    def test_an_unreadable_variable_is_not_moved(self) -> None:
+        switch = self.outage()
+        real = switch.get_variable
+
+        def get_variable(name):
+            if name == "LINUX_BUILD_RUNNER":
+                raise RuntimeError("GitHub API GET (502)")
+            return real(name)
+
+        switch.get_variable = get_variable
+        written, _, _ = self.run_pass(switch, "", self.NOW)
+        self.assertNotIn("LINUX_BUILD_RUNNER", written)
+        self.assertEqual(written["LINUX_RUNNER_DARWIN_CROSS"], self.LIVE16)
+
+    def test_the_substitute_is_the_same_image_largest_live_size_at_most_the_dead_one(self) -> None:
+        pools = runner_pools.load_pools()
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32}, pools), self.LIVE16)
+        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, {self.DEAD32, self.LIVE16}, pools),
+                         "blacksmith-8vcpu-ubuntu-2404")
+        # Nothing smaller is live: the next size up.
+        self.assertEqual(runner_pools.raw_substitute("blacksmith-2vcpu-ubuntu-2404", {"blacksmith-2vcpu-ubuntu-2404"},
+                                                     pools), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
+        self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
+
+    def test_the_pinned_spill_path_makes_the_same_moves(self) -> None:
+        # Production runs main() through linux_pool_spill.py: a switch that records writes, then the spill re-parses
+        # the recorded RUNNER_POOLS (parse_value()) and writes mirror_writes() over _live() itself.
+        switch = self.outage()
+        self.run_pass(switch, "", self.NOW)
+        recorded = dict(switch.writes)
+        value, dropped = runner_pools.parse_value(recorded["RUNNER_POOLS"], runner_pools.load_pools())
+        self.assertEqual(dropped, [])
+        self.assertIn(runner_pools.RAW_HOME_KEY, value)
+        for name in ("LINUX_BUILD_RUNNER", "LINUX_RUNNER_DARWIN_CROSS"):
+            switch.variables[name] = self.DEAD32  # the recorder never wrote them
+        live, record, readable = runner_pools._live(switch, {})
+        self.assertTrue(readable)
+        writes = dict(runner_pools.mirror_writes(value, live, record=record))
+        self.assertEqual((writes["LINUX_BUILD_RUNNER"], writes["LINUX_RUNNER_DARWIN_CROSS"]),
+                         (self.LIVE16, self.LIVE16))
+
+    def test_malformed_homes_are_dropped(self) -> None:
+        pools = runner_pools.load_pools()
+        for bad in ([], {"LINUX_BUILD_RUNNER": "x"}, {"NOT_A_RAW_VAR": {"home": self.DEAD32, "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"home": "blacksmith-6vcpu-macos-26", "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"hand": self.DEAD32, "to": self.LIVE16}},
+                    {"LINUX_BUILD_RUNNER": {"home": self.DEAD32, "to": self.LIVE16, "was": "ubuntu-24.04"}}):
+            value, dropped = runner_pools.parse_value(json.dumps({runner_pools.RAW_HOME_KEY: bad}), pools)
+            self.assertNotIn(runner_pools.RAW_HOME_KEY, value)
+            self.assertTrue(dropped)
+
+    def test_every_variable_a_main_workflow_reads_ahead_of_a_linux_label_is_covered(self) -> None:
+        # The detector for this class: `vars.X || ...` in an expression that falls back to a Blacksmith Linux label
+        # or a Linux pool. A new such variable must join RAW_LABEL_VARS (or be the mirror or a routing record).
+        pattern = re.compile(r"vars\.([A-Z0-9_]+) \|\|")
+        linux = re.compile(r"blacksmith-\d+vcpu-ubuntu|RUNNER_POOLS\)\.(?:linux|promotion)")
+        exempt = {*runner_pools.MIRRORS, runner_pools.VARIABLE, runner_pools.OVERFLOW_RECORD}
+        found = set()
+        for path in sorted((ROOT / ".github").rglob("*.y*ml")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if linux.search(line):
+                    found |= {name for name in pattern.findall(line) if not name.startswith("MACOS_")}
+        self.assertTrue(found)
+        self.assertEqual(sorted(found - exempt - set(runner_pools.RAW_LABEL_VARS)), [])
+        self.assertFalse([name for name in runner_pools.RAW_LABEL_VARS if "MACOS" in name])
+
+
 if __name__ == "__main__":
     unittest.main()
 
