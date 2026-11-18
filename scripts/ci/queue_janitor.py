@@ -1475,6 +1475,14 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
     return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
 
 
+def spent_until(limits: Mapping[str, Mapping[str, int]]) -> tuple[str, str] | None:
+    """(resource, reset as HH:MM:SSZ) for a resource whose budget the last response left at 0, else None."""
+    for resource, values in sorted(limits.items()):
+        if values.get("remaining") == 0 and "reset" in values:
+            return resource, dt.datetime.fromtimestamp(values["reset"], UTC).strftime("%H:%M:%SZ")
+    return None
+
+
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
@@ -1679,7 +1687,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         print(render_rate_limits(github.rate_limits), file=sys.stderr)
-        return 1
+        spent = spent_until(github.rate_limits)
+        if spent is None:
+            return 1
+        # A spent budget is not a broken sweep: the rescue and janitor sweeps share the App token's 12,500 an hour,
+        # and run 44278071524 failed on it (2026-11-18). Nothing was cancelled; the next sweep after the reset runs.
+        skipped = f"## CI queue janitor\n\nSkipped: the token's {spent[0]} API budget is spent until {spent[1]}. " \
+                  f"Nothing was read past the first refusal and nothing was cancelled.\n"
+        print(skipped)
+        if args.summary:
+            with args.summary.open("a", encoding="utf-8") as handle:
+                handle.write(skipped)
+        return 0
 
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run

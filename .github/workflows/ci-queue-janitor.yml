@@ -27,6 +27,10 @@ name: CI queue janitor
 # cancelled under their own cap (MAX_LINUX_ORPHAN_CANCELS); nightly, DEV and
 # promote runs are never read or cancelled.
 #
+# A read refused because the token's API budget is spent ends the sweep with
+# a "Skipped: ... spent until <reset>" summary and exit 0: nothing was
+# cancelled, and the next sweep after the reset runs.
+#
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.

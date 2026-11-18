@@ -1228,6 +1228,42 @@ class OrphanSweepTests(unittest.TestCase):
                 code = janitor.main(argv)
             return code, fake, summary.read_text(), (stuck, ghost)
 
+    def test_a_spent_budget_skips_the_sweep_instead_of_failing_it(self):
+        reset = int((NOW + dt.timedelta(minutes=7)).timestamp())
+
+        def refuse(method, path, body=None):
+            fake.rate_limits["core"] = {"limit": 12500, "remaining": 0, "used": 12500, "reset": reset}
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed (403)")
+
+        fake = FakeGitHub({})
+        fake.request = refuse
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            text = summary.read_text()
+        self.assertIn("Skipped: the token's core API budget is spent until", text)
+        self.assertIn((NOW + dt.timedelta(minutes=7)).strftime("%H:%M:%SZ"), text)
+
+    def test_a_refusal_with_budget_left_still_fails_the_sweep(self):
+        def refuse(method, path, body=None):
+            fake.rate_limits["core"] = {"limit": 12500, "remaining": 40, "used": 12460, "reset": 0}
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed (403)")
+
+        fake = FakeGitHub({})
+        fake.request = refuse
+        with tempfile.TemporaryDirectory() as temp:
+            argv = ["--repo", "manaflow-ai/cmux", "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 1)
+
     def test_dry_run_cancels_nothing_and_reports_orphans(self):
         code, fake, text, (stuck, ghost) = self.sweep("--dry-run")
         self.assertEqual(code, 0)
