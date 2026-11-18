@@ -58,23 +58,21 @@ class FastChecksFailoverTests(unittest.TestCase):
             '["blacksmith-8vcpu-ubuntu-2404","self-hosted"]',
         ):
             with self.subTest(requested=requested):
-                actual = (evaluate_runs_on(parse_expression(selector[3:-2]), {"inputs.runner": requested})
+                actual = (evaluate_runs_on(parse_expression(selector[3:-2]),
+                                           {"inputs.runner": requested, "vars.CI_TRUSTED_RUNNER": ""})
                           if selector.startswith("${{") else selector)
                 # Only the smallest measured Blacksmith size: a picker's re-run
                 # route is never 16 or 32 vCPU.
-                if requested == "blacksmith-8vcpu-ubuntu-2404":
-                    self.assertEqual(actual, requested)
-                else:
-                    # The live 2 vCPU pool, never a GitHub-hosted label (2026-11-18).
-                    self.assertNotEqual(actual, requested)
-        self.assertTrue(selector.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"), selector)
+                # The trusted selector's ephemeral default, never a GitHub-hosted label (2026-11-18).
+                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "blacksmith-4vcpu-ubuntu-2404"
+                self.assertEqual(actual, expected)
 
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
         selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
         self.assertEqual(runner_label_errors(selector), [])
         for unsafe in (
             selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
-            selector.replace("fromJSON(vars.RUNNER_POOLS).linux_2", "'self-hosted'"),
+            selector.replace("|| 'blacksmith-4vcpu-ubuntu-2404'", "|| 'self-hosted'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
             # A picker's re-run route is the smallest measured size only.
@@ -146,7 +144,7 @@ class FastChecksFailoverTests(unittest.TestCase):
         for after in (" || 'ubuntu-24.04' }}", " || 'macos-26' }}"):
             with self.subTest(change=after):
                 result = self.run_hosted_guard(
-                    admission_change=(" || fromJSON(vars.RUNNER_POOLS).linux_2 }}", after))
+                    admission_change=(" || 'blacksmith-4vcpu-ubuntu-2404' }}", after))
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("FAIL:", result.stdout)
 
