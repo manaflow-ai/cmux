@@ -167,7 +167,7 @@ import Foundation
         guard let placed = OptimisticRules.split(screen, target: target, direction: direction, ratio: ratio, leaf: leaf,
                                                  splitID: provisional.splitID, column: provisional.column, row: provisional.row,
                                                  around: provisional.around, before: provisional.before,
-                                                 targetPane: store.panesByHandle[target])
+                                                 targetPane: store.panesByHandle[target], respondWith: store.benchOptimisticResponder)
         else { return nil }
         // With the daemon's pane already listed, only the layout is the overlay's.
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,

@@ -40,7 +40,7 @@ import Foundation
     /// places `leaf`.
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
                       splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool,
-                      targetPane: PaneModel? = nil) -> Placed? {
+                      targetPane: PaneModel? = nil, respondWith: ((Data) -> Data?)? = nil) -> Placed? {
         let layout = screen.layout, columns = screen.columns
         // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
         let wraps = column == nil && row == nil ? around : nil
@@ -76,7 +76,8 @@ import Foundation
                                    column: column.map { WireColumnSpec(handle: $0.handle.rawValue, width: $0.width, left: $0.left) },
                                    row: row.map { WireRowSpec(handle: $0.handle.rawValue, height: $0.height) },
                                    around: around, before: before ? true : nil, facts: facts, spots: spots)
-        guard let patch: Patch = call(request), let shown = apply(patch, layout: layout, columns: columns, spots: spots) else { return nil }
+        guard let patch: Patch = call(request, respondWith: respondWith),
+              let shown = apply(patch, layout: layout, columns: columns, spots: spots) else { return nil }
         return Placed(layout: shown.layout, columns: shown.columns, columnsEdited: shown.columnsEdited, change: shown.change,
                       paneAt: patch.paneAt ?? panes.count)
     }
@@ -267,8 +268,11 @@ import Foundation
 
     /// Encodes `request`, runs it, and decodes the answer; nil for the rules' "shows nothing" (`null`) and for a
     /// call that failed (an encoding the operation refuses), which shows nothing either.
-    private static func call<Request: Encodable, Answer: Decodable>(_ request: Request) -> Answer? {
-        guard let data = try? JSONEncoder().encode(request), let answer = respond(data) else { return nil }
+    /// `respondWith` (bench-only ref, never in a PR) answers in place of the app FFI's `optimistic` while the pinned
+    /// release predates the patch contract; nil uses the FFI.
+    private static func call<Request: Encodable, Answer: Decodable>(_ request: Request,
+                                                                  respondWith: ((Data) -> Data?)? = nil) -> Answer? {
+        guard let data = try? JSONEncoder().encode(request), let answer = (respondWith ?? respond)(data) else { return nil }
         return (try? JSONDecoder().decode(Answer?.self, from: answer)) ?? nil
     }
 
