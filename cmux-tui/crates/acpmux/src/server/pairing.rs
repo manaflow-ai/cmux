@@ -314,7 +314,9 @@ fn viewer_grant(conn: &Conn, m: &str, params: &Value) -> Result<Value, RpcError>
     };
     Ok(answer.unwrap_or_else(|refused| {
         let mut value = refused.json();
-        value["admitted"] = json!(false);
+        if let Some(object) = value.as_object_mut() {
+            object.insert("admitted".into(), json!(false));
+        }
         value
     }))
 }
