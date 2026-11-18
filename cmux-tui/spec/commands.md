@@ -11482,7 +11482,7 @@ want's `len`), `{status:"changed", size, mtime_ns, ctime_ns, mode}`,
 | `projfs.next` | the Mac, over the link | `{mount, wait_ms}` | `{batch: {id, wants} \| null}` | `projfs.limit` |
 | `projfs.answer` | the Mac, over the link | `{mount, batch, results}` (`batch` is the id `projfs.next` gave) | `{answered}` | `projfs.unknown_batch` |
 | `projfs.status` | either | `{mount?}` | `{mounts: [{mount, queued, batches_out, polling, fetching, bytes_answered, last_answer_age_ms}]}` | |
-| `projfs.mount` | the Mac, over the link | `{mount, manifest, at, state}` | the helper's first line as it printed it: `{ok:true, mount, at, entries, bytes, ms}` or `{ok:false, code, message}` | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
+| `projfs.mount` | the Mac, over the link | `{mount, manifest, at, state}` | the helper's first line as it printed it: `{ok:true, mount, at, entries, bytes, git, ms}` (`git`: whether the helper made `core.checkStat=minimal` and `core.trustctime=false` hold for the machine's user: `set`, `kept` or `unavailable`) or `{ok:false, code, message}` | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
 | `projfs.unmount` | the Mac, over the link | `{at, state}` | the helper's `unmount` line | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
 
 `wait_ms` is capped at 25 s. `projfs.fetch` answers when every want was

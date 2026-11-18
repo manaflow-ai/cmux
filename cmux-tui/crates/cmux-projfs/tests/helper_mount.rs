@@ -245,6 +245,7 @@ fn the_helper_mounts_reads_writes_and_unmounts() {
     eprintln!("mount: {ready}");
     assert_eq!(ready["ok"], true, "{ready}");
     assert_eq!(ready["entries"], 9, "root, 4 files, sub and its 3 files");
+    assert!(matches!(ready["git"].as_str(), Some("set" | "kept" | "unavailable")), "{ready}");
     assert!(mounted(&at) && mounted(&state.join("lower")));
 
     // Metadata needs no fetch at all.

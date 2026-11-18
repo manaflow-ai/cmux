@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::daemon::DaemonSource;
+use super::git_settings;
 use super::overlay::{self, Undone};
 use super::state::{self, Paths, mount_at};
 use super::{Failure, Opts, print_line};
@@ -159,11 +160,13 @@ pub(super) fn mount(args: &MountArgs, out: &mut dyn Write) -> Result<(), Failure
             });
         }
     };
+    // Best effort, never a failure: `git status` must not rehash (and fault) the whole tree.
+    let git = git_settings::ensure().word();
     print_line(
         out,
         &json!({
             "ok": true, "mount": args.mount, "at": args.at, "entries": entries, "bytes": total,
-            "ms": { "manifest": t_manifest, "lower": t_lower, "overlay": t_overlay, "total": ms(started) },
+            "git": git, "ms": { "manifest": t_manifest, "lower": t_lower, "overlay": t_overlay, "total": ms(started) },
         }),
     );
     serve(args, &core, mounted, &stop);

@@ -4,9 +4,11 @@
 //! - `mount --mount ID --manifest FILE --at DIR --state DIR [--socket PATH]`: mounts the
 //!   projection read-only at `STATE/lower` (FUSE, bytes fetched through the session daemon's
 //!   `projfs.fetch`), puts an overlay over it at `DIR` (`sudo -n mount -t overlay`, upper layer
-//!   `STATE/upper`), prints one JSON line `{"ok":true,"mount","at","entries","bytes","ms"}` and
-//!   serves in the foreground until SIGTERM, SIGINT, or `unmount`. A failure before that line
-//!   undoes what was done and prints `{"ok":false,"code","message"}`.
+//!   `STATE/upper`), makes git's stat checks fit a projection for the machine's user
+//!   (`core.checkStat=minimal`, `core.trustctime=false`, best effort: `git_settings`), prints
+//!   one JSON line `{"ok":true,"mount","at","entries","bytes","git","ms"}` (`git`: `set`, `kept`
+//!   or `unavailable`) and serves in the foreground until SIGTERM, SIGINT, or `unmount`. A
+//!   failure before that line undoes what was done and prints `{"ok":false,"code","message"}`.
 //! - `unmount --at DIR --state DIR`: stops the helper serving that state, unmounts the overlay
 //!   and the lower (idempotent); the upper layer and the cache stay.
 //! - `upper --state DIR`: the overlay's upper layer as a change set (JSON).
@@ -20,6 +22,8 @@
 
 #[cfg(target_os = "linux")]
 mod daemon;
+#[cfg(target_os = "linux")]
+mod git_settings;
 #[cfg(target_os = "linux")]
 mod overlay;
 #[cfg(target_os = "linux")]
