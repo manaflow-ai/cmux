@@ -69,6 +69,8 @@ mod codex_auth_file;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
+/// A Codex CLI ChatGPT login's access token for a Cloud chat (cmux#45774).
+pub mod codex_login_access;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
