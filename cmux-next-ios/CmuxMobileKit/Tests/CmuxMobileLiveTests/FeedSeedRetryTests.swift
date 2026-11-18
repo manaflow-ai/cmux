@@ -84,7 +84,9 @@ import Testing
     /// and nothing was logged.
     @Test func aSeedThatThrowsThenSucceedsEndsWithTheCardAndOneLogRecord() async throws {
         let failures = Failures(1)
-        let (_, store, telemetry, journal) = try await Self.wired(failures)
+        // The hub is held for the whole test, as the coordinator holds it: its retry holds it weakly.
+        let (hub, store, telemetry, journal) = try await Self.wired(failures)
+        defer { withExtendedLifetime(hub) {} }
         await Self.settle { store.item(id: "ask-perm") != nil }
         #expect(store.item(id: "ask-perm")?.needsYou == true)
         #expect(store.item(id: LiveFeed.unreadAsksID("s1")) == nil)
@@ -118,7 +120,8 @@ import Testing
     /// While the read fails, the Needs you row says why and that it is read again: no empty card.
     @Test func whileTheReadFailsTheRowSaysWhy() async throws {
         let failures = Failures(100)
-        let (_, store, _, _) = try await Self.wired(failures, delays: [.seconds(60)])
+        let (hub, store, _, _) = try await Self.wired(failures, delays: [.seconds(60)])
+        defer { withExtendedLifetime(hub) {} }
         await Self.settle { store.item(id: LiveFeed.unreadAsksID("s1")) != nil }
         let row = try #require(store.item(id: LiveFeed.unreadAsksID("s1")))
         #expect(row.needsYou)
@@ -131,7 +134,8 @@ import Testing
     /// Retries are bounded: after the last one the row says how to get it, and reads stop.
     @Test func retriesAreBounded() async throws {
         let failures = Failures(100)
-        let (_, store, telemetry, journal) = try await Self.wired(failures, delays: [.milliseconds(5), .milliseconds(5)])
+        let (hub, store, telemetry, journal) = try await Self.wired(failures, delays: [.milliseconds(5), .milliseconds(5)])
+        defer { withExtendedLifetime(hub) {} }
         await Self.settle { store.item(id: LiveFeed.unreadAsksID("s1"))?.markdown.hasSuffix("Retrying.") == false }
         try? await Task.sleep(for: .milliseconds(100)) // test: no read after the last retry
         #expect(failures.reads == 3)
