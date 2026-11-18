@@ -126,7 +126,7 @@ refusal message of the app so far, the last 100).
       `file`. So does the movie of a film that is `not_run` after its recorder started (a key that the app refused).
 
 The animation speed: the 6 films of the group `cap` have a speed (`fast`, the app's default, or `normal`; an id with
-`.N` is at `normal`). For such a film the script reads the speed that the app has (`speed_before`), sets the film's
+`.N` is at `normal`), and so do the 8 films of the group `pages` (`fast`). For such a film the script reads the speed that the app has (`speed_before`), sets the film's
 speed by `debug.motion` `speed` before the film's set-up (in the app's memory only: the app writes no settings
 file), and reads the app's reply into the row: its speed word (`speed`), and if a pane motion animates at all
 (`reduce_motion`, `animations_enabled`, `pane_animations`, `disabled_categories`). It makes no film when the app
@@ -145,7 +145,10 @@ of the app's settings file in the film puts the file's speed back), and the time
 speed (`source_ms`). The record has no name for an act: by a read of the app's source, each pane motion (a split, a
 close, a zoom, its way back) is one span with the name `layout`, from its first frame to rest, which can be later
 than its visible end; a zoom that is turned before its rest stays ONE span; the list is in the order of each span's
-end and has the spans of each other animator too (a tab strip, the sidebar).
+end and has the spans of each other animator too (a tab strip, the sidebar). A pane motion that is at rest in its
+first frame is a span too (the app opens the span when the motion starts and closes it at the first frame that says
+`at rest`), so the count of `layout` spans says how many motions the app started, not that a pane moved for more
+than one frame: `layout_ms` in the row has the `ms` of each `layout` span, in the record's order.
 The turned zoom (`T-ZT`) is 2 zoom keys with the half of the zoom's time ASKED between them (`gap_asked_ms`); no row
 has the true gap. In the `activate` form it is one sequence on the app's clock, and the app posts each key when its
 main thread gets to it. In the `one-key` form it is 2 calls on this script's clock: `key_down_ms` has the time of
@@ -156,10 +159,18 @@ none of these calls.
   pane-motion-films.py --films list
 --films: ids with commas, or `kinds` (9 films: T, B, A by D, SD, Z), `mixed`, `plist` (P03 to P23), `extra`
 (X01 to X16: each pane action with a default key that has no other film), `cap` (6 films: the split with its close,
-the zoom and the turned zoom, each at `fast` and at `normal`), `all`. Exit 0 = each film asked for is
+the zoom and the turned zoom, each at `fast` and at `normal`), `pages` (8 films: a split with its close, and a zoom,
+on a pane that shows a Home tab (H), a Markdown file (D), Settings (S), and on the Chief's tab in the app's own Home
+workspace (C): the script opens each page by the app's action and makes no film when the pane does not show it; for
+C it makes no workspace, and it closes again what a film left in the Home workspace), `all`. Exit 0 = each film asked for is
 made; 2 = some are made and some are not; 1 = the preflight failed, or no film is made; 3 = not run (no app, an id
 that is not known). Only `made` counts: a film that is `not_made` is not made, and a film with the word `made, the
 new window not checked in the movie` is not counted.
+
+films.json has `build`: the form of the app's build, as the entry script read it from the reload's log
+(build-flags.py; --build FILE): the reload's `bench configuration` line, the optimization settings of the build's
+command line, and the count of the Swift compiler's command lines with each optimization level. With no file it
+says `not_read`.
 """
 import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
@@ -207,7 +218,18 @@ ACT_ONLY = "act check: the refusal list, the dialogs and the pane count only"
 NO_NEW_PANE = "the split made no pane (the pane with the focus is not a new pane), so the close was not sent"
 SETUPS = {"T": ("row", ("redraw", "stream")), "B": ("row", ("page", "page")), "A": ("row", ("chat", "chat")),
           "M": ("row", ("redraw", "page", "chat")), "P": ("grid", ("redraw", "stream", "page", "chat")),
-          "R": ("row", ("redraw", "stream", "shell", "shell", "shell"))}
+          "R": ("row", ("redraw", "stream", "shell", "shell", "shell")),
+          # The group `pages`: a pane that shows one of the app's own pages, beside a terminal with a program. `C` makes
+          # no workspace: the Chief's tab is a tab that the app itself puts into its Home workspace.
+          "H": ("row", ("home", "redraw")), "D": ("row", ("markdown", "redraw")), "S": ("row", ("settings", "redraw")),
+          "C": ("home", ("chief",))}
+# A pane kind that is one of the app's own pages: (the action that opens it, the page's id in the layout), by a read
+# of the app's source. `home.tab` and `openSettings` take no target: they open in the pane with the focus.
+APP_PAGES = {"home": ("home.tab", "home-tab"), "markdown": ("openMarkdownFile", "markdown"), "settings": ("openSettings", "settings")}
+PAGE_SETUPS = {"H": "a Home tab", "D": "a Markdown file", "S": "Settings", "C": "the Chief's tab in the Home workspace"}
+MARKDOWN = "# Pane motion films\n\n" + "".join(
+    f"## Part {part}\n\n" + "A line of text for the film of a pane that shows a Markdown file. " * 4 + "\n\n- one\n- two\n- three\n\n" for part in range(1, 13))
+HOME_DOCK = "not asked: the app's own Home workspace"
 MOCK_SETUPS = "AM"  # a film of these needs a chat thread that streams: only a launch with the page mock has one
 KINDS = {"T": "2 terminals with a program", "B": "2 loaded browser pages", "A": "2 chats with a thread that streams",
          "M": "a terminal, a page and a chat"}
@@ -329,8 +351,14 @@ FILMS += [made for speed, mark in (("fast", ""), ("normal", ".N")) for half in (
     film("T-ZT" + mark, f"Zoom turned back at its half ({half} ms asked from key to key), speed {speed}", "T",
          [K(ZOOM_CHORD, presses=2, gap=half)], speed=speed, springs=("zoom", "unzoom"), layout=(1, 2)))]  # a turned motion can stay ONE span
 CAP = [spec["id"] for spec in FILMS if spec.get("speed")]
+# The films of the group `pages`, after CAP (they are no films of the group `cap`): a split with its close, and a zoom,
+# on a pane that shows one of the app's own pages. Each has the speed `fast` (the app's default) set and read back, so
+# the app records the film's motions: the row has `spans`, and it says `made` only with the 2 `layout` spans of its acts.
+FILMS += [made for kind, name in PAGE_SETUPS.items() for made in (
+    film(f"{kind}-C", f"A split, then a close, on {name}", kind, SPLIT_CLOSE, speed="fast", springs=("split", "paneClose"), layout=(2, 2)),
+    film(f"{kind}-Z", f"Zoom in and out on {name}", kind, ZOOM, speed="fast", springs=("zoom", "unzoom"), layout=(2, 2)))]
 GROUPS = {"kinds": lambda i: i[0] in "TBA" and "-" in i and i not in CAP, "mixed": lambda i: i.startswith("M-"), "plist": lambda i: i[0] == "P",
-          "extra": lambda i: i[0] == "X", "cap": lambda i: i in CAP, "all": lambda i: True}
+          "extra": lambda i: i[0] == "X", "cap": lambda i: i in CAP, "pages": lambda i: i[0] in PAGE_SETUPS and "-" in i, "all": lambda i: True}
 
 
 def key_steps(chord, presses=1, gap_ms=250, repeats=0, delay_ms=0, every_ms=0):
@@ -864,6 +892,7 @@ class Films:
         self.speed_fault = ""  # the words of a film's end that did not give the animation speed back: for each row after it
         self.stop = ""  # why no other film of this launch can be made (a dialog or an overlay that stays over the window)
         self.session = []  # the workspaces that the session's maker made in this launch, in the app's order
+        self.home = None  # in a film of the set-up `C`: (the app's Home workspace, the panes that it had before the film)
         self.st = STRESS.Stress(app.rpc)
         self.program = redraw_program(opts.program)
         self.main_window = next(iter(self.windows()), None)
@@ -920,9 +949,45 @@ class Films:
         box["thread"].start()
         return box
 
+    def chief(self, row):
+        """The set-up `C`: no new workspace. The app itself puts the Chief's tab (a tab of the kind `conversation`) into
+        its Home workspace, and no action opens one. So: the action `home.show`, then the pane with such a tab in the
+        workspace that the window shows, with the focus; returns (workspace, [pane], []). A launch whose Home has no
+        such tab gives no film: the fault's words have the tab kinds of each pane that the read found. A workspace of
+        the session is never taken for the Home workspace."""
+        st, seen = self.st, []
+        row["panes"], row["dock"] = ["chief"], HOME_DOCK
+        reply = st.action("home.show")
+        if isinstance(reply, dict) and reply.get("error"):
+            raise RuntimeError(f"the app refused home.show: {str(reply['error'])[:160]}")
+
+        def found():
+            for space in st.workspaces():
+                if space["id"] in self.session or st.window_showing(space["id"]) is None:
+                    continue
+                panes = st.panes(st.workspace(space["id"]))
+                seen[:] = [[tab.get("kind") for tab in pane.get("tabs") or []] for pane in panes]
+                for pane in panes:
+                    tab = next((tab for tab in pane.get("tabs") or [] if tab.get("kind") == "conversation"), None)
+                    # The tab is the one that its pane shows (a pane with no word of its selected tab has 1 tab here).
+                    if tab and pane.get("selected_tab", tab.get("id")) == tab.get("id"):
+                        return space["id"], pane["id"], {p["id"] for p in panes}, tab.get("title")
+            return None
+        hit = STRESS.wait(found, SHOW_S, step=0.1)
+        if not hit:
+            raise RuntimeError(f"no tab of the kind `conversation` in the workspace that the window shows after home.show, in {SHOW_S} s "
+                               f"(the tab kinds of each of its panes: {seen})")
+        workspace, pane, had, row["chief_tab"] = hit
+        self.home = (workspace, had)
+        st.focus_pane(pane)
+        time.sleep(self.opts.settle)  # the Home workspace is on the screen before the take
+        return workspace, [pane], []
+
     def build(self, spec, row):
         """A new workspace, shown, with the panes of the film's set-up; returns (workspace, pane ids, stream boxes)."""
         st, (layout, kinds) = self.st, SETUPS[spec["setup"]]
+        if layout == "home":
+            return self.chief(row)
         # With the page mock off no chat thread can stream: that pane is the product's New Tab page.
         kinds = row["panes"] = [kind if kind != "chat" or self.mock else "newtab" for kind in kinds]
         workspace = st.new_workspace()
@@ -958,6 +1023,25 @@ class Films:
                 reply = st.action("newTab.page", target=f"pane:{pane}")
                 if not STRESS.wait(lambda: [t for t in st.tabs(workspace, pane) if t.get("id") not in before] or None, 20, step=0.1):
                     raise RuntimeError(f"no New Tab page in 20 s: {str(reply)[:160]}")
+                if shell:
+                    st.action("closeTab", target=f"tab:{shell}", focus=False)
+            elif kind in APP_PAGES:
+                action, page = APP_PAGES[kind]
+                st.focus_pane(pane)  # `home.tab` and `openSettings` open in the pane with the focus
+                before = {t.get("id") for t in st.settled_tabs(workspace, pane)}
+                if kind == "markdown":
+                    path = os.path.join(self.opts.out, "pane-motion-films-page.md")
+                    with open(path, "w") as f:
+                        f.write(MARKDOWN)
+                    reply = st.action(action, {"path": path}, target=f"pane:{pane}")
+                else:
+                    reply = st.action(action)
+                # The layout gives each tab's kind and, for one of the app's pages, the page's id: no film of a pane
+                # that shows another page.
+                if not STRESS.wait(lambda: [t for t in st.tabs(workspace, pane) if t.get("id") not in before and t.get("page") == page] or None, 20, step=0.1):
+                    raise RuntimeError(f"no tab of the page `{page}` in the pane in 20 s after the action {action}; the app's reply: {str(reply)[:160]}; "
+                                       f"the pane's tabs (kind, page): {[(t.get('kind'), t.get('page')) for t in st.tabs(workspace, pane)]}")
+                row.setdefault("pages", []).append(page)
                 if shell:
                     st.action("closeTab", target=f"tab:{shell}", focus=False)
         row["dock"] = "not asked"
@@ -1208,6 +1292,8 @@ class Films:
         if spec.get("layout"):
             (low, high), spans = spec["layout"], row.get("spans")
             row["layout_spans"] = sum(1 for span in spans if span.get("name") == "layout") if isinstance(spans, list) else "not read"
+            if isinstance(spans, list):  # a motion that is at rest in its first frame is a span too: the time of each says it
+                row["layout_ms"] = [span.get("ms") for span in spans if span.get("name") == "layout"]
             if row["layout_spans"] == "not read" or not low <= row["layout_spans"] <= high:
                 faults.append(f"{row['layout_spans']} `layout` spans in the span record: the film's acts make {low if low == high else f'{low} or {high}'}")
         if dialogs:
@@ -1382,8 +1468,30 @@ class Films:
             reply = self.st.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
             if isinstance(reply, dict) and reply.get("error"):
                 left.append(f"a workspace ({str(reply['error'])[:80]})")
+        if self.home:
+            # No film closes the app's Home workspace: a zoom that a film left is taken back, and each pane that a film
+            # left (a split whose close was not sent) is closed tab by tab.
+            (workspace, had), self.home = self.home, None
+            found = self.st.workspace(workspace) or {}
+            replies = [self.st.action(ZOOM_ACTION, target=f"pane:{screen['zoomed_pane']}", focus=False)
+                       for screen in found.get("screens") or [] if screen.get("zoomed_pane")]
+            replies += [self.st.action("closeTab", target=f"tab:{tab.get('id')}", focus=False)
+                        for pane in self.st.panes(found) if pane.get("id") not in had for tab in pane.get("tabs") or []]
+            left += [f"a pane or a zoom of the Home workspace ({str(reply['error'])[:80]})" for reply in replies if isinstance(reply, dict) and reply.get("error")]
         self.st.made.clear()
         return left
+
+
+def build_facts(path):
+    """The report's `build`: the entry script's read of the reload's log (build-flags.py), or why there is none."""
+    if not path:
+        return {"not_read": "no --build file: the entry script gives it"}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError) as error:
+        return {"not_read": f"{path}: {error!r}"}
+    return data if isinstance(data, dict) else {"not_read": f"{path}: not a JSON object"}
 
 
 def main():
@@ -1411,6 +1519,7 @@ def main():
                              "sequences in the key window; one-key: the launcher's launch, each key-down one call; auto: activate, then one-key")
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     parser.add_argument("--budget", type=float, default=0, help="seconds for the whole run; a film with no time left is not_run (0: no bound)")
+    parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for films.json")
     opts = parser.parse_args()
     known = [spec["id"] for spec in FILMS]
     if opts.films == "list":
@@ -1430,7 +1539,7 @@ def main():
     needs_mock = [i for i in wanted if next(s for s in FILMS if s["id"] == i)["setup"] in MOCK_SETUPS]
     plan = [(False, [i for i in wanted if i not in needs_mock]), (True, needs_mock)] if opts.chat_mock == "auto" else [(opts.chat_mock == "1", wanted)]
     report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
-              "alt_screen": "not read: no debug call says if a terminal is on its alternate screen"}
+              "alt_screen": "not read: no debug call says if a terminal is on its alternate screen", "build": build_facts(opts.build)}
     forms = list(LAUNCH_FORMS[opts.launch_form])
     try:
         report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"

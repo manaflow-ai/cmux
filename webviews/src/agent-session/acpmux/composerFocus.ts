@@ -18,6 +18,7 @@ export const COMPOSER_READY_EVENT = "acpmux-composer-ready";
 /// pane's activation that a click raises (the window's `focus`, the host's `focusContent` from
 /// `becomeFirstResponder`) reaches the page just before or just after the press, so an activation
 /// claim waits `ACTIVATION_SETTLE_MS` and is dropped when a press lands within `PRESS_WINDOW_MS`.
+// motion-allow: an activation race window, not a motion
 export const ACTIVATION_SETTLE_MS = 120;
 export const PRESS_WINDOW_MS = 400;
 

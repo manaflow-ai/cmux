@@ -51,6 +51,9 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         self.first_contacts.borrow_mut().push(accept_new_host_key);
         self.exec("true", None)
     }
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec(STRICT_CHECK, None)
+    }
     fn push(&self, _local: &Path, remote: &str) -> Result<()> {
         self.pushes.borrow_mut().push(remote.to_owned());
         Ok(())
@@ -71,6 +74,9 @@ impl<F: Fn(&str, Option<&[u8]>) -> RemoteOut> Remote for Fake<F> {
         Ok(child)
     }
 }
+
+/// What [`Fake`] answers for [`Remote::strict_host_key_check`].
+const STRICT_CHECK: &str = "strict-host-key-check";
 
 fn out(stdout: impl Into<String>) -> RemoteOut {
     RemoteOut { ok: true, stdout: stdout.into(), stderr: String::new() }
@@ -1395,6 +1401,55 @@ fn first_contact_verification_errors_do_not_offer_unknown_key_acceptance() {
         assert!(!fix.contains("accept-new-host-key"), "{fix}");
         assert!(!fix.contains("ssh-keygen -R"), "{fix}");
     }
+}
+
+/// OpenSSH's default policy under BatchMode says only "Host key verification failed." for a
+/// never-seen host (OpenSSH 9.6, `cmux device add HOST --yes`, 2026-11-16). Enrollment asks
+/// again under strict checking and offers first-contact acceptance only when that names an
+/// unknown key; any other answer keeps the fingerprint advice.
+#[test]
+fn first_contact_bare_verification_failure_asks_strict_ssh_for_unknown_key_evidence() {
+    const BARE: &str = "Host key verification failed.";
+    const UNKNOWN: &str = "No ED25519 host key is known for box.tail and you have requested strict checking.\nHost key verification failed.";
+    // CheckHostIP: the name's key is trusted but the IP's differs.
+    const IP_CONFLICT: &str =
+        "Exiting, you have requested strict checking.\nHost key verification failed.";
+    for (strict, accept, class, asked) in [
+        (UNKNOWN, false, SshFailure::HostKeyUnknown, true),
+        (IP_CONFLICT, false, SshFailure::HostKeyUntrusted, true),
+        (BARE, false, SshFailure::HostKeyUntrusted, true),
+        // With the opt-in, OpenSSH records an unknown key, so a bare failure is something else.
+        (UNKNOWN, true, SshFailure::HostKeyUntrusted, false),
+    ] {
+        let fake = Fake::new(|script, _| RemoteOut {
+            ok: false,
+            stderr: if script == STRICT_CHECK { strict } else { BARE }.into(),
+            ..RemoteOut::default()
+        });
+        let result = reach(&fake, accept);
+        assert_eq!(result.state, StepState::Fail);
+        let scripts: Vec<String> = fake.calls.borrow().iter().map(|(s, _)| s.clone()).collect();
+        assert_eq!(scripts.iter().any(|s| s == STRICT_CHECK), asked, "{scripts:?}");
+        let fix = result.fix.as_deref().unwrap();
+        assert_eq!(fix, class.fix("leo@box.tail"), "{strict:?} accept={accept}");
+        if class == SshFailure::HostKeyUnknown {
+            assert!(fix.contains("--accept-new-host-key"), "{fix}");
+        } else {
+            assert!(!fix.contains("accept-new-host-key"), "{fix}");
+        }
+    }
+    // A key that is not unknown never reaches the strict check.
+    let fake = Fake::new(|script, _| {
+        assert_ne!(script, STRICT_CHECK);
+        RemoteOut {
+            ok: false,
+            stderr:
+                "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."
+                    .into(),
+            ..RemoteOut::default()
+        }
+    });
+    assert_eq!(reach(&fake, false).state, StepState::Fail);
 }
 
 /// A machine's running peer daemon is usable across builds and platforms.
