@@ -30,6 +30,13 @@ impl Needle {
                 words.push(word);
             }
         }
+        Self::of_words(words)
+    }
+
+    /// The plain words of a query with operators (`terms.rs`, a quoted phrase one word, already
+    /// lowercased); an error for none.
+    pub fn of_words(words: Vec<String>) -> Result<Self, String> {
+        let words: Vec<String> = words.iter().map(|word| fold(word)).collect();
         if words.is_empty() {
             return Err("query has no words; list chats with _acpmux/chats".to_owned());
         }
