@@ -685,18 +685,6 @@
       "count": 16,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.streaming-text#claude": {
-      "count": 13,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.streaming-text#codex": {
-      "count": 15,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.streaming-text#jump-during-stream": {
-      "count": 17,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.subagent-tray-open#opens-panel": {
       "count": 7,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
