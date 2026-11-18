@@ -10,7 +10,7 @@ import Testing
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaletteListRenderCountTests {
-    struct Harness {
+    @MainActor struct Harness {
         let list: PaletteListView
         let window: NSWindow
         var table: NSTableView { list.table }
