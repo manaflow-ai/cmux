@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cmux-tui macOS legs built on a Mac run their cargo invocations at once, as the Linux legs do.
+"""The cmux-tui macOS legs built on a Mac run their cargo invocations at once when the Mac has the memory.
 
 .github/workflows/cmux-tui-build-package.yml builds the aarch64-apple-darwin leg of a tree on a
 free owned mini when one is idle ("Build cmux-tui (native)"; x86_64-apple-darwin on main in
@@ -11,9 +11,16 @@ nightly waits for that tree at "Bundle the cmux-tui client": run 44243166776 wai
 there for the 53.7 min mini leg of run 44240874997, and nightlies that waited 45 min on a
 cancelled mini leg failed.
 
+At once needs memory: on a 16 GB mini the six builds at once ran out of it (11 GB of swap,
+critical pressure at 14 min, review of cmux#46073), where one after another took 33.8 min with a
+largest process of 10.9 GB. So scripts/ci/cmux-tui-mac-cargo-builds.sh reads hw.memsize at run
+time and runs them at once only at 40 GiB or more (the 48 GB minis), else one after another as
+before.
+
 This runs each Mac build step's own script with a fake cargo that takes SLEEP seconds per call
-and checks that:
-- the step takes about one call's time, not the sum of six (the groups run at once);
+and a fake sysctl that reports FAKE_MEMSIZE, and checks that:
+- with 48 GiB the step takes about one call's time, not the sum of six (the groups run at once);
+- with 16 GiB, or when sysctl cannot say, no two cargo calls overlap (one after another);
 - every binary and its .dSYM (CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed) ends in
   target/<triple>/release, where "Stage binary" and the dSYM upload read them;
 - acpmux is staged from acpmux-standalone, with the shipping features for the target.
@@ -44,6 +51,13 @@ SLEEP = 2.0
 CALLS = 6  # cmux-tui, cmux-holder, cmux-app-host, cmux-relay, chatmux-relay, acpmux-standalone
 BINARIES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-host", "cmux-holder", "cmux-app-host",
             "cmux-relay", "chatmux-relay", "acpmux-standalone")
+
+FAKE_SYSCTL = r"""#!/usr/bin/env bash
+# Fake sysctl: `sysctl -n hw.memsize` prints FAKE_MEMSIZE; an empty FAKE_MEMSIZE fails as on Linux.
+[[ "$*" == "-n hw.memsize" && -n "${FAKE_MEMSIZE:-}" ]] || { echo "sysctl: unknown oid '$*'" >&2; exit 1; }
+echo "$FAKE_MEMSIZE"
+"""
+GIB = 1024 ** 3
 
 FAKE_CARGO = r"""#!/usr/bin/env bash
 # Fake cargo: `cargo build -p PKG [--bin B]... --release --locked --target T [--features=F]`.
@@ -99,7 +113,9 @@ def make_repo(root: Path) -> None:
         git(d, "add", "README")
         git(d, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
     (root / "scripts" / "ci").mkdir(parents=True)
-    for script in ("cargo-groups.sh", "acpmux-build-features.sh"):
+    for script in ("cargo-groups.sh", "acpmux-build-features.sh", "cmux-tui-mac-cargo-builds.sh"):
+        if not (ROOT / "scripts" / "ci" / script).exists():
+            continue  # the base before the memory gate has no such script
         shutil.copy2(ROOT / "scripts" / "ci" / script, root / "scripts" / "ci" / script)
     for crate in ("acpmux", "acpmux-standalone"):
         manifest = root / "cmux-tui" / "crates" / crate / "Cargo.toml"
@@ -116,7 +132,8 @@ def expected_features(root: Path, triple: str) -> str:
 
 
 class MacLegsRunCargoAtOnce(unittest.TestCase):
-    def run_step(self, name: str, triple: str) -> tuple[float, Path, str, str]:
+    def run_step(self, name: str, triple: str, memsize: int | None = 48 * GIB,
+                 sleep: float = SLEEP) -> tuple[float, Path, str, str]:
         script = str(step(name)["run"]).replace("${{ matrix.build_target }}", triple)
         self.assertNotIn("${{", script, "the step reads an expression this test does not fill")
         tmp = Path(tempfile.mkdtemp(prefix="mac-legs-"))
@@ -127,6 +144,8 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
         bindir.mkdir()
         (bindir / "cargo").write_text(FAKE_CARGO)
         (bindir / "cargo").chmod(0o755)
+        (bindir / "sysctl").write_text(FAKE_SYSCTL)
+        (bindir / "sysctl").chmod(0o755)
         log = tmp / "cargo.log"
         env = git_fixture_env.fixture_env({
             **os.environ,
@@ -135,7 +154,8 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
             "RUNNER_TEMP": str(tmp),
             "CMUX_TUI_DISTRIBUTION_VERSION": "0.0.0-test",
             "PACKAGE_NPM": "false",
-            "FAKE_CARGO_SLEEP": str(SLEEP),
+            "FAKE_CARGO_SLEEP": str(sleep),
+            "FAKE_MEMSIZE": "" if memsize is None else str(memsize),
             "FAKE_CARGO_LOG": str(log),
         })
         env.pop("CARGO_TARGET_DIR", None)
@@ -148,13 +168,25 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
         self.assertEqual(done.returncode, 0, f"{name} failed:\n{done.stdout}\n{done.stderr}")
         return took, root / "cmux-tui" / "target" / triple / "release", log.read_text(), expected_features(root, triple)
 
-    def check(self, name: str, triple: str) -> None:
-        took, release, log, features = self.run_step(name, triple)
+    def check(self, name: str, triple: str, memsize: int | None = 48 * GIB) -> None:
+        concurrent = memsize is not None and memsize >= 40 * GIB
+        took, release, log, features = self.run_step(name, triple, memsize, SLEEP if concurrent else 0.2)
         self.assertEqual(log.count(" start"), CALLS, log)
-        # One after another this is CALLS * SLEEP (12 s); at once about SLEEP plus the setup.
-        self.assertLess(took, (CALLS - 2) * SLEEP,
-                        f"{name} took {took:.1f} s for {CALLS} cargo calls of {SLEEP} s each: "
-                        "they ran one after another, not at once (scripts/ci/cargo-groups.sh)")
+        if concurrent:
+            # One after another this is CALLS * SLEEP (12 s); at once about SLEEP plus the setup.
+            self.assertLess(took, (CALLS - 2) * SLEEP,
+                            f"{name} took {took:.1f} s for {CALLS} cargo calls of {SLEEP} s each with "
+                            f"{memsize / GIB:.0f} GiB: they ran one after another, not at once (scripts/ci/cargo-groups.sh)")
+        else:
+            events = [(float(t), kind) for _, t, kind in (line.split() for line in log.splitlines())]
+            events.sort()
+            running = peak = 0
+            for _, kind in events:
+                running += 1 if kind == "start" else -1
+                peak = max(peak, running)
+            mem = "no hw.memsize" if memsize is None else f"hw.memsize {memsize}"
+            self.assertEqual(peak, 1, f"{name} ran {peak} cargo builds at once with {mem}: a 16 GB mini "
+                             "runs out of memory that way (scripts/ci/cmux-tui-mac-cargo-builds.sh)\n" + log)
         for b in BINARIES:
             self.assertTrue((release / b).is_file(), f"{name}: no {b} in {release}")
             self.assertTrue((release / f"{b}.dSYM" / "Contents" / "Resources" / "DWARF" / b).is_file(),
@@ -169,6 +201,21 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
 
     def test_mac_cross_leg_runs_its_cargo_builds_at_once(self) -> None:
         self.check("Build cmux-tui (macOS cross)", "x86_64-apple-darwin")
+
+    def test_native_leg_on_16_gib_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 16 * GIB)
+
+    def test_mac_cross_leg_on_16_gib_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (macOS cross)", "x86_64-apple-darwin", 16 * GIB)
+
+    def test_native_leg_at_40_gib_runs_its_cargo_builds_at_once(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 40 * GIB)
+
+    def test_native_leg_just_under_40_gib_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 40 * GIB - 1)
+
+    def test_native_leg_without_hw_memsize_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", None)
 
 
 if __name__ == "__main__":
