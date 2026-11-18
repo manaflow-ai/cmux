@@ -416,6 +416,7 @@ extension CEFRuntime {
         guard shutdownSequence?.phase == .readyToShutdown else {
             logger.error("CEF shutdown timed out; exiting without CefShutdown")
             state = .shutDown
+            await endHelpers()
             return
         }
         await beforeEngineStop()
@@ -423,6 +424,15 @@ extension CEFRuntime {
         shim.shutdown()
         state = .shutDown
         logger.notice("CEF shutdown complete: CefShutdown held the main thread \(ContinuousClock.now - stopping, privacy: .public)")
+        await endHelpers()
+    }
+
+    /// Experiment arm B (not for merge): no helper outlives the app's quit.
+    private func endHelpers() async {
+        guard let childMonitor else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            childMonitor.endHelpers(limitMilliseconds: 500) { continuation.resume() }
+        }
     }
 
     /// Commits every profile's cookie store (`cmux_shim_flush_cookie_stores`) and waits, with the

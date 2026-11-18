@@ -76,6 +76,7 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 children[pid] = CEFHelperIdentity.read(pid: pid)
             }
             if event.fflags & UInt32(NOTE_EXIT) != 0 {
+                if ending.remove(pid) != nil, ending.isEmpty { finishEnding() }
                 let identity = children.removeValue(forKey: pid) ?? nil
                 guard let identity else { continue }
                 onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
@@ -83,6 +84,33 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
             }
         }
         if needsRescan { rescan() }
+    }
+
+    /// Helpers SIGKILLed at quit that have not exited yet, and who waits for them (experiment arm B, not for merge).
+    private var ending: Set<Int32> = []
+    private var endingDone: (@Sendable () -> Void)?
+
+    /// Quit (experiment arm B, not for merge): SIGKILLs every Chromium helper still running and calls `done` on the
+    /// monitor's queue once each has exited, or after `limitMilliseconds`.
+    func endHelpers(limitMilliseconds: Int, done: @escaping @Sendable () -> Void) {
+        queue.async { [self] in
+            guard kq >= 0 else { return done() }
+            rescan()
+            ending = Set(children.compactMap { pid, identity in identity == nil ? nil : pid })
+            guard !ending.isEmpty else { return done() }
+            endingDone = done
+            for pid in ending { kill(pid, SIGKILL) }
+            // wakeup-allow: one-shot quit bound, fires once
+            // concurrency-allow: runs on the monitor's own serial queue, never the main thread
+            queue.asyncAfter(deadline: .now() + .milliseconds(limitMilliseconds)) { [self] in finishEnding() } // concurrency-allow: the monitor's own serial queue, never the main thread; a one-shot quit bound that blocks nothing
+        }
+    }
+
+    private func finishEnding() {
+        ending.removeAll()
+        let done = endingDone
+        endingDone = nil
+        done?()
     }
 
     private func rescan() {
