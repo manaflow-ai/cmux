@@ -70,8 +70,8 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const sock = await chiefSocket(t.chief.main_conversation, t.token)
     await t.ask("ask-1")
     expect((await sock.send("before")).t).toBe("result")
-    // Through TeamDO's `userOwner` seam: RPC refuses a method patched onto the UserDO instance
-    // with a promise that can reject before anything awaits it (an unhandled rejection).
+    // Through TeamDO's `userOwner` seam: RPC serves only prototype methods, so a method patched onto the
+    // UserDO instance is refused as "does not implement the method" (seen as an unhandled error in a run).
     await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team)), async (instance) => {
       instance.userOwner = () => ({
         revokeByTeam: async () => {
@@ -105,7 +105,7 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     await t.ask("ask-1")
     const teamDO = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team))
     // UserDO reaches this over RPC, which serves only prototype methods (an instance property is
-    // refused with a promise that can reject unawaited), so this one instance fails from the prototype.
+    // refused as not implemented), so this one instance fails from the prototype.
     let restore = () => {}
     await inDO(teamDO, async (instance) => {
       const proto = Object.getPrototypeOf(instance)
