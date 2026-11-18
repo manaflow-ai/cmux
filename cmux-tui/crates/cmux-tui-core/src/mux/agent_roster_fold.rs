@@ -278,35 +278,26 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        // Attention-worthy transitions become durable notifications before
-        // the agent report commits. The notification key is derived from the
-        // journal sequence, so a retry after a crash between the two commits
-        // replays the notification instead of posting it twice, and the fence
-        // (stored by the report) still advances exactly once. A turn that ends
-        // while its child agents run is not done: its finish waits for them
-        // (`agent_hook_children.rs`).
+        // Attention-worthy transitions become durable notifications in the
+        // commit of the agent report (alone when the hook reports nothing or
+        // the report refuses). The notification key is derived from the
+        // journal sequence, so a retry replays the notification instead of
+        // posting it twice, and the fence (stored by the report) still
+        // advances exactly once. A turn that ends while its child agents run
+        // is not done: its finish waits for them (`agent_hook_children.rs`).
         let gate =
             self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
         if let agent_hook_children::FinishGate::Release(held) = &gate {
             self.release_held_agent_session_finish(&terminal_id, held, sequence)?;
         }
         let held = matches!(gate, agent_hook_children::FinishGate::Hold);
-        if let Some((title, body, level)) = notification.filter(|_| !held) {
-            self.create_durable_notification(
-                &Actor::Daemon,
-                &format!("agent-hook-notification-{sequence}"),
-                title,
-                None,
-                body,
-                level,
-                Some(surface),
-                NotificationSource::Agent,
-            )
-            .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
-        }
+        let notice = notification.filter(|_| !held);
         // A notification that leaves the roster state as it is reports
         // nothing and leaves the fence where the last report stored it.
-        let Some(state) = state else { return Ok(()) };
+        let Some(state) = state else {
+            let staged = self.stage_agent_hook_notification(notice, surface, sequence)?;
+            return self.commit_agent_hook_notification(staged, sequence);
+        };
         let next_fence = HookFence::next(
             previous_fence.as_ref(),
             agent_session_id.clone(),
@@ -323,6 +314,10 @@ impl Mux {
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
         self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        // Staged after the relaunch record's save (a commit when the record
+        // changes): a daemon that stops between the stage and the report's
+        // commit loses the notification, so no other commit is in that span.
+        let staged = self.stage_agent_hook_notification(notice, surface, sequence)?;
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -339,6 +334,7 @@ impl Mux {
             Some(sequence),
             AgentReportOrigin::RosterFold,
             agent_provider_identity(ingress),
+            staged,
         )?;
         fences.insert(terminal_id.clone(), next_fence);
         // Projection ordering is complete. Do not carry the fence guard into
@@ -941,6 +937,7 @@ impl Mux {
             None,
             AgentReportOrigin::RosterFold,
             agent_adapter,
+            &mut None,
         ) {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
@@ -993,6 +990,7 @@ impl Mux {
             Some(hook_state),
             None,
             AgentReportOrigin::RosterFold,
+            None,
             None,
         ) {
             eprintln!("cmux-tui: ending the hook session of {terminal_id} failed: {error}");
