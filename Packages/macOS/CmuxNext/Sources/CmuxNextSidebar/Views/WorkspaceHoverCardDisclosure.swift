@@ -34,6 +34,9 @@ final class WorkspaceHoverCardDisclosure: NSView {
         }
     }
 
+    /// The chevron's image now (tests).
+    var shownChevron: NSImage? { chevron.image }
+
     var isExpanded = false {
         didSet {
             chevron.image = NSImage.icon(isExpanded ? .disclosureExpanded : .disclosureCollapsed, size: Metrics.smallIconSize)

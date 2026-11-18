@@ -399,6 +399,7 @@ final class HoverCardPanel: NSPanel {
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there. The content's own size: the
         // glass adds nothing around it, and its panel's views in the measure's temporary layout engine cost a fresh
         // solve of their constraints on every refit (a Show details press, Lawrence 2026-11-18).
+        contentMeasures += 1
         let fitting = glass.contentView.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
@@ -420,6 +421,9 @@ final class HoverCardPanel: NSPanel {
         restCardFrame = CGRect(origin: origin, size: size)
         if appliesFrame { applyRestFrame() }
     }
+
+    /// Content measures the panel ran (tests; red stub).
+    private(set) var contentMeasures = 0
 
     /// The window at the card's rest frame plus its clear band.
     func applyRestFrame() {

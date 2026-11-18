@@ -414,6 +414,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The detail rows are laid out: expanded, or folding from expanded.
     private var showsDetails: Bool { detailsExpanded || holdingFold }
     var onDetailsChanged: (() -> Void)?
+    /// Red stubs for the press tests: no size of its own yet.
+    private(set) var selfMeasures = 0
+    private(set) var detailRowsHidings = 0
+    var reportedFittingSize: CGSize? { nil }
+    func prepareSizes() {}
     /// Presses of Show details or Hide details not run yet: they run at the start of the card window's next frame.
     private var pendingDetailsPresses = 0
     private lazy var detailsPressFrame = DetailsPressFrame(card: self)
@@ -834,6 +839,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         detailsToggle.isExpanded = detailsExpanded
         if !showsDetails {
+            if builtIn.contains(where: { !$0.isHidden }) { detailRowsHidings += 1 }
             for view in builtIn { view.isHidden = true }
             customSlot.isHidden = true
             customError.isHidden = true
