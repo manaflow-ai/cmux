@@ -4,7 +4,7 @@
 // chip shows. The client keeps acpmux's flag from the usage report and drops it after a compaction.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { translate } from "../i18n";
@@ -78,8 +78,12 @@ afterEach(async () => {
 type HarnessProps = Parameters<typeof useCacheCompactChip>[0];
 let control: CacheCompactChipControl | undefined;
 function Harness(props: HarnessProps) {
-  control = useCacheCompactChip(props);
-  return <CacheCompactChip control={control} />;
+  const chipControl = useCacheCompactChip(props);
+  // Kept for the test to read once React commits, outside render.
+  useEffect(() => {
+    control = chipControl;
+  });
+  return <CacheCompactChip control={chipControl} />;
 }
 
 async function render(props: HarnessProps) {
