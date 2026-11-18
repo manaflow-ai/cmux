@@ -229,11 +229,18 @@ case "exec":
     posix_spawn_file_actions_addopen(&actions, 2, appLog, O_WRONLY | O_CREAT | O_APPEND, 0o644)
     let sysBefore = systemPageins(), requested = now()
     guard posix_spawn(&child, exe, &actions, &attr, argv, env) == 0 else { emit(["label": label, "error": "spawn"]); exit(1) }
+    // posix_spawn returns once the kernel has activated the new image (the code signature and the system's policy
+    // check of the executable included); dyld, the frameworks it links and initializers run after, in the child.
+    // Started suspended, spawn_ms is the exec alone and resume_to_main is dyld, the linked frameworks and
+    // initializers up to main.
+    let spawned = now()
+    var resumed: Double?
     if let hold {
         print("LP-PID \(child)"); fflush(stdout)
         let waitFrom = now()
         while access(hold, F_OK) != 0, now() - waitFrom < 30_000 { usleep(2000) }
         kill(child, SIGCONT)
+        resumed = now()
     }
     let start = processStart(child)
     spin { mainAt != nil || now() - requested > 30_000 }
@@ -242,7 +249,9 @@ case "exec":
     var status: Int32 = 0; waitpid(child, &status, 0)
     let fields: [String: Any] = ["label": label, "mode": "exec", "pid": Int(child), "main_start": json(mainAt), "system_pageins": sysPageins,
                                  "resident_before": fraction(before), "held": hold != nil,
-                                 "request_to_start": json(start.map { round1($0 - requested) })]
+                                 "request_to_start": json(start.map { round1($0 - requested) }),
+                                 "spawn_ms": round1(spawned - requested),
+                                 "resume_to_main": json(resumed.flatMap { r in start.flatMap { s in mainAt.map { round1(s + $0 - r) } } })]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if mainAt == nil { row["error"] = "no main_start in 30 s" }

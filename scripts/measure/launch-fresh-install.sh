@@ -13,6 +13,9 @@
 #   m   the same quarantined DMG, the app opened from the mounted volume
 #   p   as n, then the updater pre-warm's first step run on the copy before the open (its executable with
 #       --cmux-prewarm-launch, StagedUpdatePrewarm: exec and dyld, then exit), as an installer of ours could run it
+#   s   as n, the executable started directly (posix_spawn, suspended) and stopped at main: spawn_ms is the kernel's
+#       exec of the image (its signature and policy check), resume_to_main is dyld, the frameworks it links and
+#       initializers. Splits a new copy's wait between exec and dyld with no root and no prompt.
 # Every launch gets a new DMG file (q, m) or a new copy (n) and a new quarantine event, so no row reuses a check.
 # Per launch, ms from the open request: the system's "downloaded from the Internet" prompt on screen and gone (its Open
 # pressed by the console's CuaDriver at once, so a person's reading time is not in the row), the process start, `main`
@@ -44,7 +47,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$rows" =~ ^[nqmp](,[nqmp])*$ ]] || { echo "rows= takes n,q,m,p" >&2; exit 2; }
+  [[ "$rows" =~ ^[nqmps](,[nqmps])*$ ]] || { echo "rows= takes n,q,m,p,s" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   sudo -n true 2>/dev/null && echo "LF root yes" || echo "LF root no (trace=1 needs it for fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -92,7 +95,7 @@ def med(vals):
     vals = [v for v in vals if isinstance(v, (int, float))]
     return {"median": round(statistics.median(vals), 1), "min": min(vals), "max": max(vals), "n": len(vals)} if vals else None
 for name in dict.fromkeys(r["row"] for r in rows):
-    runs = [r for r in rows if r["row"] == name and r.get("rep") != "T" and r.get("mode") == "first"]
+    runs = [r for r in rows if r["row"] == name and r.get("rep") != "T" and r.get("mode") in ("first", "exec")]
     table = {"row": name, "n": len(runs), "errors": sum(1 for r in runs if r.get("error")),
              "translocated": sum(1 for r in runs if r.get("translocated")),
              "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float))),
@@ -100,7 +103,8 @@ for name in dict.fromkeys(r["row"] for r in rows):
              "prompts_before": sum(1 for r in runs if r.get("prompts_before")),
              "prompt_left": sum(1 for r in runs if r.get("prompt_left"))}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
-                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms"):
+                "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms",
+                "spawn_ms", "resume_to_main", "request_to_start"):
         table[key] = med([r.get(key) for r in runs])
     # The prompt's dwell (on screen to dismissed) is a person's click, not ours to cut: window, usable and main are
     # reported as measured above and again with the dwell subtracted (*_less_dwell; equal to the measured value when
@@ -160,7 +164,7 @@ first() {
   cp "$OUT/app.dmg" "$dmgfile" || return 1
   local mounted_by=hdiutil mount_ms=null t_mount prewarm_ms=null cpu_prepare
   cpu_prepare="$(checker_cpu)"
-  if [[ "$name" == n || "$name" == p ]]; then
+  if [[ "$name" == n || "$name" == p || "$name" == s ]]; then
     hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   else
     # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
@@ -177,7 +181,7 @@ first() {
   fi
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
-    n|p) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
+    n|p|s) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
@@ -213,7 +217,14 @@ first() {
     sleep 1
   fi
   t0="$(date '+%Y-%m-%d %H:%M:%S')"
-  line="$(console /usr/bin/env LF_CUA="$CUA" "$OUT/launch-premain" first "$app" "$OUT/home-$tag" "$tag" 3 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+  if [[ "$name" == s ]]; then
+    # The hold file exists before the spawn: the probe resumes the suspended child as soon as it has its pid.
+    touch "$OUT/hold-$tag" && chmod 0666 "$OUT/hold-$tag"
+    line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+    rm -f "$OUT/hold-$tag"
+  else
+    line="$(console /usr/bin/env LF_CUA="$CUA" "$OUT/launch-premain" first "$app" "$OUT/home-$tag" "$tag" 3 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
+  fi
   local cpu_after; cpu_after="$(checker_cpu)"
   after="$(qattr "$app")"
   [[ -n "$trace_pid" ]] && { sudo -n kill -INT "$trace_pid" 2>/dev/null; wait "$trace_pid" 2>/dev/null; }
@@ -245,7 +256,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
-    n|p) rm -rf "$OUT/copy-$tag" ;;
+    n|p|s) rm -rf "$OUT/copy-$tag" ;;
     q) console /bin/rm -rf "$dir" ;;
     m) hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 ;;
   esac
