@@ -174,6 +174,25 @@ class HostedValve(unittest.TestCase):
         self.assertNotIn(spill.VALVE_KEY, value)
 
 
+class ServedMarks(unittest.TestCase):
+    """2026-11-17: the probe marked 4 and 16 vCPU dead at 21:48Z and 21:54Z while the sample counted 20 and 7
+    running there; the janitor snapshot that would have said so was over an hour old."""
+
+    def test_a_marked_label_running_a_job_is_served(self):
+        load = {FOUR: {"queued": 254, "running": 20, "waited": 254},
+                SIXTEEN: {"queued": 117, "running": 0, "waited": 117}, spill.COMPLETE: False}
+        self.assertEqual(spill.served_marks({FOUR: "x", SIXTEEN: "x"}, load), {FOUR})
+
+    def test_no_sample_no_marks_or_a_non_linux_label_clear_nothing(self):
+        running = {"queued": 0, "running": 3, "waited": 0}
+        self.assertEqual(spill.served_marks({FOUR: "x"}, None), set())
+        self.assertEqual(spill.served_marks({}, {FOUR: running}), set())
+        self.assertEqual(spill.served_marks(None, {FOUR: running}), set())
+        self.assertEqual(spill.served_marks({"blacksmith-6vcpu-macos-26": "x"},
+                                            {"blacksmith-6vcpu-macos-26": running}), set())
+        self.assertEqual(spill.served_marks({FOUR: "x"}, {FOUR: {"running": "many"}}), set())
+
+
 class Client:
     def __init__(self, runs, jobs, fail=()):
         self._runs, self._jobs, self._fail = runs, jobs, set(fail)
@@ -349,6 +368,19 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual(self.run_pass(switch, Client([], {}), NOW + dt.timedelta(minutes=1)), 0)
         self.assertEqual(json.loads(switch.variables["RUNNER_POOLS"])["linux"], SIXTEEN)
         self.assertNotIn("_spill", json.loads(switch.variables["RUNNER_POOLS"]))
+
+    def test_a_mark_on_a_label_the_sample_sees_running_clears(self):
+        thirty_two = "blacksmith-32vcpu-ubuntu-2404"
+        marks = {FOUR: spill.iso(NOW), SIXTEEN: spill.iso(NOW)}
+        start = self.policy.render({"linux": FOUR, "linux_16": thirty_two, "_dead": marks, "_updated": ago(1)})
+        switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
+        jobs = [{"status": "in_progress", "labels": [label], "created_at": ago(10)} for label in (FOUR, SIXTEEN)]
+        client = Client([{"id": 1, "status": "in_progress", "created_at": ago(10)}], {1: jobs})
+        self.assertEqual(self.run_pass(switch, client, NOW + dt.timedelta(minutes=1)), 0)
+        value = json.loads(switch.variables["RUNNER_POOLS"])
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux_16"], SIXTEEN)
+        self.assertEqual(value["linux"], FOUR)
 
     def test_a_value_changed_during_the_pass_is_not_overwritten(self):
         # Review of #31884: a concurrent writer's dead mark must survive this pass.

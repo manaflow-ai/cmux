@@ -428,7 +428,7 @@ jobs:
           log="$RUNNER_TEMP/look.log"
           mkdir -p "$RUNNER_TEMP/look"
           : > "$log"
-          look() {  # KEY: run the look under KEY; sets status and step, and leaves out.tar when it returned one
+          look() {  # KEY REF: run the look under KEY at HQ commit REF; sets status and step, leaves out.tar when it got one
             local chunks=() args=() chunk
             # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
             while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$1" --video)
@@ -437,7 +437,7 @@ jobs:
             status=0
             : > "$RUNNER_TEMP/look.part"
             # Streamed into look.log as it comes: the cancelled-look step reads the step id from it mid-wait.
-            "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$hq_ref" \
+            "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$2" \
               --script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar --key "$1" \
               --timeout 2400 --queue-timeout 1800 "${args[@]}" 2>&1 | tee -a "$log" "$RUNNER_TEMP/look.part" || status=${PIPESTATUS[0]}
             step="$(grep -o -E 'step [0-9a-f]{24}' "$RUNNER_TEMP/look.part" | head -1 | cut -d' ' -f2 || true)"
@@ -459,7 +459,17 @@ jobs:
             "$client" cancel "$stale" --reason "hot verify: #$PR moved on to ${HEAD_SHA:0:12}" || true
           done
           started=$SECONDS
-          look "$head_key"
+          # The HQ commit is part of the request: the same key at a newer HQ commit is "HTTP 409: step_key already names
+          # a different step" (#45082 on 2026-11-17: its head step, queued at 23:06, ran at 00:32 for nobody while a fresh
+          # one waited). So rejoin at the HQ commit the head's step was made at; a new head step takes the controller's.
+          head_ref="$("$client" status --all 2>/dev/null | python3 -c '
+          import json, re, sys
+          jobs = json.load(sys.stdin)
+          mine = [j for j in (jobs if isinstance(jobs, list) else []) if j.get("step_key") == sys.argv[1]]
+          ref = max(mine, key=lambda j: j.get("created_at") or "").get("ref", "") if mine else ""
+          print(ref if re.fullmatch(r"[0-9a-f]{40}", ref or "") else "")
+          ' "$head_key" 2>/dev/null || true)"
+          look "$head_key" "${head_ref:-$hq_ref}"
           key="$head_key"
           if [[ ! -s "$RUNNER_TEMP/look/out.tar" && $status != 75 && $(( SECONDS - started )) -lt 120 ]]; then
             # An answer within 2 min is a step that ended before this run (or a key bound to another HQ commit).
@@ -469,7 +479,7 @@ jobs:
               "$client" cancel "$step" --reason "hot verify: a fresh look replaces it" || true
             fi
             key="$head_key-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-            look "$key"
+            look "$key" "$hq_ref"
           fi
           if [[ -s "$RUNNER_TEMP/look/out.tar" ]]; then
             say "hot verify: fleet step ${step:-?} returned its out.tar (exit $status)"

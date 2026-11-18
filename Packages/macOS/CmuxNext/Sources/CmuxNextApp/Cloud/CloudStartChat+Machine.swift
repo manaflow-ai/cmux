@@ -106,8 +106,8 @@ extension CloudStartChat {
         return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
             if let id, plan.machine == nil { _ = try Self.checked(await cli.startChatPin(key: start.key, account: text, machine: id, workspace: workspace)) } // unpinned, a retry could open the chat elsewhere
             let session = try await CloudMove(services: services).machine(invocation, pick: pick), machineID = session.machineID
-            // The machine reaches models through its edge (the Mac as the gateway), on the app's machine software; a chat that carries its own connection starts on an unrouted one too.
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, carriesConnection: connection != nil) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
             return (session, plan)
         }
     }
