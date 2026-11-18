@@ -285,8 +285,7 @@ extension AppServices {
                 imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
                 workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
         }
-        return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath,
-                                    sessionRegistryID: daemon.store.registryID ?? "")
+        return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath, sessionRegistryID: daemon.store.registryID ?? "")
     }
 
     private static func launchRecordByte(_ component: Double) -> UInt8 {

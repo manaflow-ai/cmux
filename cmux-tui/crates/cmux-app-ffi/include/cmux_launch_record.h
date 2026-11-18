@@ -58,14 +58,8 @@ typedef struct CmuxLaunchSidebarInput {
 // IDs >=65 bytes, image keys >=1025 bytes and unusable frames return false.
 bool cmux_launch_record_front_window(const char *path, CmuxLaunchWindow *out);
 // windows[0] is the front window; the reader keeps that order.
-bool cmux_launch_record_write(const char *path,
-                              const CmuxLaunchWindowInput *windows,
-                              uintptr_t window_count,
-                              const CmuxLaunchSidebarInput *sidebars,
-                              uintptr_t sidebar_count,
-                              const char *session_socket_path);
-// cmux_launch_record_write that also records the daemon registry id the
-// windows belong to (record v3); cmux_launch_record_write writes it empty.
+// Records the daemon registry id the windows belong to (record v3); an empty
+// id is unknown.
 bool cmux_launch_record_write_registry(const char *path,
                                        const CmuxLaunchWindowInput *windows,
                                        uintptr_t window_count,
