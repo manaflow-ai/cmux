@@ -111,8 +111,9 @@ describe("gate mode", () => {
   });
 
   test("gated project ids match scripts/cloud-vm/projects.mjs", () => {
-    expect(gatedProjects[productionId]?.projectName).toBe(projects.production.projectName);
-    expect(gatedProjects[stagingId]?.projectName).toBe(projects.staging.projectName);
+    const byId: Record<string, { projectName: string } | undefined> = gatedProjects;
+    expect(byId[productionId]?.projectName).toBe(projects.production.projectName);
+    expect(byId[stagingId]?.projectName).toBe(projects.staging.projectName);
   });
 
   test("the Vercel build runs the gate after next build", () => {
