@@ -366,7 +366,7 @@ export function windowPaintClock(view: Window): PaintClock {
     requestAnimationFrame: (callback) => view.requestAnimationFrame(callback),
     cancelAnimationFrame: (handle) => view.cancelAnimationFrame(handle),
     afterThisFrame(then) {
-      const channel = new view.MessageChannel();
+      const channel = new (view as Window & typeof globalThis).MessageChannel();
       channel.port1.onmessage = () => {
         channel.port1.close();
         then();
