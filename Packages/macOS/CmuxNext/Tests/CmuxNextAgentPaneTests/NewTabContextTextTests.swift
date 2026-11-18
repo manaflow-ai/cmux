@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -128,5 +129,46 @@ struct NewTabContextTextTests {
         let handshake = try await Self.newTab(of: model.respond(to: .ready))
         #expect(handshake["inputToken"] as? String == Self.token(0))
         #expect(handshake["shared"] is String)
+    }
+
+    /// A script that carries the context (the adopt event, the context of a document's commit) has the shared
+    /// text as it is, one time for a document: the next script has the page's own part only, which the page
+    /// joins with the part that its document keeps. A new document gets the text again, with no second make.
+    @Test func aScriptCarriesTheSharedTextOneTimeForADocument() throws {
+        let text = AgentPaneNewTabText()
+        let model = Self.model(key: 0, text: text)
+        let last = "\"action.\(Self.actions - 1)\""
+        let first = try #require(model.newTabScriptValue(Self.context(key: 0)))
+        #expect(first.contains(last), "a document with no shared text gets it")
+        let second = try #require(model.newTabScriptValue(Self.context(key: 1)))
+        #expect(!second.contains(last), "the same shared part: the page's own part only")
+        #expect(second.contains(Self.token(1)))
+        print("NewTabContextTextTests: a script with the shared text \(first.utf8.count) bytes, with the own part only \(second.utf8.count) bytes")
+        let commit = try #require(model.newTabScriptValue(Self.context(key: 1), always: true))
+        #expect(commit.contains(last), "a new document gets the shared text")
+        #expect(text.encodes == 1, "one make of the shared part for the 3 scripts")
+    }
+
+    /// The pages that the app makes have one keeper of the shared text (``AgentPaneShared/newTabText``): each
+    /// page's view gives it to its model. With a keeper for each page, each page of a hold costs a make.
+    @Test func thePagesOverTheAppsSharedObjectsHaveOneKeeperOfTheText() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appending(path: "new-tab-text-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: "index.html")
+        try Data("<html></html>".utf8).write(to: file)
+        let shared = AgentPaneShared()
+        let pages = try (0..<2).map { key in
+            try #require(AgentPaneView(model: AgentPaneModel(host: Host(), newTab: Self.context(key: key)), source: .bundled(file), shared: shared), "fixture: no page")
+        }
+        defer {
+            pages.forEach { $0.close() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for page in pages {
+            #expect(page.model.newTabText === shared.newTabText)
+            _ = page.model.newTabReply(Self.context(key: 0), always: true)
+        }
+        #expect(shared.newTabText.encodes == 1, "2 pages over one shared value: one make")
     }
 }

@@ -117,7 +117,7 @@ enum AgentPaneHandshakeReply {
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
-            return AgentPaneReply.handshake(handshake)
+            return AgentPaneReply.handshake(handshake, newTab: handshake.newTab.flatMap { model.newTabReply($0) })
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
