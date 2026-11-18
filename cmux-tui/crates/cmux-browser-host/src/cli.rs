@@ -515,6 +515,7 @@ fn eval_in(options: &Options, code: &str) -> i32 {
             "engine": options.engine,
             "cwd": caller_cwd(),
             "terminal": caller_terminal(),
+            "workspace": caller_workspace(),
         }),
     ) {
         eprintln!("{}", error["message"].as_str().unwrap_or("error"));
@@ -549,6 +550,12 @@ fn eval_in(options: &Options, code: &str) -> i32 {
 /// that agent's presence colour (display only).
 fn caller_terminal() -> Option<String> {
     std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
+}
+
+/// The caller's cmux workspace (`CMUX_WORKSPACE_ID`), where the app opens
+/// the session's tabs: the caller's own, never the focused one.
+fn caller_workspace() -> Option<String> {
+    std::env::var("CMUX_WORKSPACE_ID").ok().filter(|id| !id.is_empty())
 }
 
 /// The caller's directory, the session's fs root when it is narrow enough.
