@@ -19,20 +19,25 @@ import AppKit
         Task { @MainActor in work() }
     }
     /// The pushes owed, by name, in the order first owed; each reads its value when it runs.
-    private var owed: [(name: String, send: @MainActor (AgentPaneView) -> Void)] = []
+    private var owed: [(name: String, newTabOnly: Bool, send: @MainActor (AgentPaneView) -> Void)] = []
     private var scheduled = false
     private var probe: AgentPaneVisibilityProbe?
     /// The pane's page moved to another chat in place (``AgentPaneModel/adoptSession(_:)``): the
     /// owner of the chats' owed work hands the pane the new chat's (``AgentPaneOwedWork``).
     var onSessionChange: (@MainActor () -> Void)?
+    /// The page's seen signal (``AgentPageSeenSignal``), which reaches a hidden page.
+    let seen = AgentPageSeenSignal()
 
     /// Owes `name`'s push to `view`'s page: `send` runs once, on a later turn while `view` is seen,
-    /// replacing any `name` push still owed.
-    func push(_ name: String, to view: AgentPaneView, _ send: @escaping @MainActor (AgentPaneView) -> Void) {
+    /// replacing any `name` push still owed. A `newTabOnly` push (the New Tab cards' device chats,
+    /// recently closed items, Now Playing: only the New Tab screen draws them) waits while the page
+    /// is a chat, and goes when it becomes a New Tab page (``AgentPaneView/becomeNewTab(_:)``).
+    func push(_ name: String, to view: AgentPaneView, newTabOnly: Bool = false, _ send: @escaping @MainActor (AgentPaneView) -> Void) {
         if let index = owed.firstIndex(where: { $0.name == name }) {
             owed[index].send = send
+            owed[index].newTabOnly = newTabOnly
         } else {
-            owed.append((name, send))
+            owed.append((name, newTabOnly, send))
         }
         schedule(view)
     }
@@ -51,15 +56,21 @@ import AppKit
         }
     }
 
-    /// Sends what is owed when `view` is seen, else waits for it to show.
+    /// Sends what is owed when `view` is seen, else waits for it to show. New Tab data stays owed
+    /// while the page is a chat, with no watch: only its becoming a New Tab page sends it.
     func flush(_ view: AgentPaneView) {
-        guard !owed.isEmpty else { return }
+        let newTab = view.model.newTab != nil
+        guard owed.contains(where: { newTab || !$0.newTabOnly }) else { return stopWatching() }
         guard !isHidden(view) else { return watch(view) }
+        stopWatching()
+        let sends = owed.filter { newTab || !$0.newTabOnly }
+        owed.removeAll { newTab || !$0.newTabOnly }
+        for push in sends { push.send(view) }
+    }
+
+    private func stopWatching() {
         probe?.removeFromSuperview()
         probe = nil
-        let sends = owed
-        owed.removeAll()
-        for push in sends { push.send(view) }
     }
 
     private func watch(_ view: AgentPaneView) {
@@ -72,6 +83,73 @@ import AppKit
         // Set first: AppKit may call the probe back inside addSubview.
         self.probe = probe
         view.addSubview(probe)
+    }
+}
+
+/// Tells an agent page whether anybody sees it: `window.cmuxPageSeen?.(false)` makes the page treat
+/// itself as hidden (its `document.visibilityState` reads "hidden", a `visibilitychange` fires, and
+/// it pauses its acpmux session watch), `window.cmuxPageSeen?.(true)` shows it again and it catches up
+/// in one snapshot. Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread
+/// anyways?" The browser's own visibility misses the pages that cost the most: the New Tab spare in
+/// the key window 100,000 pt off screen, and Chromium pages kept drawing so they adopt painted.
+///
+/// The check is the gates' own (``AgentPaneFramePacer/nobodySees(_:)``): a painted parked spare is
+/// unseen, the adopted one seen in the turn of the reparent (``AgentPaneVisibilityProbe/superviewMoved(in:)``),
+/// before the pane's paint hold ends; a hidden tab and a covered or minimized window are unseen.
+/// The call goes straight to the page, never through ``AgentPaneShownPushes``, so a hidden page gets
+/// it. Each document starts seen, so a load sends the value again only when it is unseen; otherwise
+/// only a change sends.
+@MainActor final class AgentPageSeenSignal {
+    /// Whether nobody can see the pane (tests replace it).
+    var isHidden: @MainActor (AgentPaneView) -> Bool = AgentPaneFramePacer.nobodySees
+    /// What the page holds now: a document starts seen.
+    private(set) var pageSeen = true
+    /// Calls sent (tests).
+    private(set) var calls = 0
+    private var probe: AgentPaneVisibilityProbe?
+    /// A first paint is awaited: a parked page that paints becomes unseen.
+    private var awaitsPaint = false
+
+    /// The script that tells the page.
+    static func script(seen: Bool) -> String { "window.cmuxPageSeen?.(\(seen));" }
+
+    /// `view`'s page loaded a document or took its handshake: it holds seen; tell it if it is not,
+    /// and follow every change from here.
+    func pageLoaded(_ view: AgentPaneView) {
+        pageSeen = true
+        follow(view)
+    }
+
+    /// Follows `view`: the page hears each change of whether anybody sees it.
+    func follow(_ view: AgentPaneView) {
+        if probe == nil {
+            let probe = AgentPaneVisibilityProbe(frame: .zero)
+            probe.onChange = { [weak self, weak view] in
+                guard let self, let view else { return }
+                update(view)
+            }
+            // Set first: AppKit may call the probe back inside addSubview.
+            self.probe = probe
+            view.addSubview(probe)
+        }
+        update(view)
+    }
+
+    /// Sends the page the value of now when it changed.
+    func update(_ view: AgentPaneView) {
+        if !view.model.hasPainted, !awaitsPaint {
+            awaitsPaint = true
+            view.model.whenPainted { [weak self, weak view] in
+                guard let self else { return }
+                awaitsPaint = false
+                if let view { update(view) }
+            }
+        }
+        let seen = !isHidden(view)
+        guard seen != pageSeen else { return }
+        pageSeen = seen
+        calls += 1
+        view.evaluateScript(Self.script(seen: seen))
     }
 }
 

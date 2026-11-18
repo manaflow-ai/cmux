@@ -41,10 +41,12 @@ extension AgentPaneDeviceChat {
         view.model.remoteChat ? [] : chats
     }
 
-    /// Owes `view`'s page its device chats: they go once per turn, and only while the pane is seen
-    /// (``AgentPaneShownPushes``), as the value of that moment.
+    /// Owes `view`'s page its device chats: they go once per turn, only while the pane is seen
+    /// (``AgentPaneShownPushes``), as the value of that moment, and only to a New Tab page: a chat
+    /// page draws no cards, and each push made a New Tab page read All chats again and retake its
+    /// cover picture.
     @MainActor static func owe(to view: AgentPaneView) {
-        view.shownPushes.push("deviceChats", to: view) { push($0.deviceChats, to: $0) }
+        view.shownPushes.push("deviceChats", to: view, newTabOnly: true) { push($0.deviceChats, to: $0) }
     }
 
     /// Pushes `chats` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).

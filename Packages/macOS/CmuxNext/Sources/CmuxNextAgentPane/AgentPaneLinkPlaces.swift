@@ -141,7 +141,8 @@ public final class AgentPaneLinkPlaces {
         guard slices != self.slices else { return }
         self.slices = slices
         joined = nil
-        for view in views.allObjects { view.shownPushes.push("linkPlaces", to: view) { [weak self] in self?.send(to: $0) } }
+        revision &+= 1
+        for view in views.allObjects { view.shownPushes.push("linkPlaces", to: view) { [weak self] in self?.sendIfChanged(to: $0) } }
     }
 
     /// One listed workspace's places, by the titles ``follow(_:titles:)`` was given.
@@ -182,18 +183,44 @@ public final class AgentPaneLinkPlaces {
     /// The list, read now, as a page host event; `view` then also gets every change.
     func event(for view: AgentPaneView) -> AgentPageEvent {
         views.add(view)
-        return .linkPlaces(places)
+        sent.setObject(NSNumber(value: revision), forKey: view)
+        return encoded().event
     }
 
-    /// Pushes the list, read now, to `view`'s page; `view` then also gets every change.
+    /// Pushes the list, read now, to `view`'s page (a new document: always); `view` then also gets every change.
     func push(to view: AgentPaneView) {
         views.add(view)
         send(to: view)
     }
 
-    private func send(to view: AgentPaneView) {
+    /// Bumped on each change of ``places``; a page that has a revision is not sent it again.
+    private(set) var revision = 0
+    /// The revision each page was sent last.
+    private let sent = NSMapTable<AgentPaneView, NSNumber>.weakToStrongObjects()
+    /// The list encoded once per revision for every page (up to ``maximumPlaces`` places, ~600 KB).
+    private var encodedList: (revision: Int, event: AgentPageEvent, script: String)?
+    /// Encodes made (tests).
+    private(set) var encodes = 0
+
+    private func encoded() -> (event: AgentPageEvent, script: String) {
+        if let encodedList, encodedList.revision == revision { return (encodedList.event, encodedList.script) }
         let event = AgentPageEvent.linkPlaces(places)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyLinkPlaces?.(\(event.value.compactText));"])
+        let script = "window.cmuxAcpmuxBridge?.applyLinkPlaces?.(\(event.value.compactText));"
+        encodes += 1
+        encodedList = (revision, event, script)
+        return (event, script)
+    }
+
+    /// A change owed to a page that shows: only a revision the page does not have yet.
+    private func sendIfChanged(to view: AgentPaneView) {
+        guard sent.object(forKey: view)?.intValue != revision else { return }
+        send(to: view)
+    }
+
+    private func send(to view: AgentPaneView) {
+        sent.setObject(NSNumber(value: revision), forKey: view)
+        let list = encoded()
+        view.deliver([list.event], scripts: [list.script])
     }
 }
 
