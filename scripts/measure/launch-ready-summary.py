@@ -17,10 +17,13 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
-Prints an LR-FAIL row per launch that did not land where it should.
+Prints an LR-FAIL row per launch that did not land where it should. A launch whose launch before left no readable
+front cannot be judged against it: LR-SKIP, outside N/M, not an LR-FAIL. The stress3 seed quits the app itself, so its
+probe reads no front; --out DIR reads the one the seed wrote just before (DIR/seed-SIDE.front.json).
 """
 import argparse
 import json
+import os
 import statistics
 import sys
 from collections import Counter
@@ -105,6 +108,15 @@ def judge(row, expect, prev):
     return "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
 
 
+def fill_seed_fronts(rows, out):
+    """The stress3 seed quits the app itself, so its probe read no front; the seed wrote the one it left just before."""
+    for r in rows:
+        seeded = os.path.join(out, f"seed-{r['side']}.front.json")
+        if r["label"] == "seed" and (not r.get("front") or "error" in r["front"]) and os.path.exists(seeded):
+            with open(seeded) as handle:
+                r["front"] = json.load(handle)
+
+
 def layout_of(row):
     """One launch's settle from the app's layout.* marks (LaunchLayoutSettle), in ms after its own main_start: the
     first frame the watch read, the last frame in which anything on screen moved, appeared or went away, their
@@ -168,7 +180,7 @@ def summarize(rows, case="kept", seeded="", params=""):
         names = dict.fromkeys(name for r in done for name in r["marks"] if not name.startswith(("layout.", "web.layout.")))
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
-        failed, prev, measured, usable, anchor = [], None, 0, 0, None
+        failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
         if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
@@ -179,14 +191,21 @@ def summarize(rows, case="kept", seeded="", params=""):
             if r["label"].startswith("run"):
                 measured += 1
                 usable += "window_usable" in (r.get("marks") or {})
-                reason = judge(r, expect, None if case == "fresh" else (anchor if seeded else prev))
+                front, before = r.get("front"), None if case == "fresh" else (anchor if seeded else prev)
+                if (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
+                        and (not before or "error" in before)):
+                    skipped, reason = skipped + 1, None
+                    print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
+                          str((before or {}).get("error") or "none read"), flush=True)
+                else:
+                    reason = judge(r, expect, before)
                 if reason:
                     print("LR-FAIL", side, r["label"], reason, flush=True)
                     failed.append(r["label"])
-            prev = r.get("front")
+            prev, prev_label = r.get("front"), r["label"]
         runs = [r for r in own if r["label"].startswith("run")]
         reopened = measured - sum(1 for label in failed if label != "prime")
-        med["reopened"] = f"{reopened}/{measured}"
+        med["reopened"] = f"{reopened - skipped}/{measured - skipped}" + (f" ({skipped} skipped)" if skipped else "")
         med["usable"] = f"{usable}/{measured}"
         surfaces = Counter(first_surface(r) for r in runs)
         first = surfaces.most_common(1)[0][0] if surfaces else "none"
@@ -214,8 +233,11 @@ def main(argv=None):
     parser.add_argument("--daemon", default="", choices=["", "warm", "cold"])
     parser.add_argument("--snapshot", default="own", choices=["own", "unknown", "foreign"])
     parser.add_argument("--front", default="", choices=["", "home", "tab"])
+    parser.add_argument("--out", default="", help="the step's output folder (the stress3 seed's front file)")
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in open(args.runs) if line.strip()]
+    if args.out:
+        fill_seed_fronts(rows, args.out)
     params = " ".join(f"{k}={v}" for k, v in (("state", args.state), ("case", args.case), ("daemon", args.daemon),
                                                   ("snapshot", args.snapshot), ("front", args.front)) if v)
     summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front, params)

@@ -3988,11 +3988,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("listed", async () => {
         const v = await api.read("cloud.machine.list", {});
         const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        if (!rows.some((r) => r.id === created.id)) throw new Error(`${created.id} missing from ${rows.length} machines`);
-        return { value: null, detail: `${rows.length} machines` };
+        const row = rows.find((r) => r.id === created.id);
+        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        // The size the platform recorded: the one the VM read back at create, not the one asked for.
+        const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
+        return { value: null, detail: `${rows.length} machines${size}` };
       });
       await J.step("first exec", async () => {
-        const r = await exec("echo journey-ok; uname -m");
+        // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
+        // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).
+        const r = await exec("echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)");
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });

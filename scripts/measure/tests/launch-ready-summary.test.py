@@ -132,6 +132,26 @@ class ReopenTests(unittest.TestCase):
         result, _ = run([row("head", "prime", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs", cross_arm={"x": 1})])
         self.assertEqual(result["head"]["failed"], ["run1"])
 
+    def test_no_readable_front_before_is_a_skip_outside_n_of_m(self):
+        rows = [row("head", "prime", {"error": "no reply"}), row("head", "run1", TAB, TAB_MARKS, "tabs"),
+                row("head", "run2", TAB, TAB_MARKS, "tabs")]
+        result, lines = run(rows)
+        self.assertEqual(result["head"]["failed"], [])
+        self.assertIn("LR-REOPENED head 1/1 (1 skipped) case=kept", lines)
+        self.assertTrue(any(l.startswith("LR-SKIP head run1 prime left no readable front: no reply") for l in lines))
+
+    def test_the_stress3_seeds_own_front_file_fills_its_row(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as out:
+            Path(out, "seed-head.front.json").write_text(json.dumps(TAB))
+            rows = [row("head", "seed", {"error": "quit by the seed"}), row("head", "run1", TAB, TAB_MARKS, "tabs")]
+            module.fill_seed_fronts(rows, out)
+        self.assertEqual(rows[0]["front"], TAB)
+        result, lines = run(rows)
+        self.assertEqual(result["head"]["failed"], [])
+        self.assertIn("LR-REOPENED head 1/1 case=kept", lines)
+
 
 class SurfaceTests(unittest.TestCase):
     def test_surface_line_and_diff(self):

@@ -38,6 +38,10 @@ pub struct SessionSpec {
     /// The acpmux peer (`acpmux host ls`) the session is created on
     /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
     pub peer: Option<String>,
+    /// When the session's agent may stop (acpmux `_meta.acpmux.stopCondition`): acpmux gives
+    /// Claude Code it as a prompt Stop hook at every start, the hook `/goal` adds, so the agent
+    /// goes on until it holds (goal.rs). None: it stops when its turn ends.
+    pub stop_condition: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -1229,8 +1233,15 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     if is_compactor(spec) {
         meta["throwaway"] = json!(true);
     }
+    if let Some(condition) = &spec.stop_condition {
+        meta[STOP_CONDITION] = json!(condition);
+    }
     meta
 }
+
+/// acpmux's `_meta.acpmux` key for a session's stop condition, and its session/new answer's flag
+/// that the session keeps it (acpmux `hub/stop_condition.rs`).
+pub const STOP_CONDITION: &str = "stopCondition";
 
 /// A compactor node's session: purged at `end_node` minutes after its one prompt, so acpmux keeps
 /// no long prompt body in its log (`_meta.acpmux.throwaway`, acpmux `hub/ephemeral.rs`). Each node's
@@ -1315,6 +1326,16 @@ pub fn new_session_watching(
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "session/new answered without a sessionId".to_owned())?;
+    // A stop condition the daemon did not keep (an acpmux from before `stopCondition`, or a
+    // harness other than Claude Code): the session runs, but it may stop at any turn end.
+    if spec.stop_condition.is_some()
+        && result.pointer(&format!("/_meta/acpmux/{STOP_CONDITION}")) != Some(&json!(true))
+    {
+        crate::log::log(format!(
+            "acpmux did not keep the stop condition of session {} ({id}): an acpmux older than stopCondition, or not a Claude Code harness; it runs without its goal",
+            spec.name
+        ));
+    }
     // Right after creation: an untagged Chief session would count as one of
     // the user's agents (quit counts, endAgents), so it does not stay.
     if !spec.tags.is_empty()
