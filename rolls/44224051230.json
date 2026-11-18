@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44224051230",
+  "recorded_at": "2026-11-18T04:35:41Z",
+  "reason": "cmux-tui ecd5f536dcd9 changes the image's cmux-tui (pinned 9d5f6bd60c17)",
+  "dry_run": false,
+  "cmux_tui": "ecd5f536dcd974c53ce90b622f8c206cba1802a9",
+  "fixes": [
+    {
+      "sha": "bcb6bcd3504031f1aa7b997eb0dfb96cbb44c65e",
+      "mergedAt": "2026-11-17T11:29:24-08:00",
+      "subject": "acpmux: relay seam follow-ups (decision 299, keys progress, relay doc, sid budget) (#44162)"
+    },
+    {
+      "sha": "6c77648369b28c1ce3001ed688ce61d785e43bbd",
+      "mergedAt": "2026-11-17T10:51:14-08:00",
+      "subject": "cmux-rd: NACK and tail-probe repairs go through the pacer (D6) (#44820)"
+    },
+    {
+      "sha": "48e802a6de6f66200b5fadb2ab05552e89fb1874",
+      "mergedAt": "2026-11-17T10:49:46-08:00",
+      "subject": "cmux-action-catalog: palette rows for the hand-built menus (FFI step A) (#45625)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-18T04:35:41Z",
+    "snapshot_id": "sh-5a03553dd5d04348ae781db2c572f300",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44224051230): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "035617d98e7a40cf907d94842cab7ff9292bb035",
+    "image": "cloud-native-auto-ecd5f536-44224051230-1",
+    "revision": "ci-44224051230-1",
+    "at": "2026-11-18T04:35:41Z"
+  },
+  "rolled_back": false
+}
