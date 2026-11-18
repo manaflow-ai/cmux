@@ -203,7 +203,15 @@ struct ChiefLiveDetails: View {
 struct ChiefLiveDetailRow: View {
     let detail: ChiefLive.Detail
 
+    #if DEBUG
+    /// Test hook: how many times a detail row's body ran.
+    nonisolated(unsafe) static var bodyCount = 0
+    #endif
+
     var body: some View {
+        #if DEBUG
+        let _ = Self.bodyCount += 1
+        #endif
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol)
                 .font(.caption)

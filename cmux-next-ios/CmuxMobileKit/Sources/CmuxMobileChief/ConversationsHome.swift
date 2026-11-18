@@ -235,12 +235,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         List {
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
-                // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
-                // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
-                // foldable) adds columns instead of stretching three tiles.
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
-                    ForEach(tiles) { $0 }
-                }
+                HomePinGrid(tiles: tiles)
                 .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -548,11 +543,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         var tiles: [HomeTile] = []
         for row in list.pinned {
             let macChief = isMacChief(row)
-            tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row),
+            let tileRoute = route(row)
+            tiles.append(HomeTile(id: row.id, route: tileRoute, avatar: avatarText(row), name: row.title, detail: tag(row),
                                   unread: row.unreadCount > 0, working: row.isWorking,
                                   bubble: row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil,
                                   muted: row.isMuted, identifier: macChief ? "home.chief.mac" : "home.pin.\(row.id)",
-                                  open: { open(route(row)) }, menu: AnyView(rowMenu(row))))
+                                  open: { open(tileRoute) }, menu: AnyView(rowMenu(row))))
         }
         return tiles
     }
@@ -942,12 +938,29 @@ struct CallChiefItem: View {
     }
 }
 
+/// Messages' pinned grid: the Mac's pins (at most `ConversationListState.maxPinned`, 9, which
+/// the Mac enforces), so it draws every tile without windowing.
+struct HomePinGrid: View {
+    let tiles: [HomeTile]
+
+    var body: some View {
+        // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
+        // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
+        // foldable) adds columns instead of stretching three tiles.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
+            ForEach(tiles) { $0 }
+        }
+    }
+}
+
 /// One tile of Messages' pinned grid, as the Mac's Home draws it: a large
 /// avatar, the name (the unread dot before it, the muted bell after it),
 /// where a Chief runs, and a typing or preview bubble above the avatar. A
 /// button of its own: a tap opens this tile only.
 struct HomeTile: View, Identifiable {
     let id: String
+    /// Where a tap goes (`open` goes there).
+    let route: HomeConversationRoute
     let avatar: String
     let name: String
     let detail: String?
@@ -960,11 +973,19 @@ struct HomeTile: View, Identifiable {
     let open: () -> Void
     let menu: AnyView?
 
+    #if DEBUG
+    /// Test hook: how many times a tile's body ran.
+    nonisolated(unsafe) static var bodyCount = 0
+    #endif
+
     @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
     private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
     private var showsBubble: Bool { working || bubble != nil }
 
     var body: some View {
+        #if DEBUG
+        let _ = Self.bodyCount += 1
+        #endif
         Button(action: open) {
             tile
                 .frame(maxWidth: .infinity)

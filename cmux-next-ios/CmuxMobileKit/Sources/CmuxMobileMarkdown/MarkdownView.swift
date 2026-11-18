@@ -93,7 +93,15 @@ public struct MarkdownBlockView: View {
         self.margin = margin
     }
 
+    #if DEBUG
+    /// Test hook: how many times a block's body ran.
+    nonisolated(unsafe) static var bodyCount = 0
+    #endif
+
     public var body: some View {
+        #if DEBUG
+        let _ = Self.bodyCount += 1
+        #endif
         switch block.kind {
         case .heading(let level, let text):
             InlineText(source: text, font: headingFont(level))

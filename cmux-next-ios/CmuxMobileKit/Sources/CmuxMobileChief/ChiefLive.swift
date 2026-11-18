@@ -81,7 +81,7 @@ struct ChiefLiveState {
                 details[index] = detail
             } else {
                 details.append(detail)
-                if details.count > 64 { details.removeFirst(details.count - 64) }
+                if details.count > ChiefLiveState.detailCap { details.removeFirst(details.count - ChiefLiveState.detailCap) }
             }
         }
     }
@@ -103,6 +103,9 @@ struct ChiefLiveState {
     private var tick = 0
     /// What the owner keeps per step (64 KiB of tail text).
     static let bufferCap = 64 * 1024
+    /// The most details a run shows (the newest): the details list draws every one, so its
+    /// length stays bounded however long the run works.
+    static let detailCap = 64
 
     init(conversation: String) {
         self.conversation = conversation
