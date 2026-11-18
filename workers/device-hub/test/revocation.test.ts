@@ -57,6 +57,7 @@ describe("revocation", () => {
 
   it("revokes pending requests too, without a Session DO", async () => {
     const ctx = await setup();
+    await ctx.host.call("PUT", `/v1/permissions/${ctx.host.id}/${ctx.viewer.id}`, { scope: "ask" });
     const res = await ctx.viewer.call("POST", "/v1/sessions", { hostId: ctx.host.id, scope: "view" });
     await ctx.host.share(false);
     expect((await ctx.viewer.user!.next((f) => f.type === "session.revoked")).sessionId).toBe(res.json.session.id);
