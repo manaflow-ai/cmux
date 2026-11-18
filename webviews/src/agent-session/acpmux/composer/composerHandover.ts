@@ -14,6 +14,14 @@
 // - the field: New Tab's leads with the input glyph, so the chat's field slides in from where New
 //   Tab's text stood.
 // No new element draws: the same card and field move.
+//
+// The chat holds its transcript back while the composer glides (`useComposerLanding`, App.tsx): the
+// sent prompt draws once the composer is home, so nothing in the chat moves after it shows (Leo,
+// 2026-11-18: "it still does a 2 part animation going from as if it had an invisible split, then
+// into the main page"; test/agent-pane-new-chat-settles.test.ts). Before, the chat drew its first
+// message over a composer still parked where New Tab's stood, mid-page as in a split, and the glide
+// ran only once the chat's first frames were done: a pause there, then the drop.
+import { useSyncExternalStore } from "react";
 import { MOTION_EASE_OUT, MOTION_SPRING } from "../../../motion/scale.generated";
 import { motionMode, springEasing } from "../../../ui/motion/motionMode";
 
@@ -22,6 +30,33 @@ type Held = { card: Place; field?: Place; at: number };
 let held: Held | undefined;
 /// A held place older than this belongs to a start that never drew a chat.
 const HELD_MS = 2_000;
+
+/// The chat's composer is on its way home from New Tab's place: from New Tab's leaving until the
+/// glide ends, or HELD_MS when no chat composer took the place.
+let landing = false;
+let landingTimer: ReturnType<typeof setTimeout> | undefined;
+const landingListeners = new Set<() => void>();
+
+function setLanding(next: boolean): void {
+  if (landingTimer !== undefined) clearTimeout(landingTimer);
+  landingTimer = next ? setTimeout(() => setLanding(false), HELD_MS) : undefined;
+  if (landing === next) return;
+  landing = next;
+  for (const listener of landingListeners) listener();
+}
+
+function subscribeLanding(listener: () => void): () => void {
+  landingListeners.add(listener);
+  return () => landingListeners.delete(listener);
+}
+
+const readLanding = () => landing;
+const notLanding = () => false;
+
+/** Whether the chat's composer is still gliding home from New Tab: the chat draws its transcript after. */
+export function useComposerLanding(): boolean {
+  return useSyncExternalStore(subscribeLanding, readLanding, notLanding);
+}
 
 const NEW_TAB_CARD = ".nt-box";
 /// The text's own box first: `.nt-field` alone also holds its padding.
@@ -49,6 +84,8 @@ function place(element: Element | null | undefined): Place | undefined {
 export function holdComposerPlace(doc: Document = document): void {
   const card = place(doc.querySelector(NEW_TAB_CARD));
   held = card ? { card, field: place(first(doc, NEW_TAB_FIELD)), at: performance.now() } : undefined;
+  // With motion off nothing glides, so the chat draws at once.
+  setLanding(held !== undefined && motionMode(doc) !== "none");
 }
 
 function moveMs(element: Element): number {
@@ -63,36 +100,56 @@ function moveMs(element: Element): number {
 export function glideComposerFromHeld(form: HTMLElement | null): void {
   const from = held;
   held = undefined;
-  if (!form || !from || performance.now() - from.at > HELD_MS) return;
+  const animations = from && form ? glide(form, from) : [];
+  if (animations.length === 0) {
+    setLanding(false);
+    return;
+  }
+  // Home when every part is: the chat draws its transcript then.
+  void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => setLanding(false));
+}
+
+function glide(form: HTMLElement, from: Held): Animation[] {
+  if (performance.now() - from.at > HELD_MS) return [];
   const mode = motionMode(form.ownerDocument, form);
   const duration = moveMs(form);
-  if (mode === "none" || !(duration > 0) || typeof form.animate !== "function") return;
+  if (mode === "none" || !(duration > 0) || typeof form.animate !== "function") return [];
   // Every place is read before anything moves: a started animation's transform shows in the rects.
   const cardElement = form.querySelector<HTMLElement>(CHAT_CARD);
   const card = place(cardElement) ?? place(form);
   const fieldElement = first(form, CHAT_FIELD) as HTMLElement | null;
   const field = place(fieldElement);
-  if (!card) return;
+  if (!card) return [];
+  const animations: Animation[] = [];
+  // Each part starts on this frame's clock, not when the chat's first frames let the compositor
+  // take it: a pending start held the box where New Tab's stood, then it dropped (the two parts).
+  const start = form.ownerDocument.timeline?.currentTime ?? null;
+  const play = (element: HTMLElement, keyframes: Keyframe[]) => {
+    const animation = element.animate(keyframes, timing);
+    if (start !== null) animation.startTime = start;
+    animations.push(animation);
+  };
   const timing: KeyframeAnimationOptions = {
     duration,
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,
   };
   const dy = from.card.top - card.top;
-  if (Math.abs(dy) >= 1) form.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], timing);
+  if (Math.abs(dy) >= 1) play(form, [{ transform: `translateY(${dy}px)` }, { transform: "none" }]);
   // The card opens from New Tab's height to its own.
   const hidden = card.height - from.card.height;
   if (cardElement && hidden >= 1) {
     const radius = getComputedStyle(cardElement).borderBottomLeftRadius || "0px";
-    cardElement.animate(
-      [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
-      timing,
-    );
+    play(cardElement, [
+      { clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` },
+      { clipPath: `inset(0 0 0 0 round ${radius})` },
+    ]);
   }
   // The field slides from where New Tab's text stood inside its card.
   if (fieldElement && field && from.field) {
     const fx = from.field.left - field.left;
     const fy = from.field.top - from.card.top - (field.top - card.top);
     if (Math.abs(fx) >= 1 || Math.abs(fy) >= 1)
-      fieldElement.animate([{ transform: `translate(${fx}px, ${fy}px)` }, { transform: "none" }], timing);
+      play(fieldElement, [{ transform: `translate(${fx}px, ${fy}px)` }, { transform: "none" }]);
   }
+  return animations;
 }

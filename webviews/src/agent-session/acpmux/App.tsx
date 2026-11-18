@@ -22,7 +22,7 @@ import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
-import { holdComposerPlace } from "./composer/composerHandover";
+import { holdComposerPlace, useComposerLanding } from "./composer/composerHandover";
 import { chatOnThisMac, chatPlace, chatMachine as chatMachineOf } from "./chatMachine";
 import {
   CONNECT_ACTIONS,
@@ -2789,6 +2789,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A fresh chat shows its empty state until something is in it: a prompt, a command it ran, or
   /// a side question asked in it (its aside is a transcript row).
   const freshView = freshChat && chatShellRuns.length === 0 && !hasBtwNotes;
+  /// A chat New Tab just started: its composer is still gliding home (composer/composerHandover.ts).
+  const composerLanding = useComposerLanding();
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
@@ -14302,6 +14304,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     picker={heroPicker}
                     tour={tourOffer}
                   />
+                ) : composerLanding ? (
+                  // The composer glides home from New Tab's place; the chat draws once it is there
+                  // (composer/composerHandover.ts), so nothing in it moves after it shows.
+                  <div className="acpmux-landing" aria-busy="true" />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>
