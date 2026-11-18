@@ -10,6 +10,7 @@
 pub mod index;
 pub mod locate;
 pub mod parse;
+pub mod read;
 
 pub use index::{CatchUp, EXACT_DOCS, Error, Hit, Index, Order, Page, Query, Result};
 pub use locate::{Roots, Source};

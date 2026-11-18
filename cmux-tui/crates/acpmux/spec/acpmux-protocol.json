@@ -1050,6 +1050,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transcript_read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/complete",
       "params": true,
       "result": true

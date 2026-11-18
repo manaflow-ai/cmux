@@ -70,6 +70,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A transcript search asks the peers itself, and only for a local caller
     // (`hub/transcript_search.rs`): its `sessionId` never sends it on whole.
     method::MUX_TRANSCRIPT_SEARCH,
+    // A transcript read goes to the one peer its `host` names (`hub/transcript_read.rs`).
+    method::MUX_TRANSCRIPT_READ,
     // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
     method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).

@@ -6,7 +6,8 @@
 //!
 //! A guest chat is no acpmux session, so it gets the tools that need none: read and message the
 //! sessions on this machine, its paired machines and Cloud machines (`ls`, `last`, `info`,
-//! `search`, `send`, `send_status`), list those machines (`machines`), start a session on one of
+//! `search`, `send`, `send_status`), find and read what any of them said earlier
+//! (`transcript_search`, `transcript_read`), list those machines (`machines`), start a session on one of
 //! them (`new`), and the person's cmux artifacts when signed in. The session-bound tools (inbox,
 //! background tasks, goal, wrap-up, watch, `machine_info`, `who_else`) are left out: each
 //! refuses without a session.
@@ -42,7 +43,16 @@ use cmux_json::JsonSet as _;
 use std::process::Stdio;
 
 /// The tools of the full server a guest keeps, by name.
-const KEPT: &[&str] = &["send", "send_status", "ls", "last", "info", "search"];
+const KEPT: &[&str] = &[
+    "send",
+    "send_status",
+    "ls",
+    "last",
+    "info",
+    "search",
+    "transcript_search",
+    "transcript_read",
+];
 pub(super) const NEW: &str = "new";
 pub(super) const MACHINES: &str = "machines";
 /// How long a CLI call may take: under Codex's 60 s MCP tool timeout.
@@ -56,7 +66,8 @@ pub(super) const STEER: &str = "These tools are cmux's transport: they reach the
 Cloud machines. machines lists the machines; new starts a session on one with a task and returns \
 at once (it keeps working after this chat ends, and asks the person in cmux NEXT or on their \
 phone before anything risky); ls, info and last read sessions; send messages one; search finds \
-words in one. Give the person the session's link so they can follow it in cmux. If a tool says \
+words in one; transcript_search finds what any session said earlier and transcript_read reads the \
+text around a hit. Give the person the session's link so they can follow it in cmux. If a tool says \
 there is no acpmux daemon, cmux NEXT is not running on this machine: ask the person to open it.";
 
 /// The guest's tools: [`KEPT`] of `all` (the full server's list, artifacts included when signed
@@ -379,7 +390,7 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
             match name {
                 NEW => return new(&app, &args).await,
                 MACHINES => return machines(&app).await,
-                "search" | "send_status" => {}
+                "search" | "send_status" | "transcript_search" | "transcript_read" => {}
                 n if KEPT.contains(&n) => {}
                 other => {
                     return error_result(crate::mcp_hint::unknown_tool(
@@ -396,6 +407,8 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
             };
             match name {
                 "search" => search_tool(&daemon, "", &args).await,
+                "transcript_search" => transcript_search_tool(&daemon, "", &args).await,
+                "transcript_read" => transcript_read_tool(&daemon, "", &args).await,
                 "send_status" => send_status::call(&daemon, "", &args).await,
                 _ => call_as(&daemon, &params, None).await,
             }
