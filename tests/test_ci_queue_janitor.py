@@ -812,13 +812,22 @@ class LinuxOrphanTests(unittest.TestCase):
         plan = orphan_plan(find(runs + [served], jobs), max_cancels=3)
         self.assertEqual([d.action for d in plan], ["cancel", "cancel", "cancel", "skip"])
 
-    def test_the_old_listings_read_the_oldest_pages_of_queued_and_in_progress_runs(self):
-        """Review of 87691bf0 (F1): the list is newest first and `created=<T` only cuts its top, so the first pages of
-        500 old runs are the youngest of them; the oldest is on the last page. Dry run 44279689050: a run whose other
-        jobs finished is in_progress while its lost job waits, so in_progress gets the same listing."""
+    def test_the_old_listings_reach_the_oldest_runs_of_the_flood_band(self):
+        """Dry run 44288789127: 2,500 queued runs past the orphan age, GitHub answers 1,000 of a filtered list, and the
+        30 runs read were 10 h to 27 days old with 1 stuck job. The band below the ghost age is narrowed until its
+        oldest runs are reachable; an in_progress run whose other jobs finished is listed the same way."""
         asked = []
-        old = {status: [make_run(status=status, age=130 + n) for n in range(500)]  # newest first, as GitHub lists them
-               for status in ("queued", "in_progress")}
+        flood = [make_run(status="queued", age=60 * 23 - n // 2) for n in range(2500)]  # 23 h to about 2.6 h old
+        ancient = [make_run(status="queued", age=60 * 24 * 27 - n) for n in range(300)]
+        stuck = [make_run(status="in_progress", age=60 * 20 - n) for n in range(50)]
+        everything = flood + ancient + stuck
+
+        def created_ok(run, created):
+            at = run["created_at"]
+            if created.startswith("<"):
+                return at < created[1:]
+            low, high = created.split("..")
+            return low <= at <= high
 
         class Fake(janitor.GitHub):
             def __init__(self):
@@ -827,23 +836,35 @@ class LinuxOrphanTests(unittest.TestCase):
 
             def request(self, method, path, body=None):
                 asked.append(path)
-                if "created=" not in path:
+                query = {k: v[0] for k, v in urllib.parse.parse_qs(path.split("?", 1)[1]).items()}
+                if "created" not in query:
                     return {"workflow_runs": []}
-                status = re.search(r"[?&]status=(\w+)", path).group(1)
-                page = int(re.search(r"[?&]page=(\d+)", path).group(1))
-                return {"total_count": 500, "workflow_runs": old[status][(page - 1) * 100: page * 100]}
+                match = sorted((r for r in everything if r["status"] == query["status"]
+                                and created_ok(r, query["created"])), key=lambda r: r["created_at"], reverse=True)
+                page = int(query["page"])
+                reachable = match[:janitor.RUN_LIST_RESULT_CAP]
+                return {"total_count": len(match), "workflow_runs": reachable[(page - 1) * 100: page * 100]}
 
         fake = Fake()
-        found = {run["id"] for run in fake.old_runs(NOW - dt.timedelta(minutes=120))}
-        self.assertIn(old["queued"][-1]["id"], found)
-        self.assertIn(old["in_progress"][-1]["id"], found)
-        self.assertEqual(fake.old_run_totals, {"queued": 500, "in_progress": 500})
-        for status in ("queued", "in_progress"):
-            self.assertEqual(sorted(int(re.search(r"[?&]page=(\d+)", p).group(1)) for p in asked
-                                    if f"status={status}" in p), [1, 3, 4, 5])
+        found = {run["id"] for run in fake.old_runs(NOW - dt.timedelta(minutes=120), NOW - dt.timedelta(hours=24))}
+        self.assertIn(flood[0]["id"], found)  # the flood's oldest
+        self.assertIn(stuck[0]["id"], found)
+        self.assertIn(ancient[0]["id"], found)  # a ghost, for the listing-only rule
+        self.assertLessEqual(len(asked), 3 * (1 + janitor.BAND_NARROWINGS + janitor.OLD_RUN_PAGES))
         asked.clear()
         Fake().in_flight_runs()
         self.assertFalse(any("created=" in path for path in asked))
+
+    def test_a_ghost_queued_run_is_never_read_and_the_band_goes_first(self):
+        ghost = make_run(status="queued", age=60 * 24 * 27, path=".github/workflows/pr-checks.yml")
+        ancient = make_run(status="in_progress", age=60 * 24 * 27, path=".github/workflows/pr-checks.yml")
+        band = [make_run(status="queued", age=60 * 20 - n, path=".github/workflows/pr-checks.yml") for n in range(3)]
+        picked = janitor.linux_orphan_reads([ghost, ancient, *band], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=3, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in band])
+        picked = janitor.linux_orphan_reads([ghost, ancient, *band], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=10, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in band] + [ancient["id"]])
 
     def test_an_old_only_run_of_any_workflow_is_read_and_a_listed_one_is_not(self):
         """An old in_progress CI run past the newest pages holds a lost Linux job no other pass reads."""

@@ -145,6 +145,7 @@ MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
 # only the orphan search; no other pass reads their jobs.
 OLD_RUN_PAGES = 3
 OLD_RUN_STATUSES = ("queued", "in_progress")
+BAND_NARROWINGS = 3
 RUN_LIST_RESULT_CAP = 1000  # GitHub answers a filtered run list up to this many results
 # How long to let a cancel settle before checking whether it took.
 ORPHAN_RECHECK_SECONDS = 20
@@ -279,6 +280,10 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
     return frozenset(paths)
 
 
+def stamp(moment: dt.datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def linux_orphan_reads(
     runs: Sequence[Mapping[str, Any]],
     linux_only_paths: frozenset[str],
@@ -290,14 +295,17 @@ def linux_orphan_reads(
 ) -> list[Mapping[str, Any]]:
     """The runs whose jobs the Linux orphan pass reads: Linux-only, or in ALSO (listed only by old_runs, so no other
     pass reads their jobs), in flight, older than MIN_AGE, not protected, oldest first, at most BUDGET. A younger one
-    cannot hold an orphan; a protected one would only be reported."""
+    cannot hold an orphan; a protected one would only be reported. A queued run past GHOST_QUEUED_RUN_AGE is never
+    read (find_orphans takes it from the listing alone), and the band below that age goes first: dry run 44288789127
+    spent its 30 reads on runs up to 27 days old holding nothing queued, every sweep the same ones."""
     picked = []
     for run in runs:
         created = parse_time(run.get("created_at"))
         if ((run.get("path") in linux_only_paths or run["id"] in also) and run.get("status") in IN_FLIGHT_RUN_STATUSES
-                and created is not None and now - created >= min_age and orphan_protected_reason(run) is None):
-            picked.append((created, run["id"], run))
-    return [run for _, _, run in sorted(picked, key=lambda item: (item[0], item[1]))[:budget]]
+                and created is not None and now - created >= min_age and orphan_protected_reason(run) is None
+                and not (run.get("status") == "queued" and now - created >= GHOST_QUEUED_RUN_AGE)):
+            picked.append((now - created >= GHOST_QUEUED_RUN_AGE, created, run["id"], run))
+    return [item[-1] for item in sorted(picked, key=lambda item: item[:3])[:budget]]
 
 
 def linux_protected_runs(runs: Sequence[Mapping[str, Any]], linux_only_paths: frozenset[str],
@@ -1564,17 +1572,28 @@ class GitHub:
                     break
         return list(runs.values())
 
-    def old_runs(self, created_before: dt.datetime) -> list[dict[str, Any]]:
-        """The oldest runs per OLD_RUN_STATUSES created before CREATED_BEFORE: the list is newest first and
-        `created=<T` only cuts its top, so page 1 gives total_count and the last OLD_RUN_PAGES pages are read (GitHub
-        answers a filtered list up to RUN_LIST_RESULT_CAP results, so past that the oldest reachable pages).
-        old_run_totals keeps each total_count for the summary."""
+    def old_runs(self, created_before: dt.datetime, band_start: dt.datetime) -> list[dict[str, Any]]:
+        """The oldest runs of the band BAND_START..CREATED_BEFORE per OLD_RUN_STATUSES, and the oldest queued runs
+        created before BAND_START (ghosts, cancelled from the listing alone).
+
+        Each list is newest first and a created filter only cuts its top, so page 1 gives total_count and the last
+        OLD_RUN_PAGES pages are read. GitHub answers a filtered list up to RUN_LIST_RESULT_CAP results, so a band
+        holding more is narrowed from its young end (at most BAND_NARROWINGS times, one call each) until its oldest
+        runs are reachable. Dry run 44288789127 read `created=<T` alone: 2,500 queued, the 30 runs it read were 10 h
+        to 27 days old and held 1 stuck job, while the 11-17 flood's runs were never reached. old_run_totals keeps
+        each listing's total_count for the summary."""
         found: dict[int, dict[str, Any]] = {}
-        for status in OLD_RUN_STATUSES:
-            base = {"status": status, "created": "<" + created_before.strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": 100}
-            first = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode({**base, 'page': 1})}")
-            total = int(first.get("total_count") or 0)
-            self.old_run_totals[status] = total
+        listings = [(status, band_start, created_before) for status in OLD_RUN_STATUSES] + [("queued", None, band_start)]
+        for status, start, end in listings:
+            for _ in range(BAND_NARROWINGS + 1):
+                created = (stamp(start) + ".." + stamp(end)) if start else "<" + stamp(end)
+                base = {"status": status, "created": created, "per_page": 100}
+                first = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode({**base, 'page': 1})}")
+                total = int(first.get("total_count") or 0)
+                if total <= RUN_LIST_RESULT_CAP or start is None:
+                    break
+                end = start + (end - start) * (RUN_LIST_RESULT_CAP * 0.8 / total)
+            self.old_run_totals[f"{status} {created}"] = total
             batches = [first.get("workflow_runs") or []]
             last = min(-(-total // 100), RUN_LIST_RESULT_CAP // 100)
             for page in range(last, max(1, last - OLD_RUN_PAGES), -1):
@@ -1707,7 +1726,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
         # The oldest runs, past the newest pages: only the orphan search sees them, through the Linux pass.
         listed = {run["id"] for run in runs}
-        old_only = [run for run in (github.old_runs(now - orphan_age) if linux_job_reads else ())
+        old_only = [run for run in (github.old_runs(now - orphan_age, now - GHOST_QUEUED_RUN_AGE)
+                                    if linux_job_reads else ())
                     if run["id"] not in listed]
         orphan_runs = runs + old_only
         # The Linux orphan pass: the oldest Linux-only (or old-only) runs' jobs, read only to find lost
@@ -1811,12 +1831,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                f"{len(orphans)} orphans, {len(linux_jobs)} Linux job listings, " \
                f"{len(linux_orphans)} Linux orphans, {github.calls} API calls._\n"
     if linux_job_reads:
-        totals = ", ".join(f"{status} {total}" for status, total in github.old_run_totals.items())
+        totals = ", ".join(f"{listing}: {total}" for listing, total in github.old_run_totals.items())
         ages = sorted(now - created for run_id in linux_jobs
                       if (created := parse_time(next(r for r in orphan_runs if r["id"] == run_id).get("created_at"))))
         span = f"created {format_age(ages[-1])} to {format_age(ages[0])} ago" if ages else "none"
         summary += f"\n_Linux pass: {len(old_only)} old runs past the newest pages (created-before totals: {totals}; " \
                    f"at most {RUN_LIST_RESULT_CAP} reachable each); read {len(linux_jobs)}, {span}._\n"
+        stuck_runs = [(run_id, sum(1 for job in jobs if never_assigned(job))) for run_id, jobs in linux_jobs.items()]
+        stuck_runs = [(run_id, count) for run_id, count in stuck_runs if count]
+        if stuck_runs:
+            urls = {run["id"]: run.get("html_url") for run in orphan_runs}
+            summary += "\n_Read runs holding unassigned jobs: " + ", ".join(
+                f"[{run_id}]({urls.get(run_id)}) ({count})" for run_id, count in stuck_runs[:15]) + "._\n"
         for pool, (count, proven, oldest) in sorted(stuck_by_pool(linux_jobs, {**jobs_by_run, **linux_jobs},
                                                                   min_age=orphan_age, now=now).items()):
             summary += f"\n_`{pool or '(no labels)'}`: {count} job(s) queued past the orphan age, oldest " \
