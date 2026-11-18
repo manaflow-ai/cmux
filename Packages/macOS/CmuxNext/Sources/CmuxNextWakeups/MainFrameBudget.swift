@@ -210,6 +210,10 @@ public final class MainFrameBudget {
     /// idle time (``hasIdleTime(_:)``).
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
+        if workClass == .background, holdsBackgroundForLaunch {
+            stats.heldForLaunch += 1
+            return false
+        }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
         // older than one frame is over. Never while the link runs (its ticks own the window) and
