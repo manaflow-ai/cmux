@@ -60,6 +60,8 @@ pub(crate) const BLOCKED_RECHECK_MS: u64 = 10 * 60 * 1000;
 const PR_READS_PER_PASS: usize = 30;
 /// One `gh` read's bound.
 const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// The most chats one pass settles; the rest go in the next pass.
+const SETTLES_PER_PASS: usize = 20;
 /// A pass that read a pull request that closed runs again this soon, to settle its chat.
 const AFTER_READ_MS: u64 = 1_000;
 
@@ -365,17 +367,30 @@ impl Hub {
         let mut reads: Vec<String> = vec![];
         // The pull requests of the chats still in the rule: what `states` keeps.
         let mut wanted: std::collections::HashSet<String> = Default::default();
+        let mut settles = 0;
         for session in self.live_session_handles() {
+            let read_at = now_ms();
             let facts = session.read_meta(Facts::of);
             if !facts.eligible(rules) {
                 continue;
             }
             wanted.extend(facts.pull_requests.iter().cloned());
             if let Some(reason) = decide(rules, &facts, |u| states.known(u), now) {
-                if self.settle_blocked(&session) {
+                // Each settle saves the chat's meta: a first pass over hundreds of old chats
+                // (idle days just turned on) does a batch, yields, and comes back.
+                if settles >= SETTLES_PER_PASS {
+                    soon(now + AFTER_READ_MS);
+                } else if self.settle_blocked(&session) {
                     soon(now + BLOCKED_RECHECK_MS);
-                } else if let Err(e) = self.settle(&session, reason) {
-                    tracing::warn!(session = %session.id, error = ?e, "auto-settle not saved");
+                } else {
+                    match self.settle(&session, reason, read_at) {
+                        Ok(true) => settles += 1,
+                        Ok(false) => soon(now + AFTER_READ_MS),
+                        Err(e) => {
+                            tracing::warn!(session = %session.id, error = ?e, "auto-settle not saved")
+                        }
+                    }
+                    tokio::task::yield_now().await;
                 }
                 continue;
             }
@@ -393,8 +408,13 @@ impl Hub {
         states.0.retain(|url, _| wanted.contains(url));
         let mut settled_some = false;
         for url in reads.into_iter().take(PR_READS_PER_PASS) {
-            // Unreadable (no gh, refused, slow): counted as open, read again after the recheck.
-            let state = read_pr(&url).await.unwrap_or(PrState::Open);
+            let Some(state) = read_pr(&url).await else {
+                // Unreadable (no gh, refused, a spent quota): counted as open, and read again
+                // three rechecks later, so a refusing GitHub is not asked every 10 minutes.
+                let later = now_ms().saturating_add(2 * PR_RECHECK_MS);
+                states.0.insert(url, (PrState::Open, later));
+                continue;
+            };
             settled_some |= state != PrState::Open;
             states.0.insert(url, (state, now_ms()));
         }
@@ -405,36 +425,66 @@ impl Hub {
         std::time::Duration::from_millis(wait)
     }
 
-    /// Whether `session` is at work, so it does not settle now (module docs).
+    /// Whether `session` is at work or in use, so it does not settle now (module docs). A chat
+    /// whose harness ended (idle, disconnected) is not at work: only what still runs counts, not
+    /// the idle reaper's rule for keeping a harness up.
     pub(crate) fn settle_blocked(&self, session: &Session) -> bool {
-        let idle = self.idle_eligible(session) && session.turn_lock.try_lock().is_ok();
+        let working = session.turn().is_some()
+            || session.turn_lock.try_lock().is_err()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.asks_in_flight.load(Ordering::SeqCst) > 0
+            || session.queued() > 0
+            || !session.pending_permissions().is_empty()
+            || session.agent_requests.load(Ordering::SeqCst) > 0
+            || self.secrets.waiting_in(&session.id)
+            || self.any_process_running(session)
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            || session.work_below_since.lock().map_or(true, |v| *v != 0)
+            || self.continuation_pending(session)
+            || self.bg_running(session);
+        // Someone has it open, or is writing in it.
         let presence = self.presence.snapshot(&session.id);
-        let typing = presence.get("participants").and_then(Value::as_array).is_some_and(|people| {
-            people.iter().any(|p| p.get("typing").and_then(Value::as_bool) == Some(true))
+        let in_use = presence.get("participants").and_then(Value::as_array).is_some_and(|people| {
+            people.iter().any(|p| {
+                p.get("typing").and_then(Value::as_bool) == Some(true)
+                    || p.get("viewing").and_then(Value::as_bool) == Some(true)
+            })
         });
         let draft = session
             .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()))
             || session.composers.lock().unwrap_or_else(|e| e.into_inner()).any_draft();
-        !idle || typing || draft || self.bg_running(session)
+        working || in_use || draft
     }
 
-    /// Settles `session` for `reason`: archived, with why.
-    pub(crate) fn settle(&self, session: &Session, reason: Reason) -> Result<(), RpcError> {
+    /// Settles `session` for `reason`: archived, with why. Checked again under its meta lock, so
+    /// an Unarchive, a person's prompt (which logs a record) or an Archive that came after the
+    /// pass read the chat wins; answers whether it settled.
+    pub(crate) fn settle(
+        &self,
+        session: &Session,
+        reason: Reason,
+        read_at: u64,
+    ) -> Result<bool, RpcError> {
+        let still = session.read_meta(|m| {
+            let facts = Facts::of(m);
+            !facts.archived && !facts.never && m.updated_at <= read_at
+        });
+        if !still {
+            return Ok(false);
+        }
         let mut set = serde_json::Map::new();
         set.insert(ARCHIVED_TAG.into(), Value::String(now_ms().to_string()));
         set.insert(SETTLED_TAG.into(), Value::String(reason.as_str().into()));
         tracing::info!(session = %session.id, reason = reason.as_str(), "chat settled");
-        self.set_tags_answered(session, Some(&set), &[UNSETTLED_TAG.to_owned()], None)
+        self.set_tags_answered(session, Some(&set), &[UNSETTLED_TAG.to_owned()], None)?;
+        Ok(true)
     }
 
-    /// Unarchives `session`; a settled one also loses its reason and keeps how many pull
-    /// requests it had, so they do not settle it again (module docs).
+    /// Unarchives `session`: it loses its reason, if settled, and keeps how many pull requests it
+    /// had, so they do not settle it again (module docs). A chat a plain Archive hid is held the
+    /// same way: the person brought it back.
     pub(crate) fn unarchive(&self, session: &Session) -> Result<(), RpcError> {
-        let (settled, prs) =
-            session.read_meta(|m| (m.tags.contains_key(SETTLED_TAG), m.pull_requests.len()));
-        if !settled {
-            return self.set_tags_answered(session, None, &[ARCHIVED_TAG.to_owned()], None);
-        }
+        let prs = session.read_meta(|m| m.pull_requests.len());
         let mut set = serde_json::Map::new();
         set.insert(UNSETTLED_TAG.into(), Value::String(prs.to_string()));
         let remove = [ARCHIVED_TAG.to_owned(), SETTLED_TAG.to_owned()];

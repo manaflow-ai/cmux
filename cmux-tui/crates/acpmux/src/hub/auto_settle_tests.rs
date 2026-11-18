@@ -212,5 +212,22 @@ async fn never_keeps_it_and_the_persons_prompt_brings_it_back() {
     .unwrap();
     hub.unsettle_on_person_prompt(&session);
     assert!(tag(&session, ARCHIVED_TAG).is_some());
+    // Unarchiving that plain Archive holds it too: its merged pull requests do not hide it again.
+    hub.unarchive(&session).unwrap();
+    assert_eq!(tag(&session, UNSETTLED_TAG).as_deref(), Some("0"));
+    hub.shutdown_all().await;
+}
+
+/// A chat someone has open, or one whose log moved after the pass read it, does not settle.
+#[tokio::test]
+async fn an_open_chat_or_a_newer_record_keeps_it() {
+    let (hub, session) = chat().await;
+    let read_at = now_ms();
+    session.meta.lock().unwrap().updated_at = read_at + 1;
+    assert!(!hub.settle(&session, Reason::Idle, read_at).unwrap(), "a record after the read");
+    assert_eq!(tag(&session, SETTLED_TAG), None);
+    session.meta.lock().unwrap().updated_at = 1;
+    assert!(hub.settle(&session, Reason::Idle, read_at).unwrap());
+    assert_eq!(tag(&session, SETTLED_TAG).as_deref(), Some("idle"));
     hub.shutdown_all().await;
 }

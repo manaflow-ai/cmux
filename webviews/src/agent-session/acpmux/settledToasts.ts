@@ -68,7 +68,9 @@ export function useSettledToasts({
         ...spec,
         onClose: () => setUp((shown) => (shown?.id === spec.id ? undefined : shown)),
       });
-      if (undo) setUp({ id: spec.id, undo });
+      // Cmd+Z presses only the newest toast's Undo: one with Open leaves nothing to press, so an
+      // older toast's chat is never the one undone.
+      setUp(undo ? { id: spec.id, undo } : undefined);
     }
   });
   // Only a new list is news: the callbacks and strings are read when one comes.
