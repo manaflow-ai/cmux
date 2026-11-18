@@ -390,6 +390,8 @@ else
         break
       fi
       echo "warning: cmux-cua fetch attempt $attempt of 3 failed" >&2
+      # A stalled transfer leaves its partial pack behind; drop it so it never moves into the cache.
+      find "$TMPDIR_CLONE/.git/objects/pack" -name 'tmp_pack_*' -delete 2>/dev/null || true
     done
     [[ -n "$fetched" ]] || { echo "error: could not fetch cmux-cua $CMUX_CUA_PINNED_SHA" >&2; exit 1; }
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
