@@ -51,8 +51,9 @@ extension SidebarRegionView {
             let visible = clip.bounds.height > 0 ? convert(clip.bounds, from: clip)
                 : NSRect(x: 0, y: 0, width: bounds.width, height: window?.frame.height ?? NSScreen.main?.frame.height ?? 1_000)
             // The list's overscan past each edge, never more than one band's height (a short band keeps a short window).
-            let overscan = min(SidebarStyle.overscan, visible.height)
-            return NSRect(x: -1e6, y: visible.minY - overscan, width: 2e6, height: visible.height + overscan * 2)
+            let span = RowSpans.mountWindow(visibleMinY: Double(visible.minY), visibleHeight: Double(visible.height),
+                                            overscan: Double(SidebarStyle.overscan))
+            return NSRect(x: -1e6, y: span.lowerBound, width: 2e6, height: span.upperBound - span.lowerBound)
         }
     }
 

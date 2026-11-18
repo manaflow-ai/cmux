@@ -452,18 +452,13 @@ final class SidebarRegionView: NSView {
         }
         guard !realize.isNull else { return }
         let rows = layoutResult.rows
-        var low = 0, high = rows.count
-        // Rows go down the region (each row's minY at or below the one before it): the first that can reach the rect.
-        let from = realize.minY - tallestRow
-        while low < high {
-            let mid = (low + high) / 2
-            if rows[mid].frame.minY < from { low = mid + 1 } else { high = mid }
-        }
+        // Rows go down the region (each row's minY at or below the one before it): the ones that can reach the rect, by
+        // the pure span search (`RowSpans.reaching`, tested on any platform), O(log n) rows read.
+        var reads = 0
+        let reach = RowSpans.reaching(minY: Double(realize.minY), maxY: Double(realize.maxY), tallest: Double(tallestRow),
+                                      count: rows.count, reads: &reads) { Double(rows[$0].frame.minY) }
         let sections = Dictionary(shown.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var index = low
-        while index < rows.count, rows[index].frame.minY <= realize.maxY {
-            defer { index += 1 }
-            let row = rows[index]
+        for row in rows[reach] {
             switch row.kind {
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard itemViews[id] == nil, row.frame.intersects(realize), let section = sections[sectionID] else { continue }
