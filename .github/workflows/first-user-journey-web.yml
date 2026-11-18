@@ -1,0 +1,26 @@
+name: first-user journey (web)
+
+# Registration only. The real first-user journey matrix lives on feat-cmux-next. GitHub resolves a
+# workflow by file name only when the file exists on the default branch, so without this file the
+# dispatch from first-user-journey-web-dispatch.yml 404s. A dispatch with ref feat-cmux-next runs
+# feat-cmux-next's own first-user-journey-web.yml, never this one. This copy has no schedule,
+# pull_request or push trigger, so it never runs on main by itself, and a dispatch on main does nothing.
+# The inputs mirror feat-cmux-next's so a dispatch's inputs validate wherever GitHub checks them.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Cells to run, comma-separated (claude/signed-out, claude, pages/settings); empty runs every cell"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  registration:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - name: Nothing to do outside feat-cmux-next
+        run: echo "the first-user journey runs from feat-cmux-next's first-user-journey-web.yml"

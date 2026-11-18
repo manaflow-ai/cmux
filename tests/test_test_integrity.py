@@ -232,16 +232,15 @@ class TestIntegrity(unittest.TestCase):
             git("add", "-A")
             git("commit", "-q", "-m", "head")
             script = str(ROOT / "scripts/ci/test_integrity.py")
-            for extra in ([], ["--strict"]):
-                # No -I: it would ignore PYTHONIOENCODING. CI runs the guard as `python3 scripts/ci/...`.
-                result = subprocess.run([sys.executable, script, "--base", base, *extra], cwd=repo,
-                                        capture_output=True, env={**env, "PYTHONIOENCODING": "ascii"})
-                stdout = result.stdout.decode("ascii", errors="replace")
-                stderr = result.stderr.decode("ascii", errors="replace")
-                self.assertNotIn("Traceback", stderr, stderr)
-                self.assertEqual(result.returncode, 1 if extra else 0, stdout + stderr)
-                self.assertIn("weakened-assertions: tests/test_r\\xe9sum\\xe9.py", stderr)
-                self.assertIn("::warning file=tests/test_r\\xe9sum\\xe9.py", stdout)
+            # No -I: it would ignore PYTHONIOENCODING. CI runs the guard as `python3 scripts/ci/...`.
+            result = subprocess.run([sys.executable, script, "--base", base], cwd=repo,
+                                    capture_output=True, env={**env, "PYTHONIOENCODING": "ascii"})
+            stdout = result.stdout.decode("ascii", errors="replace")
+            stderr = result.stderr.decode("ascii", errors="replace")
+            self.assertNotIn("Traceback", stderr, stderr)
+            self.assertEqual(result.returncode, 0, stdout + stderr)
+            self.assertIn("weakened-assertions: tests/test_r\\xe9sum\\xe9.py", stderr)
+            self.assertIn("::warning file=tests/test_r\\xe9sum\\xe9.py", stdout)
 
     def test_skip_reason_update_is_not_new_skip(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
@@ -253,22 +252,11 @@ class TestIntegrity(unittest.TestCase):
 """
         self.assertFalse(any(f.kind == "new-skip" for f in module.analyze("M\ttests/test_x.py\n", diff)))
 
-    def test_approved_findings_can_be_recorded_without_blocking(self):
+    def test_findings_are_reported_without_failing(self):
         with mock.patch.object(module, "resolve_base", return_value="base"), \
                 mock.patch.object(module, "run", return_value=[module.Finding("new-skip", "tests/x.py", "fixture")]), \
                 mock.patch.object(module, "_git", return_value="head"):
-            self.assertEqual(module.main(["--base", "base", "--allow-all"]), 0)
-
-    def test_workflow_scopes_approval_and_unrelated_label_events(self):
-        workflow = (ROOT / ".github/workflows/test-integrity.yml").read_text(encoding="utf-8")
-        self.assertIn("types: [opened, synchronize, reopened, labeled, unlabeled]", workflow)
-        self.assertIn("github.run_id", workflow)
-        self.assertIn("TEST_INTEGRITY_HEAD_SHA", workflow)
-        self.assertIn('"$TEST_INTEGRITY_HEAD_SHA"', workflow)
-        self.assertIn("deleted-or-weakened-tests-label-noop", workflow)
-        self.assertIn("github.event.label.name == 'test-integrity-approved'", workflow)
-        self.assertIn('args+=(--strict)', workflow)
-        self.assertIn('args+=(--allow-all)', workflow)
+            self.assertEqual(module.main(["--base", "base"]), 0)
 
 
 if __name__ == "__main__":

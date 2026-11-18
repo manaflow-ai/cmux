@@ -106,7 +106,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_IOS` | the iOS image: simulator tests and TestFlight upload (`test-ios.yml`, `ios-testflight.yml`); `ios-streamed-validate.yml` and `ios-e2e.yml` hold secrets and take `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_IOS` | the iOS image: simulator tests (`test-ios.yml`); `ios-streamed-validate.yml` and `ios-e2e.yml` hold secrets and take `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: the macOS legs of `cmux-tui-artifacts` (post-merge); `build-ghosttykit` holds `GHOSTTY_RELEASE_TOKEN` and takes `blacksmith-6vcpu-macos-15`. See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 
@@ -917,7 +917,7 @@ work on the trusted worker. Main's nightly runner selection is unchanged.
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
-| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
+| `release.yml`, nightly sign/notarize, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
 | `nightly.yml` `build-nightly-app` | one trusted runner (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`, cmux15) on attempt 1 of main's push and schedule runs; Blacksmith 12 vCPU otherwise, for `rc/**`, dispatches and fast dogfood, and on every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool. The two `nightly.yml` warmers do not run while `vars.CI_CLASSIC_NIGHTLY_MINI` is set (the classic one-mini nightly runs no Blacksmith job) |
@@ -1107,8 +1107,10 @@ control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
   size; never GitHub-hosted Ubuntu, and only a size whose probe started in
   that run, so with every size stalled the Linux variables are left alone),
   `MACOS_RUNNER_15`,
-  `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
+  `_26_LARGE` and `_PR` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
+  never `_DUAL_XCODE` (swift-package-tests builds the Release helper with an
+  SDK 15 Xcode no owned pool carries, so its jobs wait for Blacksmith),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
   read. That is the lever pulled by hand on 2026-09-29. A variable a signing

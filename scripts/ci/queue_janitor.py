@@ -232,6 +232,7 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import LANE_LABEL  # noqa: E402
+from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
@@ -677,8 +678,14 @@ def owned_label(job: Mapping[str, Any]) -> str | None:
     return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
 
 
+def sim_first_label(job: Mapping[str, Any]) -> str | None:
+    """glaeda's sim-first label (pr_runner_pool.SIM_FIRST_LABEL) a simulator job asked for alone, if any."""
+    return next((str(label) for label in job.get("labels") or () if sim_first(str(label))), None)
+
+
 def is_macos_job(job: Mapping[str, Any]) -> bool:
-    return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
+    return (bool(owned_label(job)) or bool(sim_first_label(job))
+            or any("macos" in str(label).lower() for label in job.get("labels") or ()))
 
 
 def paid_portable_label(job: Mapping[str, Any]) -> str | None:
@@ -693,8 +700,8 @@ def lane_label(job: Mapping[str, Any]) -> str | None:
 
 
 def runner_pool(job: Mapping[str, Any]) -> str:
-    """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
-    owned = owned_label(job)
+    """The pool a macOS job waits on: its owned pool label or sim-first label, else the macOS labels it asked for."""
+    owned = owned_label(job) or sim_first_label(job)
     if owned:
         return owned
     labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
@@ -702,7 +709,13 @@ def runner_pool(job: Mapping[str, Any]) -> str:
 
 
 def capabilities(job: Mapping[str, Any]) -> tuple[str, ...]:
-    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool."""
+    """The capability labels (pr_runner_pool.CAPABILITY_LABELS) an owned job asked for beside its pool.
+
+    A job on the sim-first label holds its mini's simulator as a glaeda-ios-sim simulator job does, so
+    it counts toward that label (SIM_FIRST_CAPABILITY) and ios_runner_pool.py's snapshot path sees it.
+    """
+    if sim_first_label(job):
+        return (SIM_FIRST_CAPABILITY,)
     if not owned_label(job):
         return ()
     return tuple(label for label in CAPABILITY_LABELS if label in {str(item) for item in job.get("labels") or ()})
@@ -1145,7 +1158,7 @@ def pool_load_snapshot(
         reserved = reserves_pool(run.get("path"), run.get("event"))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
-            if is_macos_job(job) and owned_label(job) and job.get("status") in (
+            if is_macos_job(job) and (owned_label(job) or sim_first_label(job)) and job.get("status") in (
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
                 for label in (*counted_pools(runner_pool(job)), *capabilities(job)):
                     seen[label] = seen.get(label, 0) + 1
@@ -1165,7 +1178,9 @@ def pool_load_snapshot(
         capability = (capability_markers or {}).get(run.get("id"))
         if capability and run.get("status") != "completed":
             label, peak = capability
-            carrying = [job for job in owned_jobs if label in capabilities(job)]
+            # Owned pool jobs with the label, and simulator jobs on the sim-first label.
+            carrying = [job for job in jobs_by_run.get(run.get("id"), ())
+                        if is_macos_job(job) and label in capabilities(job)]
             finished = sum(1 for job in carrying if job.get("status") == "completed")
             # Released once as many of its capability jobs finished as it declared.
             if not (carrying and finished == len(carrying) and finished >= peak):
@@ -1987,7 +2002,9 @@ def classify_lost(
 # branch, by the same cancel and carried re-run of failed jobs as category e,
 # where that re-run leaves the owned label (owned_pool_rescue.
 # bot_rerun_leaves_owned(); a side lane's attempt 2 takes its Blacksmith
-# macOS default).
+# macOS default). cmux-next's re-run leaves only while vars.CI_BLACKSMITH_MACOS
+# is `on` (STALL_BLACKSMITH_MACOS, owned_pool_rescue.rerun_side_label()); else
+# it takes CI_SIDE_LANE_RUNNER on every attempt and only rejoins the queue.
 
 
 def pool_wait_p90(*maps: Mapping[int, Sequence[Mapping[str, Any]]] | None) -> dict[str, int]:
@@ -2206,7 +2223,8 @@ def classify_unclaimed(
     elif bot_rerun(run):
         return LostVerdict("skip", f"{evidence}; {why}", f"attempt {attempt} is a bot's re-run, left to the "
                                                          "owned-pool rescue and the orphan pass", pr=pr)
-    elif not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt):
+    elif not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt,
+                                           side_label=rescue.rerun_side_label(os.environ)):
         return LostVerdict("skip", f"{evidence}; {why}", f"a re-run of attempt {attempt} would stay on the owned "
                                                          "label; left to the owned-pool rescue", pr=pr)
     if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
@@ -2248,7 +2266,8 @@ def branch_head_lookups(runs: Iterable[Mapping[str, Any]], run_ids: Iterable[int
                 or branch in seen or (bot_rerun(run) and not stale_eligible):
             continue
         if run.get("id") in in_f and not stale_eligible and not rescue.bot_rerun_leaves_owned(
-                str(run.get("path") or ""), int(run.get("run_attempt") or 1)):
+                str(run.get("path") or ""), int(run.get("run_attempt") or 1),
+                side_label=rescue.rerun_side_label(os.environ)):
             continue
         if not stale_eligible and jobs_by_run is not None and any(
                 job.get("status") == "completed" and job.get("conclusion") == "failure"
@@ -2919,7 +2938,7 @@ def render_lost_reruns(decisions: Sequence[LostRerun], *, dry_run: bool,
 # GitHub (or Blacksmith behind it) sometimes loses a job's runner assignment:
 # the job stays `queued` with no runner_name while its pool is idle, and the
 # run never finishes. It burns nothing, but it can hold a concurrency group
-# (ios-appstore-upload.yml's `ios-app-store-production`), and a stuck
+# (ios-appstore-upload.yml's `ios-testflight-classic`), and a stuck
 # required job such as `ci-status` blocks its pull request forever. This is a
 # separate category from the backlog policy above: it is not gated on a pool
 # being backed up, has its own small cap, and reads only the runs and jobs the

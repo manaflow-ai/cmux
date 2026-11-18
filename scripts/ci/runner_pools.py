@@ -20,7 +20,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 - reads per-label start evidence (label_evidence()):
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
-    or "stalled"; the switch probes every linux pool member), read live through the API so it is this run's and not the job's start value;
+    or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
+    read live through the API so it is this run's and not the job's start value;
     used while its `checked` is at most HEALTH_MAX_AGE old;
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
@@ -37,8 +38,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
+  release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
+  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -110,6 +112,18 @@ UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+# The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
+# recovers?": "Allow until it recovers"). Blacksmith Linux started almost no jobs across the org (cmux: 2,500 queued,
+# 48 in progress at 21:34Z), and a hand-set RUNNER_POOLS is reset by the next pass, since a label outside a pool's
+# members is dropped (parse_value()). While the repository variable CI_LINUX_HOSTED_RUNNER names a GitHub-hosted
+# Ubuntu label, load_pools() puts it first in every x64 Linux pool (linux, linux_2 ... linux_32, promotion), so each pass keeps
+# those pools on it, and the queue spill (which loads main's pools the same way) agrees. linux_arm64,
+# macOS, Windows and provenance are never touched. Deleting the variable is the whole revert: the next pass points
+# each pool back at its first live Blacksmith member.
+HOSTED_OVERRIDE = "CI_LINUX_HOSTED_RUNNER"
+HOSTED_OVERRIDE_POOL = re.compile(r"^(?:linux(?:_\d+)?|promotion)$")
+HOSTED_OVERRIDE_LABEL = re.compile(r"^ubuntu-\d+\.\d+$")
+X64_UBUNTU = re.compile(r"^blacksmith-\d+vcpu-ubuntu-\d+$")
 
 
 def iso(moment: dt.datetime) -> str:
@@ -127,13 +141,61 @@ def parse_time(value: object) -> dt.datetime | None:
     return moment if moment.tzinfo is not None else None
 
 
-def load_pools(path: Path = RUNNERS) -> dict[str, dict[str, Any]]:
+def hosted_override(env: Mapping[str, str] | None = None) -> str | None:
+    """The hosted Ubuntu label CI_LINUX_HOSTED_RUNNER names, or None when it is unset or not one."""
+    raw = ((os.environ if env is None else env).get(HOSTED_OVERRIDE) or "").strip()
+    return raw if HOSTED_OVERRIDE_LABEL.match(raw) else None
+
+
+def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """The declared pools, with the outage override (hosted_override()) first in each x64 Linux pool."""
     pools = json.loads(path.read_text(encoding="utf-8"))["pools"]
-    return {name: spec for name, spec in pools.items() if not name.startswith("$")}
+    declared = {name: spec for name, spec in pools.items() if not name.startswith("$")}
+    label = hosted_override(env)
+    if label is None:
+        return declared
+    for name, spec in declared.items():
+        listed = spec.get("members")
+        if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
+                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
+            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
+                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+    return declared
 
 
 def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
+
+
+X64_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+)$")
+
+
+def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """The release valve's candidates for an x64 Blacksmith Linux pool, largest first: every x64 Blacksmith Linux
+    label some pool declares that is smaller than this pool's smallest member, on the same image. Empty for any
+    other pool (macOS, Windows, arm64, hosted, or the outage override's hosted-led pools).
+
+    2026-11-18: linux_16 is [16, 32] vCPU. 16 vCPU was marked dead at 01:18Z and 32 vCPU had started nothing since
+    about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
+    (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
+    by the next pass, so it could not be set by hand either."""
+    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    if not sizes or not all(sizes):
+        return []
+    images = {match.group(2) for match in sizes}
+    floor = min(int(match.group(1)) for match in sizes)
+    found: dict[str, int] = {}
+    for other in pools.values():
+        for label in members(other):
+            match = X64_SIZE.match(label)
+            if match and match.group(2) in images and int(match.group(1)) < floor:
+                found[label] = int(match.group(1))
+    return sorted(found, key=lambda label: -found[label])
+
+
+def allowed(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Every label RUNNER_POOLS may hold for a pool: its members, then its release valve (valve_labels())."""
+    return [*members(spec), *(label for label in valve_labels(spec, pools) if label not in members(spec))]
 
 
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -181,10 +243,11 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
     for name, spec in pools.items():
         if name not in value:
             continue
-        if isinstance(value[name], str) and value[name] in members(spec):
+        if isinstance(value[name], str) and value[name] in allowed(spec, pools):
             clean[name] = value[name]
         else:
-            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
+            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member or release valve of "
+                           f"pools.{name}; reset")
     marks = value.get(DEAD_KEY, {})
     if isinstance(marks, dict):
         good = {label: since for label, since in marks.items()
@@ -200,15 +263,16 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is not its member."""
+    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is neither its member nor
+    its release valve (allowed())."""
     found = []
     for name, spec in sorted(pools.items()):
         label = value.get(name)
         if not isinstance(label, str) or not label:
             found.append(f"{VARIABLE} has no {name}: every job reading fromJSON(vars.{VARIABLE}).{name} fails")
-        elif label not in members(spec):
-            found.append(f"{VARIABLE}.{name}={label!r} is not a member of pools.{name} "
-                         f"({', '.join(spec['members'])})")
+        elif label not in allowed(spec, pools):
+            found.append(f"{VARIABLE}.{name}={label!r} is not a member or release valve of pools.{name} "
+                         f"({', '.join(allowed(spec, pools))})")
     return found
 
 
@@ -251,7 +315,10 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         current = (live.get(name) or "").strip()
         if not isinstance(want, str) or not want or current == want:
             continue
-        if current and not EPHEMERAL.match(current):
+        # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
+        # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
+        # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
+        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
     return writes
@@ -268,9 +335,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         if name in owned:
             continue
         current = (live.get(name) or "").strip()
-        allowed = members(pools[pool]) if pool in pools else []
-        if current not in allowed:
-            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+        allowed_labels = allowed(pools[pool], pools) if pool in pools else []
+        if current not in allowed_labels:
+            found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
+                         f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
 
@@ -410,7 +478,13 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        chosen = next((label for label in candidates if label not in marks), None)
+        if chosen is None:
+            # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
+            # leaving the pool on a label that starts nothing. With none, the first member, as before.
+            chosen = next((label for label in valve_labels(spec, pools) if label not in marks), candidates[0])
+            if chosen != candidates[0] and current.get(name) != chosen:
+                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
@@ -472,7 +546,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
-    pools = load_pools()
+    pools = load_pools(env=env)
+    if hosted_override(env):
+        print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
+              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
+    elif (env.get(HOSTED_OVERRIDE) or "").strip():
+        print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
+              "label (ubuntu-NN.NN); ignored")
     problems = spec_problems(pools)
     if problems:
         for problem in problems:

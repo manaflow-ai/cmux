@@ -837,5 +837,118 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         self.assertEqual(picker.pick(state).label, small)
 
 
+class BlacksmithSwitchTests(unittest.TestCase):
+    """vars.CI_BLACKSMITH_MACOS off: an owned pick names no Blacksmith label (run 43990120167, 2026-11-17).
+
+    Compile admission waited on the owned light pool; the shards it did not own took the Blacksmith
+    retry_runner, blacksmith-12vcpu-macos-26, and sat queued five hours with the switch off.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    FREE = (pool(picker.BLACKSMITH[0], 5), pool(picker.BLACKSMITH[1], 10), pool(picker.BLACKSMITH[2], 10))
+
+    def state(self, *, switch: str | None, **kwargs):
+        env = {} if switch is None else {"CI_BLACKSMITH_MACOS": switch}
+        defaults = dict(jobs=8, owned=(pool(self.LIGHT_POOL, 4, running=3, free=1, queued=0),),
+                        blacksmith=self.FULL_OR_FREE, owned_enabled=True, wait_on_owned=True,
+                        blacksmith_on=picker.blacksmith_allowed(env))
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    FULL_OR_FREE = (pool(picker.BLACKSMITH[0], 5, 5, 3), pool(picker.BLACKSMITH[1], 10, 10, 4),
+                    pool(picker.BLACKSMITH[2], 10, 10, 2))
+
+    def test_only_on_allows_blacksmith(self):
+        self.assertTrue(picker.blacksmith_allowed({}))  # a caller that passes no switch keeps today's route
+        self.assertTrue(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": "on"}))
+        for value in ("", "off", "pr-rescue", "1"):
+            self.assertFalse(picker.blacksmith_allowed({"CI_BLACKSMITH_MACOS": value}), value)
+
+    def test_the_owned_wait_names_no_blacksmith_retry_runner_while_off(self):
+        choice = picker.pick(self.state(switch=""))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        values = picker.write_outputs(choice, 8, env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true"})
+        for key in ("runner", "retry_runner", "shard_runner", "side_runner"):
+            self.assertFalse(values[key].startswith("blacksmith-"), (key, values[key]))
+        self.assertEqual(values["retry_runner"], self.LIGHT_POOL)
+
+    def test_a_free_blacksmith_slot_takes_nothing_while_off(self):
+        choice = picker.pick(self.state(switch="", blacksmith=self.FREE, wait_on_owned=False))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(choice.owned)
+        self.assertEqual(picker.write_outputs(choice, 8)["retry_runner"], self.LIGHT_POOL)
+
+    def test_on_keeps_the_blacksmith_retry_runner(self):
+        choice = picker.pick(self.state(switch="on"))
+        self.assertEqual(choice.label, self.LIGHT_POOL)
+        self.assertTrue(picker.write_outputs(choice, 8)["retry_runner"].startswith("blacksmith-"))
+
+    def test_a_fork_still_takes_blacksmith_while_off(self):
+        choice = picker.pick(self.state(switch="", fork=True, blacksmith=self.FREE))
+        self.assertTrue(choice.label.startswith("blacksmith-"))
+
+    def test_state_from_reads_the_switch(self):
+        state = picker.state_from(jobs=1, env={"CI_BLACKSMITH_MACOS": ""}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertFalse(state.blacksmith_on)
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                  fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertTrue(state.blacksmith_on)
+
+
+class GuiPoolTests(unittest.TestCase):
+    """A full or unit suite (gui_required) never waits on an owned pool with no GUI runner.
+
+    Run 44150654568 (main, 2026-11-17): with vars.CI_BLACKSMITH_MACOS off, #45231's owned wait picked
+    glaeda-light-xcode-26.6 for a full suite. Light has no gui label, so gui_runner was empty and
+    tests-build-and-lag took glaeda-root-light-xcode-26.6 on cmux21, where XCTest timed out enabling
+    automation mode and the display UI regressions failed.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    STD_POOL = "glaeda-std-xcode-26.6"
+
+    def owned(self):
+        # Light starts the run sooner by expected wait; only std has a GUI runner.
+        return (pool(self.STD_POOL, 8, running=8, free=0, queued=20),
+                dataclasses.replace(pool(self.LIGHT_POOL, 4, running=3, free=1), gui=False))
+
+    def test_a_gui_suite_waits_on_the_gui_pool_while_blacksmith_is_off(self):
+        state = picker.State(jobs=15, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=True, blacksmith_on=False)
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, self.STD_POOL)
+        self.assertTrue(choice.owned)
+
+    def test_a_run_without_gui_work_may_still_take_light(self):
+        state = picker.State(jobs=3, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=False, blacksmith_on=False)
+        self.assertEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_a_gui_suite_never_takes_a_free_light_pool(self):
+        light = dataclasses.replace(pool(self.LIGHT_POOL, 4, free=4), gui=False)
+        state = picker.State(jobs=2, owned=(light,), blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+                             owned_enabled=True, gui_required=True)
+        self.assertNotEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_state_from_reads_gui_runners_and_configured_gui_labels(self):
+        runners = [light_runner(0, busy=False), std_runner(0, busy=True)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        state = observed(runners, {}, env=env)
+        self.assertEqual({item.label: item.gui for item in state.owned},
+                         {self.STD_POOL: True, self.LIGHT_POOL: False})
+        slots = json.loads(OWNED_ENV["CI_OWNED_POOL_SLOTS"])
+        slots["glaeda-gui-light-xcode-26.6"] = 4
+        state = observed(runners, {}, env=dict(env, CI_OWNED_POOL_SLOTS=json.dumps(slots)))
+        self.assertTrue({item.label: item.gui for item in state.owned}[self.LIGHT_POOL])
+
+    def test_run_44150654568_full_suite_skips_light(self):
+        # Std busy with a long queue, three of four light runners idle: the switch-off wait took light.
+        runners = [std_runner(index, busy=True) for index in range(8)] + [light_runner(index, busy=index == 0) for index in range(4)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        choice = picker.pick(observed(runners, {STD: {"queued": 60, "running": 8}}, jobs=15, env=env))
+        self.assertEqual(choice.label, self.STD_POOL)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -153,6 +153,56 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func validatorTakesACurrentServersMemoryCeilingAboveTheTier() throws {
+        // A team's custom deal raises maxMemoryMb past the tier (#41335).
+        // lockedMemoryOptionsMb marks a control plane that sends it.
+        let team = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 24 * 1_024,
+            "maxVcpus": 12,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576],
+            "lockedMemoryOptionsMb": [32768, 65536],
+        ])
+        #expect(team.limits.maxMemoryMb == 24 * 1_024)
+        #expect(team.limits.maxVcpus == 12)
+
+        let oversized = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "pro",
+            "maxMemoryMb": 128 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(oversized.limits.maxMemoryMb == 64 * 1_024)
+
+        let legacy = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 32 * 1_024,
+        ])
+        #expect(legacy.limits.maxMemoryMb == 16 * 1_024)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/44362: a team deal up to
+    /// 64 GiB / 32 vCPU resized only to 16 GiB / 8 vCPU.
+    @Test
+    func validatorAllowsATeamDealUpToTheLadderTop() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 64 * 1_024,
+            "maxVcpus": 32,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576, 32768, 65536],
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(plan.limits.maxMemoryMb == 64 * 1_024)
+        #expect(plan.limits.maxVcpus == 32)
+        let violation = CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 32, memoryMb: 64 * 1_024),
+            current: CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1_024),
+            usesResourcePool: false,
+            limits: plan.limits
+        )
+        #expect(violation == nil)
+    }
+
+    @Test
     func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
         let pro = try CloudVMResizePlanValidator().plan(from: [
             "planId": "pro",
