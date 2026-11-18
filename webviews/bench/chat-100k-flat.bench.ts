@@ -625,8 +625,14 @@ try {
       if (HIDDEN) {
         // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
         // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
-        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
-        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
+        // WAKES=1 takes), which the app's hidden pages do not: there the pane hides the page's host view, the CEF fork
+        // orders its page window out (CEFPaneHost.applyHostVisibility) and the page freezes after 30 s hidden
+        // (HiddenChatPages). No DevTools call hides a page in this headless Chromium (hide-probe.bench.ts: a minimized
+        // window, a background tab or target, another tab brought to front, Page.setWebLifecycleState frozen then
+        // active: each page stays visible at 60 frames a second, in chrome-headless-shell and Chrome's new headless).
+        // What that leaves in: the hidden pages' compositor tiles, 118 MB of empty x20's renderer and 190 MB of long
+        // x20's (memory-infra cc/tile_memory, HEAP_RETAINERS=1, 100k rows); without them the ratio would be about 2.1x, not
+        // 2.01x, so they do not make the gap. Its V8 heap does (+347 MB).
         for (const { page } of pages.slice(0, -1))
           await page.evaluate(() => {
             Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
