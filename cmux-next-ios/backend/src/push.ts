@@ -169,6 +169,10 @@ export interface NotifyEvent {
   readonly state?: PushState
   /** Per phone device id: the content sealed to that phone's push key and the Mac's signature (API 0.14.0). */
   readonly sealed?: Readonly<Record<string, SealedBox>>
+  /** A lead's phones whose boxes come in later batches: the lead skips them (PROTOCOL.md "Sealed notify"). */
+  readonly batchedPhones?: ReadonlyArray<string>
+  /** A batch after the lead (1, 2, ...): it reaches only the phones it has a box for. */
+  readonly batch?: number
 }
 
 /** One phone's sealed notification (PROTOCOL.md "Sealed pushes and the reply mailbox"). */
@@ -179,7 +183,15 @@ export interface SealedBox {
 
 /** A box is at most 3 KB of base64url, so the whole APNs payload stays under 4096 bytes. */
 export const MAX_SEALED_BOX = 3072
-const MAX_SEALED_PHONES = 20
+/**
+ * Boxes one notify carries: the bound on one request's body (about 66 KB), never on how many phones get the
+ * push. A Mac with more phones sends a lead and then batches of at most this many (`batch`).
+ */
+export const MAX_SEALED_PHONES = 20
+/** Phone ids one lead may name in `batchedPhones` (about 370 KB): a body bound far past any person's phones. */
+export const MAX_BATCHED_PHONES = 10_000
+/** The highest `batch` number: enough batches for MAX_BATCHED_PHONES phones. */
+export const MAX_BATCH = Math.ceil(MAX_BATCHED_PHONES / MAX_SEALED_PHONES)
 const BASE64URL = /^[A-Za-z0-9_-]+$/
 const SIGNATURE = /^[0-9a-f]{128}$/
 const PHONE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -194,7 +206,7 @@ export const MAILBOX_PENDING_LIMIT = 32
 export const isSealedText = (text: unknown, max: number): text is string => typeof text === "string" && text.length > 0 && text.length <= max && BASE64URL.test(text)
 
 const parseSealed = (v: unknown): Record<string, SealedBox> | string => {
-  const bad = "sealed must be {<phone device id>: {box, sig}} (box base64url of at most 3072 characters, sig 64 bytes in hex), at most 20 phones"
+  const bad = `sealed must be {<phone device id>: {box, sig}} (box base64url of at most 3072 characters, sig 64 bytes in hex), at most ${MAX_SEALED_PHONES} per request (more phones go in batches)`
   if (!isObject(v)) return bad
   const entries = Object.entries(v)
   if (entries.length === 0 || entries.length > MAX_SEALED_PHONES) return bad
@@ -291,6 +303,25 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     if (typeof r === "string") return r
     sealed = r
   }
+  // A malformed batch field refuses the push: dropped, a batch would reach every phone again, and a lead
+  // every phone its batches reach.
+  let batch: number | undefined
+  if (present(b.batch)) {
+    if (typeof b.batch !== "number" || !Number.isInteger(b.batch) || b.batch < 1 || b.batch > MAX_BATCH || !sealed)
+      return `batch must be an integer 1-${MAX_BATCH}, with sealed`
+    batch = b.batch
+  }
+  let batchedPhones: Array<string> | undefined
+  if (present(b.batchedPhones)) {
+    const list = b.batchedPhones
+    const bad = `batchedPhones must be at most ${MAX_BATCHED_PHONES} phone device ids, on a lead (no batch)`
+    if (batch !== undefined || !Array.isArray(list) || list.length > MAX_BATCHED_PHONES) return bad
+    batchedPhones = []
+    for (const v of list as Array<unknown>) {
+      if (typeof v !== "string" || !PHONE_ID.test(v.toLowerCase())) return bad
+      batchedPhones.push(v.toLowerCase())
+    }
+  }
   let tail: Array<string> | undefined
   if (Array.isArray(b.tail)) {
     tail = (b.tail as Array<unknown>)
@@ -308,13 +339,19 @@ export const parseNotify = (b: Record<string, unknown>): Omit<NotifyEvent, "macI
     ...(options ? { options } : {}),
     ...(questions ? { questions } : {}),
     ...(tail ? { tail } : {}),
-    ...(sealed ? { sealed } : {})
+    ...(sealed ? { sealed } : {}),
+    ...(batch ? { batch } : {}),
+    ...(batchedPhones?.length ? { batchedPhones } : {})
   }
 }
 
 /** The rate-limit key of a notify: terminal notifications have their own bucket, so a program that loops
  * OSC 9 never starves a Mac's questions and permission requests (review M3). */
-export const notifyLimitKey = (macId: string, kind: PushKind): string => (kind === "terminal" ? `${macId}:terminal` : macId)
+export const notifyLimitKey = (macId: string, kind: PushKind, batch?: number): string => {
+  const key = kind === "terminal" ? `${macId}:terminal` : macId
+  // Each batch has its own bucket, so a phone past the first 20 gets pushes at the same rate as the rest.
+  return batch ? `${key}:batch:${batch}` : key
+}
 
 const TITLES: Record<PushKind, (agent: string) => string> = {
   question: (a) => `${a} has a question`,
@@ -531,6 +568,16 @@ export const apnsPayload = (e: NotifyEvent, opts: { previews?: boolean } = {}) =
 /** The registrations to push `kind` from `macId` to: they want the kind and did not mute the Mac. */
 export const pushTargets = (regs: ReadonlyArray<PushRegistration>, macId: string, kind: PushKind): Array<PushRegistration> =>
   regs.filter((r) => r.kinds.includes(kind) && !r.mutedMacs.includes(macId))
+
+/**
+ * The targets this notify reaches, so each phone gets one push however many requests the Mac splits it into:
+ * a batch only the phones it has a box for; a lead every target but the phones its batches reach.
+ */
+export const notifyTargets = (targets: ReadonlyArray<PushRegistration>, e: Pick<NotifyEvent, "sealed" | "batch" | "batchedPhones">): Array<PushRegistration> => {
+  if (e.batch) return targets.filter((t) => !!e.sealed?.[t.deviceId.toLowerCase()])
+  const later = new Set(e.batchedPhones ?? [])
+  return targets.filter((t) => !later.has(t.deviceId.toLowerCase()))
+}
 
 /** The kinds some phone that has not muted `macId` wants, in PUSH_KINDS order. */
 export const wantedKinds = (regs: ReadonlyArray<PushRegistration>, macId: string): Array<PushKind> => {

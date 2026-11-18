@@ -496,11 +496,14 @@ impl Reporter {
                 Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
             };
             // Sealed to each paired phone's push key when it gave one (sealed_notify.rs).
+            // More phones than one request's boxes: the lead, then one batch per further 20.
             let body = serde_json::to_value(&event).unwrap_or_default();
-            let body = match &this.sealer {
-                Some(sealer) => sealer.body(body).await,
-                None => body,
-            };
+            let mut bodies = match &this.sealer {
+                Some(sealer) => sealer.bodies(body).await,
+                None => vec![body],
+            }
+            .into_iter();
+            let Some(body) = bodies.next() else { return };
             // Re-read after all fallible awaits.  Remote Control can be turned
             // off while a token or push-key lookup is pending.
             if let Some(exposure) = this.session_exposure.as_ref()
@@ -508,18 +511,38 @@ impl Reporter {
             {
                 return tracing::debug!(kind = event.kind, "push skipped: chat is not exposed");
             }
-            match ApiClient::new(&this.base_url, &token).notify_body(&this.device_id, &body).await {
+            let api = ApiClient::new(&this.base_url, &token);
+            match api.notify_body(&this.device_id, &body).await {
                 Ok(result) => {
                     this.wants
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .learn(&result, Instant::now());
                     tracing::info!(kind = event.kind, %result, "push reported");
+                    if !batches_follow(&result) {
+                        return;
+                    }
                 }
-                Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+                Err(error) => return tracing::warn!(kind = event.kind, %error, "push report failed"),
+            }
+            for batch in bodies {
+                match api.notify_body(&this.device_id, &batch).await {
+                    Ok(result) => tracing::info!(kind = event.kind, %result, "push batch reported"),
+                    Err(error) => tracing::warn!(kind = event.kind, %error, "push batch report failed"),
+                }
             }
         });
     }
+}
+
+/// Whether the batches after a lead go out, from the lead's answer: only when
+/// the backend takes batches (`batches`, API 0.16.0; an older one ignores
+/// `batch` and would push a batch to every phone again) and went on to send
+/// the lead, not when it coalesced the event (a burst of turn ends is one
+/// notification on every phone, batched or not).
+fn batches_follow(lead: &serde_json::Value) -> bool {
+    lead.get("batches").and_then(serde_json::Value::as_bool) == Some(true)
+        && lead.get("coalesced").and_then(serde_json::Value::as_bool) != Some(true)
 }
 
 /// Whether a notification may leave the Mac under the current per-chat policy.
@@ -699,6 +722,19 @@ mod tests {
 
     /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
     /// by its cursor.
+    #[test]
+    fn batches_follow_a_lead_that_went_out() {
+        assert!(batches_follow(
+            &json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": [], "batches": true})
+        ));
+        assert!(!batches_follow(&json!({"configured": false, "sent": 0})));
+        assert!(!batches_follow(&json!({"configured": true, "sent": 0, "coalesced": true})));
+        // A Worker from before batches: the lead's 20 phones get it, and no phone twice.
+        assert!(!batches_follow(
+            &json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": []})
+        ));
+    }
+
     #[test]
     fn the_watch_asks_for_its_first_page_only() {
         let request = watch_request();
@@ -940,6 +976,45 @@ mod tests {
             bodies.iter().flat_map(|b| b["sealed"].as_object().unwrap().keys().cloned()).collect();
         reached.sort();
         assert_eq!(reached, phones, "every phone has exactly one box");
+    }
+
+    #[tokio::test]
+    async fn a_worker_from_before_batches_gets_only_the_lead() {
+        // It ignores `batch`: a batch would reach every phone a second time.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 20, "failed": 0, "dropped": 0, "wants": ["completed"]}),
+        );
+        let (reporter, _) = sealing_reporter(base_url, 25);
+        reporter.send(NotifyEvent {
+            event_id: "e-old".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let lead = timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap();
+        assert_eq!(lead["sealed"].as_object().unwrap().len(), 20);
+        assert!(timeout(Duration::from_millis(300), posted.recv()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_coalesced_lead_sends_no_batches() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let mut posted = notify_backend(
+            listener,
+            json!({"configured": true, "sent": 0, "coalesced": true, "wants": ["completed"], "batches": true}),
+        );
+        let (reporter, _) = sealing_reporter(base_url, 45);
+        reporter.send(NotifyEvent {
+            event_id: "e45".into(),
+            kind: "completed".into(),
+            ..NotifyEvent::default()
+        });
+        let lead = timeout(Duration::from_secs(5), posted.recv()).await.unwrap().unwrap();
+        assert_eq!(lead["batchedPhones"].as_array().unwrap().len(), 25);
+        assert!(timeout(Duration::from_millis(300), posted.recv()).await.is_err());
     }
 
     #[test]

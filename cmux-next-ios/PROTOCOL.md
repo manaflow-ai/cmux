@@ -1414,9 +1414,10 @@ addition is optional: a phone or Mac without it keeps PR A's behavior.
 where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
 `personInstance` for an ask, so the phone can sign an answer offline) and
 `sig` is the Mac identity signature (64 bytes, 128 hex digits) over `cmux-mobile-push-v1 \0 mac \0 phone \0
-eventId \0 box`. The box also carries `postedAt` (Unix seconds). At most 20
-phones; `box` is base64url of at most 3072 characters (hostd trims the content
-to fit, and skips a phone whose box still would not). When every paired phone
+eventId \0 box`. The box also carries `postedAt` (Unix seconds). One request
+carries at most 20 boxes (a bound on its body, not on phones); `box` is
+base64url of at most 3072 characters (hostd trims the content to fit, and
+skips a phone whose box still would not). When every paired phone
 has a push key the Mac sends no content fields, also when one box failed or
 its identity key has not arrived (those phones get the generic banner from
 the ids alone); a phone without a push key gets the v2 payload built from the
@@ -1430,6 +1431,26 @@ key, fills in the v2 content, category and thread, and keeps the v3 object
 (`cmuxMobileSealed`) beside them; the app opens that box again before any
 button acts. If it can't open it, the generic banner and no buttons stay. A
 push older than 15 minutes (`postedAt`) shows its text with no buttons.
+
+#### More than 20 phones: a lead and batches (API 0.16.0)
+
+There is no cap on how many phones get a push. The Worker sends a notify to
+every push registration of the Mac's owner that wants the kind and has not
+muted the Mac. A Mac with more than 20 boxes splits one event:
+
+- The **lead** is the notify as above with the first 20 boxes, plus
+  `batchedPhones: ["<phone device id>", ...]` (at most 10000), the phones
+  whose boxes come in batches. The Worker sends the lead to every target but
+  those phones. A Worker that takes batches answers with `batches: true`.
+- Each **batch** carries the routing ids, the next at most 20 boxes and
+  `batch: n` (1, 2, ...; at most 500). The Worker sends it only to the targets
+  it has a box for, never checks the turn-end window again (the lead did),
+  and counts it in its own rate bucket (`<mac>:batch:<n>`), so a phone past
+  the first 20 gets pushes at the same rate as the rest.
+- hostd posts the batches after the lead, and only when the lead's answer
+  has `batches: true` and no `coalesced: true`: an older Worker ignores
+  `batch` and would push a batch to every phone again. A malformed `batch`
+  or `batchedPhones` is refused (400), never dropped.
 
 ### Reply mailbox
 
