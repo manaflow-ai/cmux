@@ -291,17 +291,21 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         clean[UPDATED_KEY] = value[UPDATED_KEY]
     homes = value.get(RAW_HOME_KEY)
     if homes is not None:
-        good = {name: {"home": entry["home"], "to": entry["to"]}
-                for name, entry in (homes.items() if isinstance(homes, dict) else ())
-                if name in RAW_LABEL_VARS and isinstance(entry, dict)
-                and all(isinstance(entry.get(key), str) and BLACKSMITH_LINUX.match(entry[key])
-                        for key in ("home", "to"))}
+        good = {name: dict(entry) for name, entry in (homes.items() if isinstance(homes, dict) else ())
+                if name in RAW_LABEL_VARS and raw_entry_ok(entry)}
         if not isinstance(homes, dict) or len(good) != len(homes):
-            dropped.append(f"{VARIABLE}.{RAW_HOME_KEY} holds entries that are not VARIABLE -> "
-                           "{home, to} Blacksmith Linux labels; dropped")
+            dropped.append(f"{VARIABLE}.{RAW_HOME_KEY} holds entries that are not VARIABLE -> {{home, to[, was]}} "
+                           "or {hand} of Blacksmith Linux labels; dropped")
         if good:
             clean[RAW_HOME_KEY] = dict(sorted(good.items()))
     return clean, dropped
+
+
+def raw_entry_ok(entry: object) -> bool:
+    """A `_raw_home` entry raw_homes() writes: {home, to} or {home, to, was} (the writer's), or {hand} (a person's)."""
+    if not isinstance(entry, dict) or set(entry) not in ({"home", "to"}, {"home", "to", "was"}, {"hand"}):
+        return False
+    return all(isinstance(label, str) and BLACKSMITH_LINUX.match(label) for label in entry.values())
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
@@ -389,13 +393,16 @@ def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[
 def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str | None], dead: Iterable[str],
               pools: Mapping[str, Mapping[str, Any]], *, owned: frozenset[str]) -> tuple[dict[str, dict[str, str]],
                                                                                          list[str]]:
-    """The next RUNNER_POOLS `_raw_home` (VARIABLE -> {home, to}) and a line per change.
+    """The next RUNNER_POOLS `_raw_home` (VARIABLE -> entry) and a line per change.
 
     A RAW_LABEL_VARS variable on a Blacksmith Linux pool label `_dead` names gets an entry: `home`, the label it
-    held, and `to`, the live size it moves to (raw_substitute()). The entry stays while the variable holds `home`,
-    `to` or another dead label; raw_writes() points it at `to` while `home` is dead and back at `home` after. Once
-    it holds `home` again with `home` live, the entry goes. A variable set by hand to anything else loses its entry
-    and is left alone, as is one this pass could not read or the overflow switch's record names (`owned`)."""
+    held, and `to`, the live size it moves to (raw_substitute()). raw_writes() points it at `to` while `home` is dead
+    and back at `home` after; once it holds `home` again with `home` live, the entry goes. Only the values the
+    writer recorded are its own: `home`, `to`, and `was`, a `to` it replaced (that size died too) that the variable
+    still holds until this pass's write. Any other value is a person's, a dead label included (cmux#45915 F1): the
+    entry goes and, when that value is a dead label, `{hand: label}` keeps the writer off it until the label is no
+    longer dead. A variable this pass could not read, or that the overflow switch's record names (`owned`), keeps
+    its entry untouched."""
     dead = set(dead)
     known = {label for spec in pools.values() for label in members(spec) if BLACKSMITH_LINUX.match(label)}
     homes: dict[str, dict[str, str]] = {}
@@ -407,10 +414,20 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
                 homes[name] = dict(entry)
             continue
         current = (live.get(name) or "").strip()
-        if entry and current not in (entry["home"], entry["to"]) and current not in dead:
+        if entry and "hand" in entry:
+            # The writer never writes a hand-set variable, so any value it holds is a person's.
+            if current in dead and current in known:
+                homes[name] = {"hand": current}
+            else:
+                lines.append(f"{name}={current or 'unset'} is no longer a dead label set by hand; the writer "
+                             "follows it again")
+            continue
+        if entry and current not in (entry["home"], entry["to"], entry.get("was")):
             lines.append(f"{name}={current or 'unset'} was set by hand after it moved off {entry['home']}; "
                          "it stays as set")
-            entry = None
+            if current in dead and current in known:
+                homes[name] = {"hand": current}
+            continue
         if entry is None:
             if current not in known or current not in dead:
                 continue
@@ -428,6 +445,9 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
         if home in dead and to in dead:
             to = raw_substitute(home, dead, pools) or to
         homes[name] = {"home": home, "to": to}
+        if current not in (home, to):
+            # A writer-set value this pass moves off (a replaced `to`): still the writer's until the write lands.
+            homes[name]["was"] = current
     return dict(sorted(homes.items())), lines
 
 
@@ -435,14 +455,15 @@ def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
                owned: frozenset[str]) -> list[tuple[str, str, str, str]]:
     """(variable, label, current, why) for each `_raw_home` entry (raw_homes()) whose variable does not hold its
     target: `to` while `home` is dead, `home` once it is not. Only a variable this pass read, the switch's record
-    does not name, and that still holds `home`, `to` or a dead label (else it was set by hand) moves."""
+    does not name, and that still holds a value the writer recorded (`home`, `to`, `was`) moves: anything else,
+    a dead label included, was set by hand (cmux#45915 F1), and a `{hand}` entry never moves."""
     dead = set(value.get(DEAD_KEY) or {})
     found = []
     for name, entry in sorted((value.get(RAW_HOME_KEY) or {}).items()):
-        if name in owned or name not in live:
+        if name in owned or name not in live or "hand" in entry:
             continue
         current = (live.get(name) or "").strip()
-        if current not in (entry["home"], entry["to"]) and current not in dead:
+        if current not in (entry["home"], entry["to"], entry.get("was")):
             continue
         if entry["home"] in dead:
             target, why = entry["to"], f"{entry['home']} is dead"
