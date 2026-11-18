@@ -134,13 +134,13 @@ pub async fn handle(
             meta.insert("model".into(), json!(model));
         }
     }
-    let created = Box::pin(super::requests::dispatch_request(
+    let created = super::requests::request_on_own_task(
         hub,
         conn,
         crate::rpc::method::SESSION_NEW,
         new_params,
         None,
-    ))
+    )
     .await?;
     let session_id = created
         .get("sessionId")
