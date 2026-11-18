@@ -816,6 +816,9 @@ class Scratch(unittest.TestCase):
 
 GIB = 1024**3
 
+# What provisioning writes in the seed root's parent (owned_spm_scratch.SEED_MARKER).
+SEED_MARKER = ".cmux-seed-root"
+
 
 class SeedRoot(unittest.TestCase):
     """The fast tier's base-seed root on an owned mini (owned_spm_scratch.seed_lease): the Blacksmith seed's
@@ -829,6 +832,7 @@ class SeedRoot(unittest.TestCase):
         self.checkout()
         self.seed = Path(self.tmp.name) / "runner/_work/cmux/cmux"
         self.seed.parent.mkdir(parents=True)  # provisioned: the mini's cmux user owns the parent
+        (self.seed.parent / SEED_MARKER).touch()  # and marks it the seed root's
         self.free = unittest.mock.patch.object(scratch, "free_bytes", return_value=40 * GIB)
         self.free.start()
         self.limits = unittest.mock.patch.object(scratch, "disk_limits_gib", return_value=(30.0, 20.0))
@@ -869,8 +873,18 @@ class SeedRoot(unittest.TestCase):
         self.assertEqual(self.seed_lease(), self.seed)
 
     def test_an_unprovisioned_mini_falls_back(self):
+        (self.seed.parent / SEED_MARKER).unlink()
         self.seed.parent.rmdir()
         self.assertIsNone(self.seed_lease())
+
+    def test_a_runner_workspace_at_that_path_is_never_taken(self):
+        # The nightly-next builder runs its jobs in /Users/runner/_work/cmux/cmux too: without the marker that
+        # provisioning writes, the directory is a runner's checkout, and a fast-tier job must not mirror over it.
+        (self.seed.parent / SEED_MARKER).unlink()
+        (self.seed / "nightly").mkdir(parents=True)
+        self.assertIsNone(self.seed_lease())
+        self.assertEqual(sorted(p.name for p in self.seed.iterdir()), ["nightly"])
+        self.assertFalse((self.seed.parent / scratch.SEED_LOCK).exists())
 
     def test_only_owned_runners(self):
         self.assertIsNone(scratch.seed_lease(self.workspace, self.seed, "blacksmith-6vcpu-macos-26-x"))
