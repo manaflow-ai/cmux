@@ -79,8 +79,8 @@ import Testing
         defer { harness.window.closeAfterTest() }
         let screen = try #require(harness.screen)
         let grid = Commit.Rest(harness.model.screens, in: screen, style: harness.root.context.style)
-        // The display frame that shows the zoom: the one after the frame at which the dim over the other panes has had its
-        // fade in frame time (`PaneZoomDimTests.showFrame(of:)`, read before the zoom; with no dim: the first frame).
+        // The display frame that shows the zoom: the first one. No frame waits for a dim
+        // (`PaneZoomDimTests.showFrame(of:)`; a zoom whose pane moves brings its dim in that frame).
         let first = PaneZoomDimTests.showFrame(of: screen)
         try #require(first <= Commit.frames, "the zoom's dim takes \(first) display frames; this test steps \(Commit.frames)")
 
