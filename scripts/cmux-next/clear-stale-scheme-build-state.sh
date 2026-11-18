@@ -37,9 +37,15 @@ if [[ "${CMUX_NEXT_RELEASE_CAS_ROOT:-}" == /* && -d "$CMUX_NEXT_RELEASE_CAS_ROOT
   cas_root="$(resolve "$CMUX_NEXT_RELEASE_CAS_ROOT")"
   [[ "$cas_root" == /?*/?*/?* ]] || cas_root=""
 fi
+# A measurement step builds the app in its checkout's .build/DerivedData/cmux-measure (reload.sh,
+# measurement_derived_data_path), a folder kept between steps: only that one folder, and only of the
+# checkout this helper itself is in, both judged where they resolve.
+own_checkout="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 if [[ -n "$runner_temp" && ( "$derived_data" == "$runner_temp"/cmux-next-* || "$derived_data" == "$runner_temp"/cmux-scheme-compile ) ]]; then
   :
 elif [[ -n "$cas_root" && "$derived_data" == "$cas_root/DerivedData" ]]; then
+  :
+elif [[ "$derived_data" == "$own_checkout/.build/DerivedData/cmux-measure" ]]; then
   :
 else
   case "$derived_data" in
