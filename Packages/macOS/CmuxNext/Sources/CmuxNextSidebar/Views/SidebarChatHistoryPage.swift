@@ -123,8 +123,8 @@ struct SidebarChatHistoryBlock: Equatable {
 ///   `chat` must be a row the host sent, so a page can open or pin only the chats it was shown.
 /// - `ready {revision, height}`: the page drew `revision` at `height` CSS px (the host shows the page then).
 /// - stream `slice`: the part of the block on screen, `{revision, top, height}` in the block's CSS px (``Slice``); the
-///   page draws only the rows in it and its overscan. Sent when it moves by a whole px; a (re)subscribing page gets
-///   the latest.
+///   page draws only the rows in it and its overscan. Sent when it moves by a whole px or the block's revision
+///   changes; a (re)subscribing page gets the latest.
 @MainActor
 final class SidebarChatHistoryProvider: PageProvider {
     static let prefix = "cmux.sidebarChats."
@@ -138,9 +138,10 @@ final class SidebarChatHistoryProvider: PageProvider {
         var top: Double
         var height: Double
 
-        /// Whether `other` shows the same whole px (the page windows by whole rows: a sub-px move changes nothing).
+        /// Whether `other` is the same block revision at the same whole px (a sub-px move changes nothing; a new
+        /// revision is sent, as the page drops a slice older than the block it drew).
         func samePixels(_ other: Slice) -> Bool {
-            top.rounded() == other.top.rounded() && height.rounded() == other.height.rounded()
+            revision == other.revision && top.rounded() == other.top.rounded() && height.rounded() == other.height.rounded()
         }
 
         var event: JSONValue {
@@ -177,7 +178,7 @@ final class SidebarChatHistoryProvider: PageProvider {
         return true
     }
 
-    /// Sends `slice` unless it shows the same whole px as the last one sent; returns whether it did.
+    /// Sends `slice` unless it is the last one sent's revision at the same whole px; returns whether it did.
     @discardableResult
     func push(_ slice: Slice) -> Bool {
         if let last = self.slice, last.samePixels(slice) { return false }
