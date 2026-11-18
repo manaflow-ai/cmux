@@ -755,3 +755,98 @@ struct SessionScrollbackCheckpointStoreTests {
         )
     }
 }
+
+@Suite("Session scrollback checkpoint persister")
+struct SessionScrollbackCheckpointPersisterTests {
+    private func makePersister() -> (
+        persister: SessionScrollbackCheckpointPersister,
+        store: SessionScrollbackCheckpointStore,
+        queue: DispatchQueue
+    ) {
+        let store = SessionScrollbackCheckpointStore(
+            primarySnapshotURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-scrollback-persister-tests-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("session-com.cmuxterm.test.json", isDirectory: false)
+        )
+        let queue = DispatchQueue(label: "test.sessionScrollbackCheckpoint", qos: .utility)
+        return (
+            SessionScrollbackCheckpointPersister(
+                store: store,
+                queue: queue,
+                activity: TerminalScrollbackCheckpointActivity()
+            ),
+            store,
+            queue
+        )
+    }
+
+    private func cleanUp(_ store: SessionScrollbackCheckpointStore) {
+        try? FileManager.default.removeItem(at: store.directoryURL.deletingLastPathComponent())
+    }
+
+    private func capture(
+        _ panelId: UUID,
+        at capturedAt: TimeInterval = 1,
+        _ text: String? = "output"
+    ) -> SessionScrollbackCheckpointCapture {
+        SessionScrollbackCheckpointCapture(
+            panelId: panelId,
+            surfaceId: panelId,
+            capturedAt: capturedAt,
+            finish: { text }
+        )
+    }
+
+    /// The checkpoint queue may still hold earlier write batches when `persist`
+    /// runs on the main actor. `persist` must not block the caller behind them:
+    /// that wait put `FileManager.removeItem` on the main thread inside
+    /// `_dispatch_lane_barrier_sync_invoke_and_complete` in watchdog captures.
+    @Test func persistDoesNotBlockCallerBehindQueuedWrites() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let removed = UUID()
+        store.apply(.init(captures: [capture(removed)], removals: [], livePanelIds: nil))
+
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        let returned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+            returned.signal()
+        }
+        let finishedWithoutBlocking = returned.wait(timeout: .now() + 5) == .success
+        gate.signal()
+        queue.sync {}
+        #expect(finishedWithoutBlocking)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path))
+    }
+
+    /// Ordering is what keeps the async removal crash-honest: a stale file may
+    /// only be deleted after the earlier queued write that created it lands.
+    @Test func removalStillAppliesAfterEarlierQueuedWrite() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+
+        persister.persist(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+        persister.persist(.init(captures: [], removals: [panel], livePanelIds: nil))
+        queue.sync {}
+
+        #expect(store.loadRecords(panelIds: [panel]).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
+    }
+
+    @Test func capturesStillWriteAndPruneOnTheCheckpointQueue() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let kept = UUID()
+        let stale = UUID()
+        store.apply(.init(captures: [capture(kept), capture(stale)], removals: [], livePanelIds: [kept, stale]))
+
+        persister.persist(.init(captures: [capture(kept, at: 2, "new")], removals: [], livePanelIds: [kept]))
+        queue.sync {}
+
+        #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollback == "new")
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: stale).path))
+    }
+}

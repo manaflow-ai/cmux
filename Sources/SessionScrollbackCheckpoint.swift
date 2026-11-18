@@ -371,6 +371,45 @@ struct SessionScrollbackCheckpointStore: Sendable {
     }
 }
 
+/// Schedules one checkpoint batch's file work on the store's serial queue.
+///
+/// `persist` runs on the main actor (the coordinator and `seed` call it
+/// synchronously), so which parts of the batch block the caller is a
+/// main-thread latency decision, not just I/O ordering.
+struct SessionScrollbackCheckpointPersister: Sendable {
+    let store: SessionScrollbackCheckpointStore
+    let queue: DispatchQueue
+    let activity: TerminalScrollbackCheckpointActivity
+
+    /// Deletes removals before this batch's writes, both ordered after every
+    /// earlier queued write.
+    ///
+    /// A removal means the panel stopped being eligible (for example a command
+    /// started running). Deleting it in `queue.sync` blocks the caller — the
+    /// main actor — behind every earlier queued write batch, then runs the
+    /// file deletions inline on the main thread.
+    func persist(_ batch: SessionScrollbackCheckpointWriteBatch) {
+        if !batch.removals.isEmpty {
+            let removals = SessionScrollbackCheckpointWriteBatch(
+                captures: [],
+                removals: batch.removals,
+                livePanelIds: nil
+            )
+            queue.sync {
+                _ = store.apply(removals)
+            }
+        }
+        let writes = SessionScrollbackCheckpointWriteBatch(
+            captures: batch.captures,
+            removals: [],
+            livePanelIds: batch.livePanelIds
+        )
+        queue.async {
+            store.applyMarkingFailuresPending(writes, activity: activity)
+        }
+    }
+}
+
 enum SessionScrollbackCheckpointMerge {
     /// Chooses between the snapshot's own scrollback and a checkpoint.
     ///
