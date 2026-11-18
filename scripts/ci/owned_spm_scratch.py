@@ -793,12 +793,15 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 # The fast tier's base-seed root on an owned mini. cmux-next-fast-tier-seed.yml builds the fast tier's
 # Swift packages on Blacksmith at this workspace path every 30 minutes and saves the build to R2, and the
 # fast tier on Blacksmith restores it and replays its input times: 6.9 min for a head whose owned-mini
-# run was cancelled at 20 (hq#10497). SwiftPM's build records absolute paths, so the seed is warm only
+# run was cancelled at 20. SwiftPM's build records absolute paths, so the seed is warm only
 # at this path; the same Xcode build makes the same key (fast-tier-cache-key.sh). On the minis the
 # shared roots above were warm on 3% of fast-tier jobs in 48 h to 2026-11-18 (cmux#44271): the light
 # 228 GiB minis rest at 32-48 GiB free and the lease's reserve never admitted a root there.
 SEED_WORKSPACE = Path("/Users/runner/_work/cmux/cmux")
 SEED_LOCK = ".cmux-seed-root.lock"
+# Provisioning writes this in the seed root's parent. The nightly-next builder's runner works in
+# /Users/runner/_work/cmux/cmux too, so the directory alone does not make the path ours.
+SEED_MARKER = ".cmux-seed-root"
 SEED_SETTING = "CMUX_FAST_TIER_OWNED_SEED"  # "1" from cmux-next.yml unless vars.CI_FAST_TIER_OWNED_SEED is "0"
 # The seed's CmuxNext and CmuxHomeRender builds (15 GiB `du` in seed job 134522053219), rounded up.
 SEED_BYTES_ESTIMATE = 16 * 1024**3
@@ -817,12 +820,14 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
                verdict: dict[str, object] | None = None) -> Path | None:
     """Hold the mini's seed root for this job and mirror WORKSPACE into it; return it, or None to take the
     shared roots as before: not an owned runner, the root's parent not provisioned (the mini's user owns
-    /Users/runner/_work/cmux), another job holding it, or no room above glaeda's floor (seed_fits).
+    /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
+    glaeda's floor (seed_fits).
     The packages' .build stay real directories there: the job restores the seed into them."""
     if "-glaeda" not in runner:
         return None
     parent = seed_workspace.parent
-    if not parent.is_dir() or parent.is_symlink() or not os.access(parent, os.W_OK):
+    if (not parent.is_dir() or parent.is_symlink() or not os.access(parent, os.W_OK)
+            or not (parent / SEED_MARKER).is_file()):
         return None
     fd = os.open(parent / SEED_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
     try:

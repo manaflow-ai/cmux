@@ -3855,6 +3855,7 @@ input times. One job per mini holds the root; another takes a shared root as bef
 glaeda's floor (seed_fits): the job's admitted growth covers the seed, which a cold build would write anyway,
 so the light 228 GiB minis (32-48 GiB free), where the lease's floor + growth + root reserve never admitted a
 root, take it too. 48 h to 2026-11-18: 3% of owned fast-tier jobs started warm and 170 of 812 were cancelled
-past 1100 s (cmux#44271, hq#10497). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: the tier takes
-the shared roots as before. The root's parent must exist and belong to the mini's user (fleet setup); without
-it the tier falls back.
+past 1100 s (cmux#44271). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: the tier takes
+the shared roots as before. The root's parent must exist, belong to the mini's user and hold the marker
+`.cmux-seed-root` (fleet setup); without
+them the tier falls back. The marker keeps a runner that works at that path (the nightly-next builder) out.
