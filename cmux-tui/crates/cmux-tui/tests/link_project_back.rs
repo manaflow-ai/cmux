@@ -25,9 +25,9 @@ use serde_json::{Value, json};
 const RTT: Duration = Duration::from_millis(50);
 /// One start key per chat: the projection is named by it (`chat-<key>`), so each test has its own.
 const KEYS: [&str; 3] = [
-    "0f0e0d0c-0b0a-4908-8706-050403020100",
-    "1f0e0d0c-0b0a-4908-8706-050403020101",
-    "2f0e0d0c-0b0a-4908-8706-050403020102",
+    "b0ac0001-0b0a-4908-8706-050403020100",
+    "b0ac0002-0b0a-4908-8706-050403020101",
+    "b0ac0003-0b0a-4908-8706-050403020102",
 ];
 
 /// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
@@ -176,6 +176,9 @@ fn start_chat(
     projected: bool,
     key: &str,
 ) -> (PathBuf, Value) {
+    // The machine keeps a projection's upper layer until Bring Back drops it, by chat: an earlier
+    // run's chat of the same key would hand its edits to this one.
+    let _ = std::fs::remove_dir_all(projection_state(&format!("chat-{key}")));
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .env("CMUX_TUI_STATE_DIR", state)
         .env("CMUX_PROJECTED_FOLDERS", if projected { "1" } else { "0" })
