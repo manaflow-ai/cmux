@@ -2,6 +2,7 @@
 import { componentEntry } from "../gallery/format";
 import type { PlayContext } from "../gallery/play";
 import type { TerminalTailPinDesignsProps } from "./TerminalTailPinDesigns";
+import { MOTION_MS } from "../motion/scale.generated";
 
 /** Advances every pinned tail twice and fails if any row's height or top changes. */
 async function updatesInPlace(ctx: PlayContext) {
@@ -53,7 +54,7 @@ export default componentEntry<TerminalTailPinDesignsProps>({
       play: updatesInPlace,
     },
     "update-crossfade": {
-      note: "icon-line with a 120 ms fade-in of the new line in the same box (none under reduced motion); no row moves.",
+      note: `icon-line with a ${MOTION_MS.micro} ms fade-in of the new line in the same box (none under reduced motion); no row moves.`,
       props: { design: "icon-line", live: true, swap: "crossfade" },
       play: updatesInPlace,
     },

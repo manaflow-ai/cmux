@@ -279,7 +279,8 @@ MIXED = {
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
                                      "web-typecheck", "web-production-build", "web-instant-navigation",
-                                     "react-apps-check", "diff-sidecar-check", "web-db-migrations")}})},
+                                     "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
+                                     "web-db-migrations")}})},
 }
 # Rule jobs that judge one result, so no two can disagree.
 SINGLE_RESULT = {
