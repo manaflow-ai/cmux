@@ -833,34 +833,6 @@
       "count": 5,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.turn-end-fold#fade": {
-      "count": 22,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#fade-long": {
-      "count": 18,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#live": {
-      "count": 20,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#stagger": {
-      "count": 21,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#stagger-long": {
-      "count": 21,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#tuck": {
-      "count": 19,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.turn-end-fold#tuck-long": {
-      "count": 14,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.unread-marker#jump-back": {
       "count": 8,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
