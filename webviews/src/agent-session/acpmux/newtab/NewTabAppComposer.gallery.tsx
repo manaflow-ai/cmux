@@ -105,7 +105,8 @@ function LookPage({ look = "cards" }: { look?: Look }) {
   const [client] = useState(() => lookHost(look));
   const [slot, setSlot] = useState<SceneComposerSlot | null>(null);
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    // In the agent pane shell, as the app draws it: its tokens give the composer its surface.
+    <div className="acpmux-shell" style={{ flexDirection: "column" }}>
       <NewTabAppPage
         app={`local/${look}-look`}
         client={client}
