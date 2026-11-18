@@ -75,7 +75,7 @@ extension SidebarBridge {
     /// else through this window's selection memory and focus. Showing the
     /// workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
-        if services.windows.registry.value.crossesIncognito([workspace], to: state.id) { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        if services.windows.crossesKinds([workspace], to: state.id) { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
         state.selection.jump(to: tab.id, in: pane.id, byPerson: true) // a click in this window's sidebar
         state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
         services.paneController(for: pane)?.select(StripTabID(tab.id))

@@ -96,7 +96,10 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   claimed keeps its own; `null` clears one; a proxy applies to tabs opened afterwards, in a private
   profile without your cookies); `incognito: true` opens every later tab in a store that keeps
   nothing (one way). `tabs.open(url, { incognito: true })` opens one such tab: no cookie of your
-  profile, no history, never kept; `tabs.list()` marks it `incognito`. `storageState({ path })`
+  profile, no history, never kept; `tabs.list()` marks it `incognito`. In the cmux app the
+  session's incognito tabs share one in-memory store of their own, in a background incognito
+  workspace of the session's (no focus changes), and that workspace and store go when the
+  session ends; on the app `configure` takes `incognito` alone. `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site
   only, `{ all: true }` the whole profile, `{ urls }` those URLs. `downloads()` lists downloads.

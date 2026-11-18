@@ -203,7 +203,7 @@ extension WindowManager {
     func claim(workspaceID: String, in state: WindowState, select requested: Bool = true) {
         // An action run without view-change permission never shows it.
         let shows = requested && ActionRunScope.viewChangeAllowed()
-        if registry.value.crossesIncognito([workspaceID], to: state.id) {
+        if crossesKinds([workspaceID], to: state.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
@@ -287,7 +287,7 @@ extension WindowManager {
     func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
         let select = select && ActionRunScope.viewChangeAllowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
-        if registry.value.crossesIncognito(ids, to: windowID) {
+        if crossesKinds(ids, to: windowID) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return false
         }
@@ -497,7 +497,7 @@ extension WindowManager {
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
         // So does one claimed for the launch window before the restore (`awaitsRestore`).
-        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty && agentIncognito.creating.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         }).union(live.filter { id in placements[id].map(awaitsRestore) == true })

@@ -4,7 +4,8 @@ import Foundation
 
 extension BrowserHostProvider {
     /// `cookies.restore` names a backup, not a tab: the backup records its profile.
-    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
+    /// `session.ended` names an agent session whose own incognito store ends.
+    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore", "session.ended"]
 
     /// One frame from the host, in order, on the main actor.
     func handle(_ frame: ProviderFrame) {
@@ -47,6 +48,19 @@ extension BrowserHostProvider {
         }
         if let targetID, calledTargets.insert(targetID).inserted {
             marking?.agentWillDrive(targetID: targetID)
+        }
+        // An agent session's incognito tab, of either engine: in the session's own store, through the app's opener.
+        if method == "tabs.open", case .object(let fields) = params, fields["incognito"] == .bool(true) {
+            guard case .string(let session)? = fields["session"], !session.isEmpty else {
+                send(.result(id: id, result: nil, error: DriverError(.invalid, "tabs.open: an incognito tab names its session").json))
+                return
+            }
+            openIncognitoTab(id: id, engine: fields["engine"] == .string(ProviderEngine.cef.rawValue) ? .cef : .webkit, session: session)
+            return
+        }
+        if method == "session.ended" {
+            endIncognitoSession(id: id, params: params)
+            return
         }
         // A Chromium session's new tab is a Chromium tab: never the WebKit driver's.
         if method == "tabs.open", case .object(let fields) = params, fields["engine"] == .string(ProviderEngine.cef.rawValue) {
@@ -97,6 +111,44 @@ extension BrowserHostProvider {
             guard let self, let link, self.connection === link else { return }
             if opened { self.observeTabs() }
             self.send(frame)
+        }
+    }
+
+    /// `tabs.open {incognito: true, session}`: a blank tab in the session's own in-memory store. The answer says
+    /// `incognito: true`, which the host requires before it loads a page in it.
+    private func openIncognitoTab(id: UInt64, engine: ProviderEngine, session: String) {
+        guard let opener else {
+            send(.result(id: id, result: nil, error: DriverError(.unsupported, "tabs.open: this app cannot open tabs").json))
+            return
+        }
+        let link = connection
+        Task { [weak self] in
+            let frame: ProviderFrame
+            var opened = false
+            do throws(DriverError) {
+                let targetID = try await opener.openIncognitoProviderTab(engine: engine, session: session)
+                frame = .result(id: id, result: .object(["targetId": .string(targetID), "incognito": .bool(true)]), error: nil)
+                opened = true
+            } catch {
+                frame = .result(id: id, result: nil, error: error.json)
+            }
+            guard let self, let link, self.connection === link else { return }
+            if opened { self.observeTabs() }
+            self.send(frame)
+        }
+    }
+
+    /// `session.ended {session}`: the session's workspace closes and its store is dropped; answered after.
+    private func endIncognitoSession(id: UInt64, params: DriverJSON) {
+        guard case .object(let fields) = params, case .string(let session)? = fields["session"], !session.isEmpty else {
+            send(.result(id: id, result: nil, error: DriverError(.invalid, "session.ended: no session").json))
+            return
+        }
+        let link = connection, opener = opener
+        Task { [weak self] in
+            await opener?.endIncognitoSession(session)
+            guard let self, let link, self.connection === link else { return }
+            self.send(.result(id: id, result: .null, error: nil))
         }
     }
 

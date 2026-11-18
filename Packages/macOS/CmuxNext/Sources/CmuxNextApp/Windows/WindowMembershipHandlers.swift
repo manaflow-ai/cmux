@@ -55,7 +55,7 @@ enum WindowMembershipHandlers {
     /// Into the window named by the `window` argument (or target).
     static func move(_ ids: [String], toWindow invocation: ActionInvocation, _ context: AppActionContext) throws {
         let target = try context.window(invocation)
-        guard !context.services.windows.registry.value.crossesIncognito(ids, to: target.state.id) else {
+        guard !context.services.windows.crossesKinds(ids, to: target.state.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
         }
         target.sidebar.accept(ids.map(SidebarWorkspaceID.init), at: nil)

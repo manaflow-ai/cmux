@@ -22,9 +22,11 @@ public nonisolated struct ProviderTabAnnounce: Hashable, Sendable {
     public var inputScale: Double
     /// The tab's emulation has touch on (`touch`, cx-3ny35).
     public var touch: Bool
+    /// The tab is in an agent session's own in-memory store (`tabs.open {incognito: true}`): it closes with its session.
+    public var incognito: Bool
 
     public init(targetID: String, engine: String, workspace: String, profile: String, url: String, title: String, visible: Bool,
-                inputScale: Double = 1, touch: Bool = false) {
+                inputScale: Double = 1, touch: Bool = false, incognito: Bool = false) {
         self.targetID = targetID
         self.engine = engine
         self.workspace = workspace
@@ -34,6 +36,7 @@ public nonisolated struct ProviderTabAnnounce: Hashable, Sendable {
         self.visible = visible
         self.inputScale = inputScale
         self.touch = touch
+        self.incognito = incognito
     }
 }
 

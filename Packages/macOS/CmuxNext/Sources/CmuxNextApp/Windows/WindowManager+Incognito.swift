@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
@@ -101,6 +103,7 @@ extension WindowManager {
     /// The browser profile a page of `workspaceID` uses: the incognito
     /// session's for an incognito window, else nil (the caller's default).
     func browserProfile(forWorkspace workspaceID: String?) -> BrowserProfileID? {
+        if let own = workspaceID.flatMap(agentIncognito.profile(forWorkspace:)) { return own } // an agent session's own
         guard let workspaceID, isIncognito(workspace: workspaceID) else { return nil }
         return incognitoProfile()
     }
@@ -151,7 +154,7 @@ extension WindowManager {
         endIncognitoSpacesIfUnused()
         guard let profile = incognitoSession else { return }
         let value = registry.value
-        let open = value.windows.contains { value.isIncognito($0.id) }
+        let open = value.windows.contains { value.isIncognito($0.id) && !agentIncognito.isSessionWindow($0.id) }
         let pending = claims.pending.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
         guard !open, !pending else { return }
         incognitoSession = nil
@@ -230,6 +233,7 @@ extension WindowManager {
     /// True when moving content of workspace `source` into workspace
     /// `target` would cross between an incognito window and a normal one.
     func crossesIncognito(from source: String?, to target: String?) -> Bool {
+        if let crossed = agentIncognito.crossing(from: source, to: target) { return crossed } // never in or out of an agent's own
         guard let source, let target else { return false }
         return isIncognito(workspace: source) != isIncognito(workspace: target)
     }
@@ -237,7 +241,61 @@ extension WindowManager {
     /// True when moving content of workspace `source` into (a new workspace
     /// of) window `windowID` would cross kinds.
     func crossesIncognito(from source: String?, toWindow windowID: String) -> Bool {
-        guard let source else { return false }
-        return isIncognito(workspace: source) != isIncognito(window: windowID)
+        guard let source else { return agentIncognito.session(ofWindow: windowID) != nil }
+        return agentIncognito.crosses([source], toWindow: windowID) || isIncognito(workspace: source) != isIncognito(window: windowID)
+    }
+}
+
+// An agent session's own incognito workspace (`AgentIncognitoSessions`): made without focus, in a window kept behind.
+extension WindowManager {
+    /// The first pane of session `id`'s workspace, made in the background on first use (again after it closed).
+    func agentIncognitoPane(session id: String) async throws(AutomationTabError) -> PaneModel {
+        if let pane = agentSessionPane(id) { return pane }
+        if let pending = agentIncognito.pendingCreates[id] { await pending.value } else {
+            let daemon = services.daemon
+            // The daemon closes ephemeral workspaces itself after a crash: only one with state resources.
+            guard EphemeralWorkspaces.localDaemonServes(self), let connection = daemon.connection else { throw .unavailable }
+            let window = agentIncognito.newWindow(for: id)
+            registry.apply { $0.markIncognito(window); return WindowRegistry.Changes() }
+            behindWindows.insert(window)
+            agentIncognito.beginCreating(id)
+            let task = Task { [weak self] in
+                guard let self else { return }
+                defer { agentIncognito.endCreating(id); agentIncognito.pendingCreates[id] = nil; reconcileMembership() }
+                do {
+                    guard let (workspace, _) = try await daemon.createdWorkspace(on: connection, ephemeral: true, focus: false, placed: { [] })
+                    else { return }
+                    // The session ended meanwhile: its workspace goes at once.
+                    guard agentIncognito.window(of: id) == window else { return await closeAgentWorkspace(workspace.id) }
+                    agentIncognito.attach(workspace: workspace.id, to: id)
+                    // Without view-change permission the window opens behind, never key, and selects nothing else.
+                    ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: false)) { claimNew(workspaceID: workspace.id, window: window) }
+                    recordIncognitoWorkspaces()
+                } catch {
+                    daemon.logger.error("agent incognito workspace failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            agentIncognito.pendingCreates[id] = task
+            await task.value
+        }
+        guard let pane = agentSessionPane(id) else { throw .unavailable }
+        return pane
+    }
+
+    private func agentSessionPane(_ id: String) -> PaneModel? {
+        agentIncognito.workspace(of: id).flatMap { services.daemon.store.workspace(id: $0) }?.screens.flatMap(\.panes).first
+    }
+
+    /// Closes a session's workspace (its terminals end with it); returns once the daemon answered.
+    func closeAgentWorkspace(_ id: String) async {
+        guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key, let connection = daemon.connection else { return }
+        do { try await WorkspaceClose.close(key, terminals: WorkspaceClose.closing(workspace, on: daemon), on: connection) } catch {
+            daemon.logger.error("agent incognito workspace close failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// `WindowRegistry.crossesIncognito`, and into or out of an agent session's own window.
+    func crossesKinds(_ ids: [String], to windowID: String) -> Bool {
+        registry.value.crossesIncognito(ids, to: windowID) || agentIncognito.crosses(ids, toWindow: windowID)
     }
 }

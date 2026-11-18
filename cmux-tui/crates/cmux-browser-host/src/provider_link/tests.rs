@@ -26,6 +26,7 @@ fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         visible: true,
         input_scale: 1.0,
         touch: false,
+        incognito: false,
     }
 }
 
