@@ -36,6 +36,9 @@ pub fn capture() -> Option<String> {
 pub const SYMBOL_MAP_NAME: &str = "cmux-tui-symbols.bin";
 
 #[cfg(target_os = "macos")]
+// libc marks `_dyld_get_image_header` and `mach_header_64` deprecated in favor of the mach2
+// crate; they are the same dyld API and struct, and this is their only use here.
+#[allow(deprecated)]
 mod mac {
     use std::fmt::Write;
     use std::sync::OnceLock;
@@ -115,7 +118,7 @@ mod mac {
             } else {
                 "???".to_string()
             };
-            let name = if found && info.dli_fbase.cast_const() == executable.cast_const() {
+            let name = if found && info.dli_fbase.cast_const() == executable {
                 // The executable has no symbol table: only the map names its frames.
                 map.function((lookup - base) as u64).map(|(name, _)| demangle(name))
             } else if found && !info.dli_sname.is_null() {

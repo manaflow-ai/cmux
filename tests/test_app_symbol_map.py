@@ -161,6 +161,12 @@ class AppSymbolMapTest(unittest.TestCase):
             self.strip(app)
             self.assertEqual((app / "Contents/Resources/cmux-tui-symbols.bin").read_bytes(), before)
 
+            # A binary that arrives stripped, with no map yet, gets none: the header symbol
+            # is not a function, and as the only entry it would name every frame.
+            (app / "Contents/Resources/cmux-tui-symbols.bin").unlink()
+            self.strip(app)
+            self.assertFalse((app / "Contents/Resources/cmux-tui-symbols.bin").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

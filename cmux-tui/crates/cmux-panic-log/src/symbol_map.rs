@@ -48,18 +48,20 @@ impl SymbolMap {
     fn table(payload: &[u8]) -> Option<Self> {
         let mut payload = Reader { bytes: payload, at: 0 };
         let count = payload.u32()? as usize;
-        let mut offsets = Vec::with_capacity(count);
+        // Each entry takes at least one byte, so a corrupt count never reserves more than the file.
+        let capacity = count.min(payload.bytes.len());
+        let mut offsets = Vec::with_capacity(capacity);
         let mut offset = 0u64;
         for _ in 0..count {
             offset = offset.wrapping_add(payload.leb128()?);
             offsets.push(offset);
         }
-        let names = payload.bytes[payload.at..].to_vec();
-        let mut starts = Vec::with_capacity(count);
+        let names = payload.bytes.get(payload.at..)?.to_vec();
+        let mut starts = Vec::with_capacity(capacity);
         starts.push(0u32);
         for (index, byte) in names.iter().enumerate() {
             if *byte == 0 {
-                starts.push(u32::try_from(index + 1).ok()?);
+                starts.push(u32::try_from(index.checked_add(1)?).ok()?);
             }
         }
         (starts.len() == offsets.len()).then_some(Self { offsets, names, starts })
@@ -71,10 +73,14 @@ impl SymbolMap {
     pub fn function(&self, offset: u64) -> Option<(&str, u64)> {
         // The first function starting after `offset`; the one before holds it.
         let index = self.offsets.partition_point(|start| *start <= offset).checked_sub(1)?;
+        let function_start = *self.offsets.get(index)?;
         let start = *self.starts.get(index)? as usize;
-        let end = self.starts.get(index + 1).map_or(self.names.len(), |next| *next as usize - 1);
+        let end = match self.starts.get(index.checked_add(1)?) {
+            Some(next) => (*next as usize).checked_sub(1)?,
+            None => self.names.len(),
+        };
         let name = std::str::from_utf8(self.names.get(start..end)?).ok()?;
-        (!name.is_empty()).then(|| (name, offset - self.offsets[index]))
+        (!name.is_empty()).then(|| (name, offset.saturating_sub(function_start)))
     }
 }
 
@@ -85,8 +91,9 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn take(&mut self, count: usize) -> Option<&'a [u8]> {
-        let slice = self.bytes.get(self.at..self.at.checked_add(count)?)?;
-        self.at += count;
+        let end = self.at.checked_add(count)?;
+        let slice = self.bytes.get(self.at..end)?;
+        self.at = end;
         Some(slice)
     }
 

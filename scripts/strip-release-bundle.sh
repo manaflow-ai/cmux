@@ -73,8 +73,9 @@ strip_executable "$APP_PATH/Contents/MacOS/cmux"
 # -S -x kept 62,017 names: 6.9 MB of 143.4 MB (nightly 4413904924501). Keep
 # them in Resources/cmux-tui-symbols.bin, 0.8 MB, then strip fully: its panic
 # logs and crash sidecars name frames through the map (cmux-panic-log), and
-# its macOS crash reports go to Sentry as image offsets, which the nightly's
-# cmux-tui.dSYM (uploaded to Sentry, same UUID) resolves to functions and lines.
+# its macOS crash reports go to Sentry as image offsets, which the binary's
+# cmux-tui.dSYM (same UUID) resolves to functions and lines: the tree build
+# uploads it (cmux-tui-artifacts.yml sentry-dsyms), the fast nightly client too.
 if [ -f "$APP_PATH/Contents/Resources/bin/cmux" ] && [ ! -L "$APP_PATH/Contents/Resources/bin/cmux" ]; then
   python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
     "$APP_PATH/Contents/Resources/bin/cmux" "$APP_PATH/Contents/Resources/cmux-tui-symbols.bin"
