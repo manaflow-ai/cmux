@@ -37,8 +37,12 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
     }
 
     func mark(_ name: String) {
+        mark(name, at: Date())
+    }
+
+    /// A mark at `now`, a time measured elsewhere (the page's own clock, `pane.painted`'s `pageMarks`).
+    func mark(_ name: String, at now: Date) {
         signposter.emitEvent("agent_pane", "\(name, privacy: .public)")
-        let now = Date()
         let (receiver, listeners) = state.withLock { state -> ((@Sendable (String, Date) -> Void)?, [@Sendable (String) -> Void]) in
             if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
             return (state.sink, state.listeners)

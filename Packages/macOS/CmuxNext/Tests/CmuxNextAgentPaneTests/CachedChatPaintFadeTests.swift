@@ -18,7 +18,7 @@ struct CachedChatPaintFadeTests {
 
     @Test func aPaintReportCarriesWhetherThePageDrewAKeptTail() {
         let cached = AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]])
-        guard case .painted(let fromKeptTail, _) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, _, _) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(fromKeptTail, "the page said it drew a kept tail and the host did not keep that")
     }
 
@@ -26,11 +26,11 @@ struct CachedChatPaintFadeTests {
     /// is what the fade was made for, so the absent fact has to mean cold.
     @Test func aPaintReportWithoutTheFactMeansTheChatWasReadCold() {
         let bare = AgentPaneRequest(body: ["method": "pane.painted", "params": [:]])
-        guard case .painted(let fromKeptTail, let settled) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, let settled, _) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!fromKeptTail)
         #expect(!settled, "a report that did not say settled was read as the settled view")
         let noParams = AgentPaneRequest(body: ["method": "pane.painted"])
-        guard case .painted(let withoutParams, let settledWithoutParams) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let withoutParams, let settledWithoutParams, _) = noParams else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!withoutParams)
         #expect(!settledWithoutParams)
     }
@@ -39,12 +39,24 @@ struct CachedChatPaintFadeTests {
     /// not a Bool (a malformed or future page) reads as absent, never as settled.
     @Test func aPaintReportCarriesWhetherItWasTheSettledView() {
         let settled = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": true]])
-        guard case .painted(let fromKeptTail, let isSettled) = settled else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(let fromKeptTail, let isSettled, _) = settled else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(isSettled, "the page said it drew the settled view and the host did not keep that")
         #expect(!fromKeptTail)
         let odd = AgentPaneRequest(body: ["method": "pane.painted", "params": ["settled": "yes"]])
-        guard case .painted(_, let oddSettled) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
+        guard case .painted(_, let oddSettled, _) = odd else { return #expect(Bool(false), "pane.painted did not parse") }
         #expect(!oddSettled)
+    }
+
+    /// The page's boot times (perf.ts `bootMarks`, epoch ms) reach the launch marks; a value that is
+    /// not a positive finite number is dropped, never kept as a time.
+    @Test func aPaintReportCarriesThePagesBootTimes() {
+        let marks: [String: Any] = ["documentFetched": 1_795_000_000_100.5, "mountCalled": 0, "domInteractive": "soon", "modulesEvaluated": -1]
+        let report = AgentPaneRequest(body: ["method": "pane.painted", "params": ["pageMarks": marks]])
+        guard case .painted(_, _, let pageMarks) = report else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(pageMarks == ["documentFetched": 1_795_000_000_100.5])
+        let bare = AgentPaneRequest(body: ["method": "pane.painted", "params": [:]])
+        guard case .painted(_, _, let none) = bare else { return #expect(Bool(false), "pane.painted did not parse") }
+        #expect(none.isEmpty)
     }
 
     @Test func theModelKeepsWhatTheFirstPaintSaidItDrew() async {

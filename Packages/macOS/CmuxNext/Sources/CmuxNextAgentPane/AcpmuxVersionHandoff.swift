@@ -118,6 +118,7 @@ nonisolated enum AcpmuxVersionHandoff {
     /// Returns true when it stopped that daemon, so the caller starts the
     /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons) async -> Bool {
+        AgentPaneLaunchTimings.shared.mark("acpmux.bundled_build_start")
         let bundled = await bundledBuild(environment)
         AgentPaneLaunchTimings.shared.mark("acpmux.bundled_build_read")
         let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)

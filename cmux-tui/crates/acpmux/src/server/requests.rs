@@ -91,7 +91,7 @@ fn hold_attach_filter(params: &Value) -> Result<crate::hub::EventFilter, RpcErro
 /// --match`, a send's reply stream), not an open: on cmux NIGHTLY (2026-11-15) the tools that
 /// tail lanes every few minutes woke 11 idle Chief sub-sessions and about 20 other chats each
 /// pass, a Claude process each for two minutes. `acpmux attach` says `visible: true`.
-fn attach_shows(conn: &Conn, params: &Value) -> bool {
+pub(super) fn attach_shows(conn: &Conn, params: &Value) -> bool {
     match params.get("visible") {
         Some(Value::Bool(visible)) => *visible,
         _ => conn.declared().is_none(),

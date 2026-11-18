@@ -602,6 +602,8 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .clientReady(let ready):
             clientReady = ready
+            // The page took its client: the restored chat answers keys and actions (`cmux app launch-times`).
+            if ready, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.client_ready") }
             if ready { openWaits.ran(.connected) }
             if ready, let waiting = whenClientReady {
                 whenClientReady = nil
@@ -613,8 +615,16 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail, let settled):
+        case .painted(let fromKeptTail, let settled, let pageMarks):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            // The page's boot, at the times it measured (`agent_page.<name>`): a restored chat's only.
+            if newTab == nil {
+                for (name, epochMs) in pageMarks {
+                    AgentPaneLaunchTimings.shared.mark("agent_page.\(name)", at: Date(timeIntervalSince1970: epochMs / 1000))
+                }
+            }
+            // The frame drawn from acpmux's own rows for the chat (its settled view), not a kept copy.
+            if settled, newTab == nil { AgentPaneLaunchTimings.shared.mark("agent_pane.painted_settled") }
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.

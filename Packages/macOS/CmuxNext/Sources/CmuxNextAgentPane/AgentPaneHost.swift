@@ -462,6 +462,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             }
             Self.markLookup("lookup_end", owned: owned)
             await daemonReady(daemonSocket)
+            Self.markLookup("daemon_ready_told", owned: owned)
             return endpoint
         }
         inFlight[startsDaemon] = task
@@ -702,13 +703,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // that cannot take the key is handed off and ours starts with it. A daemon no cmux
             // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
             let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment, daemons: daemons)
+            Self.markLookup("stray_checked", owned: owned)
             let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, daemons: daemons)
+            Self.markLookup("stale_checked", owned: owned)
             handedOff = stale
             if stale { Self.markLookup("handed_off", owned: owned) }
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
+            Self.markLookup("person_enrolled", owned: owned)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
+                Self.markLookup("computer_use_enrolled", owned: owned)
                 approver?.register(environment)
+                defer { Self.markLookup("endpoint_verified", owned: owned) }
                 return try await Self.verifiedEndpoint(environment)
             }
         } catch AcpmuxStatusClient.Failure.unreachable {

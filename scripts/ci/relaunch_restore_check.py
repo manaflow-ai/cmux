@@ -67,6 +67,10 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+try:
+    from ci_process_tree import run_bounded  # noqa: E402  (a timeout stops the command's whole tree)
+except ImportError:  # a copy of this script outside scripts/ci: subprocess.run, which stops only the command
+    run_bounded = subprocess.run
 
 SCROLLBACK_LINES = 2000
 POLL_S = 0.05
@@ -255,6 +259,121 @@ def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
+
+
+def seed_stress(inst: Instance, count: int, work: str) -> list[str]:
+    """`count` more workspaces, each with a chat on the test agent and one turn answered (--chats: the stress session,
+    so a row that grows with sessions shows). Returns the chats made; raises RuntimeError naming a step that failed."""
+    chats = []
+    for i in range(count):
+        made = unwrap(inst.cmux("workspace", "create", "--name", f"l5-s{i}"))
+        ws = made.get("workspace_id") if isinstance(made, dict) else None
+        if not ws:
+            raise RuntimeError(f"stress workspace {i} was not made: {made}")
+        chat = unwrap(inst.cmux("agents", "chat", "new", "--workspace", ws, "--harness", HARNESS, "--cwd", work,
+                                "--name", f"l5-s{i}", "--", PROMPT, timeout=90))
+        if not (isinstance(chat, dict) and chat.get("chat")):
+            raise RuntimeError(f"stress chat {i} was not made: {json.dumps(chat)[:400]}")
+        chats.append(str(chat["chat"]))
+    for chat in chats:
+        if not wait(lambda: chat_messages(inst, chat) >= 2, 30, 0.5):
+            raise RuntimeError(f"stress chat {chat}'s first turn was never answered")
+    return chats
+
+
+# ---- the daemon -----------------------------------------------------------------------------
+
+def daemon_homes(home: str) -> list[Path]:
+    """The instance's acpmux homes with a running daemon's pid file: NIGHTLY's `~/.acpmux`, another build's
+    `~/.acpmux/builds/<key>` (AcpmuxEnvironment)."""
+    root = Path(home) / ".acpmux"
+    return [p.parent for p in [root / "daemon.pid", *sorted(root.glob("builds/*/daemon.pid"))] if p.is_file()]
+
+
+def daemon_status(inst: Instance) -> dict | None:
+    """The app's daemon's `_acpmux/status` through the bundled acpmux (`status --json`), None when none answers."""
+    acpmux = os.path.join(inst.app, "Contents", "Resources", "bin", "acpmux")
+    for acp_home in daemon_homes(inst.home):
+        env = {"HOME": inst.home, "CFFIXED_USER_HOME": inst.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+               "ACPMUX_HOME": str(acp_home)}
+        try:
+            done = run_bounded([acpmux, "status", "--json"], env=env, cwd=inst.home, capture_output=True, text=True,
+                               timeout=30)
+            answer = status_json(done.stdout) if done.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
+            answer = None
+        if isinstance(answer, dict):
+            return unwrap(answer)
+    return None
+
+
+def status_json(text: str) -> dict | None:
+    """`acpmux status --json`'s answer: one JSON document, which it prints indented over many lines (the last
+    line alone is `}`). A line of output before it (a notice) is skipped: the answer is the first `{` line on."""
+    lines = (text or "").splitlines()
+    for start, line in enumerate(lines):
+        if not line.startswith("{"):
+            continue
+        try:
+            answer = json.loads("\n".join(lines[start:]))
+        except ValueError:
+            continue
+        return answer if isinstance(answer, dict) else None
+    return None
+
+
+def stop_daemon(inst: Instance, seconds: float = 45.0) -> dict:
+    """--daemon cold: ends the app's daemon (SIGTERM, its own shutdown; the pid its home records) after the quit,
+    as an update's handoff or a reboot leaves no daemon, so the relaunch starts one. Agent hosts outlive it, as
+    after an update, and the new daemon adopts them. Returns what it stopped and how long that took."""
+    stopped: dict = {"pids": [], "ms": None}
+    began = time.monotonic()
+    for acp_home in daemon_homes(inst.home):
+        try:
+            pid = int((acp_home / "daemon.pid").read_text().strip())
+            os.kill(pid, 15)
+            stopped["pids"].append(pid)
+        except (OSError, ValueError):
+            continue
+    for pid in stopped["pids"]:
+        def gone(pid=pid):
+            try:
+                os.kill(pid, 0)
+                return False
+            except OSError:
+                return True
+        if not wait(gone, max(0.0, seconds - (time.monotonic() - began)), 0.05):
+            stopped["left"] = stopped.get("left", []) + [pid]
+    stopped["ms"] = round((time.monotonic() - began) * 1000)
+    return stopped
+
+
+def daemon_phases(status: dict | None, app_start_epoch_ms: float) -> dict:
+    """The daemon's startup phases and marks (`gauges.startup`) in ms since the relaunched app's process started, with
+    its pid, session count and exec time. A daemon older than the relaunch (--daemon keep) has every phase before 0.
+    A build without `bornEpochMs` (older daemons) is lined up by its uptime at the read."""
+    if not isinstance(status, dict):
+        return {}
+    read_at = time.time() * 1000
+    gauges = status.get("gauges") if isinstance(status.get("gauges"), dict) else {}
+    born = gauges.get("bornEpochMs")
+    if not isinstance(born, (int, float)) and isinstance(gauges.get("uptimeMs"), (int, float)):
+        born = read_at - gauges["uptimeMs"]
+    out: dict = {"pid": status.get("pid"), "sessions": status.get("sessions"), "live_agents": status.get("liveAgents"),
+                 "ready": status.get("ready")}
+    if isinstance(gauges.get("execEpochMs"), (int, float)):
+        out["exec"] = round(gauges["execEpochMs"] - app_start_epoch_ms)
+    if not isinstance(born, (int, float)):
+        return out
+    out["born"] = round(born - app_start_epoch_ms)
+    phases = {}
+    for phase in gauges.get("startup") or []:
+        if isinstance(phase, dict) and isinstance(phase.get("atMs"), (int, float)):
+            start = born + phase["atMs"] - app_start_epoch_ms
+            ms = phase.get("ms")
+            phases[str(phase.get("name"))] = {"at": round(start), "end": None if ms is None else round(start + ms)}
+    out["phases"] = phases
+    return out
 
 
 # ---- state ----------------------------------------------------------------------------------
@@ -509,6 +628,11 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             os.remove(inst.sock)  # the old app's socket file: only the relaunched app's counts
         except OSError:
             pass
+    if args.daemon == "cold":
+        row["daemon_stopped"] = stop_daemon(inst)
+    # The app's marks count from its process start; the daemon's phases are lined up with this (the spawn's exec is
+    # within a few ms of it).
+    app_start_epoch_ms = time.time() * 1000
     process, marks_read, _ = launch(app, env, out / "app-relaunched.log")
     row["pid_after"] = process.pid
     launched = time.monotonic()
@@ -581,8 +705,88 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         after = state(inst)
         if "chat" in after:
             before["chat"] = after["chat"]
+    # After the round's reads, so this request is never the daemon's first answer.
+    row["daemon"] = daemon_phases(daemon_status(inst), app_start_epoch_ms)
     safe_print("L5-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process
+
+
+# The relaunch's phases, in the order a restored chat reaches them: (row, source, name). `app` is a launch mark,
+# `daemon` a daemon phase's start, `daemon_end` its end (gauges.startup), `daemon_field` a field of `daemon_phases`.
+PHASES = [
+    ("app main", "app", "main_start"),
+    ("first window frame", "app", "first_window_frame_committed"),
+    ("restored chat on screen", "app", "launch.front_chat_shown"),
+    ("daemon exec", "daemon_field", "exec"),
+    ("daemon start (run)", "daemon_field", "born"),
+    ("daemon socket bound", "daemon", "socket ready"),
+    ("daemon requests ready", "daemon", "requests ready"),
+    ("app lookup start", "app", "acpmux.lookup_start"),
+    ("app daemon status answered", "app", "acpmux.status_answered"),
+    ("app stray daemon checked", "app", "acpmux.stray_checked"),
+    ("app acpmux --version start", "app", "acpmux.bundled_build_start"),
+    ("app acpmux --version end", "app", "acpmux.bundled_build_read"),
+    ("app stale daemon checked", "app", "acpmux.stale_checked"),
+    ("app person key enrolled", "app", "acpmux.person_enrolled"),
+    ("app Computer Use enrolled", "app", "acpmux.computer_use_enrolled"),
+    ("app endpoint verified (status again)", "app", "acpmux.endpoint_verified"),
+    ("app daemon spawn start", "app", "acpmux.spawn_start"),
+    ("app daemon spawn ready", "app", "acpmux.spawn_ready"),
+    ("daemon first answer", "daemon", "first answer"),
+    ("app lookup end", "app", "acpmux.lookup_end"),
+    ("app daemon ready told", "app", "acpmux.daemon_ready_told"),
+    ("daemon store loaded", "daemon_end", "store load"),
+    ("daemon live chat logs read", "daemon_end", "live chat logs"),
+    ("daemon adoption start", "daemon", "adopt agent hosts"),
+    ("daemon adoption end", "daemon_end", "adopt agent hosts"),
+    ("daemon unadopted settled", "daemon_end", "settle unadopted"),
+    ("daemon agents may spawn", "daemon", "agents may spawn"),
+    ("page loaded", "app", "agent_pane.page_loaded"),
+    ("Chromium browser created", "app", "chromium_page.browser_created"),
+    ("page navigation start", "app", "agent_page.navigationStart"),
+    ("page document fetched", "app", "agent_page.documentFetched"),
+    ("pane.js fetched", "app", "agent_page.paneScriptFetched"),
+    ("page DOM interactive", "app", "agent_page.domInteractive"),
+    ("page modules evaluated (parse, compile, run)", "app", "agent_page.modulesEvaluated"),
+    ("page mount called", "app", "agent_page.mountCalled"),
+    ("page handshake asked (page clock)", "app", "agent_page.handshakeStart"),
+    ("page asked for the handshake", "app", "agent_pane.handshake_start"),
+    ("handshake answered", "app", "agent_pane.handshake_end"),
+    ("socket connected (transport open)", "app", "agent_pane.transport_open"),
+    ("daemon first attach answered", "daemon", "first attach answered"),
+    ("daemon first list reply", "daemon", "first list reply"),
+    ("chat painted", "app", "agent_pane.painted"),
+    ("chat drawn from the daemon's rows (settled)", "app", "agent_pane.painted_settled"),
+    ("composer takes keys (client ready)", "app", "agent_pane.client_ready"),
+    ("daemon all chat logs read", "daemon_end", "all chat logs"),
+]
+
+
+def phase_table(rounds: list[dict], args) -> str:
+    """Median of each phase over the `chat` rounds, ms since the relaunched app's process started, with the daemon's
+    session count: the table cmux NEXT's relaunch-to-live-chat row reads (launch-shell-first.md, piece 6)."""
+    chat = [r for r in rounds if r.get("front") == "chat" and r.get("usable")]
+
+    def value(row: dict, source: str, name: str):
+        daemon = row.get("daemon") or {}
+        if source == "app":
+            return (row.get("marks") or {}).get(name)
+        if source == "daemon_field":
+            return daemon.get(name)
+        phase = (daemon.get("phases") or {}).get(name) or {}
+        return phase.get("end" if source == "daemon_end" else "at")
+
+    def median(values):
+        values = sorted(v for v in values if isinstance(v, (int, float)))
+        return "-" if not values else f"{values[len(values) // 2]:.0f}"
+
+    sessions = median([(r.get("daemon") or {}).get("sessions") for r in chat])
+    lines = [f"daemon={args.daemon} workspaces={2 + args.chats} chats={1 + args.chats} sessions={sessions} rounds={len(chat)}",
+             "| phase (ms since the app's process start, median) | ms | rounds |", "| --- | ---: | ---: |"]
+    for label, source, name in PHASES:
+        values = [value(r, source, name) for r in chat]
+        lines.append(f"| {label} | {median(values)} | {sum(isinstance(v, (int, float)) for v in values)} |")
+    return "\n".join(lines) + "\n"
 
 
 def check(args) -> int:
@@ -598,6 +802,15 @@ def check(args) -> int:
         except RuntimeError as error:
             result["seed_error"] = str(error)
             return [f"seed: {error}"]
+        if args.chats:
+            try:
+                result["stress_chats"] = len(seed_stress(inst, args.chats, os.path.join(env["HOME"], "l5-work")))
+            except RuntimeError as error:
+                result["seed_error"] = str(error)
+                return [f"seed: {error}"]
+            focused = inst.cmux("workspace", made["workspace_a"], "focus")
+            if isinstance(focused, dict) and focused.get("error"):
+                return [f"seed: focusing l5-a after the stress chats failed: {focused['error']}"]
         before = state(inst)
         result["before"] = before
         rows_before = list(inst.last_rows)
@@ -646,6 +859,8 @@ def check(args) -> int:
     result["quit_to_usable_ms_p50"] = sorted(times)[len(times) // 2] if times else None
     passed = status == 0 and len(result["rounds"]) == args.rounds and all(not r["failures"] for r in result["rounds"])
     result["verdict"] = "pass" if passed else "fail"
+    result["phases"] = phase_table(result["rounds"], args)
+    safe_print("L5-PHASES-BEGIN\n" + result["phases"] + "L5-PHASES-END", flush=True)
     if args.out:
         with open(Path(args.out) / "l5.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
@@ -687,6 +902,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget-ms", type=int, default=3000)
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a relaunch may take to become usable")
     parser.add_argument("--fake-agent", default=str(DEFAULT_FAKE_AGENT))
+    parser.add_argument("--daemon", choices=("keep", "cold"), default="keep",
+                        help="keep: the acpmux daemon runs through the quit (a relaunch); cold: it is stopped after the "
+                             "quit, so the relaunch starts one (after an update or a reboot)")
+    parser.add_argument("--chats", type=int, default=0,
+                        help="more workspaces, each with a chat (the stress session), beside the two the check seeds")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     if args.rounds < 1:
