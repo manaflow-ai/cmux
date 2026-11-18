@@ -396,7 +396,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     /// Draws the highlight on the row that had it and the row that has it, no other.
     func paintSelection() {
-        for id in Set([paintedID, selected].compactMap(\.self)) {
+        // A move touches the two rows involved; no move rechecks the selected row (a view a rebuild made).
+        let touched = paintedID == selected ? [selected].compactMap(\.self) : HighlightTouch.rows(from: paintedID, to: selected)
+        for id in touched {
             guard let view = mounted[id]?.view, highlight(view, id == selected) else { continue }
             listWork.configured()
         }

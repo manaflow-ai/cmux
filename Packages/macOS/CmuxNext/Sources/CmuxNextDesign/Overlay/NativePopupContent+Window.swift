@@ -9,12 +9,17 @@ struct NativePopupMountedRow {
 }
 
 /// The plain list's geometry (no columns, no placed rail), known before any row view exists:
-/// each shown row's top and height. The rail column, the rows and the footer each run top to
-/// bottom, so the rows in a band are a binary search per part.
+/// the rail column, the rows and the footer, each a run of rows from its own top
+/// (``RowOffsets``, CmuxVisibleRows), so the rows in a band are a binary search per part.
 struct NativePopupWindowLayout {
-    var tops: [CGFloat] = []
-    var heights: [CGFloat] = []
-    var parts: [Range<Int>] = []
+    struct Part {
+        var start: Int
+        var top: CGFloat
+        var offsets: RowOffsets
+        var range: Range<Int> { start..<(start + offsets.count) }
+    }
+
+    var parts: [Part] = []
     var railCount = 0
     var railWidth: CGFloat = 0
     var hasIconColumn = false
@@ -29,48 +34,45 @@ struct NativePopupWindowLayout {
         func slider(_ row: NativePopupRow) -> CGFloat? {
             row.kind == .slider ? row.slider.map(NativePopupSliderView.preferredHeight(for:)) : nil
         }
-        var railY = inset
-        for row in rail {
-            tops.append(railY); heights.append(slider(row) ?? 40); railY += heights[heights.count - 1]
+        var built: [Part] = []
+        func add(_ rows: [NativePopupRow], top: CGFloat, height: (NativePopupRow) -> CGFloat) -> CGFloat {
+            let offsets = RowOffsets(heights: rows.map { Double(height($0)) })
+            built.append(Part(start: built.last.map(\.range.upperBound) ?? 0, top: top, offsets: offsets))
+            return CGFloat(offsets.length)
         }
+        let railLength = add(rail, top: inset) { slider($0) ?? 40 }
         var y = inset
         if model.title?.isEmpty == false { y += 24 }
         if model.search != nil { y += 34 }
-        let body = model.rows
-        for row in body {
-            let height = slider(row) ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32
+        y += add(model.rows, top: y) { row in
+            slider(row) ?? (row.kind == .separator ? 9 : row.kind == .textField ? 32
                 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
-            tops.append(y); heights.append(height); y += height
         }
-        y = max(y, railY)
-        for row in model.footer ?? [] {
-            let height = slider(row) ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
-            tops.append(y); heights.append(height); y += height
+        y = max(y, inset + railLength)
+        y += add(model.footer ?? [], top: y) { row in
+            slider(row) ?? (row.kind == .separator ? 9 : row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight)
         }
         height = y + inset
-        parts = [0..<railCount, railCount..<(railCount + body.count), (railCount + body.count)..<tops.count]
+        parts = built
     }
 
     /// The row at `index` in a list `width` wide.
     func frame(_ index: Int, width: CGFloat) -> NSRect {
         let inset = PopupStyle.standard.padding
-        if index < railCount { return NSRect(x: inset, y: tops[index], width: railWidth, height: heights[index]) }
+        guard let part = parts.first(where: { $0.range.contains(index) }) else { return .zero }
+        let y = part.top + CGFloat(part.offsets.tops[index - part.start])
+        let height = CGFloat(part.offsets.heights[index - part.start])
+        if index < railCount { return NSRect(x: inset, y: y, width: railWidth, height: height) }
         let x = inset + railWidth
-        return NSRect(x: x, y: tops[index], width: max(0, width - x - inset), height: heights[index])
+        return NSRect(x: x, y: y, width: max(0, width - x - inset), height: height)
     }
 
     /// The rows that meet `band`, in display order.
     func indices(in band: NSRect) -> [Int] {
-        var found: [Int] = []
-        for part in parts where !part.isEmpty {
-            var low = part.lowerBound, high = part.upperBound
-            while low < high {
-                let mid = (low + high) / 2
-                if tops[mid] + heights[mid] <= band.minY { low = mid + 1 } else { high = mid }
-            }
-            while low < part.upperBound, tops[low] < band.maxY { found.append(low); low += 1 }
+        parts.flatMap { part in
+            let local = RowBand(minY: Double(band.minY), maxY: Double(band.maxY)).relative(to: Double(part.top))
+            return part.offsets.rows(from: local.minY, to: local.maxY).map { $0 + part.start }
         }
-        return found
     }
 }
 
@@ -106,7 +108,8 @@ extension NativePopupContent {
     var windowBand: NSRect {
         guard let scroll = enclosingScrollView, scroll.documentView === self else { return bounds }
         let visible = scroll.documentVisibleRect
-        return visible.insetBy(dx: 0, dy: -visible.height)
+        let band = RowBand(viewportTop: Double(visible.minY), height: Double(visible.height))
+        return NSRect(x: visible.minX, y: CGFloat(band.minY), width: visible.width, height: CGFloat(band.maxY - band.minY))
     }
 
     /// Mounts the rows in the band, drops the rows that left it (never the one with the keys or a
