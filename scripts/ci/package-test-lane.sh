@@ -935,7 +935,7 @@ run_suite() {
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
   build_log="$(mktemp -t swift-suite-build.XXXXXX)"
-  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
+  swift build --build-tests --jobs 2 -Xswiftc -j2 "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
     | tee "$build_log" || build_status=$?
   # Backstop for a stale module the guard did not see (a header outside a
   # binary target): one build from clean outputs, as a cold slot would do.
