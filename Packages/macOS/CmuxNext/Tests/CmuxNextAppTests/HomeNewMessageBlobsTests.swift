@@ -1,5 +1,4 @@
 import CmuxHomeCore
-@testable import CmuxNextApp
 @testable import CmuxNextHome
 import Foundation
 import Testing
@@ -18,7 +17,7 @@ struct HomeNewMessageBlobsTests {
         let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "")
         let source = HomeNewMessageComposerSource(me: me) { _ in throw HomeRejection.invalid("test.no_send") }
 
-        let newMessage = HomeNewMessageView.composerStore(source: source, blobs: folder)
+        let newMessage = source.store(blobs: folder)
         newMessage.start()
         defer { newMessage.stop() }
         let pruning = HomeStore(source: source, blobCacheDirectory: control.0)
