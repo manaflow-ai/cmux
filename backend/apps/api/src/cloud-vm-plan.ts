@@ -31,7 +31,7 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
       if (own !== null && grantRank(own) >= grantRank(carried)) return own
       let paid: string | null | "user_gone"
       try {
-        paid = await s.getUserPlan(stackUser)
+        paid = await paidPlanForCarry(s, stackUser)
       } catch (e) {
         // The override was read and is confirmed; only the paid plan is unknown (review F2 at f2d36575). The answer is
         // the higher of that override and the last answer (the carried grant may still apply), never unavailable.
@@ -75,6 +75,20 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
     console.warn(JSON.stringify({ msg: "cloud.vm_plan.read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
     return row ? { ok: true, vm_plan: row.vm_plan } : { ok: false }
   }
+}
+
+/**
+ * The person's paid plan the carried grant must exceed: the higher by grantRank of their classic `cmuxPlan` and their
+ * cmux NEXT `cmuxNextPlan`, one record read. A NEXT Max subscriber's own `next_pro` grant is then never replaced by a
+ * carried `max` (the Cloud service's cloudPlanId(next_max, "max") would lower them to classic Max).
+ */
+const paidPlanForCarry = async (s: StackServer, stackUser: string): Promise<string | null | "user_gone"> => {
+  if (!s.getUserPlans) return s.getUserPlan(stackUser)
+  const p = await s.getUserPlans(stackUser)
+  if (p === "user_gone") return p
+  if (p.next_plan === null) return p.plan
+  if (p.plan === null) return p.next_plan
+  return grantRank(p.plan) > grantRank(p.next_plan) ? p.plan : p.next_plan
 }
 
 /** A personal grant read whose override was read but whose paid-plan read failed: the override is still an answer. */
