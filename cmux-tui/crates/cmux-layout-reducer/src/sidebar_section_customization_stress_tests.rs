@@ -195,10 +195,10 @@ fn a_huge_or_unicode_workspace_key_is_quoted_short() {
     let unicode_ok = "名".repeat(128);
     let unicode_long = "名".repeat(129);
     let request: Request = serde_json::from_value(json!({
-        "workspaces": {huge.clone(): {"hidden": true}, unicode_ok.clone(): {"hidden": true},
-                       unicode_long.clone(): {"hidden": true}},
+        "workspaces": {huge: {"hidden": true}, unicode_ok.as_str(): {"hidden": true},
+                       unicode_long: {"hidden": true}},
         "input": [{"id": "projects", "region": "middle", "nodes": [
-            {"id": unicode_ok.clone(), "kind": "workspace", "workspace_ids": [unicode_ok.clone()]}
+            {"id": unicode_ok, "kind": "workspace", "workspace_ids": [unicode_ok]}
         ]}]
     }))
     .unwrap();

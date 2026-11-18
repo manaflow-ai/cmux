@@ -135,10 +135,12 @@ pub const MAX_QUOTED: usize = 64;
 /// [`MAX_QUOTED`] and an ellipsis. A pasted megabyte in a settings file is reported, never
 /// copied into every answer and every Settings diagnostic.
 pub fn quote(text: &str) -> String {
-    match text.char_indices().nth(MAX_QUOTED) {
-        None => text.to_owned(),
-        Some((cut, _)) => format!("{}…", &text[..cut]),
+    let mut chars = text.chars();
+    let mut quoted: String = chars.by_ref().take(MAX_QUOTED).collect();
+    if chars.next().is_some() {
+        quoted.push('…');
     }
+    quoted
 }
 
 fn known(token: &str) -> Option<&'static str> {
