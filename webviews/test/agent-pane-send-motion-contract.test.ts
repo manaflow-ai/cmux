@@ -125,6 +125,9 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
       frames = await open120Hz(pane.address().replace("/#", "/?clock=frames#"), { viewport, clock: "frames" });
       page = frames.page;
     } else page = await browsers.get(name)!.newPage({ viewport });
+    // A click or key that never lands fails within a minute, naming what it waited for (an element
+    // never stable, say), instead of sitting out the file's 400 s timeout.
+    page.setDefaultTimeout(60_000);
     await installPaintedFrames(page);
     await installMotionRecorder(page);
     if (!frames) await page.goto(pane.address());
@@ -219,11 +222,20 @@ await requireBrowserLane("agent-pane-send-motion-contract.test.ts", async () => 
       { MAIN_DOCK },
     );
   const fromEnd = (page: Page) =>
-    page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-    });
-  const mark = (page: Page, name: string) => page.evaluate((name) => window.__motion.mark(name), name);
+    within(
+      page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+      }),
+      30_000,
+      async () => "the page never answered a read of its scroll position",
+    );
+  const mark = (page: Page, name: string) =>
+    within(
+      page.evaluate((name) => window.__motion.mark(name), name),
+      30_000,
+      async () => `the page never answered the mark "${name}"`,
+    );
   const composer = (page: Page) => page.locator(".acpmux-composer-box [contenteditable=true]").first();
 
   /// Types `text` and sends it with Enter, marking the frame; returns the prompt id the page sent.

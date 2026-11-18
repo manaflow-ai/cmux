@@ -175,7 +175,13 @@ export async function open120Hz(
       },
       async close() {
         running = false;
-        await pump;
+        // A frame Chromium never finishes (a compositor animation under BeginFrame control) holds the
+        // pump in `beginFrame` forever: five seconds, then the browsers close, which ends that call.
+        await Promise.race([
+          pump,
+          // fixed-wait: a deadline, not a wait; a pump that ends answers at once.
+          new Promise((resolve) => setTimeout(resolve, 5_000)),
+        ]);
         await browser?.close();
         await owner.close();
       },
