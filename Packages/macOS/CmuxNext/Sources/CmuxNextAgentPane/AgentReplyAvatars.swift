@@ -45,7 +45,8 @@ final class AgentReplyAvatars {
     private let fetch: Fetch
     private let now: @MainActor () -> ContinuousClock.Instant
     private var entries: [String: Entry] = [:]
-    private var inflight: [String: Task<Void, Never>] = [:]
+    /// The load running per login, with the link it loads: a new link for the login replaces it.
+    private var inflight: [String: (address: String, task: Task<Void, Never>)] = [:]
 
     init(fetch: @escaping Fetch = AgentReplyAvatars.guardedFetch,
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) {
@@ -67,13 +68,16 @@ final class AgentReplyAvatars {
         guard !login.isEmpty, let url = Self.allowedURL(address) else { return nil }
         let entry = entries[login].flatMap { $0.address == address ? $0 : nil }
         if let entry, now() - entry.at < (entry.failed ? Self.failureRetry : Self.kept) { return entry.image }
-        if inflight[login] == nil {
+        // A load for an older link of this login is superseded: its result is dropped and the
+        // new link loads now, rather than waiting for a later ask (issue 37852).
+        if inflight[login]?.address != address {
+            inflight[login]?.task.cancel()
             let fetch = fetch
-            // task-owner: one avatar load per login; every card of that author shares it.
-            inflight[login] = Task { [weak self] in
+            // task-owner: one avatar load per login and link; every card of that author shares it.
+            inflight[login] = (address, Task { [weak self] in
                 let data = await fetch(url)
                 self?.finish(login, address: address, data: data)
-            }
+            })
         }
         return entry?.image
     }
@@ -85,10 +89,15 @@ final class AgentReplyAvatars {
 
     /// Waits for `login`'s load when one runs, for the tests.
     func loaded(_ login: String) async {
-        await inflight[login]?.value
+        while let running = inflight[login] {
+            await running.task.value
+            if inflight[login]?.address == running.address { break }
+        }
     }
 
     private func finish(_ login: String, address: String, data: Data?) {
+        // A superseded load (the login's link changed meanwhile) records nothing.
+        guard inflight[login]?.address == address else { return }
         inflight[login] = nil
         let image = data.flatMap(Self.dataURL)
         // A failed reload keeps the image it had for the same link.
