@@ -167,8 +167,10 @@
 }
 @media (hover: hover) and (pointer: fine) {
   /* A location control is a text/icon affordance.  Its transparent hit area must not turn
-     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
-  .acpmux-location-button.ui-ghost:hover {
+     into a full rounded pill on hover; the open state above remains the persistent menu cue, the
+     pointer over it or not (Lawrence 2026-11-17: this rule outranked it, so an open chip's pill
+     flickered off and on as the pointer crossed it; test/menu-hover-snap.test.ts). */
+  .acpmux-location-button.ui-ghost:hover:not([aria-expanded="true"], [data-popup-open]) {
     background: transparent;
     color: var(--agent-text);
   }
@@ -1282,24 +1284,6 @@
 .acpmux-location-lock + .acpmux-location-check { margin-left: 0; }
 .acpmux-github-error { display: flex; align-items: center; gap: var(--ds-space-2); }
 .acpmux-github-error-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The install card in place of the list: centered, the mark, a title, one line, one full-width button. */
-.acpmux-github-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ds-space-1);
-  padding: var(--ds-space-4) var(--ds-space-3) var(--ds-space-3);
-  text-align: center;
-}
-.acpmux-github-card-back { position: absolute; top: var(--ds-space-1); left: var(--ds-space-1); color: var(--agent-muted); }
-.acpmux-github-card-mark { display: inline-flex; margin-bottom: var(--ds-space-1); color: var(--agent-text); }
-.acpmux-github-card-mark .acpmux-icon { width: 24px; height: 24px; }
-.acpmux-github-card-title { margin: 0; color: var(--agent-text); font-weight: 600; }
-.acpmux-github-card-subtitle { margin: 0 0 var(--ds-space-2); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
-.acpmux-github-card .acpmux-github-card-install { align-self: stretch; }
-.acpmux-github-card-waiting { display: flex; margin: 0; min-height: var(--ds-control-row); align-items: center; color: var(--agent-muted); }
-.acpmux-github-card-error { margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
 
 /* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
    drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted

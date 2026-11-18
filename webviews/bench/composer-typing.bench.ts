@@ -28,7 +28,9 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10]
+// With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
+// should neither render nor lay out.
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -59,6 +61,8 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
+/// Prompts waiting in the chat's queue while the keys are typed (0: none).
+const QUEUED = Number(flag("--queue") ?? 0);
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
@@ -91,11 +95,12 @@ async function openChat(page: Page, port: number, turns: number) {
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
   const seeded = (await page.evaluate(
-    (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
-    turns,
+    ([count, queued]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true, queued }),
+    [turns, QUEUED] as const,
   )) as Record<string, any>;
   if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
   await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
+  if (QUEUED > 0) await page.locator(".acpmux-composer-queue .acpmux-queued").first().waitFor({ timeout: 20_000 });
   return seeded.rows as number;
 }
 
@@ -318,6 +323,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
       composer: per(renders.composer ?? 0),
+      queue: per(renders["composer:queue"] ?? 0),
+      queued: QUEUED,
       rowRenders: per(sum("row:") + sum("content:")),
       rowFrames: per(sum("frame:")),
       layouts: per(delta("LayoutCount")),
