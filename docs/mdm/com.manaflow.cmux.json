@@ -248,6 +248,26 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -3401,7 +3421,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"

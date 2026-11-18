@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -2013,6 +2013,20 @@
             "thinking",
             "rotate",
             "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptLook",
+          "title": "Transcript Look",
+          "help": "How messages, cards and spacing look.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
           ]
         },
         {
@@ -5987,7 +6001,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
