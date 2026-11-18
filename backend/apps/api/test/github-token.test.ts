@@ -559,6 +559,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(await t("acme/web", { contents: "admin" })).toEqual([400, "request.invalid"])
     expect(await t("acme/web", {})).toEqual([400, "request.invalid"])
     expect(await t("acme/web", { workflows: "write" })).toEqual([403, "policy.denied"])
+    const reason = (repo: string, permissions: unknown) => token(a.installToken, { team: a.team, repo, permissions }).then((r) => r.body.error?.reason)
+    expect(await reason("acme/web", { workflows: "write" })).toBe("workflows_not_allowed")
+    expect(await reason("other/web", { contents: "read" })).toBe("owner_not_connected")
     expect(gh.mints()).toHaveLength(0)
     await policy(a.session, a.team, { github: { allow_workflows: true } })
     expect(await t("acme/web", { workflows: "write" })).toEqual([200, undefined])
@@ -607,10 +610,43 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     gh.routes["https://api.github.com/app/installations/99"] = () => ok({ id: 99, account: { login: "acme", type: "Organization" } })
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "There is at least one repository that does not exist or is not accessible to the parent installation." }, 422)
     const denied = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
-    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: "https://github.com/organizations/acme/settings/installations/99" }])
+    const page = "https://github.com/organizations/acme/settings/installations/99"
+    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted" }])
+    // A repository of the owner the link left out (not selected when it was linked) is added on the same page.
+    const unlisted = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
+    expect([unlisted.status, unlisted.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted" }])
+    // The installation lacks the asked access (GitHub's other 422): its own reason, and the page where an owner reviews it.
+    gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "The permissions requested are not granted to this installation." }, 422)
+    const access = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "write" } })
+    expect([access.status, access.body.error.reason, access.body.error.configure_url]).toEqual([403, "permissions_not_granted", page])
     // A team-policy refusal is not fixed on GitHub's page: no configure_url there.
-    const policyDenied = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
-    expect([policyDenied.status, policyDenied.body.error.code, "configure_url" in policyDenied.body.error]).toEqual([403, "policy.denied", false])
+    await policy(a.session, a.team, { github: { repo_allowlist: ["acme/api"] } })
+    const policyDenied = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
+    expect([policyDenied.status, policyDenied.body.error.code, policyDenied.body.error.reason, "configure_url" in policyDenied.body.error]).toEqual([403, "policy.denied", "repo_not_allowed", false])
+  })
+
+  it("a repository of an account the team has not connected (one the person only collaborates on) says its owner installs the App", async () => {
+    const a = await signedInWithInstall("gh-token-other-owner", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const other = await token(a.installToken, { team: a.team, repo: "someone/private-app", permissions: { contents: "read" } })
+    expect([other.status, other.body.error.code, other.body.error.reason, "configure_url" in other.body.error]).toEqual([403, "policy.denied", "owner_not_connected", false])
+    expect(other.body.error.message).toContain("someone")
+    // Decided from the team's connections alone: GitHub is not asked.
+    expect(gh.mints()).toHaveLength(0)
+    expect(gh.calls.filter((c) => c.url.includes("/app/installations/"))).toHaveLength(0)
+  })
+
+  it("an organization install waiting for an owner's approval says so instead of a setup error", async () => {
+    const a = await signedInWithInstall("gh-token-org-request", "cli")
+    const gh = fakeGitHub()
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => void (instance.http = gh.http))
+    const connect = await op(a.session, "integration.connect", { provider: "github", sharing: "team" })
+    const state = new URL(connect.body.value.authorize_url).searchParams.get("state")!
+    // GitHub's redirect for a member's request: a code (user authorization during installation) and no installation.
+    const done = await op(a.session, "integration.complete", { state, code: "c", setup_action: "request" })
+    expect(done.body.ok).toBe(false)
+    expect(done.body.error.message).toContain("When an owner approves it, choose Connect GitHub in cmux again")
+    expect(gh.calls).toHaveLength(0)
   })
 
   it("refuses an elevated, extra, or unverifiable GitHub token grant before handing it to a caller", async () => {
