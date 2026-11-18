@@ -255,7 +255,10 @@ case "open":
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
     let exe = executable(app), before = resident(exe)
     let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
+    // The marks after main a measured launch reports (launch-reboot.sh), as launch-ready.swift keeps them.
+    var later: [String: Double] = [:]
     let fifo = marksFIFO(homeRoot) { name, ms in
+        if name == "first_window_frame_committed" || name == "window_usable" { later[name] = ms }
         guard name == "main_start", mainAt == nil else { return }
         mainAt = ms
         if running == nil { running = runningCopy(app) }
@@ -299,7 +302,9 @@ case "open":
     let fields: [String: Any] = ["label": label, "mode": "open", "pid": Int(running?.processIdentifier ?? 0), "main_start": json(mainAt),
                                  "system_pageins": json(sysPageins), "resident_before": fraction(before),
                                  "window_on_screen": json(window.flatMap { w in start.map { round1(w - $0) } }), "run_s": runFor,
-                                 "request_to_start": json(start.map { round1($0 - requested) }), "quit": quit]
+                                 "request_to_start": json(start.map { round1($0 - requested) }), "quit": quit,
+                                 "first_window_frame_committed": json(later["first_window_frame_committed"]),
+                                 "window_usable": json(later["window_usable"])]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 30 s" }
