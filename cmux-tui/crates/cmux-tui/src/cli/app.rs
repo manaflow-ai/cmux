@@ -1402,11 +1402,18 @@ const NO_DAEMON_STATE: [&str; 5] =
 /// app opens an agent's tabs in the column right of its chat
 /// (`beside_caller`), or in its session's workspace when no tab shows the
 /// chat, and marks the caller in `snapshot.get` and `system.identify`.
-/// `browser.open_link` is one: the `BROWSER` and `open` shims of an agent's
-/// shell run it with no terminal, and with no caller its page opened in the
-/// focused pane, Home (user, 2026-11-18).
-const CALLER_METHODS: [&str; 5] =
-    ["action.run", "browser.open_link", "browser.open_split", "snapshot.get", "system.identify"];
+/// `browser.open_link` and `file.open` are ones: the `BROWSER` and `open`
+/// shims of an agent's shell and its `cmux open FILE` run them with no
+/// terminal, and with no caller they opened in the focused pane, Home
+/// (user, 2026-11-18).
+const CALLER_METHODS: [&str; 6] = [
+    "action.run",
+    "browser.open_link",
+    "browser.open_split",
+    "file.open",
+    "snapshot.get",
+    "system.identify",
+];
 
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP

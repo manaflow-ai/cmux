@@ -94,6 +94,12 @@ if [[ -n "$screen_share" ]]; then
   "${CMUX_SCREEN_HELPER_STAMP_TOOL:-$SCRIPTS_DIR/cmux-next/bundle-screen-sharing-helper.sh}" --stamp "$APP_PATH"
   find_screen_share
 fi
+# The Share extension (Contents/PlugIns/CmuxShare.appex): stamped the same way, and signed
+# with the App Sandbox in step 3, as sign-cmux-bundle.sh step 3.
+share_extension_rel="Contents/PlugIns/CmuxShare.appex"
+if [[ -d "$APP_PATH/$share_extension_rel/Contents" ]]; then
+  "$SCRIPTS_DIR/cmux-next/bundle-share-extension.sh" --stamp "$APP_PATH"
+fi
 if [[ "$MODE" == helper-first ]]; then
   [[ -d "$computer_use/Contents" ]] || { echo "error: nested cmux Computer Use app not found: $computer_use" >&2; exit 1; }
   : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${p8:?ASC_API_KEY_P8_BASE64 is not set}"
@@ -424,8 +430,12 @@ else
   if [[ -n "${is_macho[$rel]:-}" ]]; then ident["$rel"]=com.cmuxterm.cua; clear["$rel"]=1; fi
 fi
 
-# 3. Plugins (--deep, no entitlements).
+# 3. Plugins (--deep, no entitlements), but the Share extension's executable: the App Sandbox.
 for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"]=1; done
+if [[ -d "$APP_PATH/$share_extension_rel/Contents" ]]; then
+  exe_of "$APP_PATH/$share_extension_rel"; unset 'clear[$exe]'
+  ent["$exe"]="$SCRIPTS_DIR/cmux-next/share-extension.entitlements"
+fi
 
 # 4. The Chromium engine (feat-cmux-next scripts/cmux-next/sign-cef.sh, blob
 # 42525cf0): the framework, its Libraries and the shim get no entitlements;
