@@ -50,9 +50,9 @@ extension PaneHostView: PaneCommitMotionContentHost {
 extension PaneCommitMotion {
     /// The inner clip of a pane whose content is held gets the change of size of the pane's move. Its frame is the
     /// pane's less a constant inset, so its edge goes with the pane's edge.
-    func moveClip(of change: Change, _ token: MotionSpring) {
+    func moveClip(of change: Change, _ spring: Spring) {
         guard holds[ObjectIdentifier(change.host)] != nil, let clip = change.host.clipView.layer else { return }
-        move(clip, token, origin: .zero, size: change.size)
+        move(clip, spring, origin: .zero, size: change.size)
     }
 
     /// The end of one hold. The holder hears it, and a page's view passes it to the host that it is in. That view

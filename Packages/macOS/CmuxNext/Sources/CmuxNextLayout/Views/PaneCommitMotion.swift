@@ -71,6 +71,18 @@ final class PaneCommitMotion {
         var size: CGSize { CGSize(width: old.width - new.width, height: old.height - new.height) }
     }
 
+    /// An act's spring, read one time for the act (the motion policy and the spring's settling time): each animation
+    /// of the act has its numbers and its time, and the frame clock counts the same time.
+    struct Spring {
+        let parameters: SpringParameters
+        let time: TimeInterval
+
+        init(_ act: Act) {
+            parameters = Motion.panes.spring(act.spring)
+            time = parameters.settlingTime(within: PaneCommitMotion.rest)
+        }
+    }
+
     /// What the screen showed when a change came, kept until the pass that shows the change.
     private struct Armed {
         var act: Act?
@@ -83,8 +95,8 @@ final class PaneCommitMotion {
         var still = false
     }
 
-    /// The frame clock ends the motion when this part of the spring's way is left: where the spring's animation ends
-    /// too (`Motion.springAnimation`), so the count cuts no animation before its own end.
+    /// The frame clock ends the motion when this part of the spring's way is left: each animation of the act has that
+    /// time too (``Spring``), so the count cuts no animation before its own end.
     static let rest = 0.002
 
     private var armed: Armed?
@@ -222,7 +234,7 @@ final class PaneCommitMotion {
             guard let new = host.layer?.frame, let old = Self.start(of: new, among: staying) else { continue }
             changes.append(Change(host: host, old: old, new: new, comes: true))
         }
-        let time = Motion.panes.spring(act.spring).settlingTime(within: Self.rest)
+        let spring = Spring(act), time = spring.time
         // A close moves when each pane that it took out still shows on this screen: a pane that went to another screen
         // would leave the window's backdrop where its neighbours grow. A zoom moves when the panes that still show
         // are the tiled panes that it covers and no other: a floating pane that goes with the zoom goes in one frame.
@@ -247,24 +259,24 @@ final class PaneCommitMotion {
         let sight = screen.bounds
         for change in changes where change.old.union(change.new).intersects(sight) {
             guard let layer = change.host.layer else { continue }
-            move(layer, act.spring, origin: change.origin, size: change.size)
+            move(layer, spring, origin: change.origin, size: change.size)
             showGround(beside: change)
-            moveRing(of: change, act.spring)
-            moveClip(of: change, act.spring)
+            moveRing(of: change, spring)
+            moveClip(of: change, spring)
         }
         if act == .unzoom {
             // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
-            closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
+            closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, spring)
         }
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame
             if let old = armed.frames[ObjectIdentifier(view)] {
                 guard old != new, old.union(new).intersects(sight) else { continue }
-                move(layer, act.spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
+                move(layer, spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
                      size: CGSize(width: old.width - new.width, height: old.height - new.height))
             } else if let edge = changes.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
-                move(layer, act.spring, origin: edge, size: .zero)
+                move(layer, spring, origin: edge, size: .zero)
             }
         }
         CATransaction.commit()

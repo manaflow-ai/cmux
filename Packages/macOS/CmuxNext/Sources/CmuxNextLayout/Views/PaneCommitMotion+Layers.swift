@@ -9,16 +9,16 @@ extension PaneCommitMotion {
 
     /// Adds a move to `layer`: it shows `origin` away from its place and `size` larger than its size, and goes to
     /// both. The animations add to the layer's values, so a move that is already on the layer goes on under this one.
-    func move(_ layer: CALayer, _ token: MotionSpring, origin: CGPoint, size: CGSize) {
+    func move(_ layer: CALayer, _ spring: Spring, origin: CGPoint, size: CGSize) {
         let anchor = layer.anchorPoint
         let point = CGPoint(x: origin.x + anchor.x * size.width, y: origin.y + anchor.y * size.height)
-        if point != .zero { add("position", from: NSValue(point: point), to: NSValue(point: .zero), on: layer, token) }
-        if size != .zero { add("bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), on: layer, token) }
+        if point != .zero { add("position", from: NSValue(point: point), to: NSValue(point: .zero), on: layer, spring) }
+        if size != .zero { add("bounds.size", from: NSValue(size: size), to: NSValue(size: .zero), on: layer, spring) }
     }
 
     /// Adds one animation of this motion to `layer`; ``finish()`` takes it away.
-    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
-        let animation = Motion.panes.springAnimation(token, keyPath, from: from, to: to)
+    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ spring: Spring) {
+        let animation = Motion.panes.springAnimation(spring.parameters, lasting: spring.time, keyPath, from: from, to: to)
         animation.isAdditive = true
         let key = "pane.commit.\(serial).\(keyPath)"
         layer.add(animation, forKey: key)
@@ -82,11 +82,11 @@ extension PaneCommitMotion {
 
     /// A pane's ring (its border, focus ring and dim, in the layout's overlay plane) gets the pane's move, and each
     /// of its layers the change of size.
-    func moveRing(of change: Change, _ token: MotionSpring) {
+    func moveRing(of change: Change, _ spring: Spring) {
         guard let ring = change.host.chrome.layer else { return }
-        move(ring, token, origin: change.origin, size: change.size)
+        move(ring, spring, origin: change.origin, size: change.size)
         guard change.size != .zero else { return }
-        for layer in ring.sublayers ?? [] { move(layer, token, origin: .zero, size: change.size) }
+        for layer in ring.sublayers ?? [] { move(layer, spring, origin: .zero, size: change.size) }
     }
 
     /// How far a new divider line whose frame is `line` starts from its place: with the edge of the pane of `change`

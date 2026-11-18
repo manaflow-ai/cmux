@@ -26,7 +26,7 @@ extension PaneCommitMotion {
     /// `last` shows over its content where it showed before, at its old size, not scaled, so the pane's top leading
     /// corner keeps its picture and the moving clip cuts it; a content that keeps its own picture has none. The
     /// rings of the others come with the move, so none shows over the pane at the start.
-    func closeOver(_ change: Change, last: Taken?, others: [PaneHostView], _ token: MotionSpring) {
+    func closeOver(_ change: Change, last: Taken?, others: [PaneHostView], _ spring: Spring) {
         guard let layer = change.host.layer else { return }
         if raised?.host !== change.host {
             lower()
@@ -41,7 +41,7 @@ extension PaneCommitMotion {
         }
         for host in others {
             guard let ring = host.chrome.layer, ring.opacity > 0 else { continue }
-            add("opacity", from: NSNumber(value: -ring.opacity), to: NSNumber(value: Float(0)), on: ring, token)
+            add("opacity", from: NSNumber(value: -ring.opacity), to: NSNumber(value: Float(0)), on: ring, spring)
         }
     }
 
