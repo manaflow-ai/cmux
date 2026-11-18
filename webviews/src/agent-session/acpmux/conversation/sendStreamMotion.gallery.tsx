@@ -68,6 +68,10 @@ function SendStreamMotionGallery({ turn }: { turn: ScriptedTurn }) {
 /// Plays the turn and waits until its summary row is drawn and the follow motion rests.
 const playTurn: Play = async (ctx) => {
   ctx.motion.start({ kind: "streaming-follow", target: ".acpmux-scroll", maxMs: 8_000 });
+  // The scripted turn sends (the card clears to one line): the composer's own growth, which the
+  // reader's Enter declares in the pane. Declared on the card alone; the rows' moves are the
+  // transcript's own (a reply streaming, the turn's end fold).
+  ctx.declare("composer-growth", { targets: [{ selector: ".acpmux-composer-box" }] });
   await ctx.click({ testId: "send-stream-play" });
   await ctx.waitFor(() => ctx.find({ testId: "send-stream-state" }).textContent === "Turn settled", { capMs: 10_000 });
   const thread = ctx.find({ selector: ".acpmux-thread" }) as HTMLElement;

@@ -637,18 +637,6 @@
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.send-stream-motion#send-stream": {
-      "count": 11,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.send-stream-motion#steer-mid-stream": {
-      "count": 14,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.send-stream-motion#tools-turn": {
-      "count": 17,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.sent-images#narrow": {
       "count": 1,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
