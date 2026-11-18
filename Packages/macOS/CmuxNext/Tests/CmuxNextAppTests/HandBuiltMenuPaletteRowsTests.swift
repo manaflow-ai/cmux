@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
