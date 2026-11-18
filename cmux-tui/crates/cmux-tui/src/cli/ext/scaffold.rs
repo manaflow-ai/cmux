@@ -87,7 +87,9 @@ const COMMON: &[(&str, &str)] = &[
 /// The types `src/main.ts` and the SDK reference: the generated app global
 /// from the capability manifest, the same file `cmux script types` starts
 /// with. `cmux ext dev` refreshes it from the running cmux when that one differs.
-const TYPES: &str = cmux_app_manifest::capabilities::APP_TYPES;
+fn types() -> &'static str {
+    cmux_app_manifest::capabilities::APP_TYPES.get()
+}
 
 /// The public SDK as this binary was built with it.
 pub(super) const SDK_INDEX: &str =
@@ -242,7 +244,7 @@ pub(super) fn files_for(
     };
     let mut out: Vec<(&'static str, String)> =
         templates.iter().chain(COMMON).map(|(path, text)| (*path, fill(text))).collect();
-    out.push(("cmux-app.d.ts", TYPES.to_string()));
+    out.push(("cmux-app.d.ts", types().to_owned()));
     out.extend(sdk_files());
     Some(out)
 }

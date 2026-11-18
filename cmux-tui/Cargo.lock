@@ -32,6 +32,7 @@ dependencies = [
  "cmux-command-class",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-embed",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1167,6 +1168,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "cmux-embed",
  "cmux-json",
  "libc",
  "rquickjs",
@@ -1178,6 +1180,7 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-embed",
  "hex",
  "jsonschema",
  "regex",
@@ -1220,6 +1223,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "chacha20poly1305",
+ "cmux-embed",
  "cmux-json",
  "cmux-process",
  "getrandom 0.3.4",
@@ -2282,6 +2286,9 @@ dependencies = [
 [[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
+dependencies = [
+ "cmux-embed",
+]
 
 [[package]]
 name = "cmux-transport"

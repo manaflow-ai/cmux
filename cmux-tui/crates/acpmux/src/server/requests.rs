@@ -2874,7 +2874,7 @@ async fn dispatch_request_with_identity(
             watches::handle(hub, conn, m, &params).await
         }
         method::MUX_SCHEMA => {
-            Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
+            Ok(serde_json::from_str(&crate::schema::SCHEMA.inflate()).unwrap_or(Value::Null))
         }
         // Read-only and the same for every origin, like `_acpmux/schema`.
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),

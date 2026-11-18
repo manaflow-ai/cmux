@@ -785,7 +785,7 @@ mod tests {
         assert_eq!(all["ok"], true, "{all}");
         let table = cmux_app_manifest::Capabilities::get();
         assert_eq!(all["data"]["apiVersion"], table.api_version.as_str());
-        assert_eq!(all["data"]["types"], cmux_app_manifest::capabilities::APP_TYPES);
+        assert_eq!(all["data"]["types"], cmux_app_manifest::capabilities::APP_TYPES.get());
         assert_eq!(all["data"]["ops"].as_array().map(Vec::len), Some(table.ops().count()));
         let one = ask(json!({"id": 2, "cmd": "apps-capabilities", "op": "workspace.list"}));
         assert_eq!(one["data"]["ops"][0]["scope"], "workspace:read", "{one}");
