@@ -24,7 +24,7 @@ holds) to weigh this Mac and each joined machine, and adds what a chat needs tha
 | Cloud cost and availability | `cloud: {available, minutesPerHour, gpu}` (the app passes it from the signed-in plan) |
 
 `decide(&Input) -> Verdict`; the verdict is `{place: "local"|"peer"|"cloud", peer, why, reasons,
-hosts}`, and is what `_acpmux/chat_place` returns.
+hosts}`, and is what `_acpmux/place_chat` returns.
 
 The rules, in order:
 

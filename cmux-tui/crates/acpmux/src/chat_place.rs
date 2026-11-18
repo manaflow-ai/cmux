@@ -11,7 +11,7 @@
 //! (macOS, a GPU, a long build) and whether Cloud is available on the person's plan.
 //!
 //! Pure: [`decide`] and [`rejudge`] read only their input, so every case is a unit test. The
-//! request `_acpmux/chat_place` (`server/chat_place.rs`) fills the input from this machine's
+//! request `_acpmux/place_chat` (`server/chat_place.rs`) fills the input from this machine's
 //! health and each joined machine's last reading.
 
 use crate::placement::{self, Candidate, Work};
@@ -183,7 +183,7 @@ pub struct Verdict {
 }
 
 impl Verdict {
-    /// The `_acpmux/chat_place` result.
+    /// The `_acpmux/place_chat` result.
     pub fn to_json(&self) -> Value {
         json!({
             "place": self.place.kind(),

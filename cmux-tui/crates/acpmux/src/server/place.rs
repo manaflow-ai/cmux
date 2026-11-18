@@ -422,11 +422,11 @@ mod tests {
     }
 }
 
-/// Whether the app said this machine is going to sleep (`_acpmux/chat_place_event`
+/// Whether the app said this machine is going to sleep (`_acpmux/place_chat_event`
 /// `willSleep`), until it says it woke (`didWake`). Auto moves chats off a machine that sleeps.
 static SLEEPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// `_acpmux/chat_place_event {kind: "willSleep"|"didWake"}`: the app's power events, which no
+/// `_acpmux/place_chat_event {kind: "willSleep"|"didWake"}`: the app's power events, which no
 /// health reading sees in time (the lid closes, the system sleeps seconds later).
 pub(super) fn chat_place_event(params: &Value) -> Result<Value, RpcError> {
     let sleeping = match params.get("kind").and_then(Value::as_str) {
@@ -470,7 +470,7 @@ fn folder_bytes(root: &std::path::Path) -> Option<u64> {
     Some(bytes)
 }
 
-/// `_acpmux/chat_place`: where a new chat on Auto starts (`chat_place::decide`), or, with
+/// `_acpmux/place_chat`: where a new chat on Auto starts (`chat_place::decide`), or, with
 /// `running`, whether Auto moves that chat now (`chat_place::rejudge`).
 ///
 /// Params: `{cwd, needs: {macos, gpu, longBuild}, cloud: {available, gpu, hourlyCost,

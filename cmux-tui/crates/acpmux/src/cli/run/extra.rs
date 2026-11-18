@@ -1129,7 +1129,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         p["running"] = serde_json::from_str(&r)
                             .map_err(|e| anyhow!("--running is JSON ({e})"))?;
                     }
-                    let v = client.request("_acpmux/chat_place", p).await?;
+                    let v = client.request("_acpmux/place_chat", p).await?;
                     if json_out {
                         print_json(&v);
                     } else {

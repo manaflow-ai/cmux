@@ -2081,13 +2081,13 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/chat_place",
+      "name": "_acpmux/place_chat",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
-      "name": "_acpmux/chat_place_event",
+      "name": "_acpmux/place_chat_event",
       "params": true,
       "result": true
     },
