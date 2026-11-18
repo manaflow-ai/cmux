@@ -55,7 +55,7 @@ function Row({
           <div className="row-title" id={titleId}>
             {title}
           </div>
-          <div className="row-help">{details.join(" · ")}</div>
+          <div className="row-help selectable">{details.join(" · ")}</div>
           <div className="row-help selectable font-mono">{row.address}</div>
           {row.state === "failed" && row.problem && (
             <div className="row-error selectable" data-mcp-problem="">
@@ -151,13 +151,12 @@ export function McpServersCard() {
     return () => clearInterval(timer);
   }, [waiting, store]);
   const run = useCallback(
-    async (name: string, action: "signin" | "remove") => {
+    (name: string, action: "signin" | "remove") => {
       setBusy(name);
-      try {
-        setState(await store.runMcpServers({ action, name }));
-      } finally {
-        setBusy(null);
-      }
+      return store
+        .runMcpServers({ action, name })
+        .then(setState)
+        .finally(() => setBusy(null));
     },
     [store],
   );

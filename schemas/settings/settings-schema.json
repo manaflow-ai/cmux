@@ -1500,7 +1500,7 @@
         "lead" : [
           "mcpServers"
         ],
-        "symbol" : "puzzlepiece.extension",
+        "symbol" : "server.rack",
         "title" : {
           "key" : "settings.category.mcpServers",
           "text" : "MCP Servers"

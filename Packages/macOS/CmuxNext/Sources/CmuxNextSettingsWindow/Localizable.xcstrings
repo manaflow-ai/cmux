@@ -111103,127 +111103,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Services your agents can use for you, like Linear, Slack or GitHub. You connect one when an agent asks in a chat. Here you see who has each one, sign in again, or remove it."
+            "value": "Services your agents use for you, like Linear or Slack."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمات يمكن لوكلائك استخدامها نيابةً عنك، مثل Linear أو Slack أو GitHub. تربط خدمة عندما يطلبها وكيل في محادثة. هنا ترى من لديه كل خدمة، وتسجّل الدخول مجددًا، أو تزيلها."
+            "value": "خدمات يستخدمها وكلاؤك نيابةً عنك، مثل Linear أو Slack."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usluge koje vaši agenti mogu koristiti za vas, kao Linear, Slack ili GitHub. Povežete jednu kada je agent zatraži u chatu. Ovdje vidite ko ima koju, ponovo se prijavite ili je uklonite."
+            "value": "Usluge koje agenti koriste za vas, npr. Linear ili Slack."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tjenester, dine agenter kan bruge for dig, som Linear, Slack eller GitHub. Du forbinder en, når en agent beder om den i en chat. Her ser du, hvem der har hver enkelt, logger ind igen eller fjerner den."
+            "value": "Tjenester, agenter bruger for dig, fx Linear eller Slack."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dienste, die deine Agents für dich nutzen können, etwa Linear, Slack oder GitHub. Du verbindest einen, wenn ein Agent im Chat danach fragt. Hier siehst du, wer welchen hat, meldest dich erneut an oder entfernst ihn."
+            "value": "Dienste, die deine Agents nutzen, etwa Linear oder Slack."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servicios que tus agentes pueden usar por ti, como Linear, Slack o GitHub. Conectas uno cuando un agente lo pide en un chat. Aquí ves quién tiene cada uno, vuelves a iniciar sesión o lo quitas."
+            "value": "Servicios que usan tus agentes, como Linear o Slack."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les services que vos agents peuvent utiliser pour vous, comme Linear, Slack ou GitHub. Vous en connectez un quand un agent le demande dans une discussion. Ici, vous voyez qui a chacun, vous reconnectez ou vous le supprimez."
+            "value": "Services utilisés par vos agents, comme Linear ou Slack."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servizi che i tuoi agenti possono usare per te, come Linear, Slack o GitHub. Ne colleghi uno quando un agente lo chiede in una chat. Qui vedi chi ha ciascuno, accedi di nuovo o lo rimuovi."
+            "value": "Servizi usati dai tuoi agenti, come Linear o Slack."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linear、Slack、GitHub など、エージェントがあなたの代わりに使えるサービスです。エージェントがチャットで求めたときに接続します。ここでは、各サービスを使えるのは誰かを確認し、もう一度サインインしたり、削除したりできます。"
+            "value": "エージェントが使うサービス（Linear、Slack など）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សេវាកម្មដែលភ្នាក់ងាររបស់អ្នកអាចប្រើជំនួសអ្នក ដូចជា Linear, Slack ឬ GitHub។ អ្នកភ្ជាប់វានៅពេលភ្នាក់ងារស្នើក្នុងការជជែក។ នៅទីនេះ អ្នកឃើញថាអ្នកណាមានសេវានីមួយៗ ចូលម្ដងទៀត ឬលុបវាចេញ។"
+            "value": "សេវាដែលភ្នាក់ងារប្រើជំនួសអ្នក ដូចជា Linear ឬ Slack។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linear, Slack, GitHub처럼 에이전트가 대신 사용할 수 있는 서비스입니다. 에이전트가 채팅에서 요청하면 연결합니다. 여기에서 각 서비스를 누가 쓰는지 보고, 다시 로그인하거나 제거할 수 있습니다."
+            "value": "에이전트가 대신 쓰는 서비스(Linear, Slack 등)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tjenester agentene dine kan bruke for deg, som Linear, Slack eller GitHub. Du kobler til en når en agent ber om den i en chat. Her ser du hvem som har hver av dem, logger inn på nytt eller fjerner den."
+            "value": "Tjenester agentene bruker for deg, som Linear eller Slack."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usługi, z których Twoi agenci mogą korzystać za Ciebie, np. Linear, Slack lub GitHub. Łączysz usługę, gdy agent poprosi o nią na czacie. Tutaj widzisz, kto ma każdą z nich, logujesz się ponownie lub ją usuwasz."
+            "value": "Usługi, których używają agenci, np. Linear lub Slack."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Serviços que seus agentes podem usar por você, como Linear, Slack ou GitHub. Você conecta um quando um agente pede em um chat. Aqui você vê quem tem cada um, entra de novo ou o remove."
+            "value": "Serviços que seus agentes usam, como Linear ou Slack."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сервисы, которыми ваши агенты могут пользоваться за вас, например Linear, Slack или GitHub. Вы подключаете сервис, когда агент просит его в чате. Здесь видно, у кого какой сервис, можно войти снова или удалить его."
+            "value": "Сервисы, которыми пользуются агенты: Linear, Slack и др."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บริการที่เอเจนต์ของคุณใช้แทนคุณได้ เช่น Linear, Slack หรือ GitHub คุณเชื่อมต่อเมื่อเอเจนต์ขอในแชท ที่นี่คุณจะเห็นว่าใครมีบริการใด ลงชื่อเข้าใช้อีกครั้ง หรือเอาออก"
+            "value": "บริการที่เอเจนต์ใช้แทนคุณ เช่น Linear หรือ Slack"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanlarınızın sizin için kullanabileceği Linear, Slack veya GitHub gibi hizmetler. Bir ajan sohbette istediğinde bağlarsınız. Burada her birine kimin sahip olduğunu görür, yeniden oturum açar veya kaldırırsınız."
+            "value": "Ajanlarınızın kullandığı hizmetler: Linear, Slack gibi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сервіси, якими ваші агенти можуть користуватися за вас, як-от Linear, Slack чи GitHub. Ви підключаєте сервіс, коли агент просить його в чаті. Тут видно, у кого який сервіс, можна знову увійти або видалити його."
+            "value": "Сервіси, якими користуються агенти: Linear, Slack тощо."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các dịch vụ mà agent có thể dùng thay bạn, như Linear, Slack hoặc GitHub. Bạn kết nối một dịch vụ khi agent yêu cầu trong cuộc trò chuyện. Tại đây bạn xem ai có từng dịch vụ, đăng nhập lại hoặc xóa nó."
+            "value": "Dịch vụ agent dùng thay bạn, như Linear hoặc Slack."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你的代理可以代你使用的服务，例如 Linear、Slack 或 GitHub。代理在聊天中请求时，你即可连接。在这里可以查看谁拥有每项服务、重新登录或将其移除。"
+            "value": "代理代你使用的服务，例如 Linear 或 Slack。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你的代理可以代你使用的服務，例如 Linear、Slack 或 GitHub。代理在聊天中提出要求時，你即可連接。在這裡可以查看誰擁有每項服務、重新登入或將其移除。"
+            "value": "代理代你使用的服務，例如 Linear 或 Slack。"
           }
         }
       }
@@ -111499,127 +111499,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No services are connected yet. When an agent asks for one in a chat, approve it on the card there."
+            "value": "None yet. Approve one when an agent asks in a chat."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد خدمات متصلة بعد. عندما يطلب وكيل خدمة في محادثة، وافق عليها في البطاقة هناك."
+            "value": "لا شيء بعد. وافق على خدمة عندما يطلبها وكيل في محادثة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema povezanih usluga. Kada agent zatraži uslugu u chatu, odobrite je na kartici tamo."
+            "value": "Još ništa. Odobrite uslugu kada je agent zatraži u chatu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen tjenester er forbundet endnu. Når en agent beder om en i en chat, godkender du den på kortet der."
+            "value": "Ingen endnu. Godkend en, når en agent beder om den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Dienste verbunden. Wenn ein Agent im Chat nach einem fragt, bestätige ihn dort auf der Karte."
+            "value": "Noch keine. Bestätige einen, wenn ein Agent fragt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay servicios conectados. Cuando un agente pida uno en un chat, apruébalo en la tarjeta de ese chat."
+            "value": "Ninguno aún. Apruébalo cuando un agente lo pida."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun service connecté pour l’instant. Quand un agent en demande un dans une discussion, approuvez-le sur la carte affichée."
+            "value": "Aucun. Approuvez-en un quand un agent le demande."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun servizio collegato. Quando un agente ne chiede uno in una chat, approvalo nella scheda lì."
+            "value": "Nessuno. Approvalo quando un agente lo chiede in chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "まだ接続されているサービスはありません。エージェントがチャットで求めたら、そこに表示されるカードで承認してください。"
+            "value": "まだありません。チャットで求められたら承認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានសេវាកម្មភ្ជាប់នៅឡើយ។ នៅពេលភ្នាក់ងារស្នើក្នុងការជជែក សូមយល់ព្រមនៅលើកាតនៅទីនោះ។"
+            "value": "មិនទាន់មានទេ។ យល់ព្រមនៅពេលភ្នាក់ងារស្នើក្នុងការជជែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 연결된 서비스가 없습니다. 에이전트가 채팅에서 요청하면 그곳의 카드에서 승인하세요."
+            "value": "아직 없습니다. 에이전트가 채팅에서 요청하면 승인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen tjenester er koblet til ennå. Når en agent ber om en i en chat, godkjenner du den på kortet der."
+            "value": "Ingen ennå. Godkjenn en når en agent ber om den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie połączono jeszcze żadnych usług. Gdy agent poprosi o usługę na czacie, zatwierdź ją na karcie w tym czacie."
+            "value": "Brak. Zatwierdź usługę, gdy agent o nią poprosi."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum serviço conectado ainda. Quando um agente pedir um em um chat, aprove no cartão que aparece lá."
+            "value": "Nenhum ainda. Aprove quando um agente pedir em um chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пока нет подключённых сервисов. Когда агент попросит сервис в чате, одобрите его на карточке там."
+            "value": "Пока нет. Одобрите, когда агент попросит в чате."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีบริการที่เชื่อมต่อ เมื่อเอเจนต์ขอในแชท ให้อนุมัติบนการ์ดในแชทนั้น"
+            "value": "ยังไม่มี อนุมัติเมื่อเอเจนต์ขอในแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz bağlı hizmet yok. Bir ajan sohbette istediğinde oradaki kartta onaylayın."
+            "value": "Henüz yok. Bir ajan sohbette isteyince onaylayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поки немає підключених сервісів. Коли агент попросить сервіс у чаті, схваліть його на картці там."
+            "value": "Поки немає. Схваліть, коли агент попросить у чаті."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có dịch vụ nào được kết nối. Khi agent yêu cầu trong cuộc trò chuyện, hãy chấp thuận trên thẻ ở đó."
+            "value": "Chưa có. Hãy chấp thuận khi agent yêu cầu trong chat."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未连接任何服务。代理在聊天中请求时，请在那里的卡片上批准。"
+            "value": "暂无。代理在聊天中请求时请批准。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未連接任何服務。代理在聊天中提出要求時，請在那裡的卡片上核准。"
+            "value": "尚無。代理在聊天中提出要求時請核准。"
           }
         }
       }
@@ -111667,13 +111667,13 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette version de cmux ne peut pas afficher les serveurs MCP."
+            "value": "Cette version de cmux n’affiche pas les serveurs MCP."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa versione di cmux non può mostrare i server MCP."
+            "value": "Questa versione di cmux non mostra i server MCP."
           }
         },
         "ja": {
@@ -111703,19 +111703,19 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta wersja cmux nie może pokazać serwerów MCP."
+            "value": "Ta wersja cmux nie pokazuje serwerów MCP."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta versão do cmux não consegue mostrar servidores MCP."
+            "value": "Esta versão do cmux não mostra servidores MCP."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Эта версия cmux не может показать серверы MCP."
+            "value": "Эта версия cmux не показывает серверы MCP."
           }
         },
         "th": {
@@ -111733,13 +111733,13 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ця версія cmux не може показати сервери MCP."
+            "value": "Ця версія cmux не показує сервери MCP."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phiên bản cmux này không thể hiển thị máy chủ MCP."
+            "value": "Phiên bản cmux này không hiển thị máy chủ MCP."
           }
         },
         "zh-Hans": {
@@ -113479,127 +113479,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finish signing in on the page that opened in a cmux tab."
+            "value": "Finish signing in on the page in the cmux tab."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أكمل تسجيل الدخول في الصفحة التي فُتحت في علامة تبويب cmux."
+            "value": "أكمل تسجيل الدخول في صفحة علامة تبويب cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Završite prijavu na stranici koja se otvorila u kartici cmuxa."
+            "value": "Završite prijavu na stranici u kartici cmuxa."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut login på siden, der åbnede i en cmux-fane."
+            "value": "Afslut login på siden i cmux-fanen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schließe die Anmeldung auf der Seite ab, die sich in einem cmux-Tab geöffnet hat."
+            "value": "Schließe die Anmeldung im cmux-Tab ab."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Termina de iniciar sesión en la página que se abrió en una pestaña de cmux."
+            "value": "Termina de iniciar sesión en la pestaña de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminez la connexion sur la page ouverte dans un onglet cmux."
+            "value": "Terminez la connexion dans l’onglet cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Completa l’accesso nella pagina aperta in una scheda di cmux."
+            "value": "Completa l’accesso nella scheda di cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux のタブで開いたページでサインインを完了してください。"
+            "value": "cmux のタブでサインインを完了してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ចប់ការចូលនៅលើទំព័រដែលបានបើកក្នុងផ្ទាំង cmux។"
+            "value": "បញ្ចប់ការចូលនៅក្នុងផ្ទាំង cmux។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 탭에 열린 페이지에서 로그인을 완료하세요."
+            "value": "cmux 탭에서 로그인을 완료하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fullfør innloggingen på siden som åpnet seg i en cmux-fane."
+            "value": "Fullfør innloggingen i cmux-fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dokończ logowanie na stronie otwartej w karcie cmux."
+            "value": "Dokończ logowanie w karcie cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Conclua o login na página que abriu em uma aba do cmux."
+            "value": "Conclua o login na aba do cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершите вход на странице, открытой во вкладке cmux."
+            "value": "Завершите вход во вкладке cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ให้เสร็จบนหน้าที่เปิดในแท็บ cmux"
+            "value": "ลงชื่อเข้าใช้ให้เสร็จในแท็บ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux sekmesinde açılan sayfada oturum açmayı tamamlayın."
+            "value": "Oturum açmayı cmux sekmesinde tamamlayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершіть вхід на сторінці, відкритій у вкладці cmux."
+            "value": "Завершіть вхід у вкладці cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hoàn tất đăng nhập trên trang đã mở trong một tab cmux."
+            "value": "Hoàn tất đăng nhập trong tab cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请在 cmux 标签页中打开的页面上完成登录。"
+            "value": "请在 cmux 标签页中完成登录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請在 cmux 分頁中開啟的頁面上完成登入。"
+            "value": "請在 cmux 分頁中完成登入。"
           }
         }
       }
@@ -114271,127 +114271,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every agent loses it, and its sign-in on this Mac is deleted. You can connect it again later."
+            "value": "Every agent loses it, and its sign-in here is deleted."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سيفقده كل الوكلاء، وسيُحذف تسجيل دخوله على هذا الـ Mac. يمكنك ربطه مجددًا لاحقًا."
+            "value": "سيفقده كل الوكلاء، ويُحذف تسجيل دخوله هنا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svi agenti ga gube, a njegova prijava na ovom Macu se briše. Kasnije ga možete ponovo povezati."
+            "value": "Svi agenti ga gube, a prijava se ovdje briše."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle agenter mister den, og dens login på denne Mac slettes. Du kan forbinde den igen senere."
+            "value": "Alle agenter mister den, og dens login her slettes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Agents verlieren ihn, und seine Anmeldung auf diesem Mac wird gelöscht. Du kannst ihn später wieder verbinden."
+            "value": "Alle Agents verlieren ihn, seine Anmeldung wird gelöscht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos los agentes lo pierden y su inicio de sesión en este Mac se elimina. Puedes volver a conectarlo más tarde."
+            "value": "Todos los agentes lo pierden y se borra su sesión aquí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tous les agents le perdent et sa connexion sur ce Mac est supprimée. Vous pourrez le reconnecter plus tard."
+            "value": "Tous les agents le perdent et sa connexion est supprimée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutti gli agenti lo perdono e il suo accesso su questo Mac viene eliminato. Potrai ricollegarlo in seguito."
+            "value": "Tutti gli agenti lo perdono e l’accesso viene eliminato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのエージェントが使えなくなり、この Mac 上のサインイン情報は削除されます。あとで再接続できます。"
+            "value": "すべてのエージェントが使えなくなり、サインイン情報も削除されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារទាំងអស់បាត់វា ហើយការចូលរបស់វានៅលើ Mac នេះត្រូវបានលុប។ អ្នកអាចភ្ជាប់វាម្ដងទៀតពេលក្រោយ។"
+            "value": "ភ្នាក់ងារទាំងអស់បាត់វា ហើយការចូលរបស់វាត្រូវបានលុប។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 에이전트가 이 서비스를 잃고, 이 Mac의 로그인 정보가 삭제됩니다. 나중에 다시 연결할 수 있습니다."
+            "value": "모든 에이전트가 잃게 되며 로그인 정보도 삭제됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle agenter mister den, og innloggingen på denne Macen slettes. Du kan koble den til igjen senere."
+            "value": "Alle agenter mister den, og innloggingen slettes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszyscy agenci ją tracą, a jej logowanie na tym Macu zostaje usunięte. Możesz połączyć ją ponownie później."
+            "value": "Wszyscy agenci ją tracą, a logowanie zostaje usunięte."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos os agentes o perdem, e o login dele neste Mac é apagado. Você pode conectá-lo de novo depois."
+            "value": "Todos os agentes o perdem e o login aqui é apagado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все агенты потеряют его, а вход на этом Mac будет удалён. Позже его можно подключить снова."
+            "value": "Все агенты потеряют его, а вход будет удалён."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์ทุกตัวจะไม่มีบริการนี้ และข้อมูลการลงชื่อเข้าใช้บน Mac เครื่องนี้จะถูกลบ คุณเชื่อมต่อใหม่ได้ภายหลัง"
+            "value": "เอเจนต์ทุกตัวจะไม่มีบริการนี้ และการลงชื่อเข้าใช้จะถูกลบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm ajanlar onu kaybeder ve bu Mac'teki oturumu silinir. Daha sonra yeniden bağlayabilirsiniz."
+            "value": "Tüm ajanlar onu kaybeder ve oturumu silinir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі агенти втратять його, а вхід на цьому Mac буде видалено. Пізніше його можна підключити знову."
+            "value": "Усі агенти втратять його, а вхід буде видалено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mọi agent sẽ mất dịch vụ này và thông tin đăng nhập trên máy Mac này bị xóa. Bạn có thể kết nối lại sau."
+            "value": "Mọi agent sẽ mất nó, và thông tin đăng nhập bị xóa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有代理都将无法使用它，并且此 Mac 上的登录信息会被删除。你可以稍后重新连接。"
+            "value": "所有代理都将失去它，登录信息也会被删除。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有代理都將無法使用它，且此 Mac 上的登入資訊會被刪除。你可以稍後重新連接。"
+            "value": "所有代理都將失去它，登入資訊也會被刪除。"
           }
         }
       }

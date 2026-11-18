@@ -200,7 +200,7 @@ extension SettingsPageLayout {
 
     /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
     private static let mcpServersCategory = CategorySpec(
-        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "puzzlepiece.extension",
+        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
         groups: [],
         lead: [.mcpServers]
     )

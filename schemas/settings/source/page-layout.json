@@ -352,7 +352,7 @@
         {
           "id": "mcpServers",
           "title": {"key": "settings.category.mcpServers", "text": "MCP Servers"},
-          "symbol": "puzzlepiece.extension",
+          "symbol": "server.rack",
           "note": "The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).",
           "groups": [],
           "lead": ["mcpServers"]
