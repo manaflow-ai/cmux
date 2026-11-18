@@ -60,7 +60,8 @@ mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
 mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
-// and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
+// and budget and the restart-phases bench sizes (`restart_reattach.rs`) are test-runner knobs
+// that hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_REATTACH_LIVE",
     "ACPMUX_REATTACH_IDLE",
@@ -72,6 +73,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_IDLE_SUBS",
     "ACPMUX_IDLE_SUBS_WINDOW_S",
     "ACPMUX_IDLE_SUBS_OUT",
+    "ACPMUX_PHASES_HOSTED",
+    "ACPMUX_PHASES_IDLE",
+    "ACPMUX_PHASES_RUNS",
 ]);
 
 use serde_json::{Value, json};

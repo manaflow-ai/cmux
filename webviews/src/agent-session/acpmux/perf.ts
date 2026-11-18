@@ -157,7 +157,15 @@ type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapsh
  * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
  * is live, past any backlog.
  */
-type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+type LaunchMark =
+  | "modulesEvaluated"
+  | "mountCalled"
+  | "handshakeStart"
+  | "handshakeReady"
+  | "connectStart"
+  | "connected"
+  | "firstEvent"
+  | "liveEvent";
 /** An event that arrives this soon after acpmux recorded it is live, not backlog. */
 export const LIVE_EVENT_LAG_MS = 1000;
 
@@ -289,6 +297,34 @@ export class AcpmuxPerf {
     if (typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin))
       value.page_origin_epoch_ms = Math.round(performance.timeOrigin);
     for (const [name, at] of Object.entries(this.launchMarks)) if (at !== undefined) value[`${name}_epoch_ms`] = at;
+    return value;
+  }
+
+  /**
+   * The page's boot on the wall clock (ms since 1970), for the host's launch marks (`pane.painted`'s `pageMarks`,
+   * `agent_page.<name>` in `cmux app launch-times`), so a release build splits the time from the browser's
+   * creation to the chat's socket: `navigationStart`, `documentFetched` (the document's response end),
+   * `paneScriptFetched` (pane.js's response end), `domInteractive`, then this page's own `modulesEvaluated`
+   * (every module of the bundle ran: parse, compile and evaluate are before it), `mountCalled`, and the connect marks.
+   */
+  bootMarks(): Record<string, number> {
+    const value: Record<string, number> = {};
+    if (typeof performance === "undefined" || !Number.isFinite(performance.timeOrigin)) return value;
+    const origin = performance.timeOrigin;
+    const at = (ms: number | undefined) =>
+      ms !== undefined && Number.isFinite(ms) && ms > 0 ? Math.round(origin + ms) : undefined;
+    const put = (name: string, ms: number | undefined) => {
+      if (ms !== undefined) value[name] = ms;
+    };
+    put("navigationStart", Math.round(origin));
+    const navigation = performance.getEntriesByType?.("navigation")?.[0] as PerformanceNavigationTiming | undefined;
+    put("documentFetched", at(navigation?.responseEnd));
+    put("domInteractive", at(navigation?.domInteractive));
+    const pane = (performance.getEntriesByType?.("resource") as PerformanceResourceTiming[] | undefined)?.find(
+      (entry) => /\/pane\.js(\?|$)/.test(entry.name),
+    );
+    put("paneScriptFetched", at(pane?.responseEnd));
+    for (const [name, mark] of Object.entries(this.launchMarks)) put(name, mark);
     return value;
   }
 

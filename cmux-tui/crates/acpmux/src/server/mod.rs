@@ -1877,6 +1877,10 @@ async fn serve_connection_from(
                             return;
                         }
                     };
+                    // A chat a person opens (`attach_shows`): its answer is a restored chat's first
+                    // rows, a startup mark in `daemon status` (`gauges.rs`).
+                    let shown_attach = m == method::MUX_ATTACH
+                        && requests::attach_shows(&conn, params.as_ref().unwrap_or(&Value::Null));
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -1931,6 +1935,7 @@ async fn serve_connection_from(
                     if m == method::SESSION_PROMPT {
                         conn.fan_flush.sent().await;
                     }
+                    let answered = result.is_ok();
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
                         let answer = result.map_err(|mut e| {
@@ -1942,6 +1947,12 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                     } else {
                         dual_requests::finish(first, None);
+                    }
+                    // When this daemon first answered (an error is an answer too), and first sent a
+                    // shown chat's rows, after its start: kept the first time only (`gauges.rs`).
+                    crate::gauges::global().mark("first answer");
+                    if answered && shown_attach {
+                        crate::gauges::global().mark("first attach answered");
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.

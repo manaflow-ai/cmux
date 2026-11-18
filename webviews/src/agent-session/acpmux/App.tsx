@@ -119,7 +119,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withDraftFolder, withCloudStartFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -266,12 +266,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -579,8 +579,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -589,6 +587,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -604,12 +604,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -7447,9 +7447,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
-        void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
-          () => undefined,
-        );
+        // The first report carries the page's boot times (perf.ts `bootMarks`), which the host keeps as launch marks.
+        const pageMarks = first ? acpmuxPerf.bootMarks() : undefined;
+        void callNative("pane.painted", {
+          drewKeptTail,
+          ...(settledNow ? { settled: true } : {}),
+          ...(pageMarks ? { pageMarks } : {}),
+        }).catch(() => undefined);
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();

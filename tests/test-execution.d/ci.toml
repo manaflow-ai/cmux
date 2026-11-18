@@ -512,6 +512,11 @@ path = "tests/test_ci_recovery_runs_after_a_timeout.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_relaunch_restore_daemon_status.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins how scripts/ci/relaunch_restore_check.py reads `acpmux status --json` (an indented document, not one line); run python3 -I tests/test_ci_relaunch_restore_daemon_status.py yourself after changing daemon_status or status_json (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_relay_deploy_plan.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/relay_deploy_plan.py (the carrier relay deploy's ordering and migration-approval rules) on a throwaway git history; run python3 tests/test_ci_relay_deploy_plan.py yourself after changing it or cloudflare-relay.yml's plan (about 1 s, no build)."
