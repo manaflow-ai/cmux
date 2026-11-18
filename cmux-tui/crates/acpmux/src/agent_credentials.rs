@@ -301,9 +301,19 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &CodexProvider<'_>) {
             i = i.saturating_add(1);
         }
     }
+    let at = codex_config_index(argv);
     for (offset, arg) in codex_provider_args(provider).into_iter().enumerate() {
-        argv.insert(1 + offset, arg);
+        argv.insert(at + offset, arg);
     }
+}
+
+/// Where a `-c` override goes in a codex command line: right after its `app-server` word, else
+/// right after the program. Codex 0.160 drops every override before the subcommand once the
+/// subcommand has one of its own (acpmux's `app-server -c developer_instructions=…`), so a
+/// provider put there ran the chat on `config.toml`'s `cmux` route instead (cmux#45774: "Missing
+/// environment variable: `OPENAI_API_KEY`" with the owner's ChatGPT token in the env).
+pub fn codex_config_index(argv: &[String]) -> usize {
+    argv.iter().skip(1).position(|a| a == "app-server").map_or(1, |i| i + 2).min(argv.len())
 }
 
 #[cfg(test)]
@@ -437,10 +447,44 @@ mod tests {
             assert!(argv.iter().any(|a| a == want), "{want} in {joined}");
         }
         assert!(!joined.contains(&token), "the token is never on the command line");
-        assert_eq!(argv.last().map(String::as_str), Some("app-server"));
+        // After the subcommand, where codex keeps it beside the subcommand's own overrides.
+        let sub = argv.iter().position(|a| a == "app-server").unwrap();
+        let provider =
+            argv.iter().position(|a| a == "model_provider=\"cmux_codex_login\"").unwrap();
+        assert!(provider > sub, "{joined}");
         // A token that names no account cannot be sent with one: refused, never applied without it.
         let bare = codex_cli_token(None);
         assert!(AgentCredential::parse(&json!({"env": {NAME: bare}})).is_err());
+    }
+
+    /// cmux#45774: acpmux's codex line ends `app-server -c developer_instructions=…`, and codex
+    /// drops every override before a subcommand that has its own: the provider goes after it.
+    #[test]
+    fn the_provider_goes_after_the_app_server_word_beside_its_own_overrides() {
+        let c = AgentCredential::parse(&json!({"env": {OPENAI_KEY: "sk-proj-abc"}})).unwrap();
+        let mut argv: Vec<String> = [
+            "/opt/cmux/current/bin/codex",
+            "-c",
+            "agents.max_depth=16",
+            "app-server",
+            "-c",
+            "model_provider=\"cmux\"",
+            "-c",
+            "developer_instructions=\"x\"",
+        ]
+        .map(str::to_owned)
+        .into();
+        assert!(apply(&c, "codex", &mut argv, &mut BTreeMap::new()));
+        assert_eq!(
+            argv[..5],
+            ["/opt/cmux/current/bin/codex", "-c", "agents.max_depth=16", "app-server", "-c"]
+        );
+        assert_eq!(argv[5], "model_provider=\"openai_api_key\"");
+        assert_eq!(argv.iter().filter(|a| a.starts_with("model_provider=")).count(), 1, "{argv:?}");
+        assert_eq!(argv[argv.len() - 2..], ["-c", "developer_instructions=\"x\""]);
+        // A line with no subcommand takes it right after the program.
+        assert_eq!(codex_config_index(&["codex".to_owned()]), 1);
+        assert_eq!(codex_config_index(&[]), 0);
     }
 
     #[test]
