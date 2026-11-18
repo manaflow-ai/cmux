@@ -7,6 +7,11 @@ use crate::text::t;
 
 const GROUP: &str = "TerminalActionCatalog";
 
+/// A terminal of the session, by its `term_…` id; the palette lists them from the daemon's
+/// `terminal.list` (`op:terminal.list`), by title.
+#[rustfmt::skip]
+const PROJECT_TERMINAL: Argument = Argument { name: "terminal", title: t("LayoutActions", "argument.terminal.project", "Terminal"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:terminal.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -123,6 +128,23 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::ON.optional()],
         targets: &["tab"],
         cli_name: "terminal keep",
+        ..Action::DEFAULT
+    },
+    // Show Terminal in New Tab: a new tab in the pane showing a live terminal (one kept running
+    // after its tab closed, or another tab's), as `cmux terminal <term> project` (the daemon's
+    // verb, terminal.project). In the workspace category: the row adds a tab, and a row in a
+    // terminal category needs its App handler before it lands (HandlerCoverage).
+    Action {
+        id: "terminal.project",
+        group: GROUP,
+        title: t("LayoutActions", "action.terminal.project", "Show Terminal in New Tab…"),
+        keywords: &["terminal", "project", "show", "reattach", "attach", "restore", "kept", "detached", "background", "mirror", "tab"],
+        category: "workspace",
+        symbol: "rectangle.portrait.on.rectangle.portrait",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[PROJECT_TERMINAL],
+        targets: &["pane"],
+        cli_name: "action terminal-project",
         ..Action::DEFAULT
     },
     Action {
