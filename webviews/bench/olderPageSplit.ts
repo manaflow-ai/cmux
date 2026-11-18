@@ -50,7 +50,10 @@ export function reportOlderSplit(events: Ev[], profile: CpuProfile | undefined, 
       break;
     }
   }
-  if (offset === undefined) return out("no cmux-older stamps in the trace");
+  // No stamp, no split: the run asked for one, so it fails rather than end with none. Chromium records
+  // `console.timeStamp` under devtools.timeline, which the bench enables; a trace that lost its stamps to its buffer
+  // (`data lost`) or a Chromium that moves them to another category reads here.
+  if (offset === undefined) throw new Error("OLDER-SPLIT no cmux-older stamps in the trace: no split for SPLIT=1");
   const at = (page: number) => page + offset!;
   const mains = new Set(
     events

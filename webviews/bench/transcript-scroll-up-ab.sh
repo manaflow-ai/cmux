@@ -46,13 +46,26 @@ if [ "$base" != - ]; then
   side before "$base"
   for at in "${!extra[@]}"; do side "s$((at + 1))-${extra[$at]:0:10}" "${extra[$at]}"; done
 fi
-# `run SIDE REPEAT`: one bench run at SIDE's pane; its output to OUT/SIDE-REPEAT.log.
+# `run SIDE REPEAT`: one bench run at SIDE's pane; its output to OUT/SIDE-REPEAT.log. A run counts when it ends with
+# its verdict and its numbers: exit 0 (PASS) or 1 (MISS, the bench's own budget, which both sides may miss; the
+# comparison still has its numbers). Anything else (the 900 s timeout, a failed build, a throw, a run that printed
+# no numbers) stops the comparison, naming the side and repeat with the log's end: a missing run must not read as
+# a comparison with less data.
 run() {
-  local side="$1" repeat="$2" log="$out/$1-$2.log"
+  local side="$1" repeat="$2" log="$out/$1-$2.log" status=0
   echo "=== $side repeat $repeat"
   (cd "${dirs[$side]}" && FIXTURE=flat ROWS="${ROWS:-100000}" MODE="${MODE:-fling}" PAGES="${PAGES:-24}" \
-    ENGINES=chromium timeout 900 bun bench/transcript-scroll-up.bench.ts) >"$log" 2>&1 || true
-  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' ' || true
+    ENGINES=chromium timeout 900 bun bench/transcript-scroll-up.bench.ts) >"$log" 2>&1 || status=$?
+  if { [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; } ||
+    ! grep -qE '^transcript-scroll-up chromium verdict: ' "$log" ||
+    ! grep -qE '^transcript-scroll-up chromium askToDrawnP95: ' "$log"; then
+    local why="exit $status"
+    [ "$status" -eq 124 ] && why="the 900 s timeout"
+    echo "transcript-scroll-up-ab: $side repeat $repeat broke ($why); the end of $log:" >&2
+    tail -n 30 "$log" >&2
+    exit 1
+  fi
+  grep -E '^transcript-scroll-up chromium (askToDrawnP95|frameP95|loadingFrames|undrawnAsks):' "$log" | tr '\n' ' '
   echo
 }
 n=${#sides[@]}
