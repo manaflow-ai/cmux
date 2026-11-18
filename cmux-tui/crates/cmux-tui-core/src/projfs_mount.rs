@@ -1,15 +1,19 @@
-//! `projfs.mount` and `projfs.unmount` (`projfs-v1`): the person's Mac, over its link, starts
-//! and stops this machine's mount helper for a projected folder (`cmux-tui projfs mount|unmount`,
-//! crate `cmux-projfs`).
+//! `projfs.mount`, `projfs.unmount` and `projfs.upper` (`projfs-v1`): the person's Mac, over its
+//! link, starts and stops this machine's mount helper for a projected folder, and reads what the
+//! machine wrote over it (`cmux-tui projfs mount|unmount|upper`, crate `cmux-projfs`).
 //!
 //! - `projfs.mount {mount, manifest, at, state}`: starts the helper in a session of its own
 //!   (`setsid`; stdin and stderr closed, stdout read for its first line only), so it outlives
 //!   this request and a restart of this daemon, waits up to [`READY_WAIT`] for the helper's
-//!   first JSON line and answers that line as it is: `{ok:true, mount, at, entries, bytes, ms}`,
-//!   or the helper's own refusal `{ok:false, code, message}` (the Mac copies the folder instead
-//!   on any refusal). A helper that prints nothing in time is stopped, what it may have mounted
-//!   is unmounted, and the request is refused `projfs.helper_timeout`.
+//!   first JSON line and answers that line as it is: `{ok:true, mount, at, entries, bytes, git,
+//!   ms}`, or the helper's own refusal `{ok:false, code, message}` (the Mac copies the folder
+//!   instead on any refusal). A helper that prints nothing in time is stopped, what it may have
+//!   mounted is unmounted, and the request is refused `projfs.helper_timeout`.
 //! - `projfs.unmount {at, state}`: runs the helper's `unmount` and answers its JSON line.
+//! - `projfs.upper {state}`: runs the helper's `upper` and answers its JSON line,
+//!   `{ok:true, changes:[{path, kind, link?, from?, reason?}]}` or its refusal, bounded in time
+//!   ([`UPPER_WAIT`]) and in size ([`MAX_UPPER_BYTES`]): a longer list is refused
+//!   `projfs.too_many_changes`, its message naming how many changes it holds.
 //!
 //! `manifest`, `at` and `state` must lie inside this machine's work roots by `fs.write`'s own
 //! rule ([`Roots::resolve_no_follow`]: absolute, no `.` or `..`, under a root, no symlink on the
@@ -29,8 +33,12 @@ use serde_json::{Map, Value};
 use crate::fs_ops::Roots;
 use crate::projfs_rendezvous::{Caller, Refusal, envelope, mount_id, only};
 
-/// The ops this module serves, exactly (both in `projfs-v1`).
-pub const PROJFS_MOUNT_COMMANDS: [&str; 2] = ["projfs.mount", "projfs.unmount"];
+#[path = "projfs_upper.rs"]
+mod upper;
+pub use upper::{MAX_UPPER_BYTES, UPPER_WAIT};
+
+/// The ops this module serves, exactly (all in `projfs-v1`).
+pub const PROJFS_MOUNT_COMMANDS: [&str; 3] = ["projfs.mount", "projfs.unmount", "projfs.upper"];
 /// How long a started helper has to print its first line.
 pub const READY_WAIT: Duration = Duration::from_secs(20);
 /// How long the helper's `unmount` may take (it waits up to 10 s for a serving helper itself).
@@ -95,10 +103,10 @@ pub fn answer_line(
         };
         return envelope(&id, Err(unavailable));
     };
-    let result = if cmd == "projfs.mount" {
-        mounter.mount(&request, socket)
-    } else {
-        mounter.unmount(&request)
+    let result = match cmd {
+        "projfs.mount" => mounter.mount(&request, socket),
+        "projfs.upper" => mounter.upper(&request),
+        _ => mounter.unmount(&request),
     };
     envelope(&id, result)
 }
@@ -146,6 +154,8 @@ pub struct Mounter {
     command: HelperCommand,
     ready_wait: Duration,
     unmount_wait: Duration,
+    upper_wait: Duration,
+    upper_max_bytes: usize,
 }
 
 impl Mounter {
@@ -162,7 +172,15 @@ impl Mounter {
         ready_wait: Duration,
         unmount_wait: Duration,
     ) -> Self {
-        Self { roots, command, ready_wait, unmount_wait }
+        let (upper_wait, upper_max_bytes) = (UPPER_WAIT, MAX_UPPER_BYTES);
+        Self { roots, command, ready_wait, unmount_wait, upper_wait, upper_max_bytes }
+    }
+
+    /// This starter with `projfs.upper`'s bounds (tests shorten them).
+    #[must_use]
+    pub fn with_upper_bounds(mut self, wait: Duration, max_bytes: usize) -> Self {
+        (self.upper_wait, self.upper_max_bytes) = (wait, max_bytes);
+        self
     }
 
     /// `projfs.mount`: starts the helper and answers its first line.
@@ -217,6 +235,16 @@ impl Mounter {
         let at = self.inside(params, "at", Need::Named)?;
         let state = self.inside(params, "state", Need::Dir)?;
         self.run_unmount(&at, &state)
+    }
+
+    /// `projfs.upper`: runs the helper's `upper` and answers its line, within its bounds.
+    pub fn upper(&self, params: &Map<String, Value>) -> Result<Value, Refusal> {
+        only(params, &["state"])?;
+        let state = self.inside(params, "state", Need::Dir)?;
+        let args: Vec<String> =
+            ["upper", "--state", &state].into_iter().map(str::to_owned).collect();
+        let child = self.start(&args)?;
+        upper::answer(child, self.upper_wait, self.upper_max_bytes)
     }
 
     fn run_unmount(&self, at: &str, state: &str) -> Result<Value, Refusal> {

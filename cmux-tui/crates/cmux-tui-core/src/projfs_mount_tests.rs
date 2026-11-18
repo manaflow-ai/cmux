@@ -52,10 +52,18 @@ impl Drop for Root {
 /// A helper that runs `mount` for `projfs mount …` and `unmount` for `projfs unmount …`, each a
 /// shell script with the helper's arguments as `$1`, `$2`, ….
 fn helper(mount: &str, unmount: &str) -> HelperCommand {
-    let (mount, unmount) = (mount.to_owned(), unmount.to_owned());
+    helper_with_upper(mount, unmount, "exit 9")
+}
+
+/// [`helper`], with `upper` the script for `projfs upper …`.
+fn helper_with_upper(mount: &str, unmount: &str, upper: &str) -> HelperCommand {
+    let (mount, unmount, upper) = (mount.to_owned(), unmount.to_owned(), upper.to_owned());
     Arc::new(move |args: &[String]| {
-        let script =
-            if args.first().map(String::as_str) == Some("mount") { &mount } else { &unmount };
+        let script = match args.first().map(String::as_str) {
+            Some("mount") => &mount,
+            Some("upper") => &upper,
+            _ => &unmount,
+        };
         let mut command = Command::new("/bin/sh");
         command.arg("-c").arg(script).arg("sh").args(args);
         Ok(command)
@@ -198,4 +206,98 @@ fn a_helper_that_prints_nothing_in_time_is_ended_and_its_mount_undone() {
     let alive = unsafe { libc::kill(pid, 0) } == 0;
     assert!(!alive, "the hung helper was ended and reaped");
     assert!(Path::new(&undone).exists(), "what the hung helper mounted was unmounted");
+}
+
+fn upper_mounter(root: &Root, upper: &str, wait: Duration, max_bytes: usize) -> Mounter {
+    let roots = Roots::new([root.path.clone()]);
+    let command = helper_with_upper(READY, UNMOUNTED, upper);
+    Mounter::with_waits(roots, command, Duration::from_secs(10), Duration::from_secs(10))
+        .with_upper_bounds(wait, max_bytes)
+}
+
+const CHANGES: &str = r#"echo '{"ok":true,"changes":[{"kind":"file","path":"a.txt"},{"kind":"symlink","link":"../x","path":"l"},{"from":"/old","kind":"redirect","path":"d"}]}'"#;
+
+#[test]
+fn the_upper_layer_is_answered_as_the_helper_printed_it_with_the_state_it_was_given() {
+    let root = Root::new("upper");
+    let args_file = root.at("args");
+    let script = format!("printf '%s\\n' \"$@\" > '{args_file}'; {CHANGES}");
+    let mounter = upper_mounter(&root, &script, Duration::from_secs(10), MAX_UPPER_BYTES);
+    let params = json!({ "state": root.at("chat/state") });
+    let answer = call(&mounter, "projfs.upper", &params);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(
+        answer["data"]["changes"][1],
+        json!({"kind": "symlink", "link": "../x", "path": "l"})
+    );
+    assert_eq!(answer["data"]["changes"].as_array().unwrap().len(), 3);
+    let args = std::fs::read_to_string(&args_file).unwrap();
+    assert_eq!(args.lines().collect::<Vec<_>>(), ["upper", "--state", &root.at("chat/state")]);
+    // The helper's own refusal is passed through, as for a mount.
+    let refusing = upper_mounter(
+        &root,
+        r#"echo '{"ok":false,"code":"io","message":"cannot read"}'; exit 1"#,
+        Duration::from_secs(10),
+        MAX_UPPER_BYTES,
+    );
+    let answer = call(&refusing, "projfs.upper", &params);
+    assert_eq!(answer["data"], json!({"ok": false, "code": "io", "message": "cannot read"}));
+}
+
+#[test]
+fn the_upper_layer_is_the_macs_over_the_link_only_and_inside_the_roots() {
+    let root = Root::new("upper-gate");
+    let ran = root.at("ran");
+    let mounter = upper_mounter(
+        &root,
+        &format!("touch '{ran}'; {CHANGES}"),
+        Duration::from_secs(10),
+        MAX_UPPER_BYTES,
+    );
+    let params = json!({ "state": root.at("chat/state") });
+    for caller in [Caller::Local, Caller::Denied] {
+        let answer = answer_line(Some(&mounter), caller, None, &line("projfs.upper", &params));
+        assert_eq!(answer["error_code"], "projfs.permission_denied", "{caller:?}");
+    }
+    let outside = Root::new("upper-elsewhere");
+    std::os::unix::fs::symlink(outside.path.join("chat"), root.path.join("link")).unwrap();
+    for state in [outside.at("chat/state"), root.at("link/state"), root.at(""), "chat/state".into()]
+    {
+        let answer = call(&mounter, "projfs.upper", &json!({ "state": state }));
+        assert_eq!(answer["error_code"], "projfs.outside_roots", "{state}: {answer}");
+    }
+    let extra = json!({ "state": root.at("chat/state"), "at": root.at("chat/at") });
+    assert_eq!(call(&mounter, "projfs.upper", &extra)["error_code"], "projfs.bad_request");
+    assert!(!Path::new(&ran).exists(), "no helper ran for a refused request");
+    assert_eq!(frame_command(&line("projfs.upper", &params)), Some("projfs.upper"));
+}
+
+#[test]
+fn a_change_list_past_the_bound_is_refused_with_its_count() {
+    let root = Root::new("upper-big");
+    // 500 changes of about 40 bytes: past a 4 KiB bound.
+    let script = r#"printf '{"ok":true,"changes":['; i=0; while [ $i -lt 500 ]; do [ $i -gt 0 ] && printf ','; printf '{"kind":"file","path":"f%04d"}' $i; i=$((i+1)); done; printf ']}\n'"#;
+    let mounter = upper_mounter(&root, script, Duration::from_secs(10), 4096);
+    let answer = call(&mounter, "projfs.upper", &json!({ "state": root.at("chat/state") }));
+    assert_eq!(answer["error_code"], "projfs.too_many_changes", "{answer}");
+    assert!(answer["error"].as_str().unwrap().contains("500 paths"), "{answer}");
+    let fits = upper_mounter(&root, script, Duration::from_secs(10), 64 * 1024);
+    let answer = call(&fits, "projfs.upper", &json!({ "state": root.at("chat/state") }));
+    assert_eq!(answer["data"]["changes"].as_array().map(Vec::len), Some(500), "{answer}");
+}
+
+#[test]
+fn an_upper_read_that_does_not_answer_in_time_is_ended() {
+    let root = Root::new("upper-hang");
+    let pid_file = root.at("pid");
+    let hang = format!("echo $$ > '{pid_file}'; exec tail -f /dev/null");
+    let mounter = upper_mounter(&root, &hang, Duration::from_millis(500), MAX_UPPER_BYTES);
+    let answer = call(&mounter, "projfs.upper", &json!({ "state": root.at("chat/state") }));
+    assert_eq!(answer["error_code"], "projfs.helper_timeout", "{answer}");
+    let pid: libc::pid_t = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    // SAFETY: signal 0 only asks whether the process exists.
+    assert!(unsafe { libc::kill(pid, 0) } != 0, "the hung reader was ended and reaped");
+    let silent = upper_mounter(&root, "exit 0", Duration::from_secs(10), MAX_UPPER_BYTES);
+    let answer = call(&silent, "projfs.upper", &json!({ "state": root.at("chat/state") }));
+    assert_eq!(answer["error_code"], "projfs.helper_failed", "{answer}");
 }

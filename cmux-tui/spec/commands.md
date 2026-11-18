@@ -11484,6 +11484,7 @@ want's `len`), `{status:"changed", size, mtime_ns, ctime_ns, mode}`,
 | `projfs.status` | either | `{mount?}` | `{mounts: [{mount, queued, batches_out, polling, fetching, bytes_answered, last_answer_age_ms}]}` | |
 | `projfs.mount` | the Mac, over the link | `{mount, manifest, at, state}` | the helper's first line as it printed it: `{ok:true, mount, at, entries, bytes, git, ms}` (`git`: whether the helper made `core.checkStat=minimal` and `core.trustctime=false` hold for the machine's user: `set`, `kept` or `unavailable`) or `{ok:false, code, message}` | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
 | `projfs.unmount` | the Mac, over the link | `{at, state}` | the helper's `unmount` line | `projfs.outside_roots`, `projfs.helper_failed`, `projfs.helper_timeout` |
+| `projfs.upper` | the Mac, over the link | `{state}` | the helper's `upper` line: `{ok:true, changes:[{path, kind, link?, from?, reason?}]}` (`kind`: `file`, `metadata`, `symlink` with `link`, `dir`, `opaque_dir`, `redirect` with `from`, `delete`, `unsupported` with `reason`; sorted by path) or `{ok:false, code, message}` | `projfs.outside_roots`, `projfs.too_many_changes`, `projfs.helper_failed`, `projfs.helper_timeout` |
 
 `wait_ms` is capped at 25 s. `projfs.fetch` answers when every want was
 answered; a want no Mac took within `wait_ms` answers `away`, and one a Mac
@@ -11508,7 +11509,12 @@ nothing within 20 s is stopped (SIGTERM, SIGKILL 5 s later), its `unmount`
 is run, and the request answers `projfs.helper_timeout`; one that exits
 without a line, or prints something else, is `projfs.helper_failed`.
 `projfs.unmount` runs the helper's `unmount --at --state` (at most 30 s)
-and answers its line. Every path is checked by `fs.write`'s rule before
+and answers its line. `projfs.upper` runs the helper's `upper --state` (at
+most 30 s, then stopped: `projfs.helper_timeout`), which reads only the
+overlay's upper layer, so its cost is the machine's edits, never the
+folder's size. Its line is answered when it is at most 12 MiB (about
+125,000 changes of 100 bytes); a longer one is `projfs.too_many_changes`,
+its message naming how many changes it holds, and no list. Every path is checked by `fs.write`'s rule before
 anything runs (absolute, no `.` or `..`, under a work root, no symlink on
 the way or at the end, not a root itself; `manifest` a regular file, `at`
 and `state` folders, and only `at`'s folder for an unmount):

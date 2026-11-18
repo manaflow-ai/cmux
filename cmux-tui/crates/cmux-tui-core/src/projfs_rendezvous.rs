@@ -24,8 +24,8 @@
 //!   expired batch is refused (`projfs.unknown_batch`) and its bytes are dropped.
 //! - `projfs.status {mount?}`: `{mounts:[{mount, queued, batches_out, polling, fetching,
 //!   bytes_answered, last_answer_age_ms}]}`.
-//! - `projfs.mount` and `projfs.unmount`: the Mac, over the link: start and stop the mount
-//!   helper itself ([`crate::projfs_mount`]).
+//! - `projfs.mount`, `projfs.unmount` and `projfs.upper`: the Mac, over the link: start and
+//!   stop the mount helper itself, and read its overlay's upper layer ([`crate::projfs_mount`]).
 //!
 //! Served exactly where `fs-v1` is (Cloud hosts). Waits use one condition variable, never a
 //! sleep. A waiting op holds only its own connection's reader: every connection has a reader
@@ -40,21 +40,28 @@ use serde_json::{Map, Value, json};
 /// The capability that carries the `projfs.*` ops.
 pub const PROJFS_CAPABILITY: &str = "projfs-v1";
 
-/// The ops of `projfs-v1`, exactly: the rendezvous's four, and the two that start and stop the
-/// mount helper (`projfs.mount|unmount`, served by [`crate::projfs_mount`]).
-pub const PROJFS_COMMANDS: [&str; 6] = [
+/// The ops of `projfs-v1`, exactly: the rendezvous's four, and the three that run the mount
+/// helper (`projfs.mount|unmount|upper`, served by [`crate::projfs_mount`]).
+pub const PROJFS_COMMANDS: [&str; 7] = [
     "projfs.fetch",
     "projfs.next",
     "projfs.answer",
     "projfs.status",
     "projfs.mount",
     "projfs.unmount",
+    "projfs.upper",
 ];
 
 /// The ops the link's remote gate admits beside the `fs-v1` ops: the Mac's side. Never
 /// `projfs.fetch`, which only the mount helper on this machine sends.
-pub const PROJFS_REMOTE_COMMANDS: [&str; 5] =
-    ["projfs.next", "projfs.answer", "projfs.status", "projfs.mount", "projfs.unmount"];
+pub const PROJFS_REMOTE_COMMANDS: [&str; 6] = [
+    "projfs.next",
+    "projfs.answer",
+    "projfs.status",
+    "projfs.mount",
+    "projfs.unmount",
+    "projfs.upper",
+];
 
 /// Mounts one daemon keeps queues for; past it an idle mount is forgotten, else refused.
 pub const MAX_MOUNTS: usize = 64;
