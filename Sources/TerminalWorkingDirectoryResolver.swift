@@ -57,16 +57,20 @@ struct TerminalWorkingDirectoryResolver {
     /// The foreground directory wins only when it resolves to a genuinely
     /// different directory: at the prompt the two match, and returning the
     /// shell's own reported path preserves a symlinked cwd verbatim instead of
-    /// swapping in its realpath. An empty `shellDirectory` means directory
-    /// provenance was deliberately withheld for that pane, so no foreground
-    /// value may resurrect one.
+    /// swapping in its realpath. A foreground directory that no longer exists
+    /// (a removed worktree) falls back to the shell's. An empty
+    /// `shellDirectory` means directory provenance was deliberately withheld
+    /// for that pane, so no foreground value may resurrect one.
     nonisolated static func preferringForegroundDirectory(
         shellDirectory: String,
         foregroundDirectory: String?
     ) -> String {
+        var foregroundIsDirectory: ObjCBool = false
         guard !shellDirectory.isEmpty,
               let foreground = normalized(foregroundDirectory),
-              foreground != shellDirectory else {
+              foreground != shellDirectory,
+              FileManager.default.fileExists(atPath: foreground, isDirectory: &foregroundIsDirectory),
+              foregroundIsDirectory.boolValue else {
             return shellDirectory
         }
         let foregroundReal = URL(fileURLWithPath: foreground).resolvingSymlinksInPath().path
