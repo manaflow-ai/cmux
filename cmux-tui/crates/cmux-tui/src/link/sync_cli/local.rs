@@ -95,19 +95,14 @@ pub(super) struct LocalSet {
     /// What a first pass ([`first_pass`]) left on this Mac, for the note on the machine
     /// ([`super::left_note`]); none for a copy sent whole.
     pub left: Option<super::left_note::LeftOnMac>,
+    /// A projection's stat-only listing ([`super::stat_walk`]): no file is opened.
+    pub stat_only: Option<Box<super::stat_walk::StatOnly>>,
 }
 
 impl LocalSet {
-    fn new(skips: Skips) -> Self {
-        Self {
-            files: BTreeMap::new(),
-            links: BTreeMap::new(),
-            skipped: 0,
-            skips,
-            git: false,
-            cap: None,
-            left: None,
-        }
+    pub(super) fn new(skips: Skips) -> Self {
+        let (files, links) = (BTreeMap::new(), BTreeMap::new());
+        Self { files, links, skipped: 0, skips, git: false, cap: None, left: None, stat_only: None }
     }
 
     /// Adds `file` as `relative`, `bytes` long, counted against the copy's limits: a
@@ -297,7 +292,7 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
 
 /// [`collect`]'s listing into `set`, ended by the first error (a cap's
 /// [`super::size_cap::FileLimit`] among them).
-fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<()> {
+pub(super) fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<()> {
     let Some(git) = GitDirs::of(folder)? else {
         return walk_plain(set, rules, &|_| true, folder, folder);
     };
@@ -323,8 +318,7 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
             && let Some(why) =
                 skips::secret_at(folder, &path).or_else(|| skips::credential(&path, false))
         {
-            set.skips.note(&path, why);
-            return Ok(());
+            return super::stat_walk::secret_skipped(set, &top, &path, why);
         }
         add_working(set, &top, folder, &path)
     })?;

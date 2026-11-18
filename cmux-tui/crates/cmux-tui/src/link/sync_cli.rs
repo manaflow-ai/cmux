@@ -71,6 +71,10 @@ mod fresh;
 mod remote;
 mod seed_pull;
 mod small_writes;
+mod stat_walk;
+pub(super) use stat_walk::listing as stat_listing;
+/// A projected folder's stat-only listing and its serve loop's open (`start-chat project`).
+pub(super) use stat_walk::{Kind as ListedKind, Listing, Opened, Times, open_beneath, times_of};
 mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).

@@ -56,12 +56,12 @@ fn fd_path(file: &File) -> io::Result<PathBuf> {
 }
 
 /// A `mode_t` (u16 on macOS, u32 on Linux) as u32.
-fn widen<T: TryInto<u32>>(value: T) -> u32 {
+pub(super) fn widen<T: TryInto<u32>>(value: T) -> u32 {
     value.try_into().unwrap_or_default()
 }
 
 /// A `dev_t` or `ino_t` (their widths and signs vary) as u64.
-fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
+pub(super) fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
     value.try_into().unwrap_or_default()
 }
 
@@ -228,6 +228,23 @@ impl Dir {
         })?;
         // SAFETY: a new descriptor the file owns.
         Ok(unsafe { File::from_raw_fd(fd) })
+    }
+
+    /// The stat of the entry `name`, not following a symlink and never
+    /// opening it; None when it is missing.
+    pub(super) fn lstat(&self, name: &str) -> io::Result<Option<libc::stat>> {
+        let c = c_name(name)?;
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor, C string and out pointer.
+        let result = unsafe {
+            libc::fstatat(self.0.as_raw_fd(), c.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW)
+        };
+        match check(result) {
+            Ok(_) => Ok(Some(stat)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The (device, inode) of the entry `name`, not following a symlink;

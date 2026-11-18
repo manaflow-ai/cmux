@@ -58,6 +58,7 @@ pub(super) fn entry_in(
         .or_else(|| skips::credential(relative, false))
         .filter(|_| rules == Rules::Copy)
     {
+        super::stat_walk::withhold(set, relative, handle, name)?;
         set.skips.note(relative, why);
         return Ok(());
     }
@@ -139,7 +140,7 @@ pub(super) fn walk_in(
 
 /// The symlink `name` of the folder `handle` holds open, its text read
 /// through that descriptor (a link goes as its text, never its target's bytes).
-fn link_in(
+pub(super) fn link_in(
     set: &mut LocalSet,
     relative: &str,
     path: &Path,
@@ -188,6 +189,10 @@ fn add_in(
     if !holdable(&relative) {
         set.skips.note(&relative, skips::unholdable(&relative));
         return Ok(());
+    }
+    // A projection's listing looks at the entry only; it never opens the file.
+    if set.stat_only.is_some() {
+        return super::stat_walk::add_stat(set, relative, path, handle, name);
     }
     match handle.open_file(name) {
         Ok(file) => {
