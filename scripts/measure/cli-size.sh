@@ -1,12 +1,78 @@
 #!/usr/bin/env bash
 # CMUX-570: compare CLI compiler optimization on one source tree and toolchain.
 # Fleet only. Results are binary payloads until a complete app is packaged.
+#
+#   cli-size.sh                   cmux-tui's own opt-level 3, s and z on this tree.
+#   cli-size.sh toolchain BASE    four builds in one job: BASE (a commit, built with
+#                                 its own rust-toolchain.toml), this tree, and this
+#                                 tree with acpmux and cmux-tui-core at opt-level
+#                                 "s" and at "z". Stripped and unstripped bytes, then
+#                                 interleaved CLI and daemon p50 (cli-size-speed.py).
+#                                 BASE comes from this clone's history, else from
+#                                 origin; a shallow job checkout with no remote can
+#                                 pass a reverse patch instead: toolchain BASE PATCH
+#                                 (the diff from this tree to BASE).
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$root/scripts/cmux-next/lib/fleet-only.sh"
 cmux_next_require_fleet cli-size.sh 'cargo build' 'CMUX-570 CLI optimization comparison'
 out="${FAST_CHECKS_OUT:-$root/artifacts/cli-size}"
 mkdir -p "$out"
+
+strip_copy() {  # strip_copy BUILT DIR: DIR/cmux.unstripped and the stripped DIR/cmux
+  mkdir -p "$2"
+  cp "$1" "$2/cmux.unstripped"
+  cp "$1" "$2/cmux"
+  case "$(uname -s)" in
+    Darwin) strip -x "$2/cmux" ;;
+    Linux) strip --strip-unneeded "$2/cmux" ;;
+    *) echo 'CLI size comparison requires a Linux or macOS fleet worker' >&2; exit 2 ;;
+  esac
+  echo "SIZE $(basename "$2") unstripped=$(wc -c <"$2/cmux.unstripped" | tr -d ' ') stripped=$(wc -c <"$2/cmux" | tr -d ' ')"
+}
+
+if [[ "${1:-}" == toolchain ]]; then
+  base_sha="${2:?usage: cli-size.sh toolchain BASE [PATCH]}"
+  patch="${3:-}"
+  base="$(mktemp -d "${TMPDIR:-/tmp}/cli-size-base.XXXXXX")/tree"
+  if git -C "$root" cat-file -e "$base_sha^{commit}" 2>/dev/null \
+    || git -C "$root" fetch -q origin "$base_sha" 2>/dev/null; then
+    git -C "$root" worktree add -q --detach "$base" "$base_sha"
+  elif [[ -n "$patch" ]]; then
+    git -C "$root" worktree add -q --detach "$base" HEAD
+    git -C "$base" apply --whitespace=nowarn "$patch"
+  else
+    echo "cli-size: $base_sha is not in this clone and origin cannot give it; pass the reverse patch" >&2
+    exit 2
+  fi
+  # libghostty-vt builds from the ghostty-next submodule: share this tree's copy when BASE pins the same commit.
+  if [[ "$(git -C "$root" rev-parse HEAD:ghostty-next)" == "$(git -C "$root" rev-parse "$base_sha:ghostty-next" 2>/dev/null || git -C "$root" rev-parse HEAD:ghostty-next)" ]]; then
+    rm -rf "$base/ghostty-next"
+    ln -s "$root/ghostty-next" "$base/ghostty-next"
+  else
+    git -C "$base" submodule update -q --init ghostty-next
+  fi
+  build() {  # build TREE TARGET_DIR NAME [cargo --config ...]
+    local tree=$1 target=$2 name=$3
+    shift 3
+    (cd "$tree/cmux-tui" && rustc --version >"$out/rustc-$name.txt" &&
+      CARGO_TARGET_DIR="$target" cargo build -q --locked --release -p cmux-tui --bin cmux-tui "$@")
+    strip_copy "$target/release/cmux-tui" "$out/$name"
+    mv "$out/rustc-$name.txt" "$out/$name/rustc.txt"
+  }
+  target="${CARGO_TARGET_DIR:-$root/cmux-tui/target/cli-size}"
+  build "$base" "$target-base" base
+  build "$root" "$target" head
+  for level in s z; do
+    build "$root" "$target" "head-$level" \
+      --config "profile.release.package.acpmux.opt-level=\"$level\"" \
+      --config "profile.release.package.cmux-tui-core.opt-level=\"$level\""
+  done
+  python3 "$root/scripts/measure/cli-size-speed.py" "$out" base head head-s head-z
+  git -C "$root" worktree remove --force "$base" || true
+  exit 0
+fi
+
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/cmux-tui/target/cli-size}"
 cd "$root/cmux-tui"
 for level in 3 s z; do
