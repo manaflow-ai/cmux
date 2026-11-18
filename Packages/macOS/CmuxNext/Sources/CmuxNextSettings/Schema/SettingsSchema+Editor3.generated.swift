@@ -10,7 +10,7 @@ extension EditorSettingsSchema {
                 section: .editor,
                 group: group,
                 title: SettingsText.keyed("settings.editor.importFrom", "Take Defaults From"),
-                help: SettingsText.keyed("settings.editor.importFrom.help", "cmux reads that editor's settings and keybindings files and never changes them. A setting you make here wins."),
+                help: SettingsText.keyed("settings.editor.importFrom.help", "cmux reads that editor's settings and keybindings, never changing them."),
                 kind: .choice([
                     SettingChoice("auto", SettingsText.keyed("settings.choice.editor.firstFound", "The First Editor Found")),
                     SettingChoice("vscode", "VS Code"),

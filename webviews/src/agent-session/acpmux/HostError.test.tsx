@@ -218,7 +218,7 @@ test("a failure asking again cannot clear keeps its message, its action and Deta
     root = createRoot(container);
     root.render(
       <HostUnavailableLine
-        message="This chat is too large for this version of cmux to open."
+        message="Update cmux to open this chat, then Retry."
         detail="message.too_large"
         onRetry={() => undefined}
         selfRetrying={false}
@@ -226,7 +226,7 @@ test("a failure asking again cannot clear keeps its message, its action and Deta
     );
   });
   expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe(
-    "This chat is too large for this version of cmux to open.",
+    "Update cmux to open this chat, then Retry.",
   );
   expect(buttons(container)).toEqual(["Retry", "Details"]);
   expect(container.querySelector(".acpmux-host-line-note")).toBeNull();

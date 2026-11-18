@@ -23,6 +23,10 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 if [ "${1:-}" = "--cef-manifest-from" ]; then
   manifest_ref="${2:?--cef-manifest-from needs a commit}"
   shift 2
@@ -58,4 +62,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 mkdir -p artifacts
-exec python3 scripts/cmux-next/cef-helper-check.py --tag "$tag" --app "$app" --out "$out" --json artifacts/cef-helpers.json "$@"
+python3 scripts/cmux-next/cef-helper-check.py --tag "$tag" --app "$app" --out "$out" --json artifacts/cef-helpers.json "$@"

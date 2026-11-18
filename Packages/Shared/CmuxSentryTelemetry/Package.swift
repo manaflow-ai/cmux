@@ -7,9 +7,8 @@ import PackageDescription
 // transport-telemetry layer. `CmuxSentryScrubbing` is the pure-Foundation
 // value scrubber (no Sentry dependency) so it stays testable without linking
 // the SDK; `CmuxSentryReporting` is the glue that routes Sentry `Event` /
-// `Breadcrumb` / `Span` / `SentryLog` fields through that scrubber and bridges
-// the CMUXMobileCore transport diagnostic stream into Sentry, so it links the
-// Sentry SDK.
+// `Breadcrumb` / `Span` / `SentryLog` fields through that scrubber, so it
+// links the Sentry SDK.
 let package = Package(
     name: "CmuxSentryTelemetry",
     platforms: [
@@ -27,7 +26,6 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CMUXMobileCore"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
             // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
@@ -49,7 +47,6 @@ let package = Package(
             name: "CmuxSentryReporting",
             dependencies: [
                 "CmuxSentryScrubbing",
-                "CMUXMobileCore",
                 // macOS links the dynamic SDK: a static Sentry adds the
                 // Objective-C personality routine to the cmux-next app image,
                 // one more than compact unwind encodes (C++, iroh-ffi and

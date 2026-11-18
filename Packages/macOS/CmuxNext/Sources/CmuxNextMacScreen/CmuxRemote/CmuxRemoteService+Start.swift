@@ -15,6 +15,8 @@ extension CmuxRemoteService {
     /// a build without the bundle.
     public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
+        // In every build: without cmux Remote (Release, NIGHTLY) the app's own grants are the ones that count.
+        followAppPermissions(activation: pages.systemShortcuts)
         guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
         markStarted()
         let devices = CmuxRemoteDevices(open: { [weak self] in
@@ -35,10 +37,7 @@ extension CmuxRemoteService {
             guard try await configuredAvailability() else { return nil }
             do {
                 let identity = try await devices.identity()
-                let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
-                let hub = DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: devices)),
-                                    secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName,
-                                    renewIdentity: { try devices.blockingIdentity(renew: true) })
+                let hub = devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, tokens: tokens)
                 remoteHub = hub
                 return hub
             } catch {

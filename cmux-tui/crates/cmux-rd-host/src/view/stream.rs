@@ -284,7 +284,7 @@ pub fn run(
                     kind: Some(k), rtt_us, ..
                 }) => {
                     let name = k.wire_name().to_owned();
-                    let relayed = crate::linux_host::rd_doc::is_relayed(&name);
+                    let relayed = cmux_hub_host::rd_doc::is_relayed(&name);
                     let _ = to_hub.send(ToHub::Path(if relayed { "relay" } else { "direct" }));
                     eprintln!(
                         "Path: {name}{}",

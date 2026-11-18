@@ -67,33 +67,9 @@ extension CloudHandlers {
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
         // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
         let task: ActionResultWork = Task { @MainActor in
-            await firstAnswer(inner, within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
+            await inner.firstAnswer(within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
         }
         context.services.registry.track(result: task)
-    }
-
-    /// `work`'s answer if it comes within `wait`, else nil (the work keeps
-    /// running). Both sides yield into one stream and the first value wins:
-    /// awaiting an unstructured task's `value` ignores cancellation, so a
-    /// task group racing it would wait for the work to end anyway. The stream
-    /// keeps only the first of its two values.
-    static func firstAnswer(_ work: ActionResultWork, within wait: Duration) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
-        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>
-            .makeStream(bufferingPolicy: .bufferingOldest(1))
-        // task-owner: relays the work's answer; it ends with the work (a yield after finish is dropped).
-        Task { continuation.yield(await work.value) }
-        // task-owner: the answer deadline; cancelled below once an answer is in.
-        let deadline = Task {
-            // wakeup-allow: one-shot answer deadline; cancelled when the work answers first
-            try? await Task.sleep(for: wait)
-            continuation.yield(nil)
-        }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-        }
-        for await answer in answers { return answer }
-        return nil
     }
 
     /// `cloud new-machine` from a CLI or MCP: the run answers once the server

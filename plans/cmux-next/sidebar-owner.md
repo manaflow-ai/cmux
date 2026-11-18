@@ -1,5 +1,39 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (minimal-hide-all): Sidebar-Look: user, 2026-11-17 (msg 38388): "minimal mode should hide everything in sidebar including cards like update, iff user is not hovered in sidebar". In Minimal Mode (`sidebar.minimal`), with the pointer away, every sidebar view but the content (the workspace list, the bands, the Priority view, edit mode's bar) fades out with the controls' hover fade (`SidebarChromeReveal.rest`, `SidebarView.minimalChromeViews`): one rule over the sidebar's subviews, so a card added later hides by default. Newly hidden: the Restart to Update, notice (tips, star prompt, restoring, update status), Now Playing and cmux Updated cards, the card stack, app health's line, the Update Available button, the Priority bell, the titlebar accessory and the needs-you tray. A card arriving while hidden arrives hidden. Their room goes to the list with the footer's, on the footer's curve, and comes back on hover. A fade only: frames and the accessibility tree stay. Show Sidebar Controls Only on Hover alone keeps the cards. `MinimalModeHidesEverythingTests`.
+- 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
+  #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
+  `SidebarColumns` rounded the pitches back from the trailing edge up with no tolerance, so one pitch could count as two
+  and the next mark (the unread dot after a status mark, a header's next control) skipped a column. A thousandth of a
+  pitch now counts as none. Regression: `SidebarGridAlignmentTests.theNextMarkTakesTheNextColumnAtAnyPitch`.
+
+- 2026-11-16 (lane/sidebar-share-icon, ask-3d308b4cbd): Sidebar-Look: Leo, 2026-11-16, on the share arrow drawn on every row: "Holy moly is THIS the icon for screen sharing???". Workspace rows draw no screen button (the revert below, ask-035c65b611, stands). Where Share and View screen remain, on the machine header and the Projects header, they draw a screen (`remote.display`), never the generic share arrow (`action.share`), and show on hover only; the header keeps the slot so the name never moves. While This Mac shares (`SidebarMachine.screenShared`, from this device's `HubDevice.macScreenShared`), those headers draw the screen in the accent at rest, labelled "Sharing screen": the sharing badge. VoiceOver reaches a hidden header button through the header's custom action. The header's + stays at rest (cx-g2kk). Regression: `SidebarScreenActionTests`, `SidebarRowControlsAtRestTests` (no row draws an action at rest); gallery `AASidebarScreenActionsGalleryTests.renderStates` (four glyph variants).
+
+- 2026-11-17 (group-rail-polish): Sidebar-Look: Lawrence, 2026-11-17, on the "Chief's workspaces" rail zoomed in: "group
+  left bar is not pixel perfect, it needs proper even roundness, and have slight padding on left as well, and identical
+  color/texture to the workspace group". Every group rail is now an even capsule (both ends rounded by half its width;
+  Leo's 2026-11-08 katana tip is gone; a `joined` rail keeps its square top). Under the band the rail sits centred in its
+  lane, `SidebarStyle.groupRailInset` (half the rail-to-members gap, 1 pt at the default metrics) in from the header bar's
+  left edge, on the rows' own half-point grid. A no-color group's rail is painted with its header's own pane
+  (`GroupGlassPaint`; the solid band's neutral without glass), not a separate grey. Colored rails keep their color.
+  Regression: `GroupRailPolishTests`, `SidebarGroupRailKatanaTests`.
+
+- 2026-11-17 (chief-group-rail): Sidebar-Look: Lawrence, 2026-11-17: "chief workspaces group missing left rail". The
+  host makes "Chief's workspaces" with no color, and a group with no color drew only its block (`sidebar.noColorGroup`)
+  with a fully clear line, so it had no left rail while each colored group beside it had one. Every open group now draws
+  its rail by one rule (`SidebarGroupLine.lines`, `railFrame`): the same x, top, width and bottom as a colored group's
+  over the same rows. A group with no color draws it inside its block (`SidebarGroupLine.rail`, clipped by the block so
+  it follows a fold) in the palette's neutral grey (`GroupTint.railTint`); the plain look draws the same grey rail.
+  The block itself is unchanged. Regression: `ChiefGroupRailTests`.
+
+- 2026-11-16 (ask-035c65b611): Sidebar-Look: no workspace row draws a screen button, on any machine kind. Leo, on the
+  Share icon every row drew: "WHY CANT IT JUST BE REVERTED". This reverts the row screen slot #43516 added (b16877b72ce
+  had dropped only This Mac's rows); Share and View screen stay on machine headers and in the palette. The 2026-11-13
+  "flat local workspace rows carry Share" line below no longer holds. Regression:
+  `SidebarScreenActionTests.noWorkspaceRowDrawsAScreenButton`.
+
+- 2026-11-16 (first-frame-rows): Sidebar-Look: no visual change. A new window has the spaces of its space bar and its own space in the model before the window is ordered in. Before, the sidebar's bridge showed the rows of its seed in the turn that makes the sidebar and registered the rows pass (`SidebarSameTurn.observe`), whose first run is its task's, one hop later. Only the rows pass wrote the spaces and the window's space (the seed wrote them from a saved sidebar; a new window has none), and the space bar hides below two spaces: a window of a session with two spaces was ordered in with no bar, and the bar came in a hop later. Now the seed (`SidebarBridge.seedFromSnapshot`) writes them for each window with no saved spaces, from the store, by the function that the rows pass uses (`SidebarSpaceBar.profiles`). It does not keep them as it keeps a saved sidebar's (`seededProfiles`): the rows pass writes the store's list at each run. No pass runs in front of an order-in: the window manager's `present` checks the band's values and no more, as before this note. This is narrower than the first form of the change, which ran each pending pass in `present`: the first frame has the spaces and the window's space; the rows' decorations and the page faces come one hop later, as before. Changed with it: the first draw of a window with no saved spaces is the list's space page (the model has a space at that draw), where it was the list's reload. Both are one full reload with no animation (by a read of the code; not looked at on a build). That draw ends the new-row measure (`SidebarNewRowTimer`, `debug.new_workspace`) as the reload did; a restored window with saved spaces, whose first draw was the space page already, gets that end mark too. A restored window with no saved sidebar has its spaces at the order-in when the store has them. The time measure of the first form (a signpost interval, a first-frame sample, a test with a time bound) is deleted: a time is not a gate number here; the gate is a count, 0 rows passes (`rebuilds`) in the call that makes and presents a window. The first run of the rows pass of a window with no saved spaces shows its rows at once, in one step with no motion, also while the pointer is over the rows (`SidebarView.showRowsOfTheMaking`, which `SidebarSameTurn` calls after that run, one time for a window; the bridge asks for it at `observe`): before the seed wrote the space, that run was the window's space change, which reloads the list with no condition, and a create's row of a new window must not wait for the pointer to leave. Each later change that nobody in the window asked for waits under the pointer, as before. Not covered: a frame as drawn (the tests read the model). Tests: `NewWindowSidebarRowsFirstFrameTests`, `RestoredWindowSidebarRowsPassTests` (CmuxNextAppTests).
+
 - 2026-11-14 (#42277 integration): preserve the landed header Add button at rest beside Share/View and the chevron; retain authenticated Mac actions and window-scoped routing. The shared device-record helper and native Open/Stop bindings use the landed implementation. `SidebarScreenActionTests` checks all three controls stay separate and visible through hover transitions.
 
 - 2026-11-13 (lane/screen-share-ergonomics): visible Share This Mac in the native Projects
@@ -40,6 +74,8 @@
   desktop gui, ios, remote, cloud, etc". Sign-in, install, update and start failures show at once; the tooltip and
   VoiceOver keep the real state. `SectionHeaderRowView.drawn`; regression:
   `DaemonStartupFailureStateTests.aDroppedLinkSaysNothingInItsHeaderUntilTheGrace`.
+
+- 2026-11-17 (hover card resize): Sidebar-Look: Lawrence, msg 38370 (a recording of Show details and Hide details): "fix jank like shadows stuff". The workspace card no longer resizes under a mask over a card laid out at the larger size: its real surface, rim, rounded corners and shadow take the resize's size on every frame of the window's motion clock (`HoverCardMorph`, `PopupHostView.cardRect`), so the moving edge keeps its rim and the shadow never pops when the card settles. Hide details keeps the detail rows laid out, fading out (`.fadeOut`), under the folding edge until the fold ends (`HoverCardFoldingBody`), instead of dropping them and folding an empty card; Show details fades the rows in (`.fadeIn`) as the card grows over them. Same `.panel` spring, Reduce Motion still changes the size at once. Regression: `WorkspaceHoverCardFoldTests`.
 
 - 2026-11-15 (device glyphs): Sidebar-Look: Leo asked for “nicer icons for stuff ... across all the remote related areas”. A machine with no icon of the person's own now draws the SF Symbol of the device its daemon says it is (`machine_symbol`, cmux-device-kind) in its sidebar header and on the hover card's machine line, where the globe drew before; a Cloud machine keeps the cloud. The glyph takes the slot and size the old icon had, so nothing moves.
 - 2026-11-14 (CMUX-383 Step B): Sidebar-Look: Leo asked for “Sidebar customization (look at BB and Herder)”. The existing sidebar surface and density now read the pinned Rust projection through Swift, applying section hide/order, same-section workspace grouping/order, and atomic cmux-next.json hot reload. Gallery variants cover default, hidden/reordered sections, and workspace grouping; the watcher test covers an editor-style atomic replace.
@@ -1140,6 +1176,17 @@ named row does. The quiet ink's plumbing goes with it (`WorkspaceRowView.isQuiet
 `SidebarMapping.isUnnamed`); `WorkspaceModel.isUnnamed` stays for a Cloud shell's "Terminal" title. Tests:
 `SidebarUnnamedRowInkTests` (replaces `SidebarQuietUnnamedRowTests`).
 
+## A Cloud chat's workspace is a plain row with a cloud mark (2026-11-10)
+
+User 2026-11-10, of a Cloud chat under a collapsible "lease-lease_21_c6c…" header with "workspace-1" beneath: no
+machine group, ever, and the machine's name nowhere in the sidebar. In the one list a Cloud machine has no header
+(`keepsHeaderInOneList` keeps one only for a remote group a person made); its workspaces are ordinary rows, each with
+a small cloud glyph (`IconName.cloud`, tertiary-secondary ink, the indicator size) right after the name, which gives
+up room for it. The row names no machine (no mark, no `machineLabel`; VoiceOver says "Cloud"); a status the person
+must act on is still said. `sidebar.groupByComputer` still heads each computer. This takes back the Cloud header of
+#28051 (2026-11-04). Tests: `SidebarCloudMachineHeaderTests`, `SidebarCloudRowLookTests`. Coordinated with a590 by note.
+
+
 ## An agent driving the screen or a browser shows on its row (2026-11-08)
 
 Lawrence 2026-11-07: "i think the computer use/browser use indiciator in workspaces needs to be better".
@@ -1270,7 +1317,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Group rail shape | Chrome's line on that edge: 2 pt, the katana on top and a round cap below (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
 | Group header | The `group` surface role: its veil tinted by the group's color (chroma x1.3, 44% dark / 34% light) and its rim; the name in the theme's ink at the rows' title size, regular weight (Lawrence 2026-11-05: "group fonts should not be bold"). Debug `sidebar.groupGlass`: `vivid` (default), `glass`, `frost`, `solid`. | Leo 2026-11-05 ("just make it glassier"; "Why does it not have any sort of rim at all?") |
 | Group with no color | The `group` surface role untinted behind the header and its members (its veil and rim), the header's width, no hue and no indent; rows' hover and selection draw over it. Debug `sidebar.noColorGroup`: `glass` (default), `tray`, `lit`, `plain`. | Leo 2026-11-05 ("a grouped up thing"; "we're not necessarily into that indentation thing") |
-| Left bar: the katana on top, a round cap below | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card): its top is the katana, the left edge square up to the tip and a convex cut on the right twice the bar's width long, drawn in the body's path; its bottom is a round cap, the layer's corner clip (half the bar's width), so it follows the rows' spring. In light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither end is clipped by the row, the scroll edge or a neighbour row. | Leo 2026-11-08 ("I'll just call it the katana ... We need to add it", ask-9b1dc32713); Lawrence msg 19775 (the bottom cap); SidebarGroupRailKatanaTests |
+| Left bar: an even capsule | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines, a no-color group's block and a lifted group's card): both ends the same round cap, the layer's corner clip (half the bar's width), so it follows the rows' spring; the body a plain bar; a `joined` rail keeps its top square where it leaves the bar. Under the band it sits centred in its lane, half the rail's gap in from the header bar's left edge, on the rows' half-point grid. A no-color group's rail is its header bar's own pane (`GroupGlassPaint`, the solid band's neutral without glass). In light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither end is clipped by the row, the scroll edge or a neighbour row. | Lawrence 2026-11-17 ("group left bar is not pixel perfect, it needs proper even roundness, and have slight padding on left as well, and identical color/texture to the workspace group"; replaces Leo's 2026-11-08 katana tip); Lawrence msg 19775 (the bottom cap); SidebarGroupRailKatanaTests, GroupRailPolishTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Row title ink | Every workspace row's title draws in the sidebar title ink (`Palette.sidebarTitle`), named or not: "workspace-1", "workspace-2" and a shell at "~" read like a named row, idle or busy. Takes back the secondary ink #22840 gave idle unnamed rows. | Lucas 2026-11-12 ("we also need to make "workspace-1" "workspace-2" (unnamed workspaces) be white colour text on the left sidebar"); SidebarUnnamedRowInkTests |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
@@ -2272,6 +2319,21 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
 - Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
   group and opaque), red commit first.
 
+## A hover card's fill stands one gap from every card edge (2026-11-16)
+
+- Lawrence 2026-11-16, on the workspace hover card of one tab ("manaflow-ai/trellis: Trellis: a programming l…") over
+  Show details: "bottom padding must be same as left/right, same for top".
+- Cause: a tab row's fill and Show details' fill reach `WorkspaceTabHoverCardRow.fillOutset` (4 pt) past the rows'
+  sides, but not past their top or bottom, so the hovered Show details stood the full padding from the card's bottom
+  and the first tab row (the name hidden: the one tab says it) the full padding from its top, 4 pt more than from the
+  sides.
+- Now, where a fill row (the tab list or Show details) is the first or last row shown, the rows come `fillOutset`
+  nearer that card edge (`WorkspaceHoverCardView.applyEdgeInsets`): the fill stands padding - fillOutset from all four
+  edges, the gap the card's corners are concentric around. A first or last row with no fill (the name) keeps the
+  padding.
+- Test: `WorkspaceHoverCardEvenInsetTests.aFillAtTheTopOrBottomIsAsFarFromThatEdgeAsFromTheSides`, every density, red
+  commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -2315,6 +2377,14 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `digest` (one line per area, opens in place), `chips` (area filter chips), `headline` (top three at full size, then
   See all changes) and `ledger` (one line per change, area label once). `sections` stays the default until Lawrence
   picks. Tests: updated-notes-looks. Sidebar-Look: Lawrence 2026-11-09, "make and show me more versions of this ui".
+- 2026-11-10 (cloud-multiplayer): a Cloud machine's workspaces lose their machine header and machine name in the one
+  list; each row draws a cloud mark after its name. Sidebar-Look: Cloud rows are top-level rows with a cloud mark
+  after the name; no Cloud machine header.
+- 2026-11-10 (cloud-mp-row, for a590): a workspace of this Mac whose New Tab page is starting a Cloud chat draws the
+  same cloud mark after its name from the Send (`SidebarWorkspace.startsInCloud`, set from the page face by
+  `AgentCloudStartTitles`), and reads as the chat's first prompt instead of `workspace-N`; the chat's own row on its
+  machine keeps the mark once it opens. Look change: the cloud mark shows while the start runs. Regression:
+  CloudStartRowTests, CloudStartTitleTests. Sidebar-Look: "just show a cloud icon next to a cloud workpsace".
 - 2026-11-11: the sidebar is one surface with the chrome again. The 0.2 dark / 0.025 light dim (#39984) shipped in nightly
   4294166855401 and Leo, verbatim: "bro why is the sidebar now a different color?" (the list read dimmer than the
   footer, the update card and the titlebar). `sidebar.surfaceDim.dark` and `.light` default to 0 and stay as Debug
@@ -2358,6 +2428,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   ghost round on the rows' and tabs' curve (`Metrics.tabCornerCurve`, circular by default) instead of a hard-coded
   continuous one, so every 8 pt row corner in and beside the sidebar is one shape. Leo, verbatim: "all corners
   looking good". Sidebar-Look: the hover card rows and the drag ghost round as the rows do.
+- 2026-11-12 (cloud-multiplayer): a Cloud workspace row with no icon of its own leads with the cloud mark in the icon
+  column, where Home's glyph sits, so its title lines up on the text column; a row with its own icon keeps it and
+  shows the cloud after the name as before. Sidebar-Look: Austin 2026-11-11 asked for the cloud icon on a Cloud
+  workspace to sit on the left, aligned like Home's icon.
 - 2026-11-12 (https://github.com/manaflow-ai/cmux/issues/42373, Austin: "no label between pinned rows and the workspace
   list"): the one list's quiet "Workspaces" heading and its `sidebar.listHeading` toggle are gone; the first workspace
   row sits one row gap under the last pin. Regression: `SidebarTopRowsRhythmTests`. Sidebar-Look: no heading under the pins.

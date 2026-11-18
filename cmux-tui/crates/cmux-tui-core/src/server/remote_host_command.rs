@@ -10,8 +10,10 @@
 //!   a session stopped). Raising (sharing on, a viewer to Ask from None, View
 //!   or Full) needs the verified app: an agent in a terminal never grants a
 //!   device access to this Mac.
-//! - `remote-host-config {computer_use, screen_sharing, headless}`: the
-//!   person's switches, from the verified app.
+//! - `remote-host-config {computer_use, screen_sharing, headless,
+//!   app_permissions}`: the person's switches, and the app's own Screen
+//!   Recording and Accessibility (memory only, shown as status `app`), from
+//!   the verified app.
 //! - `remote-host-app`: the app socket's credentials for the verified app's
 //!   own process (the host admits that process only).
 
@@ -175,11 +177,29 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     Ok(answer)
 }
 
-pub(super) fn config(mux: &Mux, client: u64, update: Value) -> anyhow::Result<Value> {
+pub(super) fn config(
+    mux: &Mux,
+    client: u64,
+    update: Value,
+    app_permissions: Option<crate::remote_host::AppPermissions>,
+) -> anyhow::Result<Value> {
     if !caller(mux, client)?.verified_app {
         return Err(forbidden("switches come from the cmux app").into());
     }
-    mux.control_clients.remote_host.set_config(&update).map_err(unavailable)
+    let host = &mux.control_clients.remote_host;
+    let reported = app_permissions.map(|permissions| host.set_app_permissions(permissions));
+    // A call that carries only the app's grants never saves, starts or stops anything.
+    match reported {
+        Some(status) if !has_switch(&update) => Ok(status),
+        _ => host.set_config(&update).map_err(unavailable),
+    }
+}
+
+/// Whether a `remote-host-config` update moves any of the person's switches.
+fn has_switch(update: &Value) -> bool {
+    ["computer_use", "screen_sharing", "headless"]
+        .iter()
+        .any(|key| update.get(key).is_some_and(|value| !value.is_null()))
 }
 
 pub(super) fn app(mux: &Mux, client: u64) -> anyhow::Result<Value> {

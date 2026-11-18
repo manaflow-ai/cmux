@@ -136,6 +136,7 @@ public final class HoverCardCoordinator {
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+                self?.topWindowCache = nil // a window moved: another may be on top under the pointer now
                 self?.windowGeometryChanged(number, liveResizeEnded: ended)
             })
         }
@@ -149,6 +150,9 @@ public final class HoverCardCoordinator {
             timer.cancel()
         }
     }
+
+    /// A window of this app came front (it became key): the top window cached under the pointer may be under it now.
+    public func windowOrderChanged() { topWindowCache = nil }
 
     // MARK: Sources
 
@@ -174,7 +178,9 @@ public final class HoverCardCoordinator {
         let timing = HoverIntentTiming.current
         machine.leaveWindow = timing.cardGrace
         machine.aimWindow = timing.cardAim
-        let card = shownCardFrame
+        // A card the pointer never enters (a horizontal tab's preview) is not there for it: the pointer
+        // on it is off its target, as anywhere else, and heads into nothing.
+        let card = shownCardFrame.flatMap { shownCardIsEnterable ? $0 : nil }
         let aiming = card?.isAimedAt(from: lastPointer, to: now) == true
         lastPointer = now
         // On the card the pointer is on no target (the card ignores the mouse,
@@ -216,8 +222,12 @@ public final class HoverCardCoordinator {
         return panel.cardFrame
     }
 
-    /// Whether the pointer rests on the shown card now.
-    private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
+    /// Whether the pointer rests on the shown card now; never on a card it does not enter.
+    private func pointerIsOnCard() -> Bool { shownCardIsEnterable && shownCardFrame?.contains(currentPointer()) == true }
+
+    /// The shown card's target lets the pointer onto its card (`HoverTarget.enterable`): a sidebar row's
+    /// card does, a horizontal tab's preview does not (user 2026-11-16).
+    private var shownCardIsEnterable: Bool { machine.shownTarget?.enterable != false }
 
     /// The pointer rests on the shown card now (a source holds its targets still while it does: the card
     /// follows its target, so a target moving would carry the card out from under the pointer).
@@ -592,6 +602,26 @@ public final class HoverCardCoordinator {
         if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
         if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
         return bad
+    }
+
+    /// Presses the button named `label` (its accessibility label: "Show details") in the shown card, as a click
+    /// would (`debug.hover_cards {press: ...}`: live recordings of the card's resize). False: no such button shows.
+    public func pressShownButton(_ label: String) -> Bool {
+        func find(_ view: NSView) -> NSView? {
+            if !view.isHidden, view.accessibilityRole() == .button, view.accessibilityLabel() == label { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        guard let body = panel?.body, let button = find(body) else { return false }
+        return button.accessibilityPerformPress()
+    }
+
+    /// `debug.hover_cards`' commands, run before its report: `dismiss` dismisses the shown card as an app action
+    /// would; `press` presses that button in it (``pressShownButton(_:)``). Returns an error to answer, or nil.
+    public func debugCommand(dismiss: Bool, press: String?) -> String? {
+        if dismiss { self.dismiss(.action) }
+        if let press, !pressShownButton(press) { return "no shown card has a \(press) button" }
+        return nil
     }
 
     /// State for `debug.hover_cards`.
