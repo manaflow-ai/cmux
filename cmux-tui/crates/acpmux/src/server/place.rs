@@ -471,7 +471,7 @@ mod tests {
                 named("lane", false, health(60, 6)),
             ]
         };
-        let v = dispatch_place(hosts(), Some(&reg), Work::Agent);
+        let v = dispatch_place(hosts(), &[], Some(&reg), Work::Agent);
         assert_eq!(v["pick"], "lane", "{v:#}");
         assert_eq!(v["overloaded"], true, "{v:#}");
         assert_eq!(v["local"], false);
@@ -481,7 +481,7 @@ mod tests {
 
         // A build may go to the last-resort host (its lanes.build "fallback"); a person's
         // machines stay out, and the lane VM takes no builds.
-        let v = dispatch_place(hosts(), Some(&reg), Work::Build);
+        let v = dispatch_place(hosts(), &[], Some(&reg), Work::Build);
         assert_eq!(v["pick"], "spare", "{v:#}");
 
         // Nothing left: no pick, and the answer names who was left out and why.
@@ -491,6 +491,7 @@ mod tests {
                 named("apps", false, health(60, 0)),
                 named("spare", false, health(60, 0)),
             ],
+            &[],
             Some(&reg),
             Work::Agent,
         );
@@ -499,7 +500,7 @@ mod tests {
         assert!(why.contains("never starts a new lane on mac, apps, spare"), "{why}");
 
         // Without a registry nothing is left out.
-        let v = dispatch_place(vec![named("mac", true, health(60, 0))], None, Work::Agent);
+        let v = dispatch_place(vec![named("mac", true, health(60, 0))], &[], None, Work::Agent);
         assert_eq!(v["pick"], "mac", "{v:#}");
     }
 
