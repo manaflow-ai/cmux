@@ -30,6 +30,7 @@ pub mod schema;
 pub mod store;
 pub mod text;
 pub mod theme_file;
+pub mod transcript_look;
 pub mod value;
 pub mod watch;
 

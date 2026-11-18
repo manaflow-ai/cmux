@@ -182,6 +182,24 @@ fn kind_schema(row: &Row) -> Value {
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
         }
+        Validation::Domain(DomainKind::TranscriptTokens) => {
+            // One property per token of schemas/transcript-look/transcript-look.json, so an editor
+            // completes and checks a theme file's tokens.
+            let mut properties = Map::new();
+            for token in &crate::transcript_look::spec().tokens {
+                let schema = match token.kind {
+                    crate::transcript_look::TokenKind::Choice => {
+                        json!({ "enum": token.choices, "description": token.description })
+                    }
+                    crate::transcript_look::TokenKind::Number => json!({
+                        "type": "number", "minimum": token.min, "maximum": token.max,
+                        "description": token.description,
+                    }),
+                };
+                properties.insert(token.name.clone(), schema);
+            }
+            return json!({ "type": "object", "properties": properties, "additionalProperties": false });
+        }
         Validation::Domain(DomainKind::AppId) => {
             // The manifest's own id pattern, read from its schema.
             return match super::app_id::app_id_pattern() {

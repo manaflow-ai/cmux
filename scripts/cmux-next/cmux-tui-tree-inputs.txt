@@ -101,6 +101,7 @@ blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
+blob schemas/transcript-look/transcript-look.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
 # acpmux's v2 gate registry tests read the nightly's gate script and its lines: a
