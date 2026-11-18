@@ -388,13 +388,13 @@ describe("admin users route", () => {
     expect(granted.status).toBe(200);
     const body = (await granted.json()) as { user: Record<string, unknown> };
     expect(body.user).toMatchObject({ id: "u1", isPro: false, manualPlanId: null, nextManualPlanId: "next_pro" });
-    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
     expect(directory[0]?.serverMetadata.cmuxAdminNextPlanGrant).toMatchObject({ plan: "next_pro" });
     expect(directory[0]?.serverMetadata.cmuxAdminPlanGrant).toBeUndefined();
 
-    // A removal without `slot` targets the classic slot and leaves NEXT alone.
+    // A removal without `slot` targets the classic slot and leaves NEXT (and its mirror) alone.
     expect((await POST(postRequest({ userId: "u1", plan: null }))).status).toBe(200);
-    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro" });
+    expect(directory[0]?.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
 
     const removed = await POST(postRequest({ userId: "u1", plan: null, slot: "next" }));
     expect(removed.status).toBe(200);

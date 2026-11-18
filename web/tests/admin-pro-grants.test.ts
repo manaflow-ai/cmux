@@ -293,7 +293,8 @@ describe("setManualPlanGrant", () => {
       withFreshUser: directMutation(app),
       stripeBillingStatus: async () => noStripe,
     });
-    expect(target.clientReadOnlyMetadata).toEqual({ other: 1, cmuxNextVmPlan: "next_max" });
+    // Mirrored into cmuxVmPlan while the classic slot is empty, for readers that only know that key.
+    expect(target.clientReadOnlyMetadata).toEqual({ other: 1, cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
     expect(row.manualPlanId).toBeNull();
     expect(row.nextManualPlanId).toBe("next_max");
     expect(row.lastGrant).toBeNull();
@@ -459,7 +460,8 @@ describe("classic and cmux NEXT grant slots", () => {
     expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "max" });
     expect(row).toMatchObject({ manualPlanId: "max", nextManualPlanId: "next_pro" });
     row = await write(target, { plan: null });
-    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro" });
+    // The classic removal restores the NEXT mirror instead of leaving cmuxVmPlan absent.
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "next_pro" });
     expect((target.serverMetadata as Record<string, unknown>).cmuxAdminNextPlanGrant).toEqual(nextAudit);
     expect(row).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_pro" });
   });
@@ -480,13 +482,37 @@ describe("classic and cmux NEXT grant slots", () => {
     // A classic removal on a legacy record keeps the NEXT grant too.
     const other = fakeUser({ id: "u2", clientReadOnlyMetadata: { cmuxVmPlan: "next_max" } });
     await write(other, { plan: null });
-    expect(other.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max" });
+    expect(other.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
   });
 
-  test("a NEXT write replaces a legacy NEXT id instead of keeping both", async () => {
+  test("a NEXT write on a legacy record keeps the mirror, and a change updates both keys", async () => {
     const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro" } });
+    await write(target, { plan: "next_pro" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_pro" });
     await write(target, { plan: "next_max" });
-    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
+    await write(target, { plan: null, slot: "next" });
+    expect(target.clientReadOnlyMetadata).toEqual({});
+  });
+
+  test("a NEXT write never mirrors over a classic grant or restriction", async () => {
+    for (const classic of ["pro", "free", "enterprise"]) {
+      const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: classic } });
+      await write(target, { plan: "next_pro" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: classic, cmuxNextVmPlan: "next_pro" });
+      await write(target, { plan: null, slot: "next" });
+      expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: classic });
+    }
+  });
+
+  test("when the keys disagree the new key wins and the next write repairs the mirror", async () => {
+    const target = fakeUser({ id: "u1", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" } });
+    expect(adminUserRow(target, noStripe)).toMatchObject({ manualPlanId: null, nextManualPlanId: "next_max" });
+    await write(target, { plan: null });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
+    const again = fakeUser({ id: "u2", clientReadOnlyMetadata: { cmuxVmPlan: "next_pro", cmuxNextVmPlan: "next_max" } });
+    await write(again, { plan: "next_max" });
+    expect(again.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "next_max", cmuxNextVmPlan: "next_max" });
   });
 
   test("slot next with a classic plan is refused without writing", async () => {
@@ -495,7 +521,7 @@ describe("classic and cmux NEXT grant slots", () => {
     expect(target.updates).toEqual([]);
     // A NEXT plan goes to the NEXT slot even when slot says classic.
     await write(target, { plan: "next_max", slot: "classic" });
-    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max" });
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
   });
 
   test("a garbage cmuxNextVmPlan is no grant and no restriction", () => {
@@ -881,6 +907,27 @@ describe("pending email grants", () => {
     expect(applied).toBe(1);
     expect(grants.map((grant) => grant.plan)).toEqual(["next_pro"]);
     expect(rows[0]?.appliedUserId).toBe("u7");
+  });
+
+  test("a pending cmux NEXT grant on an account without a classic grant writes the mirror too", async () => {
+    const rows: GrantRow[] = [];
+    const db = fakeGrantsDb(rows);
+    await createPendingEmailGrant({ email: "solo@example.com", plan: "next_max", admin, db });
+    const target = fakeUser({ id: "u8", primaryEmail: "solo@example.com" });
+    const app = fakeApp([target]);
+    const grant = (input: SetManualPlanGrantInput) => setManualPlanGrant({
+      ...input,
+      app,
+      withFreshUser: directMutation(app),
+      stripeBillingStatus: async () => noStripe,
+    });
+    expect(await applyPendingEmailGrants({ id: "u8", primaryEmail: "solo@example.com" }, { db, grant })).toBe(1);
+    expect(target.clientReadOnlyMetadata).toEqual({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "next_max" });
+    // Unwinding it clears both keys.
+    rows[0]!.appliedAt = null;
+    rows[0]!.appliedUserId = "u8";
+    await revokePendingEmailGrant({ grantId: "g1", db, grant });
+    expect(target.clientReadOnlyMetadata).toEqual({});
   });
 
   test("a pending cmux NEXT grant lands in the NEXT slot beside a classic grant", async () => {

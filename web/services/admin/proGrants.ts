@@ -480,9 +480,17 @@ function slotGrantRecord(serverMetadata: unknown, slot: AdminGrantSlot): AdminPl
 
 /**
  * Applies one slot's write to copies of the account's metadata. The other
- * slot's grant and audit record are kept. A legacy NEXT id in `cmuxVmPlan`
- * moves to `cmuxNextVmPlan` (with its audit record) in the same write, so a
- * classic change never drops a NEXT grant; a NEXT write replaces it.
+ * slot's grant and audit record are kept.
+ *
+ * Mirror, so the write is safe while an older reader that only knows
+ * `cmuxVmPlan` is live: whenever the classic slot holds no classic value
+ * (absent, or a NEXT id), the NEXT grant is also written to `cmuxVmPlan` as
+ * the NEXT id (the legacy shape; classic code reads it as no classic plan).
+ * When the classic slot holds a classic grant or restriction, a NEXT write
+ * touches only `cmuxNextVmPlan`. A legacy NEXT id in `cmuxVmPlan` is copied to
+ * `cmuxNextVmPlan` (with its audit record) before a classic write, and a
+ * classic removal restores the mirror, so a classic change never drops a
+ * NEXT grant.
  */
 export function writeGrantSlot(
   client: Record<string, unknown>,
@@ -493,9 +501,13 @@ export function writeGrantSlot(
 ): void {
   const legacyNext = nextPlanId(client.cmuxVmPlan);
   if (slot === "next") {
-    if (legacyNext) delete client.cmuxVmPlan;
-    if (plan === null) delete client[NEXT_GRANT_METADATA_KEY];
-    else client[NEXT_GRANT_METADATA_KEY] = plan;
+    if (plan === null) {
+      delete client[NEXT_GRANT_METADATA_KEY];
+      if (legacyNext) delete client.cmuxVmPlan;
+    } else {
+      client[NEXT_GRANT_METADATA_KEY] = plan;
+      if (!holdsClassicValue(client)) client.cmuxVmPlan = plan;
+    }
     server[NEXT_GRANT_AUDIT_KEY] = grant;
     return;
   }
@@ -506,9 +518,20 @@ export function writeGrantSlot(
       if (legacyAudit) server[NEXT_GRANT_AUDIT_KEY] = server[CLASSIC_GRANT_AUDIT_KEY];
     }
   }
-  if (plan === null) delete client.cmuxVmPlan;
-  else client.cmuxVmPlan = plan;
+  if (plan === null) {
+    const next = nextPlanId(client[NEXT_GRANT_METADATA_KEY]);
+    if (next) client.cmuxVmPlan = next;
+    else delete client.cmuxVmPlan;
+  } else {
+    client.cmuxVmPlan = plan;
+  }
   server[CLASSIC_GRANT_AUDIT_KEY] = grant;
+}
+
+/** Whether `cmuxVmPlan` holds a classic grant or restriction (any value that is not a NEXT id). */
+function holdsClassicValue(client: Record<string, unknown>): boolean {
+  const value = client.cmuxVmPlan;
+  return value !== undefined && value !== null && nextPlanId(value) === null;
 }
 
 function parseGrantRecord(record: unknown): AdminPlanGrantRecord | null {
