@@ -340,7 +340,7 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(planned["needs_build"])
         self.assertIn("Rust the app has and the change lacks", planned["build"])
         self.assertNotIn("daemon_from", planned)
-        self.assertTrue(any("does not apply cleanly" in note for note in planned["notes"]), planned["notes"])
+        self.assertTrue(any("do not apply cleanly" in note for note in planned["notes"]), planned["notes"])
 
     def test_ffi_drift_swaps_the_daemon_applied_onto_the_app(self):
         # cmuxterm-hq#13435: 59 of 132. The head's daemon would speak FFI changes merged after the nightly; the
