@@ -245,7 +245,7 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
   /// step is 0 and draws no tuck (sendTuck.ts plays only on a clock above 0).
   const galleryClock = (page: Page) =>
     page.addStyleTag({
-      content: ":root { --agent-motion-send: 180ms !important; --agent-motion-send-fade: 180ms !important; }",
+      content: ":root { --agent-motion-send: 180ms !important; --agent-motion-send-fade: 180ms !important; }", // motion-allow: a gallery's own send clock
     });
 
   /// The composer is empty from the first frame after the send, and stays so.
