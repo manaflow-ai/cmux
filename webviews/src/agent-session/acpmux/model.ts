@@ -2017,10 +2017,95 @@ function openRunBody(steps: number): number {
   return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
 
+/// An opened edits group's body under its line (ToolGroupRow.tsx, its `kind === "edits"` arm): the
+/// line's gap, then a diff card per changed file (EditDiff.tsx) and a row for each edit that carried
+/// no diff (a delete, a move); with no file to show, the edits' rows. No scroll box: the cards are as
+/// tall as they draw.
+function openEditsBody(
+  items: readonly AcpmuxActivity[],
+  width: number,
+  sessionId?: string,
+  rowId = "",
+  thoughts = 0,
+): number {
+  const files = toolFiles(items.flatMap((item) => (item.tool ? [item.tool] : [])));
+  const gap = gridLength("base") * chromeScale;
+  if (!files.length) return gap + stepsHeight(items, width, sessionId, rowId, thoughts);
+  const plain = items.filter((item) => !item.tool?.diffs?.length);
+  return (
+    gap +
+    files.reduce((sum, file) => sum + editDiffHeight(file, width), 0) +
+    (plain.length ? stepsHeight(plain, width, sessionId, rowId, thoughts) : 0)
+  );
+}
+
+/// One changed file's diff card (EditDiff.tsx, conversation.css `.cv-edit-diff`): 4px above and 8px
+/// below it, its 32px head, and its body: the edits' 18px rows, with the 24px separator Pierre draws
+/// before a hunk that skips lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is
+/// drawn at the rendered diff's height), and the scrollbar lane under unwrapped rows (`diffLane`).
+/// Past PREVIEW_LINES rows the body is cut to that many and the lane (`--cv-block-cut`). An edit with
+/// no line changes is its note. Wrapped (a prose file, by default), a row takes as many lines as its
+/// text needs at the card's width.
+const DIFF_ROW = 18;
+const DIFF_SEPARATOR = 24;
+const DIFF_CUT_LANE = 6;
+const DIFF_EMPTY = 34;
+function editDiffHeight(file: TurnFile, width: number): number {
+  const wrap = blockWrapOf(fileBlockKind(file.path));
+  // A monospace cell is about 0.6 of the 12px font; the number column and the card's sides take ~10 cells.
+  const perLine = Math.max(20, Math.floor(width / 7.2) - 10);
+  let rows = 0;
+  let body = 0;
+  for (const edit of file.edits) {
+    if (!edit.hunks.length) {
+      body += DIFF_EMPTY;
+      continue;
+    }
+    let lastEnd = 0;
+    for (const hunk of edit.hunks) {
+      const kept = hunk.lines.filter((line) => line.type !== "del");
+      const start = kept[0]?.newLine ?? Math.max(0, (hunk.lines.find((line) => line.type !== "add")?.oldLine ?? 1) - 1);
+      if (start - 1 - lastEnd > 0) body += DIFF_SEPARATOR;
+      lastEnd = start + kept.length - 1;
+      for (const line of hunk.lines) {
+        const lines = wrap ? Math.max(1, Math.ceil(line.text.length / perLine)) : 1;
+        rows += lines;
+        body += lines * DIFF_ROW;
+      }
+    }
+  }
+  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * DIFF_ROW + (wrap ? 0 : DIFF_CUT_LANE);
+  else if (!wrap) body += diffLane();
+  return 4 + 32 + body + 8;
+}
+
+/// The scrollbar lane under an unwrapped diff's rows (conversation.css `.cv-edit-diff__body` `--cv-lane`,
+/// highlightedCodeModel.ts): 6px where scrollbars take room (WebKit, the app's engine), none where they
+/// overlay. Read once from a probe the transcript's own CSS styles, so it is the engine's; 6px where
+/// nothing lays out or the CSS is not loaded yet (not kept then).
+let diffLaneRead: number | undefined;
+function diffLane(): number {
+  if (diffLaneRead !== undefined) return diffLaneRead;
+  if (typeof document === "undefined" || !document.body) return DIFF_CUT_LANE;
+  const body = document.createElement("div");
+  body.className = "cv-edit-diff__body";
+  body.style.cssText = "position:absolute;left:-1000px;top:0;width:100px;visibility:hidden";
+  const lines = document.createElement("div");
+  lines.className = "cv-edit-diff__loading-lines";
+  body.append(lines);
+  document.body.append(body);
+  const styled = (document.defaultView?.getComputedStyle(body).getPropertyValue("--cv-lane").trim() ?? "") !== "";
+  const laid = lines.offsetWidth > 0;
+  const lane = lines.offsetHeight - lines.clientHeight;
+  body.remove();
+  if (!styled || !laid) return DIFF_CUT_LANE;
+  return (diffLaneRead = lane);
+}
+
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
-/// Open (`closed` false), a group is its line over its calls, but an edits group stays closed
-/// (ToolGroupRow.tsx).
+/// Open (`closed` false), a group is its line over its calls; an edits group, over its files' diffs
+/// (`openEditsBody`).
 /// `sessionId`, `rowId` and `thoughts` (the row's thoughts before it) read the lines in it the reader
 /// opened (`stepsHeight`).
 function foldedGroupHeight(
@@ -2031,8 +2116,13 @@ function foldedGroupHeight(
   rowId = "",
   thoughts = 0,
 ): number {
-  if (group.type === "group" && !closed && group.kind !== "edits")
-    return toolRowHeight() + openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts));
+  if (group.type === "group" && !closed)
+    return (
+      toolRowHeight() +
+      (group.kind === "edits"
+        ? openEditsBody(group.items, width, sessionId, rowId, thoughts)
+        : openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts)))
+    );
   if (group.type === "send")
     return (
       messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file)) +
@@ -2554,8 +2644,10 @@ function fallbackRowHeight(
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
-      // reader opened draws them too.
-      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+      // reader opened draws them too. An edits group draws as its group even alone (a lone edit with a
+      // diff, toolGroups.ts), its line opening to its files' diffs (`openEditsBody`).
+      const editsGroup = groups.some((group) => group.type === "group" && group.kind === "edits");
+      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items) || editsGroup)
         return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
     let steps = items.length ? stepsHeight(items, width, sessionId, row.id, 0, row.live === true) : toolRowHeight();
@@ -4104,6 +4196,8 @@ import {
 import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./conversation/turnRowsModel";
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { PREVIEW_LINES } from "./conversation/blockPartsModel";
+import { blockWrapOf, fileBlockKind } from "./conversation/blockWrap";
+import { toolFiles, type TurnFile } from "./diff";
 import { cardOpen } from "./turnChanges/openStore";
 import { editedFilesSettings } from "./turnChanges/settings";
 import { runScroll } from "./conversation/runScroll.experiment";
