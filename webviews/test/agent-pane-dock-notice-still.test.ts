@@ -64,6 +64,7 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
             }),
           );
         const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const start = performance.now();
         if (html) {
           const holder = document.createElement("div");
           holder.innerHTML = html;
@@ -71,6 +72,9 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         } else dock.querySelector("[data-test-dock-notice]")!.remove();
         const rows: number[] = [];
         const composer: number[] = [];
+        // The settle: from the change to the last painted frame in which a row in view or the composer
+        // moved more than 1 px (0 when none did).
+        let settle = 0;
         for (let frame = 0; frame < 12; frame++) {
           await painted();
           const now = tops();
@@ -78,10 +82,12 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
           for (const [id, top] of before) most = Math.max(most, Math.abs((now.get(id) ?? Infinity) - top));
           rows.push(Math.round(most * 10) / 10);
           composer.push(Math.round(Math.abs(box() - boxBefore) * 10) / 10);
+          if (rows.at(-1)! > 1 || composer.at(-1)! > 1) settle = performance.now() - start;
         }
         return {
           rows,
           composer,
+          settle: Math.round(settle),
           inView: before.size,
           notice: dock.querySelector("[data-test-dock-notice]")?.getBoundingClientRect().height ?? 0,
         };
@@ -101,7 +107,7 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         expect(at).toBeLessThanOrEqual(2);
         const came = await change(page, html);
         console.log(
-          `${name} came (${came.notice}px tall): rows moved ${came.rows.join(",")}; composer moved ${came.composer.join(",")}`,
+          `${name} came (${came.notice}px tall): rows moved ${came.rows.join(",")}; composer moved ${came.composer.join(",")}; settled ${came.settle} ms`,
         );
         expect(came.inView).toBeGreaterThan(3);
         // The notice took room in the stack (it is not an empty stand-in).
@@ -109,7 +115,9 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         expect(Math.max(...came.composer)).toBeLessThanOrEqual(1);
         expect(Math.max(...came.rows)).toBeLessThanOrEqual(1);
         const went = await change(page, undefined);
-        console.log(`${name} went: rows moved ${went.rows.join(",")}; composer moved ${went.composer.join(",")}`);
+        console.log(
+          `${name} went: rows moved ${went.rows.join(",")}; composer moved ${went.composer.join(",")}; settled ${went.settle} ms`,
+        );
         expect(Math.max(...went.composer)).toBeLessThanOrEqual(1);
         expect(Math.max(...went.rows)).toBeLessThanOrEqual(1);
       } finally {
