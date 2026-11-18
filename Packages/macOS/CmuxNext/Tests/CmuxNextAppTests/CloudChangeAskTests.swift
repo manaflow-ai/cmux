@@ -77,6 +77,38 @@ struct CloudChangeAskTests {
         #expect(forks.value == 0)
     }
 
+    /// A script's or an agent's resize, snapshot or template of the person's own machine only counts on their plan: it
+    /// never shows the dialog and answers the change itself, not `pending` (Leo, 2026-11-18, on the Resize Machine
+    /// dialog an agent's resize showed: "this shouldnt wait").
+    @Test(arguments: ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"])
+    func aScriptsOwnMachineSizeChangeAsksNothing(_ action: String) async throws {
+        let f = CloudCLITargetTests.fixture(), dialog = Dialog(), changes = Counter()
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: ["size": .string("medium")], origin: .cli)
+        let machine = f.session.machineID
+        let run = f.services.registry.capturingRun {
+            CloudHandlers.change(action, ActionID(rawValue: action), invocation, f.services.registry, f.context,
+                                 pending: ["machine_id": .string(machine)], ask: dialog.ask) { allow in
+                guard await allow() else { throw CloudMachineCreateFlow.Failure.declined }
+                changes.value += 1
+                return CloudAnswer(title: "", text: "", fields: CloudHandlers.machineFields(machine, ["size": .string("medium")]))
+            }
+        }
+        guard case .success(let changed) = try await #require(run.results.first).value else { Issue.record("the change failed"); return }
+        #expect(changed["pending"] == nil)
+        #expect(changed["waiting_for"] == nil)
+        #expect(changed["size"] == .string("medium"))
+        #expect(dialog.shown == 0)
+        #expect(changes.value == 1)
+    }
+
+    /// A script's fork makes a new machine: it still asks (the ledger's kept create consent).
+    @Test func aScriptsForkStillAsks() async throws {
+        let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()
+        guard case .success(let waiting) = try await Self.fork(f, dialog, forks: forks).value else { Issue.record("the first answer failed"); return }
+        #expect(waiting["waiting_for"] == .string("person"))
+        #expect(dialog.shown == 1)
+    }
+
     /// The person's own run asks nothing and answers the change itself.
     @Test func thePersonsOwnRunAsksNothing() async throws {
         let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()

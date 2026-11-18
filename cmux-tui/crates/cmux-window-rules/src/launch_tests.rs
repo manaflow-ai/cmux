@@ -55,3 +55,146 @@ fn unnamed_sessions_and_empty_windows_compare_nothing() {
     assert_eq!(verdict(&facts(Some("s1"), None, None, &[], &[])), Verdict::Current);
     assert_eq!(verdict(&SnapshotFacts::default()), Verdict::Current);
 }
+
+// Where a launch lands (Leo 2026-11-18: "fresh startup opening home is obv fine but if it's not first time and
+// the user was on a workspace and a tab, obv just take them there"; "ofc reopening home if they were prev on home
+// is fine"). Each test is named for its launch-harness arm (launch-ready front check: state, case, daemon,
+// snapshot, front), so a harness line and a test map one to one.
+
+fn on(workspace: &str, pane: &str, tab: &str) -> LastFront {
+    LastFront::Workspace {
+        workspace: workspace.into(),
+        pane: Some(pane.into()),
+        tab: Some(tab.into()),
+    }
+}
+
+fn kept(last: LastFront, workspace_live: bool, tab: TabStanding) -> LandingFacts {
+    LandingFacts { last, workspace_live, tab }
+}
+
+fn lands_on(workspace: &str, pane: &str, tab: &str) -> Landing {
+    Landing::Workspace {
+        workspace: workspace.into(),
+        pane: Some(pane.into()),
+        tab: Some(tab.into()),
+    }
+}
+
+/// Path 1, `state=kept`: a normal relaunch reopens the workspace and tab the person was last on.
+#[test]
+fn state_kept_reopens_the_last_workspace_and_tab() {
+    let facts = kept(on("w2", "p1", "t3"), true, TabStanding::Live);
+    assert_eq!(landing(&facts), lands_on("w2", "p1", "t3"));
+}
+
+/// Path 2, `state=fresh`: a bare launch with no saved state, a true first launch, opens Home.
+#[test]
+fn state_fresh_lands_on_home() {
+    assert_eq!(landing(&LandingFacts::default()), Landing::Home { why: HomeWhy::FirstLaunch });
+    // A first launch names no workspace, so what the live tree has changes nothing.
+    assert_eq!(
+        landing(&kept(LastFront::Nothing, true, TabStanding::Live)),
+        Landing::Home { why: HomeWhy::FirstLaunch }
+    );
+}
+
+/// Path 3, `state=kept case=update`: the new copy's first launch reads the old copy's saved front window (the
+/// daemon keeps it, not the copy), and lands where the old copy left the person. The copy is no input.
+#[test]
+fn state_kept_case_update_reopens_the_old_copys_workspace_and_tab() {
+    let old_copys = kept(on("w7", "p2", "t9"), true, TabStanding::Live);
+    assert_eq!(landing(&old_copys), lands_on("w7", "p2", "t9"));
+}
+
+/// Path 4, `state=kept daemon=cold`: after a reboot the daemon starts cold, keeps the workspace keys and tab ids,
+/// and relaunches a tab whose process died under the same terminal (or shows its restart placeholder). "Take them
+/// there" means that workspace and that tab, with its relaunched terminal: a dead process never sends the launch
+/// to Home.
+#[test]
+fn state_kept_daemon_cold_reopens_the_workspace_and_the_tab_whose_process_ended() {
+    let rebooted = kept(on("w2", "p1", "t3"), true, TabStanding::Ended);
+    assert_eq!(landing(&rebooted), lands_on("w2", "p1", "t3"));
+    // The tab itself went (its pane closed it meanwhile): the same workspace, on its pane's current tab. Not Home.
+    let tab_gone = kept(on("w2", "p1", "t3"), true, TabStanding::Gone);
+    assert_eq!(
+        landing(&tab_gone),
+        Landing::Workspace { workspace: "w2".into(), pane: Some("p1".into()), tab: None }
+    );
+}
+
+/// Path 5, `state=kept snapshot=foreign`: the launch snapshot was another session's (`Verdict::OtherSession`); the
+/// launch drops what it drew from it and this daemon's own saved front window decides, as on any relaunch.
+#[test]
+fn state_kept_snapshot_foreign_reopens_this_daemons_own_workspace_and_tab() {
+    let own = kept(on("w2", "p1", "t3"), true, TabStanding::Live);
+    assert_eq!(landing(&own), lands_on("w2", "p1", "t3"));
+}
+
+/// Path 5, `state=kept snapshot=unknown`, the known exception: the saved front window's workspace is one the daemon
+/// does not have (a reset or restored state, or a workspace that ended). Nothing stands in for it: Home.
+#[test]
+fn state_kept_snapshot_unknown_lands_on_home() {
+    let unknown = kept(on("w2", "p1", "t3"), false, TabStanding::Gone);
+    assert_eq!(landing(&unknown), Landing::Home { why: HomeWhy::UnknownWorkspace });
+    // A tab the daemon still lists does not bring back a workspace it lacks.
+    assert_eq!(
+        landing(&kept(on("w2", "p1", "t3"), false, TabStanding::Live)),
+        Landing::Home { why: HomeWhy::UnknownWorkspace }
+    );
+}
+
+/// Path 6, `front=home` on every `state=kept` arm (normal relaunch, `case=update`, `daemon=cold`): the person was
+/// last on Home, and the saved front says so (`LastFront::Home`), so the relaunch reopens Home.
+#[test]
+fn state_kept_front_home_reopens_home() {
+    for daemon_cold in [false, true] {
+        let tab = if daemon_cold { TabStanding::Ended } else { TabStanding::Live };
+        assert_eq!(
+            landing(&kept(LastFront::Home, true, tab)),
+            Landing::Home { why: HomeWhy::LastWasHome }
+        );
+    }
+    // Home is never inferred: Home last, a missing workspace and a missing tab are three answers.
+    let home = landing(&kept(LastFront::Home, true, TabStanding::Gone));
+    let unknown = landing(&kept(on("w2", "p1", "t3"), false, TabStanding::Gone));
+    let tab_gone = landing(&kept(on("w2", "p1", "t3"), true, TabStanding::Gone));
+    assert_eq!(home, Landing::Home { why: HomeWhy::LastWasHome });
+    assert_eq!(unknown, Landing::Home { why: HomeWhy::UnknownWorkspace });
+    assert!(matches!(tab_gone, Landing::Workspace { tab: None, .. }));
+}
+
+/// A saved front window with a workspace but no focused pane (an older record) reopens the workspace.
+#[test]
+fn a_workspace_saved_without_its_pane_reopens_the_workspace() {
+    let older = LastFront::Workspace { workspace: "w2".into(), pane: None, tab: None };
+    assert_eq!(
+        landing(&kept(older, true, TabStanding::Gone)),
+        Landing::Workspace { workspace: "w2".into(), pane: None, tab: None }
+    );
+}
+
+/// The app's JSON, both ways.
+#[test]
+fn landing_reads_and_answers_camel_case_json() {
+    let facts: LandingFacts = serde_json::from_value(serde_json::json!({
+        "last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+        "workspaceLive": true, "tab": "ended"
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(landing(&facts)).unwrap(),
+        serde_json::json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"})
+    );
+    let home: LandingFacts =
+        serde_json::from_value(serde_json::json!({"last": {"kind": "home"}})).unwrap();
+    assert_eq!(
+        serde_json::to_value(landing(&home)).unwrap(),
+        serde_json::json!({"kind": "home", "why": "lastWasHome"})
+    );
+    let bare: LandingFacts = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(
+        serde_json::to_value(landing(&bare)).unwrap(),
+        serde_json::json!({"kind": "home", "why": "firstLaunch"})
+    );
+}

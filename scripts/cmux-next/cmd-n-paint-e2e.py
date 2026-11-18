@@ -39,8 +39,15 @@ names its `blank_frames` count), or a missed run, else the highest p95, then the
 bench. The quick and cold openings are reported, not judged: the exit status is the warm openings' (and the
 `--cold` launch opening's), as before.
 
+`--screen` is another use of the same app and keys, with no judgement and none of the openings above: each key
+alone, and each key a set time after another key, as the screen showed it frame by frame, in a session of
+`--workspaces` workspaces (new_surface_screen.py has its arguments and its report). The recording is then
+`--duration-ms` 2000 long unless that is given.
+
 Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
        [--arms warm,quick,cold] [--quick-runs 3] [--cold-runs 3] [--json FILE]
+       cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t] [--gaps 0,100]
+       [--workspaces N] [--live-shells 8] [--duration-ms 2000] [--page-watch 3] [--json FILE] [--screen-tgz FILE]
 """
 import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
@@ -54,14 +61,27 @@ parser.add_argument("--tag")
 parser.add_argument("--runs", type=int, default=3)
 parser.add_argument("--keys", default="n,t", help="Command-<key> openings to check, comma separated")
 parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
-parser.add_argument("--duration-ms", type=float, default=700)
+parser.add_argument("--duration-ms", type=float, help="ms recorded after the key (700; with --screen 2000)")
 parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
 parser.add_argument("--split", type=int, default=1, help="split the workspace into this many panes before the openings")
 parser.add_argument("--arms", default="warm,quick,cold", help="the arms to time (bench_arms.py)")
 parser.add_argument("--quick-runs", type=int, default=3, help="quick arm: openings right after another press, per key")
 parser.add_argument("--cold-runs", type=int, default=3, help="cold arm: openings right after the spare was dropped, per key")
 parser.add_argument("--json", help="write the openings and the arms here")
+parser.add_argument("--screen", action="store_true", help="report each key from the screen's frames (new_surface_screen.py); no judgement")
+parser.add_argument("--window-screen", default="last", help="the screen of the launched app's window (an index, or last)")
+if "--screen" in sys.argv:
+    # Only this mode reads its module and its arguments: the openings below need no file that they did not need before.
+    import new_surface_screen  # noqa: E402
+    new_surface_screen.add_arguments(parser)
 opts = parser.parse_args()
+if opts.screen and "--screen" not in sys.argv:
+    parser.error("--screen: write the flag whole (the mode's module and arguments are read by that word)")
+if opts.screen and new_surface_screen.openings(opts) > new_surface_screen.OPENINGS_LIMIT:
+    parser.error(f"--screen: {new_surface_screen.openings(opts)} openings asked (--runs for each key and gap, two with a gap); "
+                 f"at most {new_surface_screen.OPENINGS_LIMIT} in one run: the app keeps its newest 64 opening records")
+if opts.duration_ms is None:
+    opts.duration_ms = 2000 if opts.screen else 700
 ARMS = [a for a in opts.arms.split(",") if a]
 if set(ARMS) - set(bench_arms.ARMS):
     parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
@@ -121,7 +141,7 @@ def launch(app_path, tag):
     open(config, "w").write("{}\n")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
+           "CMUX_NEXT_TEST_WINDOW_SCREEN": opts.window_screen, "CMUX_NEXT_CONFIG_FILE": config,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
@@ -144,6 +164,8 @@ def launch(app_path, tag):
 
 
 if opts.app:
+    if opts.screen:
+        new_surface_screen.fresh_session(opts.tag, opts.app)  # the tag's saved session of an earlier run is not this run's
     launch(opts.app, opts.tag)
 failures = []
 if opts.split > 1:
@@ -222,6 +244,11 @@ def terminal_tab():
     rpc("debug.key", {"key": "`", "modifiers": ["control"]})
     time.sleep(1.0)  # test harness wait: the terminal tab shows
 
+
+if opts.screen:
+    # Each key as the screen showed it: a report, with no judgement; the openings below do not run.
+    # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.
+    sys.exit(new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new}).run()["exit_code"])
 
 for run in range(opts.runs):
     for key in opts.keys.split(","):
