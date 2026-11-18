@@ -1627,9 +1627,10 @@ function sameItem(a: unknown, b: unknown): boolean {
 }
 
 /// One identity compare per row; the field compare only where the objects differ (a few rows).
+/// From the tail: rows change there (a streamed token), so a new list stops at its first rows.
 function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
   if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1)
+  for (let index = a.length - 1; index >= 0; index -= 1)
     if (a[index] !== b[index] && !sameItem(a[index], b[index])) return false;
   return true;
 }
@@ -4187,11 +4188,16 @@ function TranscriptView({
       !last.partial &&
       drawn.size > 0
     ) {
-      const limit = Math.min(rows.length, last.rows.length);
-      while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      // A scroll frame's rows are the ones placed last: every row is kept, with no walk over them.
+      const sameRows = rows === last.rows;
+      if (sameRows) kept = rows.length;
+      else {
+        const limit = Math.min(rows.length, last.rows.length);
+        while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      }
       // A row after the kept ones can give the last kept reply its own action row (a steer or a
       // message after it): that reply is placed again, as layoutConversation estimates it again.
-      let reply = kept - 1;
+      let reply = sameRows ? -1 : kept - 1;
       while (reply >= 0 && rows[reply]!.incoming?.kind === "hidden") reply -= 1;
       if (
         reply >= 0 &&

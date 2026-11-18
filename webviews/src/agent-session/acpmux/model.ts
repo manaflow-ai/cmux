@@ -3801,9 +3801,13 @@ export function placeRowsIndexed(
         const height = resolve(at);
         index = index.update(at, height, markAt(at), marks ? undefined : estimate.gaps?.[at]);
       }
-    const tail = new Float64Array(count - from);
-    for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
-    index = index.splice(from, tail, marksIn(from, count), marks ? undefined : estimate.gaps?.subarray(from, count));
+    // Nothing past the kept rows (a scroll frame's drawn heights): the index keeps its tree, and the
+    // leaves it already placed for the rows in view.
+    if (from < count || reusable.count !== count) {
+      const tail = new Float64Array(count - from);
+      for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
+      index = index.splice(from, tail, marksIn(from, count), marks ? undefined : estimate.gaps?.subarray(from, count));
+    }
   }
   const geometry = geometryFromIndex(index, origin);
   // A turn footer that draws nothing after the last drawn row (transcriptGrid.ts footerAfter):

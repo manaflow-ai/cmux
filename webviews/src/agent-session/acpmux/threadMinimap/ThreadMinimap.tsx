@@ -238,7 +238,9 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
-  const loadedTurns = read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0);
+  // Read once per reading, not per render: a scroll frame renders the rail with the same turns, and
+  // a filter over a long chat's turns on each one grew the frame with the chat.
+  const loadedTurns = useMemo(() => read.loadedTurns ?? read.turns.filter((turn) => turn.index >= 0), [read]);
   /// Whose prompts the rail shows (model.ts `RailFilter`), picked from its right-click menu.
   const [filter, setFilter] = useState<RailFilter>("all");
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
@@ -426,7 +428,8 @@ export function ThreadMinimap({
   const { side, menu: sideMenu } = useRailSide();
   // Right-click: whose prompts it shows, then which edge it sits on. Only other agents' messages is
   // offered while the chat has one.
-  const hasIncoming = read.ticks.some((tick) => tick.from !== undefined);
+  // Once per tick list (a streamed token keeps it), not on every render.
+  const hasIncoming = useMemo(() => read.ticks.some((tick) => tick.from !== undefined), [read.ticks]);
   const menu: ContextMenuItem[] = [
     ...(["all", "mine", "agents"] as const).map((each) => ({
       id: `rail-filter-${each}`,
