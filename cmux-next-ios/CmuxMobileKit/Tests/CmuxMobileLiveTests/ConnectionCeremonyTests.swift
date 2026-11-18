@@ -51,6 +51,14 @@ import Testing
         await rig.settle { store.macConnection["m1"] == .connected }
         #expect(live.banner != .connected, "no \"Connected\" after a reconnect")
         #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
+        // The link may report "connected" more than once, and on the old code a second report
+        // cleared the flash before a test could see it; so check the one report directly: a
+        // connected report while the banner shows leaves no banner, never "Connected" (the old
+        // code set `.connected` for 1.5 s right here).
+        live.banner = .reconnecting(to: "Aziz's MacBook Pro", identity: "m1")
+        live.phaseChanged(session)
+        #expect(live.banner != .connected, "a connected report posts no \"Connected\"")
+        #expect(live.banner == nil)
     }
 
     /// Detector: this iPhone offline shows "Offline" with no Retry, and once the network is back
