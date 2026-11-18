@@ -2801,7 +2801,7 @@ RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
 # The workflows that must read pr-rescue as off: nightly, promote, signing and release.
 RESCUE_IGNORED = ("nightly.yml", "nightly-sign.yml", "nightly-next-train.yml", "nightly-next-canary.yml",
-                  "nightly-next-launch-smoke.yml", "nightly-next-cua-signed-host.yml", "stable-next.yml",
+                  "nightly-next-launch-smoke.yml", "stable-next.yml",
                   "signing-keychain-macos.yml", "app-ffi-release.yml", "release.yml")
 SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
 SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")

@@ -707,9 +707,13 @@ impl MacDesktop {
         let presser = el.clone();
         let action = action.to_string();
         presser.set_timeout(PRESS_TIMEOUT_SECONDS);
-        std::thread::spawn(move || {
+        let pressing = std::thread::Builder::new().name("cu-menu-press".into()).spawn(move || {
             let _ = tx.send(presser.perform(&action));
         });
+        if let Err(e) = pressing {
+            el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
+            return Err(DesktopError::Failed(format!("opening the menu: start the press: {e}")));
+        }
         let opened = self.await_menu(
             t,
             &before,

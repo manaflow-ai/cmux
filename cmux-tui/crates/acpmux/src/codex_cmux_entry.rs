@@ -203,31 +203,30 @@ fn resolve_within(
     timeout: Duration,
 ) -> CmuxEntry {
     use std::io::Read as _;
-    use std::os::unix::process::CommandExt as _;
-    use wait_timeout::ChildExt as _;
     let config = config_args(args);
     let getenv = |key: &str| env.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
     let home = home_dir(&getenv);
     let folder = launch_folder(cwd, config.cd.as_deref(), home.as_deref());
-    let mut command = std::process::Command::new(codex);
+    let mut command = cmux_process::Command::new(codex);
     command
         .args(&config.passed)
         .args(["mcp", "get", SERVER, "--json"])
         .current_dir(&folder)
         .env_clear()
         .envs(env.iter().map(|(k, v)| (k, v)))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::piped())
         // Its own process group, so a timeout ends whatever it started too.
         .process_group(0);
     let deadline = Instant::now() + timeout;
     let Ok(mut child) = command.spawn() else { return CmuxEntry::Unknown };
     // Each pipe is read on a thread of its own, which sends what it read when the pipe closes.
-    let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+    // A reader that cannot start drops its sender, so its receiver reads as no answer.
+    let read = |name: &str, pipe: Option<Box<dyn std::io::Read + Send>>| {
         let (tx, rx) = std::sync::mpsc::channel();
         if let Some(mut pipe) = pipe {
-            std::thread::spawn(move || {
+            let _ = std::thread::Builder::new().name(name.to_owned()).spawn(move || {
                 let mut text = String::new();
                 let _ = pipe.read_to_string(&mut text);
                 let _ = tx.send(text);
@@ -235,20 +234,26 @@ fn resolve_within(
         }
         rx
     };
-    let stdout = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let stderr = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let stdout = read(
+        "codex-mcp-get-stdout",
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    );
+    let stderr = read(
+        "codex-mcp-get-stderr",
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+    );
     let group = child.id() as libc::pid_t;
-    let status = child.wait_timeout(timeout);
+    // Unreaped until after the group kill below, so the group id cannot name another process.
+    let exited = child.exited_within(timeout);
     // Whatever it started and left running ends with it, so no process outlives the question
     // and nothing it left holds the output open. SAFETY: a signal to the process group this call
-    // started; no memory is touched.
+    // started, whose leader is not yet reaped; no memory is touched.
     unsafe { libc::kill(-group, libc::SIGKILL) };
-    let status = match status {
-        Ok(Some(status)) => status,
-        _ => {
-            let _ = child.wait();
-            return CmuxEntry::Unknown;
-        }
+    // The reap. A child still running at the deadline was just killed, so this returns at once.
+    let status = child.wait();
+    let status = match (exited, status) {
+        (Ok(true), Ok(status)) => status,
+        _ => return CmuxEntry::Unknown,
     };
     // The output, by the same deadline: a pipe something outside the group (a process that left
     // it) still holds open is a late answer, and a late answer is no answer. Its reader thread

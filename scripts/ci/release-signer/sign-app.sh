@@ -336,11 +336,6 @@ done
 args=(--entitlements-xml-file "$work/app.entitlements" --code-signature-flags runtime)
 for rel in "${!ent[@]}"; do args+=(--entitlements-xml-file "$rel:${ent[$rel]}"); done
 for rel in "${!ident[@]}"; do args+=(--binary-identifier "$rel:${ident[$rel]}"); done
-is_first_helper() { # <rel>: inside a helper notarized first
-  local hrel
-  for hrel in ${first_rels[@]+"${first_rels[@]}"}; do [[ "$1" == "$hrel/"* ]] && return 0; done
-  return 1
-}
 for rel in "${machos[@]}"; do
   [[ "$rel" == Contents/Resources/bin/cmux-tui-ssh/* ]] || args+=(--code-signature-flags "$rel:runtime")
 done

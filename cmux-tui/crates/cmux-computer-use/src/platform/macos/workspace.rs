@@ -1070,19 +1070,18 @@ const SERVICES_WAIT: Duration = Duration::from_secs(7);
 /// PBS_TIMEOUT (then the whole group is killed and reaped).
 fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
     use std::io::Read;
-    use std::os::unix::process::CommandExt;
     // Its own process group, so a timeout kills it and anything it started
     // (a grandchild holding the pipe would keep the reader alive).
-    let mut child = std::process::Command::new(program)
+    let mut child = cmux_process::Command::new(program)
         .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         .process_group(0)
         .spawn()
         .ok()?;
     let group = child.id() as i32;
-    let kill_group = |child: &mut std::process::Child| {
+    let kill_group = |child: &mut cmux_process::Child| {
         // SAFETY: plain syscall; group is the child's own process group.
         unsafe { libc::killpg(group, libc::SIGKILL) };
         let _ = child.wait();
@@ -1106,17 +1105,12 @@ fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
         kill_group(&mut child);
         return None;
     };
-    let deadline = std::time::Instant::now() + PBS_TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some((out, status.success())),
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10)); // bounded wait for an exiting child
-            }
-            _ => {
-                kill_group(&mut child);
-                return None;
-            }
+    // The exit, bounded by an event wait (it reaps the child when it ends).
+    match child.wait_timeout(PBS_TIMEOUT) {
+        Ok(Some(status)) => Some((out, status.success())),
+        _ => {
+            kill_group(&mut child);
+            None
         }
     }
 }

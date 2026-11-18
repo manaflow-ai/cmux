@@ -81,14 +81,19 @@ fn request(
     let iter = zbus::blocking::MessageIterator::for_match_rule(rule, conn, Some(4))
         .map_err(|e| perr(iface, method, e))?;
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for msg in iter {
-            let Ok(msg) = msg else { continue };
-            let body: Result<(u32, Results), _> = msg.body().deserialize();
-            let _ = tx.send(body.map_err(|e| e.to_string()));
-            return;
-        }
-    });
+    // Ends with the first Response, or when the connection closes; the caller stops waiting at
+    // `wait`.
+    std::thread::Builder::new()
+        .name("cu-portal-response".into())
+        .spawn(move || {
+            for msg in iter {
+                let Ok(msg) = msg else { continue };
+                let body: Result<(u32, Results), _> = msg.body().deserialize();
+                let _ = tx.send(body.map_err(|e| e.to_string()));
+                return;
+            }
+        })
+        .map_err(|e| perr(iface, method, format!("start the response watcher: {e}")))?;
     let msg = build(token).map_err(|e| perr(iface, method, e))?;
     conn.send(&msg).map_err(|e| perr(iface, method, e))?;
     let (code, results) = rx

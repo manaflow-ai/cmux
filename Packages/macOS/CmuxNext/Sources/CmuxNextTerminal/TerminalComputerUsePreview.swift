@@ -89,7 +89,7 @@ public final class TerminalComputerUsePreview: NSView {
         dim.isHidden = true
         frameLayer.addSublayer(dim)
         cursor.path = Self.arrow
-        cursor.fillColor = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1).cgColor
+        cursor.fillColor = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1).cgColor // colour-allow: the agent cursor's blue (#0A84FF), the same constant cmux Remote's cursor overlay draws, so the preview's cursor matches the one on screen
         cursor.strokeColor = NSColor.white.cgColor
         cursor.lineWidth = 1.2
         cursor.isHidden = true
@@ -115,7 +115,7 @@ public final class TerminalComputerUsePreview: NSView {
         closeButton.bezelStyle = .circular
         closeButton.isBordered = false
         closeButton.wantsLayer = true
-        closeButton.layer?.cornerRadius = 9
+        closeButton.layer?.cornerRadius = 9 // radius-allow: an 18 pt circle (bezelStyle .circular) floating over the window preview, not a toolbar button
         closeButton.target = self
         closeButton.action = #selector(close)
         closeButton.setAccessibilityLabel(String(localized: "terminal.computerUsePreview.close", defaultValue: "Hide Preview", bundle: .module))

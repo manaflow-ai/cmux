@@ -302,9 +302,12 @@ not guarded: it raises the window because it was asked to.
 ## Licensing
 
 - `cmux-computer-use` and `cmux-computer-use-ffi` are MIT (Copyright (c) 2026
-  Manaflow, Inc.), so Computer Use can ship as its own component on every
-  platform. The Swift worker files in the app keep the repo's
-  `GPL-3.0-or-later` header.
+  Manaflow, Inc.). On macOS and Linux the engine starts its child processes
+  through the workspace's `cmux-process` crate (`GPL-3.0-or-later`; every child
+  has an owner, cmuxterm-hq#9096), so a build of the engine on those platforms
+  is a GPL-3.0-or-later combination; shipping it alone under MIT alone would
+  mean replacing that one dependency. The Swift worker files in the app keep
+  the repo's `GPL-3.0-or-later` header.
 - No cua or cua-driver code was copied. trycua/cua (MIT) was read as a reference
   only.
 - cua-driver-rs v0.38.0 (trycua/cua tag `cua-driver-rs-v0.38.0`, commit

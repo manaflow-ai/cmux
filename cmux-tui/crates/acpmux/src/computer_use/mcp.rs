@@ -129,7 +129,10 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let (tx, mut rx) = mpsc::channel::<Value>(64);
-    let writer = tokio::spawn(async move {
+    // The writer and every call are owned by this function: their sets abort
+    // them when it returns (or is dropped), so none outlives the session.
+    let mut writer = tokio::task::JoinSet::new();
+    writer.spawn(async move {
         while let Some(message) = rx.recv().await {
             let mut line = message.to_string();
             line.push('\n');
@@ -186,7 +189,7 @@ where
     // The agent closed the pipe: answers still on their way reach no one.
     calls.abort_all();
     drop(tx);
-    writer.abort();
+    writer.abort_all();
     let end = caller.clone();
     let _ = tokio::task::spawn_blocking(move || end.end_session()).await;
     Ok(())

@@ -351,13 +351,16 @@ impl Pipe {
         let (tx, rx) = mpsc::channel();
         let Pipe { handle, name } = self;
         let raw = handle.0 as usize;
-        std::thread::spawn(move || {
-            // SAFETY: a blocking connect on our own pipe handle.
-            let ok = unsafe { ConnectNamedPipe(raw as HANDLE, std::ptr::null_mut()) } != 0
-                // SAFETY: plain call.
-                || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
-            let _ = tx.send(ok);
-        });
+        std::thread::Builder::new()
+            .name("cu-worker-pipe-connect".into())
+            .spawn(move || {
+                // SAFETY: a blocking connect on our own pipe handle.
+                let ok = unsafe { ConnectNamedPipe(raw as HANDLE, std::ptr::null_mut()) } != 0
+                    // SAFETY: plain call.
+                    || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+                let _ = tx.send(ok);
+            })
+            .map_err(|e| format!("cannot wait for the worker's pipe: {e}"))?;
         let connected = match rx.recv_timeout(TASK_CONNECT) {
             Ok(ok) => ok,
             Err(_) => {

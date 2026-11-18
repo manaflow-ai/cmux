@@ -28,6 +28,11 @@ base64 = { workspace = true }
 png = { workspace = true }
 libc = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+# Owned child processes: an app launched for the agent (linux) and bounded
+# helper commands (macos/workspace.rs).
+cmux-process = { workspace = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Pure-Rust protocol crates only, so one binary runs on every distribution
 # (glibc or musl) with no libX11, libwayland, libdbus or libei at build time.

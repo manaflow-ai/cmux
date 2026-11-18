@@ -545,24 +545,16 @@ pub(crate) fn launch(
     let Some((prog, rest)) = argv.split_first() else {
         return Err(DesktopError::Failed(format!("{app_id}: empty Exec line")));
     };
-    let mut cmd = std::process::Command::new(prog);
+    let mut cmd = cmux_process::Command::new(prog);
     cmd.args(rest)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .env("GIO_LAUNCHED_DESKTOP_FILE", format!("{id}.desktop"));
-    {
-        use std::os::unix::process::CommandExt;
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .env("GIO_LAUNCHED_DESKTOP_FILE", format!("{id}.desktop"))
         // Its own session, so it outlives the worker and gets no signals from it.
-        // SAFETY: setsid is async-signal-safe and touches no Rust state.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-    let child = cmd.spawn().map_err(|e| DesktopError::Failed(format!("start {prog}: {e}")))?;
+        .new_session();
+    let mut child = cmd.spawn().map_err(|e| DesktopError::Failed(format!("start {prog}: {e}")))?;
+    child.detach("the launched app belongs to the person and outlives the worker");
     Ok(App { id, name, pid: child.id(), frontmost: false, hidden: false })
 }
 
