@@ -25,7 +25,7 @@ name: Machine join E2E (development)
 # runs on the joined user's side after the join: its acpmux daemon sets up
 # cmux-rd's screen host against the development device hub by itself. A second
 # disposable user with its own home and Xvfb, signed in to the same account, must
-# see the machine within 120 s of the daemon's start and get a decoded frame of
+# see the machine within 240 s of the daemon's start and get a decoded frame of
 # its screen within 60 s with no request waiting on the host. The share's guest
 # account (CMUX_DOGFOOD_GUEST_STACK_*, sealed to the same environment) must not
 # see the machine, and the hub must refuse its request for it by device id. Its

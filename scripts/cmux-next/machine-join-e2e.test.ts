@@ -1731,3 +1731,17 @@ describe("the share's lines", () => {
     assertNoSecretEscaped(w, [opts.user, VIEWER_USER])
   })
 })
+
+describe("share mode's wait", () => {
+  // Review F3 of #45369: the daemon may take its whole enable bound (share_host/linux.rs
+  // ENABLE_WAIT) before the host signs in, so the share's wait for the device must be longer.
+  test("outlasts the daemon's enable bound", () => {
+    const linux = require("node:fs").readFileSync(
+      `${import.meta.dir}/../../cmux-tui/crates/acpmux/src/share_host/linux.rs`,
+      "utf8",
+    ) as string
+    const bound = /ENABLE_WAIT: Duration = Duration::from_secs\((\d+)\)/.exec(linux)
+    expect(bound).not.toBeNull()
+    expect(SHARE_ONLINE_LIMIT_MS).toBeGreaterThan(Number(bound![1]) * 1000)
+  })
+})

@@ -50,8 +50,8 @@ const USER_AGENT = "cmux-machine-join-e2e/1"
 export const HEARTBEAT_LIMIT_S = 90
 /** The development device hub (workers/device-hub/wrangler.toml [env.dev]); share mode talks to no other. */
 export const DEV_DEVICE_HUB = "https://cmux-device-hub-dev.debussy.workers.dev"
-/** From the daemon's start (which sets the host up by itself) to its device listed online and shared on the hub. */
-export const SHARE_ONLINE_LIMIT_MS = 120_000
+/** From the daemon's start (which sets the host up by itself) to its device listed online and shared on the hub: past the daemon's enable bound (180 s, share_host/linux.rs ENABLE_WAIT) by a minute for the host to sign in. */
+export const SHARE_ONLINE_LIMIT_MS = 240_000
 /** From the viewer's start (sign-in, request) to its first decoded frame. */
 export const SHARE_FRAME_LIMIT_MS = 60_000
 /** How long the viewer keeps the stream once it starts, before it stops and reports. */
