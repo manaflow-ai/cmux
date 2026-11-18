@@ -282,7 +282,10 @@ struct WorkspaceTabHoverCardTests {
         let title = try #require(Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.first)
         let labelX = label.convert(NSPoint.zero, to: card).x
         let titleX = title.convert(NSPoint.zero, to: card).x
-        #expect(abs(labelX - titleX) < 0.5, "Show details at \(labelX), tab titles at \(titleX)")
+        // Each edge lands on a whole device pixel: on a 1x screen (a fleet display worker) a fractional density's
+        // two columns can round a point apart. A Retina screen keeps the tight check.
+        let allowed: CGFloat = window.backingScaleFactor >= 2 ? 0.5 : 1 / max(window.backingScaleFactor, 1) + 0.01
+        #expect(abs(labelX - titleX) <= allowed, "Show details at \(labelX), tab titles at \(titleX)")
         #expect(!toggle.isExpanded)
         toggle.performClick(nil)
         #expect(toggle.isExpanded && card.isDetailsExpanded)

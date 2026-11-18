@@ -46,6 +46,15 @@ public final class CmuxDialogPresentation {
         values = Self.initialValues(spec)
     }
 
+    /// A dialog shown outside ``CmuxDialogCenter``, by a host of its own (``CmuxFloatingDialogPanel``: a
+    /// prompt over every app). `onPress` gets each press with the button's id, by click or key.
+    public static func standalone(_ spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil,
+                                  onPress: @escaping (String) -> Void) -> CmuxDialogPresentation {
+        let dialog = CmuxDialogPresentation(id: 0, spec: spec, activeLook: activeLook)
+        dialog.onPress = onPress
+        return dialog
+    }
+
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }
     /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
@@ -154,7 +163,7 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview: break
+            case .preview, .code: break
             }
         }
         return values

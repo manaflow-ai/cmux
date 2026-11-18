@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import QuartzCore
 
 /// The rounded clip around a pane's content. `masksToBounds` with a corner
@@ -18,6 +19,19 @@ final class PaneClipView: NSView {
     }
 
     nonisolated override var isFlipped: Bool { true }
+
+    /// A floating pane with a see-through background: its card paints the one ground under the content, and the
+    /// views inside paint none (`PaneGroundOwning`). A change tells those views in the same turn.
+    var ownsContentGround = false {
+        didSet { if ownsContentGround != oldValue { tellPaneGroundFollowers() } }
+    }
+    /// The content has another ground to give to the card.
+    var onContentGroundChange: (() -> Void)?
+    /// A floating pane with a solid background: its card is an opaque ground under the content, and the views
+    /// inside paint their own over it (`PaneGroundOwning`). A change tells those views in the same turn.
+    var hasSolidGroundUnder = false {
+        didSet { if hasSolidGroundUnder != oldValue { tellPaneGroundFollowers() } }
+    }
 
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }
@@ -61,6 +75,27 @@ final class PaneClipView: NSView {
         }
     }
 
+    /// The ground over late content (``showLateGround(_:over:)``): in the view tree only while it shows.
+    private let lateGround = PaneHeldGroundView()
+
+    /// A pane whose layout change showed before a producer in its content drew at the pane's new size
+    /// (`PaneHostView.showsLateGround`) shows `color`, opaque, over `rect` (its content's own area, in this view's
+    /// coordinates), above the content: never that producer's old picture at the new size. Nil, or a rect with no
+    /// area, removes it. It takes no clicks: the content under it does.
+    func showLateGround(_ color: CGColor?, over rect: CGRect = .zero) {
+        guard let color, rect.width > 0, rect.height > 0 else {
+            if lateGround.superview != nil { lateGround.removeFromSuperview() }
+            return
+        }
+        if lateGround.superview !== self { addSubview(lateGround, positioned: .above, relativeTo: nil) }
+        if lateGround.frame != rect { lateGround.frame = rect }
+        guard let layer = lateGround.layer, layer.backgroundColor != color else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.backgroundColor = color
+        CATransaction.commit()
+    }
+
     /// The largest gap between held content's edge and its pane's that is no gap: under a hundredth of a point, which is
     /// less than a pixel at every backing scale.
     static let heldGroundSlack: CGFloat = 0.01
@@ -91,6 +126,10 @@ final class PaneClipView: NSView {
         }
         return rects
     }
+}
+
+extension PaneClipView: PaneGroundOwning {
+    func contentGroundDidChange() { onContentGroundChange?() }
 }
 
 /// A part of a pane's ground beside its held content (``PaneClipView/showHeldGround(_:around:header:footer:leading:)``): a color, no clicks.

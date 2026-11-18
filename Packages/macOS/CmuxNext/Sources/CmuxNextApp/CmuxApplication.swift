@@ -163,16 +163,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         return actionTargetOverride(action, found as AnyObject?) ?? found
     }
 
-    /// An exception AppKit caught on the main thread. With
-    /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
-    /// here and the uncaught-exception handler never runs, so the record is
-    /// written first; the next launch's notice and report then name it.
-    ///
-    /// With crashing on, the crash has begun here: the crash deadline then
-    /// ends the process even if a crash handler after this blocks.
-    override func reportException(_ exception: NSException) {
+    /// An exception AppKit caught on the main thread. With `NSApplicationCrashOnExceptions` AppKit traps
+    /// here (no uncaught-exception handler runs), so the record is written first and the crash has begun.
+    /// Nonisolated, no executor check: the exception unwound a Swift job, whose dead executor record the
+    /// main-actor entry check read and segfaulted on at 0x1e before anything was recorded (#44899).
+    nonisolated override func reportException(_ exception: NSException) {
+        SwiftExecutorFrames.recoverDeadRecord(in: "reportException")
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
-                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
+                                      record: UncaughtExceptionRecorder.handle) { appKitReportException(exception) }
     }
 
     // MARK: Accessibility windows

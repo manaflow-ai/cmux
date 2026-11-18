@@ -9,13 +9,27 @@ the first difference by its key, id and kind, gives a lost tab back, fails the r
 difference, does not run a take whose pane is gone or did not get the focus, says where a slow key's time went, and
 packs one file for the step to bring back.
 
+The `activate` form asked for the shell window as the key window at each sequence. The app shows a Chromium page in a
+window of its own that has the keys while the pane shows the page, and it refuses the shell window then: the
+preflight's Cmd-W, on the new tab page that its own Cmd-T made, failed, and each run went on in the `one-key` form.
+The script now asks for the window that has the keys, by a read of the app's focus (`KeyWindow`). A take sends its
+word with no key before its frames start, so a refusal of a stale word is outside the frames; a take that still
+gets a refusal after the frames started is INVALID.
+
+The rows say how long a key waits, and the marked tasks of the main thread are a small part of that time. With
+--sample-s the script makes one more `hold` take with the system's sampler on the app (`Sample`): the sampler's
+report is a file of the artifact, and the row has the counts of the main thread's samples and no time.
+
 No app, no socket, no build: `run()` and `take()` run with the session helper (`Stress`), `subprocess` and the
-signpost reader replaced by fakes with a small model of one pane's tabs and of what each key does to them; `main()`
+signpost reader replaced by fakes with a small model of one pane's tabs and of what each key does to them (the
+sampler is a fake child that writes a small report in the sampler's form); `main()`
 runs to its first row with the launcher (`BenchApp`), `open`, `ps`, `lsappinfo` and `os.kill` replaced (no process
 starts, no signal goes to one). So this proves the script's own logic (the model, the rows, the failures, the launch
-forms), NOT the app, NOT what a Mac's keys do and NOT what LaunchServices does.
+forms), NOT the app, NOT what a Mac's keys do, NOT what LaunchServices does, and NOT that the system's sampler can
+read the app or what its real report has.
 Run: python3 -I scripts/measure/tests/held-new-tab.test.py"""
-import argparse, contextlib, importlib.util, io, itertools, json, os, shutil, signal, subprocess, sys, tarfile, tempfile, unittest
+import argparse, contextlib, importlib.util, io, itertools, json, os, select, shutil, signal, subprocess, sys, tarfile, tempfile
+import unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,10 +38,36 @@ M = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(M)
 ACTION = {"t": "newTab.default", "w": "closeTab"}
 IN_TURN = "each_call_ended_with_its_reply_before_the_next_began"  # the field of `key_calls`
+EARLY = "key_window_refusals_before_the_frames"  # the field of a take: each refusal of its sequence with no key
 HIDDEN = "not_for_a_person"  # the key of a row that holds each number of a row with no proof of the order of its keys
 WIDE = ["action", "stall", "stalls", "tab-switch"]
 BUNDLE = "/fake/cmux DEV fake.app"
 BINARY = BUNDLE + "/Contents/MacOS/cmux DEV fake"
+SAMPLER, SAMPLE_FILE = "/usr/bin/sample", "sample.txt"
+# A report in the sampler's form. The main thread has 3000 samples: 2400 in a wait, 100 in `PaneController.apply`
+# itself, 300 in the layout that it calls, 200 in a Core Animation commit. The second thread is not in a count.
+SAMPLE_REPORT = """Analysis of sampling cmux DEV fake (pid 1) every 1 millisecond
+Call graph:
+    3000 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 3000 start  (in dyld) + 6076  [0x1]
+    +   3000 CmuxNextApp.main()  (in cmux DEV fake.debug.dylib) + 8  [0x2]
+    +     3000 NSApplicationMain  (in AppKit) + 880  [0x3]
+    +       2400 mach_msg2_trap  (in libsystem_kernel.dylib) + 8  [0x4]
+    +       400 PaneController.apply(_:)  (in cmux DEV fake.debug.dylib) + 120  [0x5]
+    +       ! 300 TabStripView.layout()  (in cmux DEV fake.debug.dylib) + 40  [0x6]
+    +       200 CA::Transaction::commit()  (in QuartzCore) + 500  [0x7]
+    900 Thread_2
+    + 900 start_wqthread  (in libsystem_pthread.dylib) + 8  [0x8]
+    +   900 __workq_kernreturn  (in libsystem_kernel.dylib) + 8  [0x9]
+
+Total number in stack (recursive counted multiple, when >=5):
+"""
+SAMPLE_COUNTS = {"main_thread_samples": 3000,
+                 "samples_by_class": {"framework.ca_commit": 200, "idle": 2400, "ours.observation_fanout": 400},
+                 "top_frames": [{"frame": "TabStripView.layout() (cmux DEV fake.debug.dylib)", "class": "ours.observation_fanout", "samples": 300},
+                                {"frame": "CA::Transaction::commit() (QuartzCore)", "class": "framework.ca_commit", "samples": 200},
+                                {"frame": "PaneController.apply(_:) (cmux DEV fake.debug.dylib)", "class": "ours.observation_fanout",
+                                 "samples": 100}]}
 CEF_READY = {"state": "ready", "default_engine": "chromium", "unavailable": None, "fallback": None}  # the app's `debug.cef`
 
 
@@ -53,6 +93,12 @@ class World:
         self.closes, self.given, self.slow, self.base, self.now = 0, 0, {}, 100.0, 100.0
         self.fewest, self.kills, self.children = float("inf"), [], []  # the smallest tab count after a close; the group kills; each child
         self.sent = []  # the `one-key` form: (the letter, the event's time, the app's clock at the call's start) of each call
+        # `chromium_pages`: a new tab page that the pane shows has the keys in a window of its own, as a Chromium page of
+        # the app has. `asked` has the `key_window` word of each sequence; `stale` is the count of `debug.focus` reads
+        # that still say the shell window after a Cmd-T (the fault `page_gets_the_keys_late`).
+        self.asked, self.stale = [], 0
+        self.samplers, self.sampler_bound = [], None  # the command of each sampler that started; the bound of its end
+        self.first_line_bound = None  # the bound of the wait for a sampler's first line
 
     def tab(self, kind, selected=False):
         self.count += 1
@@ -85,10 +131,19 @@ class World:
             opener = next((other for other in self.tabs if other["id"] == tab.get("opener")), None)
             self.select(opener or self.tabs[min(at, len(self.tabs) - 1)])
 
+    def page_has_the_keys(self):
+        """The fake app with Chromium pages: the pane shows a new tab page, so the page's own window has the keys."""
+        at = self.selected()
+        # The fault of the case: the page gets the keys only when the take's frames start (after the take's read).
+        if self.faults.get("page_takes_the_keys_at_the_frames") and ("debug.frames", "start") not in self.calls:
+            return False
+        return bool(self.faults.get("chromium_pages")) and at is not None and self.tabs[at]["kind"] == "newtab"
+
     def key(self, letter, at):
         self.keys += 1
         if letter == "t":
             self.add("newtab")
+            self.stale = 1 if self.faults.get("page_gets_the_keys_late") else 0
             self.openings.append({"spare": len(self.openings) % 2 == 0, "cross_window": False, "refit": False,
                                   "ms": 3.0 if len(self.openings) % 2 == 0 else 120.0 + len(self.openings)})
             return
@@ -116,15 +171,23 @@ class World:
             cut = self.faults.get("focus_list_cut", 0)
             tabs = [f"{tab['id']}:{tab['kind']}" for tab in self.tabs][:len(self.tabs) - cut]
             chosen = next((tab["id"] for tab in self.tabs if tab["selected"]), None)
-            return {"windows": [{"topology": [{"pane": self.pane, "tabs": tabs, "selected": chosen}],
-                                 "model": {"resolved_tab": chosen}, "consistent": True, "mismatches": []}]}
+            window = {"topology": [{"pane": self.pane, "tabs": tabs, "selected": chosen}],
+                      "model": {"resolved_tab": chosen}, "consistent": True, "mismatches": []}
+            if not self.faults.get("chromium_pages"):
+                return {"windows": [window]}
+            # The app's own words: the shell window is not key while a page's window has the keys.
+            page, self.stale = self.page_has_the_keys() and not self.stale, max(0, self.stale - 1)
+            window.update({"is_key": not page, "appkit": {"child_window_page": chosen if page else None}})
+            return {"app_active": True, "key_window": "CefNSWindow" if page else "ShellWindow", "windows": [window]}
         if method == "debug.journal":
             return {"stats": {"lastSeq": 0}, "entries": []}
         if method == "debug.burst":
             if params.get("action") == "start":
                 return {"key_repeat_delay_s": 0.02, "key_repeat_interval_s": 0.02}
             if params.get("action") == "status":
-                return {"recording": True, "sequence_playing": False, "pending_intents": 0, "resize_idle": True,
+                # The fault `never_done`: the app has an intent that waits at each read.
+                waits = int(bool(self.faults.get("never_done")))
+                return {"recording": True, "sequence_playing": False, "pending_intents": waits, "resize_idle": True,
                         "terminals_awaiting_echo": 0}
             return {"events": list(self.marks), "dropped": 0}
         if method == "debug.key" and "key" in params:
@@ -135,6 +198,14 @@ class World:
             self.now += self.faults.get("call_s", 0.0)
             return {}
         if method == "debug.key":
+            if self.faults.get("chromium_pages"):
+                # The app's 2 refusals of a `key_window` word; it refuses before it posts a key of that call.
+                word, page = params.get("key_window"), self.page_has_the_keys()
+                self.asked.append(word)
+                if word == "shell" and page:
+                    return {"error": "the shell window did not become key"}
+                if word == "page" and not page:
+                    return {"error": "no Chromium page window for pane"}
             at = self.base
             for step in params.get("sequence") or []:
                 at += (step.get("after_ms") or 0) / 1000
@@ -148,8 +219,8 @@ class World:
 
     # The take of a row, as the child process of the signpost recorder makes it: the keys, then the 2 files.
 
-    def take(self, name, out, categories, keep, film, form="one-key"):
-        self.takes.append({"row": name, "categories": categories, "film": film, "tabs_at_start": len(self.tabs)})
+    def take(self, name, out, categories, keep, film, form="one-key", sample=None):
+        self.takes.append({"row": name, "categories": categories, "film": film, "tabs_at_start": len(self.tabs), "sample": sample})
         letters = {"mixed": ["t", "t", "w", "t", "t", "w"], "hold": ["t"] * 4}.get(name) or ["w"] * (len(self.tabs) - keep)
         self.base += 10.0
         times = [self.base + 0.1 * index for index in range(len(letters))]
@@ -178,10 +249,12 @@ class World:
         failed = (self.faults.get("call_with_an_error_reply") or {}).get(len(self.takes))
         if failed is not None:
             replies[failed] = {"error": "timed out"}
-        # 2 more faults, each for one take (a count from 1): the take's record has an error of its own (`record_error`:
-        # the words); the recorder made no signpost stream (`no_stream`).
+        # 3 more faults, each for one take (a count from 1): the take's record has an error of its own (`record_error`:
+        # the words) or an entry of `invalid` (`record_invalid`: the words); the recorder made no signpost stream
+        # (`no_stream`).
         errors = [f"keys: key {failed}: timed out"] if failed is not None else []
         errors += [why for why in [(self.faults.get("record_error") or {}).get(len(self.takes))] if why]
+        invalid = [why for why in [(self.faults.get("record_invalid") or {}).get(len(self.takes))] if why]
         said = M.key_calls({"sends": calls, "replies": replies}, form)
         for index in acts:
             letter, at = letters[index], times[index]
@@ -204,12 +277,23 @@ class World:
                 intervals.append(self.interval("stall.main_task", "stall", at + 0.001, 270.0,
                                                {"class": "control", "owner": "debug.key"}))
                 intervals.append(self.interval("switch", "tab-switch", at + 0.21, 20.0, {}))
-        record = {"scenario": name, "errors": errors, "invalid": [], "unit": "tabs", "key_window": "none", "presses": len(letters),
+        record = {"scenario": name, "errors": errors, "invalid": invalid, "unit": "tabs", "key_window": "none", "presses": len(letters),
                   "before": count, "after": {"tabs": len(self.tabs), "panes": 1}, "press_letters": letters,
                   "press_times_s": times, "trace": {"events": list(self.marks), "dropped": 0}, "frames": {}, "settled_ms": 1,
                   "tabs_after": [tab["id"] for tab in self.tabs], "order": {"before": before, "after": self.order()},
                   "shows": [], "key_calls": said,
                   "take": {"key_form": form, "key_calls": {key: value for key, value in said.items() if key != "calls"}}}
+        if sample:
+            # The sample take (`sample`: the pid and the seconds of its command). The faults of the case: the take's
+            # record has the sampler's error (`no_sample`: the words); the report has no main thread
+            # (`sample_with_no_main_thread`).
+            record["sample"] = {"file": SAMPLE_FILE, "seconds": int(sample[1]), "sampler_said": ["Sampling process"],
+                                "first_line_before_the_keys": True, "sampler_exit": 0, "app_was_done": True}
+            if self.faults.get("no_sample"):
+                record["sample"].update({"sampler_exit": 1, "error": self.faults["no_sample"]})
+            else:
+                with open(os.path.join(out, SAMPLE_FILE), "w") as f:
+                    f.write(SAMPLE_REPORT.split("    3000 Thread_1")[0] if self.faults.get("sample_with_no_main_thread") else SAMPLE_REPORT)
         with open(os.path.join(out, "scenario.json"), "w") as f:
             json.dump(record, f)
         if self.faults.get("no_stream") != len(self.takes):
@@ -304,10 +388,67 @@ class Child:
         return -9 if self.hangs else 0
 
 
+class Sampler:
+    """The system's sampler as a child of `take()`: it says its first line when it samples, and at its end it writes
+    its report to the file of its command. The fault `sampler_fails` (the words): it says them, writes no file and
+    ends with 1. The fault `sampler_says_nothing`: it keeps each word to its end (`first_line`: the wait for the first
+    line). The fault `sampler_hangs`: it does not end in the bound of its caller. The fault
+    `sampler_ends_before_the_keys`: it has its exit when the tool reads it after the wait for the first line. The
+    fault `sampler_ends_with_no_word`: the read of its first line is empty (its output is at its end). The fake
+    app's `calls` has its start, its first line, its end and each kill among the app's own calls."""
+
+    def __init__(self, world, command):
+        self.world, self.command, self.returncode, self.stdout = world, command, None, self
+        world.calls.append(("sampler", "starts"))
+
+    def said(self):
+        said = f"Sampling process {self.command[1]} for {self.command[2]} seconds with 1 millisecond of run time between samples"
+        return (self.world.faults.get("sampler_fails") or said) + "\n"
+
+    def readline(self):
+        if self.world.faults.get("sampler_ends_with_no_word"):
+            return ""
+        self.world.calls.append(("sampler", "says its first line"))
+        return self.said()
+
+    def poll(self):
+        return 0 if self.world.faults.get("sampler_ends_before_the_keys") else self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def communicate(self, timeout=None):
+        self.world.calls.append(("sampler", "ends"))
+        self.world.sampler_bound = timeout
+        if self.world.faults.get("sampler_hangs"):
+            raise subprocess.TimeoutExpired(self.command, timeout)
+        self.returncode = 1 if self.world.faults.get("sampler_fails") else 0
+        if self.returncode:
+            return "", None
+        with open(self.command[self.command.index("-file") + 1], "w") as f:
+            f.write(SAMPLE_REPORT)
+        kept = self.said() if self.world.faults.get("sampler_says_nothing") else ""
+        return kept + "Sampling completed, processing symbols...\nSample analysis of process written to file\n", None
+
+    def kill(self):
+        self.world.calls.append(("sampler", "gets a kill"))
+        self.returncode = -9
+
+
+def first_line(world):
+    """`select.select` for `take()`: the sampler's first line is there to read at once. With the fault
+    `sampler_says_nothing` no line comes in the wait. The fake app keeps the wait's bound."""
+    def wait(readers, writers, others, timeout=None):
+        world.first_line_bound = timeout
+        return ([] if world.faults.get("sampler_says_nothing") else list(readers)), [], []
+    return wait
+
+
 class Recorder:
     """`subprocess` for `run()`: the one child of a take is the signpost recorder with the take's own command. The
-    fault `take_never_ends` names the take (a count from 1) whose child hangs: it makes no record."""
-    DEVNULL = -3
+    fault `take_never_ends` names the take (a count from 1) whose child hangs: it makes no record. For `take()`: the
+    one child is the sampler (`Sampler`)."""
+    DEVNULL, PIPE, STDOUT = -3, -1, -2
     SubprocessError, TimeoutExpired = subprocess.SubprocessError, subprocess.TimeoutExpired
 
     def __init__(self, world):
@@ -316,9 +457,13 @@ class Recorder:
     def take(self, command):
         value = lambda flag: command[command.index(flag) + 1]
         categories = [command[i + 1] for i, part in enumerate(command) if part == "--category"]
-        self.world.take(value("--row"), value("--out"), categories, int(value("--keep")), "--film" in command, value("--launch-form"))
+        sample = (value("--sample-pid"), value("--sample-s")) if "--sample-pid" in command else None
+        self.world.take(value("--row"), value("--out"), categories, int(value("--keep")), "--film" in command, value("--launch-form"), sample)
 
     def Popen(self, command, **options):
+        if command[0] == SAMPLER:
+            self.world.samplers.append(command)
+            return Sampler(self.world, command)
         self.world.records += 1
         hangs = self.world.records == self.world.faults.get("take_never_ends")
         self.world.children.append({"new_session": options.get("start_new_session"), "hangs": hangs})
@@ -408,14 +553,15 @@ class Case(unittest.TestCase):
                 stack.enter_context(mock.patch.object(M, name, fake))
             # No signal goes to a process: the fake app keeps each kill of a process group.
             stack.enter_context(mock.patch.object(M.os, "killpg", lambda group, sent: world.kills.append((group, sent))))
+            stack.enter_context(mock.patch.object(select, "select", first_line(world)))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
-    def rows(self, world, rounds=1, form="one-key", film=None):
-        """`run()` on the fake app: the report."""
+    def rows(self, world, rounds=1, form="one-key", film=None, sample=0):
+        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s."""
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
-                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0)
+                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
@@ -429,12 +575,16 @@ class Case(unittest.TestCase):
         except Exception as error:  # noqa: BLE001  each class: the row that was measured is lost with it
             self.fail(f"run() stopped and the measured row is lost: {error!r}")
 
-    def record(self, world, row="hold", form="activate", film=None):
-        """`take()` on the fake app: the record that it wrote."""
+    def record(self, world, row="hold", form="activate", film=None, more=(), sample=None):
+        """`take()` on the fake app: the record that it wrote. `more`: the kinds of the tabs that the pane has after
+        its first tab (a terminal) when the take starts; the last one is the selected tab. `sample`: the pid and the
+        seconds of the sample take (None: a take with no sampler)."""
         Builder(world).new_workspace()
+        for kind in more:
+            world.add(kind)
         opts = argparse.Namespace(socket="/fake-app.sock", workspace="ws1", pane="pane1", row=row, launch_form=form, out=self.out,
                                   keys="app-queue", hold_ms=100.0, every_ms=500.0, repeat_delay_ms=20.0, repeat_ms=20.0, keep=1,
-                                  film=film, deadline=1.0)
+                                  film=film, deadline=1.0, sample_pid=sample and str(sample[0]), sample_s=sample[1] if sample else 0)
         with self.fakes(world):
             M.take(opts)
         with open(os.path.join(self.out, "scenario.json")) as f:
@@ -733,6 +883,13 @@ class Rows(Case):
         self.assertEqual([why for why in report["failures"] if why.startswith("0 mixed: ")], ["0 mixed: a fake error of the take"])
         self.assertEqual([(row.get("invalid"), row.get("state")) for row in report["rows"][1:]], [([], "valid")] * 3)
         self.assertEqual(M.exit_code(report, 1), 2)
+
+    def test_a_take_whose_record_has_an_entry_of_invalid_is_an_invalid_row_and_a_failure_of_the_run(self):
+        why = "the app refused a key window word after the frames started"
+        report = self.rows(World(record_invalid={2: why}))
+        row = report["rows"][1]
+        self.assertEqual((row["scenario"], row["state"], row["invalid"], M.valid(row)), ("hold", "INVALID", [why], False))
+        self.assertIn(f"0 hold: {why}", report["failures"])
 
     def test_a_row_with_no_signpost_stream_is_invalid_and_has_no_number_outside_the_key_that_says_so(self):
         """The recorder made no stream: the row has no fate of a key and so no proof of the order of its keys. A count of
@@ -1065,6 +1222,159 @@ class KeyCalls(Case):
         self.assertIn("the app's own clock", said.get("key_time", ""))
 
 
+class KeyWindow(Case):
+    """The `activate` form with Chromium pages: the app shows a new tab page in a window of its own, and that window
+    has the keys while the pane shows the page. The app then refuses a sequence that asks for the shell window as the
+    key window (`the shell window did not become key`), and it refuses the page's window when the pane shows no page."""
+
+    def preflight(self, world):
+        """`preflight()` in the `activate` form on the fake app: the printed lines. A preflight that fails is a failure
+        of the test with the tool's own words."""
+        frames = {"frames": 120, "p50_ms": 8.33}
+        rpc = lambda method, params=None, timeout=60: frames if method == "debug.frames" else world.rpc(method, params, timeout)
+        said = io.StringIO()
+        with self.fakes(world), contextlib.redirect_stdout(said):
+            try:
+                M.preflight(argparse.Namespace(rpc=rpc), Builder(world), self.out, None, "activate", "ready")
+            except M.PreflightFailed as error:
+                self.fail(f"the preflight of the activate form failed: {error}; the key windows that it asked for: {world.asked}")
+        return said.getvalue().splitlines()
+
+    def test_a_take_that_starts_on_a_new_tab_page_asks_for_the_window_of_the_page(self):
+        """`close` after 2 new tab pages: the pane shows the second page, so the page's window has the keys."""
+        world = World(chromium_pages=True)
+        record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
+        # 2 sequences: the one with no key before the frames, then the keys.
+        self.assertEqual((record["errors"], record["invalid"], world.asked), ([], [], ["page", "page"]))
+        self.assertEqual((record.get("key_window"), [tab["kind"] for tab in world.tabs]), ("page", ["terminal"]))
+        self.assertNotIn("key_window_refusals", record)
+        self.assertEqual(record["take"].get(EARLY), [])
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
+
+    def in_the_frames(self, world):
+        """Each `debug.focus` and `debug.key` call of the take from the start of its frames to their end."""
+        started, stopped = world.calls.index(("debug.frames", "start")), world.calls.index(("debug.frames", "stop"))
+        return [call for call in world.calls[started:stopped] if call[0] in ("debug.focus", "debug.key")]
+
+    def test_a_take_takes_the_refusal_of_a_stale_word_before_its_frames_start(self):
+        """The take's read of the word still says the shell window, and the page has the keys. The app refuses the
+        word at the take's sequence with no key, which is before the frames: the frames have the keys' send only."""
+        world = World(chromium_pages=True)
+        world.stale = 2  # the take's 2 reads of the focus before its frames: the tab list, then the word
+        record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
+        self.assertEqual((record["errors"], record["invalid"], world.asked), ([], [], ["shell", "page", "page"]))
+        self.assertEqual((record.get("key_window"), record["take"].get(EARLY), [tab["kind"] for tab in world.tabs]),
+                         ("page", ["shell: the shell window did not become key"], ["terminal"]))
+        self.assertNotIn("key_window_refusals", record)
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
+
+    def test_a_take_keeps_each_other_error_of_its_sequence_with_no_key(self):
+        """The app answers the take's sequence with no key with an error that is not a refusal of a key window. The
+        tool makes no second send of it, the keys go as before, and the take's record keeps the app's words."""
+        world, empty = World(chromium_pages=True), []
+        app = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.key" and (params or {}).get("sequence") == []:
+                empty.append(params.get("key_window"))
+                return {"error": "no event timestamp to start the sequence from"}
+            return app(method, params, timeout)
+
+        world.rpc = rpc
+        record = self.record(world, row="hold", form="activate")
+        self.assertEqual((empty, world.asked, record["errors"], record["invalid"]), (["shell"], ["shell"], [], []))
+        self.assertEqual(record["take"].get(EARLY), ["shell: no event timestamp to start the sequence from"])
+        self.assertNotIn("key_window_refusals", record)
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence")])
+
+    def test_a_take_whose_word_the_app_refuses_after_its_frames_started_is_invalid_and_names_the_refusal(self):
+        """The page gets the keys after the app took the take's word: the refused send and the tool's new read of the
+        focus are inside the frames, so no frame number of that take is valid."""
+        world = World(chromium_pages=True, page_takes_the_keys_at_the_frames=True)
+        record = self.record(world, row="close", form="activate", more=("newtab", "newtab"))
+        self.assertEqual(self.in_the_frames(world), [("debug.key", "sequence"), ("debug.focus", None), ("debug.key", "sequence")])
+        self.assertEqual(record.get("key_window_refusals"), ["shell: the shell window did not become key"])
+        self.assertEqual(record["invalid"],
+                         ["the app refused a key window word after the frames started (shell: the shell window did not become key): "
+                          "the frames have one read of the focus and one refused send of this tool"])
+        self.assertEqual((M.valid(record), record["errors"], record.get("key_window")), (False, [], "page"))
+        self.assertEqual((world.asked, record["take"].get(EARLY), [tab["kind"] for tab in world.tabs]),
+                         (["shell", "shell", "page"], [], ["terminal"]))
+
+    def test_a_take_whose_word_the_app_refuses_at_each_send_gets_no_key_and_is_not_valid(self):
+        """The focus says a page and the app finds no page window for it: 2 sends of the sequence with no key, 2 of
+        the keys, and no other one."""
+        world = World(chromium_pages=True)
+        world.page_has_the_keys = lambda: False  # the app refuses `page`
+        focus = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            reply = focus(method, params, timeout)
+            if method == "debug.focus":  # the focus read still names a page
+                reply["windows"][0].update({"is_key": False, "appkit": {"child_window_page": "tab9"}})
+            return reply
+
+        world.rpc = rpc
+        record = self.record(world, row="hold", form="activate")
+        refusal = "page: no Chromium page window for pane"
+        self.assertEqual((world.asked, world.keys, M.valid(record)), (["page"] * 4, 0, False))
+        self.assertEqual((record["take"].get(EARLY), record.get("key_window_refusals")), ([refusal] * 2, [refusal]))
+        self.assertEqual(len(record["errors"]), 1)
+        self.assertIn("keys: {'error': 'no Chromium page window for pane'", record["errors"][0])
+
+    def test_a_take_that_starts_on_a_terminal_asks_for_the_shell_window(self):
+        world = World(chromium_pages=True)
+        record = self.record(world, row="hold", form="activate")
+        self.assertEqual((record["errors"], record["invalid"], world.asked, record.get("key_window")), ([], [], ["shell", "shell"], "shell"))
+
+    def test_the_preflight_closes_the_new_tab_page_that_its_own_key_made(self):
+        """The preflight's Cmd-T makes a new tab page, which takes the keys; its Cmd-W goes to the page's window."""
+        world = World(chromium_pages=True)
+        lines = self.preflight(world)
+        self.assertEqual((world.asked, [tab["kind"] for tab in world.tabs]), (["shell", "page"], ["terminal"]))
+        self.assertIn("PREFLIGHT new-tab ok: tabs 1 -> 2, key_window = shell", lines)
+        self.assertIn("PREFLIGHT close-tab ok: tabs 2 -> 1, key_window = page", lines)
+
+    def test_the_preflight_reads_the_focus_again_when_the_page_took_the_keys_after_its_read(self):
+        """The read of the focus and the keys are 2 calls. Directly after a Cmd-T the first read can still say the
+        shell window; the app then refuses that word before it posts a key: ONE new read and ONE more send."""
+        world = World(chromium_pages=True, page_gets_the_keys_late=True)
+        lines = self.preflight(world)
+        self.assertEqual((world.asked, [tab["kind"] for tab in world.tabs]), (["shell", "shell", "page"], ["terminal"]))
+        self.assertIn("PREFLIGHT close-tab ok: tabs 2 -> 1, key_window = page (the app refused shell: the shell window did not become key)", lines)
+
+    def test_the_word_follows_the_window_that_is_key(self):
+        """The app's `debug.focus` has one entry for each cmux window. While a page's window has the keys, no cmux window
+        is key, and the window of the page names it (`appkit.child_window_page`)."""
+        window = lambda key, page: {"is_key": key, "appkit": {"child_window_page": page}}
+        cases = (("page", {"windows": [window(False, "page1")]}),  # the page's own window is key
+                 ("shell", {"windows": [window(True, None)]}),
+                 # A cmux window is key and still names a page (a new page whose window cannot take the keys yet): the
+                 # window that has the keys is the shell window, and the app takes that word.
+                 ("shell", {"windows": [window(True, "page1")]}),
+                 # 2 cmux windows: the one that is key shows a terminal, the other one keeps the word of its page.
+                 ("shell", {"windows": [window(True, None), window(False, "page1")]}),
+                 ("page", {"windows": [window(False, None), window(False, "page1")]}),
+                 ("shell", {"windows": []}), ("shell", {"error": "unknown method"}), ("shell", None))
+        for want, reply in cases:
+            self.assertEqual(M.key_window_word(lambda method, params=None, timeout=60: reply), want, reply)
+
+    def test_a_refusal_that_a_new_read_does_not_mend_fails_the_preflight_after_2_sends(self):
+        """The focus says a page and the app finds no page window for it at each send: no third send."""
+        world = World(chromium_pages=True)
+        world.page_has_the_keys = lambda: False  # the app refuses `page`, and the focus read below still names a page
+        focus = world.rpc
+        seen = {"app_active": True, "key_window": "CefNSWindow", "windows": [{"is_key": False, "appkit": {"child_window_page": "tab9"}}]}
+        world.rpc = lambda method, params=None, timeout=60: seen if method == "debug.focus" else focus(method, params, timeout)
+        with self.assertRaises(AssertionError) as failed:
+            self.preflight(world)
+        self.assertEqual(world.asked, ["page", "page"])
+        self.assertIn("new-tab: no Chromium page window for pane", str(failed.exception))
+        # The failed line has the word that the tool asked and the refusal before the last send.
+        self.assertIn("no Chromium page window for pane, key_window = page (the app refused page: no Chromium page window for pane)",
+                      str(failed.exception))
+
+
 class InputOrder(unittest.TestCase):
     """`input_order`: the proof that the app got the keys in the order of the tool."""
     RUN = staticmethod(lambda at: {"perform": {"at_s": at}})
@@ -1155,6 +1465,197 @@ class Take(Case):
         record = self.record(world)
         last = record["press_times_s"][-1]
         self.assertAlmostEqual(record["take"].get("list_read_after_last_key_ms") or 0.0, (world.now - last) * 1000, places=3)
+
+
+class Sample(Case):
+    """--sample-s: one more `hold` take with the system's sampler on the app's process."""
+
+    def test_the_sample_take_is_one_more_hold_after_the_wider_recording_and_no_other_take_has_a_sampler(self):
+        world = World()
+        report = self.rows(world, rounds=1, sample=30)
+        self.assertEqual([(take["row"], take["categories"], take["sample"]) for take in world.takes],
+                         [("mixed", ["action"], None), ("hold", ["action"], None), ("close", ["action"], None), ("hold", WIDE, None),
+                          ("hold", ["action"], ("1", "30"))])
+        row = report["rows"][-1]
+        self.assertEqual((row["round"], row["scenario"], row["state"]), ("sample", "hold-sample", "valid"))
+        self.assertEqual((row.get("not_restored"), len(world.tabs), report["failures"]), ([], 3, []))
+
+    def test_a_run_that_does_not_ask_for_a_sample_has_no_such_take(self):
+        world = World()
+        report = self.rows(world, rounds=1)
+        self.assertEqual(([take["sample"] for take in world.takes], [row["round"] for row in report["rows"]]),
+                         ([None] * 4, [0, 0, 0, "wide"]))
+
+    def test_the_sample_row_has_counts_of_the_main_thread_and_no_time_outside_the_key_that_says_so(self):
+        row = self.rows(World(), sample=30)["rows"][-1]
+        self.assertEqual(row.get("sample"),
+                         {"file": SAMPLE_FILE, "seconds": 30, "sampler_said": ["Sampling process"], "first_line_before_the_keys": True,
+                          "sampler_exit": 0, "app_was_done": True, **SAMPLE_COUNTS, "limit": getattr(M, "SAMPLE_LIMIT", None)})
+        self.assertEqual(set(row) - set(M.ROW_KEYS), {HIDDEN, "sample"})
+        self.assertEqual(row[HIDDEN]["why"], getattr(M, "SAMPLE_WHY", None))
+        self.assertIn("input_to_next_commit_ms", row[HIDDEN])
+        self.assertEqual([key for key in json.dumps(row["sample"]).replace('"limit"', "").split('"') if key.endswith("_ms")], [])
+
+    def test_a_sample_row_with_no_proof_of_the_keys_order_keeps_that_cause(self):
+        row = self.rows(World(keys_change_places={5: (1, 2)}), sample=30)["rows"][-1]
+        self.assertEqual((row["scenario"], row["state"], (row.get(HIDDEN) or {}).get("why")), ("hold-sample", "finding", M.HIDDEN_WHY))
+        self.assertEqual(set(row) - set(M.ROW_KEYS), {HIDDEN, "sample"})
+        self.assertEqual((row.get("sample") or {}).get("main_thread_samples"), 3000)
+
+    def test_a_sample_take_with_no_report_keeps_its_row_and_is_a_failure_of_the_run(self):
+        why = "no sample: the sampler's exit was 1 and it wrote no file"
+        report = self.rows(World(no_sample=why), sample=30)
+        row = report["rows"][-1]
+        self.assertEqual((row["scenario"], (row.get("sample") or {}).get("error"), row["order"]["equal"]), ("hold-sample", why, True))
+        self.assertNotIn("main_thread_samples", row.get("sample") or {})
+        self.assertEqual(report["failures"], [f"sample hold: {why}"])
+
+    def test_a_report_with_no_main_thread_is_an_error_of_the_sample_and_a_failure_of_the_run(self):
+        report = self.rows(World(sample_with_no_main_thread=True), sample=30)
+        why = (report["rows"][-1].get("sample") or {}).get("error")
+        self.assertIn("no sample of the main thread", why or "")
+        self.assertEqual(report["failures"], [f"sample hold: {why}"])
+
+    def test_a_sample_take_that_was_not_run_says_so_in_its_sample(self):
+        report = self.rows(World(pane_gone="after hold"), sample=30)
+        row = report["rows"][-1]
+        self.assertEqual((row["scenario"], bool(row.get("not_run"))), ("hold-sample", True))
+        self.assertIn("no record of the sampler", (row.get("sample") or {}).get("error") or "")
+
+    def test_the_sample_takes_child_may_run_for_the_samplers_seconds_and_its_end_more(self):
+        world, bounds = World(), []
+        with mock.patch.object(M, "record_take", lambda command, bound: bounds.append(bound) or M.subprocess.Popen(command).wait()):
+            self.rows(world, sample=30)
+        self.assertEqual(len(bounds), 5)
+        self.assertEqual((len(set(bounds[:4])), bounds[4] - bounds[0]), (1, 30 + M.SAMPLE_END_S))
+
+    def test_the_sampler_starts_after_the_last_read_before_the_keys_and_ends_before_the_takes_reads(self):
+        world = World()
+        record = self.record(world, sample=(77, 5))
+        self.assertEqual(world.samplers, [[SAMPLER, "77", "5", "-file", os.path.join(self.out, SAMPLE_FILE)]])
+        calls = world.calls
+        first, last = calls.index(("sampler", "says its first line")), calls.index(("sampler", "ends"))
+        self.assertEqual(calls[first - 1], ("sampler", "starts"))
+        self.assertEqual((calls[first - 2], calls[first + 1]), (("debug.burst", "start"), ("debug.key", "sequence")))
+        # Each key and the app's word that the burst is done are before the sampler's end; each read of the take is after it.
+        self.assertEqual([call for call in calls[first:last] if call[0] != "sampler"],
+                         [("debug.key", "sequence"), ("debug.burst", "status"), ("debug.frames", "stop")])
+        self.assertEqual(calls[last + 1], ("debug.burst", "stop"))
+        self.assertEqual(world.sampler_bound, 5 + M.SAMPLE_END_S)
+        self.assertEqual(record.get("sample"),
+                         {"file": SAMPLE_FILE, "seconds": 5, "first_line_before_the_keys": True, "sampler_exit": 0, "app_was_done": True,
+                          "sampler_said": ["Sampling process 77 for 5 seconds with 1 millisecond of run time between samples",
+                                           "Sampling completed, processing symbols...", "Sample analysis of process written to file"]})
+
+    def test_a_sampler_that_fails_leaves_its_words_in_the_record_and_the_take_goes_on(self):
+        world = World(sampler_fails="sample cannot examine process 77 for unknown reasons")
+        record = self.record(world, sample=(77, 5))
+        self.assertEqual((record.get("sample") or {}).get("error"), "no sample: the sampler's exit was 1 and it wrote no file")
+        self.assertEqual(record["sample"]["sampler_said"], ["sample cannot examine process 77 for unknown reasons"])
+        self.assertEqual((record["presses"] > 0, world.keys), (True, record["presses"]))
+
+    def test_a_sampler_that_says_nothing_in_its_start_time_does_not_hold_the_keys_and_the_record_says_so(self):
+        world = World(sampler_says_nothing=True)
+        record = self.record(world, sample=(77, 5))
+        sample = record.get("sample") or {}
+        self.assertEqual((sample.get("first_line_before_the_keys"), sample.get("sampler_exit"), world.first_line_bound),
+                         (False, 0, getattr(M, "SAMPLE_START_S", None)))
+        self.assertNotIn(("sampler", "says its first line"), world.calls)
+        self.assertEqual(sample["sampler_said"][0], "Sampling process 77 for 5 seconds with 1 millisecond of run time between samples")
+        self.assertEqual((record["presses"] > 0, world.keys), (True, record["presses"]))
+
+    def test_a_sampler_that_does_not_end_gets_one_kill_and_the_record_has_no_exit_and_an_error(self):
+        world = World(sampler_hangs=True)
+        record = self.record(world, sample=(77, 5))
+        sample = record.get("sample") or {}
+        self.assertEqual((sample.get("sampler_exit", 0), sample.get("error")),
+                         (None, "no sample: the sampler's exit was None and it wrote no file"))
+        self.assertEqual((world.calls.count(("sampler", "gets a kill")), world.keys), (1, record["presses"]))
+
+    def test_a_sampler_that_does_not_start_leaves_the_error_in_the_record(self):
+        world = World()
+
+        def no_sampler(command, **options):
+            raise FileNotFoundError(2, "No such file or directory")
+
+        with mock.patch.object(Recorder, "Popen", staticmethod(no_sampler)):
+            record = self.record(world, sample=(77, 5))
+        self.assertIn("the sampler did not start: FileNotFoundError", (record.get("sample") or {}).get("error") or "")
+        self.assertEqual(world.keys, record["presses"])
+
+    def test_a_sample_whose_seconds_end_before_the_app_is_done_says_so(self):
+        # The fake clock moves at each read: no time is left of a sample of 0 seconds when the app says that it is done.
+        record = self.record(World(), sample=(77, 0))
+        self.assertEqual((record.get("sample") or {}).get("app_was_done"), False)
+
+    def test_the_sample_take_is_before_the_film_take(self):
+        world = World()
+        self.rows(world, rounds=1, film=os.path.join(self.out, "film"), sample=30)
+        self.assertEqual([(take["row"], take["film"], take["sample"]) for take in world.takes][-2:],
+                         [("hold", False, ("1", "30")), ("mixed", True, None)])
+
+    def test_a_take_that_stops_at_a_fault_after_the_samplers_start_gives_the_sampler_one_kill(self):
+        # The fault of the tool: a call of the take raises between the sampler's start and its end. The sampler must
+        # not run on (the take that follows can be the film take).
+        world = World()
+        app = world.rpc
+
+        def rpc(method, params=None, timeout=60):
+            if method == "debug.frames" and (params or {}).get("action") == "stop":
+                raise OSError("no socket")
+            return app(method, params, timeout)
+
+        world.rpc = rpc
+        with self.assertRaises(OSError):
+            self.record(world, sample=(77, 5))
+        self.assertEqual([call for call in world.calls if call[0] == "sampler"],
+                         [("sampler", "starts"), ("sampler", "says its first line"), ("sampler", "gets a kill")])
+
+    def test_a_sampler_that_ended_gets_no_kill_at_the_takes_end(self):
+        world = World()
+        self.record(world, sample=(77, 5))
+        self.assertNotIn(("sampler", "gets a kill"), world.calls)
+
+    def test_a_sampler_that_ended_before_the_first_key_is_an_error_of_the_sample(self):
+        # A sampler with few seconds that keeps its words to its end: its line comes in the wait, after its sample.
+        for faults in ({"sampler_ends_before_the_keys": True}, {"sampler_ends_before_the_keys": True, "sampler_says_nothing": True}):
+            with self.subTest(faults=faults):
+                world = World(**faults)
+                sample = self.record(world, sample=(77, 5)).get("sample") or {}
+                self.assertEqual((sample.get("first_line_before_the_keys"), sample.get("error")),
+                                 (False, "no sample of the keys: the sampler ended before the first key"))
+                self.assertEqual(world.keys > 0, True)
+
+    def test_an_empty_read_of_the_first_line_is_no_first_line(self):
+        sample = self.record(World(sampler_ends_with_no_word=True), sample=(77, 5)).get("sample") or {}
+        self.assertEqual(sample.get("first_line_before_the_keys"), False)
+
+    def test_the_first_line_of_a_sampler_that_fails_is_not_the_word_that_it_samples(self):
+        sample = self.record(World(sampler_fails="sample cannot examine process 77 for unknown reasons"), sample=(77, 5)).get("sample") or {}
+        self.assertEqual((sample.get("first_line_before_the_keys"), sample.get("sampler_exit")), (False, 1))
+
+    def test_a_sample_of_an_app_that_never_said_that_it_was_done_says_so(self):
+        world = World(never_done=True)
+        sample = self.record(world, sample=(77, 5)).get("sample") or {}
+        self.assertEqual((sample.get("app_was_done"), sample.get("sampler_exit")), (False, 0))
+
+    def test_a_take_with_no_sampler_starts_none_and_its_record_has_no_sample(self):
+        world = World()
+        record = self.record(world)
+        self.assertEqual((world.samplers, "sample" in record, [call for call in world.calls if call[0] == "sampler"]), ([], False, []))
+
+    def test_the_artifact_has_the_samplers_report(self):
+        os.makedirs(os.path.join(self.out, "sample-hold"))
+        for path in ("report.json", "sample-hold/scenario.json", "sample-hold/run.ndjson", "sample-hold/" + SAMPLE_FILE):
+            with open(os.path.join(self.out, path), "w") as f:
+                f.write("{}")
+        names = M.pack(self.out, None, os.path.join(self.out, "back.tgz"))
+        self.assertEqual(sorted(names), ["report.json", "sample-hold/run.ndjson", "sample-hold/sample.txt", "sample-hold/scenario.json"])
+
+    def test_the_tools_option_is_a_count_of_whole_seconds_and_is_off_by_default(self):
+        with open(os.path.join(HERE, "..", "held-new-tab.py")) as f:
+            text = f.read()
+        self.assertIn('parser.add_argument("--sample-s", type=int, default=0,', text)
 
 
 class Artifact(Case):

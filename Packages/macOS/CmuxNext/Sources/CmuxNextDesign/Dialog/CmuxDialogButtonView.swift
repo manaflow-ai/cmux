@@ -210,7 +210,8 @@ public final class CmuxDialogButtonView: ClickableButton {
         let state: CmuxDialogButtonLook.State = previewState ?? (isHighlighted ? .pressed : isHovering ? .hover : .rest)
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state, quiet: isQuiet,
+            // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
+            return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
                                         card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
         }
     }
@@ -306,4 +307,12 @@ enum CmuxDialogMetrics {
     static var keycapPadding: CGFloat { 4 * Typography.userScale }
     static var keycapLeading: CGFloat { 12 * Typography.userScale }
     static var keycapGap: CGFloat { 8 * Typography.userScale }
+    /// A code's well (``CmuxDialogCodeWell``): the code this far in from its sides, and from its top and bottom.
+    static var codeInset: CGFloat { 10 * Typography.userScale }
+    static var codeVerticalInset: CGFloat { 7 * Typography.userScale }
+    /// The well's fill and edge: the text's ink at these alphas.
+    static let codeWellFill: CGFloat = 0.06
+    static let codeWellEdge: CGFloat = 0.12
+    /// One device pixel in `window` (1 pt on a 1x screen).
+    static func hairline(in window: NSWindow?) -> CGFloat { 1 / max(window?.backingScaleFactor ?? 2, 1) }
 }

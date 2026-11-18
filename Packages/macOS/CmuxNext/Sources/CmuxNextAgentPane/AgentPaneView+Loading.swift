@@ -272,7 +272,7 @@ extension AgentPaneView {
         // the watchdog, which has no drawn-frame report.
         let replacesSavedFrame = loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
-                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
+                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: isOpaqueUpToItsWindow,
                                                                        fromKeptTail: model.paintedFromKeptTail,
                                                                        settled: model.paintedSettled))
     }

@@ -452,6 +452,78 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
+/// The one pooled host's record, once an ended entry's record is gone (a read of the pool's
+/// folder lists them in no order).
+async fn one_pool_record(daemon: &Daemon) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let mut records = daemon.pool_records();
+        if records.len() == 1 {
+            return records.remove(0);
+        }
+        assert!(Instant::now() < deadline, "{} pooled hosts, not one", records.len());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A Cloud chat's start carries its owner's model credential (`_meta.acpmux.credentials`), and
+/// before cmux#45953 such a `session/new` never claimed a pooled agent: every Cloud chat paid a
+/// cold harness start. A hint now names the credential the coming start will carry; only a
+/// `session/new` with that same credential takes the entry it warmed, while another credential,
+/// or none, starts cold and never runs on the warmed agent's login.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_credentialed_hint_is_taken_only_by_a_start_with_that_credential() {
+    // The fake as a Claude-family agent, so the credential goes into its spawn as Claude's would.
+    let mut fakeb = profile("b");
+    fakeb["family"] = json!("claude");
+    let daemon = Daemon::with_fakeb("cred", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let credential = |token: &str| json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}});
+    let start = |token: Option<&str>| {
+        let mut acpmux = json!({"harness": "fakeb"});
+        if let Some(token) = token {
+            acpmux["credentials"] = credential(token);
+        }
+        json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": acpmux}})
+    };
+    let hint = |token: &str| json!({"harness": "fakeb", "cwd": home, "wait": true, "credentials": credential(token)});
+
+    // Another credential, or none: the warmed agent is never handed to it. Another credential
+    // leaves the entry (it ends only with no start for it); a start with none ends it, as any
+    // start whose key differs ends its slot's entry.
+    for token in [Some("sk-ant-oat01-owner-b"), None] {
+        let warmed = rpc.call("_acpmux/prewarm", hint("sk-ant-oat01-owner-a")).await;
+        assert_eq!(warmed["accepted"], true, "{warmed}");
+        wait_pool_ready(&mut rpc, "fakeb").await;
+        let pooled = one_pool_record(&daemon).await;
+        let other = rpc.call("session/new", start(token)).await;
+        let other = other["sessionId"].as_str().expect("session id").to_owned();
+        assert!(!taken(&daemon, &other), "a start on {token:?} took the warmed agent");
+        assert_ne!(other, pooled["session_id"].as_str().unwrap());
+    }
+
+    // The same credential: the start takes the warmed agent.
+    let warmed = rpc.call("_acpmux/prewarm", hint("sk-ant-oat01-owner-a")).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = one_pool_record(&daemon).await;
+    let t = Instant::now();
+    let same = rpc.call("session/new", start(Some("sk-ant-oat01-owner-a"))).await;
+    eprintln!("credentialed session/new on the warmed agent: {:?}", t.elapsed());
+    let same = same["sessionId"].as_str().expect("session id").to_owned();
+    assert_eq!(same, pooled["session_id"].as_str().unwrap(), "the start takes the pooled id");
+    assert!(taken(&daemon, &same));
+    assert_runs_on_pooled_host(&daemon, &same, &pooled);
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": same, "prompt": [{"type": "text", "text": "hello"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hints_are_debounced_and_a_config_change_is_never_served() {
     let daemon = Daemon::new("deb", 300);

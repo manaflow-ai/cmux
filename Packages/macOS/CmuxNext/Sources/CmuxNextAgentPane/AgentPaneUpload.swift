@@ -102,11 +102,12 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
         }
     }
 
-    /// The reply to the page's upload: only for a chat the App uploads for (asked before the gesture
-    /// is used, so another chat's paste keeps its gesture), then only with a real gesture.
+    /// The reply to the page's upload: only for a chat the App uploads for. It needs no key press or
+    /// click (Leo, 2026-11-17, on "Not sent: it needs your own key press or click": "go remove
+    /// this"); a gesture's upload credit is spent if there is one.
     @MainActor static func respond(_ files: [AgentPaneUpload], in model: AgentPaneModel) async -> [String: Any] {
         guard let uploader = model.onUpload?() else { return AgentPaneModel.unsupported("chat.upload") }
-        guard model.transport.gestures.consumeUpload() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        _ = model.transport.gestures.consumeUpload()
         return await uploader(files)
     }
 }

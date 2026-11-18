@@ -7,13 +7,24 @@
 //! fraction of its frame interval, with a small burst allowance so one wakeup
 //! sends several datagrams. No I/O: the caller pushes a frame, asks what is
 //! due, and wakes at `next_deadline_us`.
+//!
+//! Repairs (NACK resends and tail-loss probes) go through the same pacer, ahead
+//! of queued frames, under the same rule: a 64-datagram resend written back to
+//! back is lost the way a keyframe burst is (design D6, cmuxterm-hq
+//! docs/design/screen-share-under-100ms.md).
+//!
+//! Why a large frame raises the rate rather than taking longer than half a frame
+//! interval: pacing a keyframe at only 2.5 times a target that loss has cut held
+//! recovery keyframes and their repairs past the viewer's deadline. On the
+//! Wi-Fi-away netem profile that meant 31 recovery keyframes instead of 2, and a
+//! key-to-decoded p95 of 272 ms instead of 132 ms.
 
 use std::collections::VecDeque;
 
 /// The pacing rate is at least this multiple of the target bitrate.
 pub const PACING_FACTOR: f64 = 2.5;
-/// A frame leaves within this share of the frame interval at most (the rate rises
-/// to fit a large frame: a keyframe).
+/// What is queued (repairs, frames) leaves within this share of the frame interval
+/// at most (the rate rises to fit a large frame: a keyframe).
 pub const SPREAD_SHARE: f64 = 0.5;
 /// Burst allowance: what one wakeup may send at once, in microseconds of the rate.
 pub const BURST_US: u64 = 2_000;
@@ -24,6 +35,13 @@ pub const MIN_BURST_DATAGRAMS: usize = 4;
 pub struct Pacer {
     queue: VecDeque<Vec<u8>>,
     queued_bytes: usize,
+    /// How many datagrams at the queue's head are repairs (they go first).
+    repairs_queued: usize,
+    /// Frame datagrams (not repairs) `due` returned since the last
+    /// [`Pacer::take_frame_datagrams_sent`].
+    frame_datagrams_sent: usize,
+    /// The stream's frame interval, from the last frame pushed.
+    frame_interval_us: u64,
     rate_bytes_per_us: f64,
     budget_bytes: f64,
     last_us: Option<u64>,
@@ -43,16 +61,44 @@ impl Pacer {
         frame_interval_us: u64,
         now_us: u64,
     ) {
-        if self.queue.is_empty() {
-            // Idle: the frame's head goes at once.
-            self.last_us = Some(now_us);
-            self.budget_bytes = 0.0;
-        }
+        self.frame_interval_us = frame_interval_us;
+        self.wake(now_us);
         for d in datagrams {
             self.queued_bytes += d.len();
             self.queue.push_back(d);
         }
-        let window_us = (frame_interval_us as f64 * SPREAD_SHARE).max(1_000.0);
+        self.set_rate(target_bps);
+    }
+
+    /// Queues repairs (resent datagrams of frames already sent: NACK answers,
+    /// tail-loss probes) ahead of any queued frame, after earlier repairs, at the
+    /// same rate as frames: never as one burst, and never behind a queued frame.
+    pub fn push_repair(&mut self, datagrams: Vec<Vec<u8>>, target_bps: u64, now_us: u64) {
+        if datagrams.is_empty() {
+            return;
+        }
+        self.wake(now_us);
+        for d in datagrams {
+            self.queued_bytes += d.len();
+            self.queue.insert(self.repairs_queued, d);
+            self.repairs_queued += 1;
+        }
+        self.set_rate(target_bps);
+    }
+
+    /// Idle: what is pushed next starts at once.
+    fn wake(&mut self, now_us: u64) {
+        if self.queue.is_empty() {
+            self.last_us = Some(now_us);
+            self.budget_bytes = 0.0;
+        }
+    }
+
+    /// `PACING_FACTOR` times the target, or faster when that would hold what is
+    /// queued longer than `SPREAD_SHARE` of a frame interval.
+    fn set_rate(&mut self, target_bps: u64) {
+        let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
+        let window_us = (interval_us as f64 * SPREAD_SHARE).max(1_000.0);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
         let fit = self.queued_bytes as f64 / window_us;
         self.rate_bytes_per_us = floor.max(fit);
@@ -81,6 +127,11 @@ impl Pacer {
             let Some(d) = self.queue.pop_front() else { break };
             self.budget_bytes -= d.len() as f64;
             self.queued_bytes -= d.len();
+            if self.repairs_queued > 0 {
+                self.repairs_queued -= 1;
+            } else {
+                self.frame_datagrams_sent += 1;
+            }
             out.push(d);
         }
         if self.queue.is_empty() {
@@ -109,10 +160,17 @@ impl Pacer {
         self.queued_bytes
     }
 
+    /// How many of the datagrams `due` returned since the last call were frame
+    /// datagrams rather than repairs (for per-frame send times).
+    pub fn take_frame_datagrams_sent(&mut self) -> usize {
+        std::mem::take(&mut self.frame_datagrams_sent)
+    }
+
     /// Drops everything queued (the session ended).
     pub fn clear(&mut self) {
         self.queue.clear();
         self.queued_bytes = 0;
+        self.repairs_queued = 0;
         self.budget_bytes = 0.0;
     }
 }
@@ -163,6 +221,39 @@ mod tests {
         let rate = 345_600.0 / 8_333.0; // bytes per us
         let burst = (rate * BURST_US as f64 / 1152.0).ceil() as usize + 1;
         assert!(per_time.values().all(|&n| n <= burst), "{per_time:?}");
+    }
+
+    /// Design D6, detector for the class "a recovery leaves as an unpaced burst": a
+    /// NACK answer (64 resends, the most one feedback asks for) leaves ahead of the
+    /// queued frame, in order, no more than the burst allowance per wakeup, and within
+    /// half a frame interval.
+    #[test]
+    fn repairs_leave_paced_ahead_of_queued_frames() {
+        let mut p = Pacer::new();
+        p.push_frame(frame(100), 10_000_000, 16_667, 0);
+        let first = p.due(0).len();
+        assert_eq!(p.take_frame_datagrams_sent(), first);
+        let repairs: Vec<Vec<u8>> = (0..64).map(|_| vec![0xaa; 1152]).collect();
+        p.push_repair(repairs, 10_000_000, 1_000);
+        p.push_repair(vec![vec![0xbb; 1152]], 10_000_000, 1_000);
+        let sent = drain(&mut p, 1_000);
+        assert_eq!(sent.len(), 100 - first + 65);
+        assert!(sent[..64].iter().all(|(_, d)| d[0] == 0xaa), "repairs first, in order");
+        assert_eq!(sent[64].1[0], 0xbb);
+        assert_eq!(p.take_frame_datagrams_sent(), 100 - first);
+        let at_once = sent.iter().filter(|(t, _)| *t == 1_000).count();
+        assert!(at_once < 65, "the repairs left as one burst: {at_once} datagrams at once");
+        let last = sent.last().unwrap().0 - 1_000;
+        assert!(last <= 8_400, "repairs and the frame behind them took {last} us");
+    }
+
+    #[test]
+    fn a_repair_on_an_idle_pacer_goes_at_once() {
+        let mut p = Pacer::new();
+        p.push_repair(vec![vec![1; 1152]; 3], 30_000_000, 5_000);
+        assert_eq!(p.due(5_000).len(), 3);
+        assert!(p.is_empty());
+        assert_eq!(p.take_frame_datagrams_sent(), 0);
     }
 
     #[test]

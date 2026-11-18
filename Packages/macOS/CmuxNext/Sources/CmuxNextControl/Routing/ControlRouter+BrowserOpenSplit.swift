@@ -148,7 +148,7 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
         if try Self.bool(params, "transparent_background") == true {
             throw ControlError(code: "unsupported",
                                message: ControlStrings.format("control.error.openSplitTransparent",
-                                                              "%@ cannot open a transparent browser tab: cmux-next browser tabs are always opaque (omit transparent_background)",
+                                                              "%@ cannot open a transparent browser tab; omit transparent_background",
                                                               method),
                                data: ["param": "transparent_background"])
         }

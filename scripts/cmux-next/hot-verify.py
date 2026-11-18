@@ -347,6 +347,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         base = h.app_commit(the_app, repo)
     else:
         base = git(repo, "merge-base", head, base_tip(repo))
+        parent = git(repo, "rev-parse", "--verify", "-q", f"{head}^1", check=False) if base == head else ""
+        if parent and on_first_parent_line(repo, head, parent):
+            # A merged PR's commit, planned with no app (the workflow's merged half): its merge base is itself, so
+            # head..head was empty and every landed PR planned as "nothing in the app changes" (cmux#44971's
+            # Rust, 2026-11-17). Its change is its own first-parent diff.
+            base = parent
     fork = git(repo, "merge-base", base, head, check=False)
     if not SHA.fullmatch(fork):
         raise Usage(f"{head[:12]} shares no history with {base[:12]}")
@@ -697,7 +703,7 @@ class Video:
         return self.facts["by"]
 
     def binary(self) -> Path:
-        return swift_tool("record-window", "-parse-as-library")
+        return swift_tool(HERE / "media/record-window.swift", "-parse-as-library")
 
     def start(self, pid: int) -> int:
         self.pid = pid
@@ -838,9 +844,12 @@ def main_display_points() -> tuple[float, float] | None:
     return (rect.w, rect.h) if rect.w > 0 and rect.h > 0 else None
 
 
-def swift_tool(name: str, *flags: str) -> Path:
-    """media/NAME.swift compiled once per source digest into the cache (a LookError when it does not compile)."""
-    source = HERE / f"media/{name}.swift"
+def swift_tool(source: Path, *flags: str) -> Path:
+    """SOURCE (a Swift file beside the engine) compiled once per source digest into the cache (a LookError when it
+    does not compile). Callers name SOURCE as a literal join to HERE, quoted path and all: a fleet worker gets only the
+    files the engine's text joins to its folder (cmuxterm-hq ci-client.py hot_verify_refs), and a path built from a
+    name is not one (2026-11-16: crop-video.swift was left out, and the look's video stayed the whole display)."""
+    name = source.stem
     digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
     binary = cache_dir() / f"{name}-{digest}"
     if not binary.is_file():
@@ -882,7 +891,7 @@ def crop_video(mp4: Path, box: tuple[float, float, float, float], scale: float, 
     """MP4's BOX (window_box's fractions) at SCALE into DEST through media/crop-video.swift (AVFoundation, on every
     Mac: no display worker has ffmpeg). None when DEST was written; else why not."""
     try:
-        tool = swift_tool("crop-video")
+        tool = swift_tool(HERE / "media/crop-video.swift")
         done = subprocess.run([str(tool), str(mp4), str(dest), *(f"{v:.6f}" for v in box), f"{scale:g}"],
                               capture_output=True, text=True, timeout=660)
     except LookError as error:

@@ -127,6 +127,9 @@ pub struct NewRequest {
     /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
     /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
     pub require_asking: bool,
+    /// The owner's Cloud credential for this chat's agent (`_meta.acpmux.credentials`, unix
+    /// socket only, `agent_credentials.rs`): kept on the session in memory, never in its meta.
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

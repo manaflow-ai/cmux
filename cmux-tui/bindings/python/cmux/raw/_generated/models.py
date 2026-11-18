@@ -1333,6 +1333,13 @@ class ReattachViewResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppPermissions:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppPermissions'
+    accessibility: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_recording: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RemoteHostAppResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
     host_pid: int
@@ -3828,6 +3835,18 @@ class FeedLocalReadRequest:
 
 
 @dataclass(frozen=True)
+class FloatPaneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/float-pane/request'
+    pane: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -4579,6 +4598,17 @@ class PutSessionRequest:
 
 
 @dataclass(frozen=True)
+class QuickTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/quick-terminal/request'
+    screen: Id
+    h: Union[float, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    w: Union[float, None, MissingType] = field(default=MISSING)
+    x: Union[float, None, MissingType] = field(default=MISSING)
+    y: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ReadScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/read-screen/request'
     surface: Id
@@ -4653,6 +4683,7 @@ class RemoteHostCallRequest:
 @dataclass(frozen=True)
 class RemoteHostConfigRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = field(default=MISSING)
     computer_use: Union[bool, None, MissingType] = field(default=MISSING)
     headless: Union[bool, None, MissingType] = field(default=MISSING)
     screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
@@ -6759,6 +6790,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppPermissions',
     'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
@@ -7026,6 +7058,7 @@ __all__ = [
     'FeedLocalHandoffDoneRequest',
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
+    'FloatPaneRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -7112,6 +7145,7 @@ __all__ = [
     'PutBlobRequest',
     'PutFrontendProjectionRequest',
     'PutSessionRequest',
+    'QuickTerminalRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
     'ReattachViewRequest',

@@ -80,6 +80,7 @@ pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+mod pty_write_marks;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
 use cmux_tui_util::published;
 mod terminal_title;

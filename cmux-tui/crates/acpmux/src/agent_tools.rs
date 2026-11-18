@@ -75,7 +75,7 @@ use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 pub mod claude_plugin_dirs;
-mod cua_helper;
+pub(crate) mod cua_helper;
 pub mod project_mcp;
 
 pub use claude_plugin_dirs::{CLAUDE_PLUGIN_DIRS_ENV, without_cmux_tui_plugins};

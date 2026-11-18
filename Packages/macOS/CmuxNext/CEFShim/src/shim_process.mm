@@ -305,6 +305,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
+  CMUX_BIND(browser_resize_fence, "cmux_browser_resize_fence");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -346,6 +347,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_keychain_item, "cmux_set_keychain_item");
 #undef CMUX_BIND
 }
 
@@ -405,6 +407,14 @@ void cmux_shim_set_chrome_policy_id(const char* policy_id) {
 
 int cmux_shim_fork_api_version(void) {
   return fork_api().version;
+}
+
+int cmux_shim_set_keychain_item(const char* service, const char* account) {
+  // The fork refuses once a CefContext exists and refuses the shared item's names.
+  if (!fork_api().set_keychain_item || !service || !account) {
+    return 0;
+  }
+  return fork_api().set_keychain_item(service, account) == 1 ? 1 : 0;
 }
 
 int cmux_shim_prepare_application(void) {

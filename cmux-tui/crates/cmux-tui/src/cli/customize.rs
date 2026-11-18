@@ -50,6 +50,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
+  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
 If a layer broke cmux (no app needed, with cmux quit too):
@@ -93,6 +94,7 @@ const VERBS: &[&str] = &[
     "save",
     "use",
     "profiles",
+    "recipes",
     "try",
     "keep",
     "revert",
@@ -159,6 +161,9 @@ pub(super) enum Request {
         wait: bool,
     },
     Profiles,
+    Recipes {
+        open: bool,
+    },
     Library(library::Request),
     Paths,
     Schema {
@@ -202,6 +207,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             none(Request::Generations)
         }
         "profiles" => none(Request::Profiles),
+        "recipes" | "recipe" => match rest {
+            [] => Ok(Request::Recipes { open: false }),
+            [flag] if flag == "--open" => Ok(Request::Recipes { open: true }),
+            _ => Err("customize recipes takes only --open".to_owned()),
+        },
         "keep" => none(Request::Keep),
         "revert" => none(Request::Revert),
         "settle" => match rest {
@@ -596,8 +606,31 @@ pub(super) fn execute(
         ),
         Request::Settle { .. } => Answer::Settled(settled, "settle"),
         Request::Profiles => Answer::Profiles(customize.profiles()?),
+        Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })
+}
+
+/// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
+/// with `open` shows their guide in cmux's Markdown page, where each
+/// recipe's command has a Run button: the one-click Try it. The recipes
+/// are profiles, so trying one is `use`: a draft, then apply or discard.
+fn recipes(
+    customize: &Customize,
+    open: bool,
+    chat: &dyn ask::Chat,
+) -> Result<render::Answer, Failure> {
+    let dir = customize.roots().state_dir.join("recipes");
+    let written = cmux_customize_recipes::write_all(&dir).map_err(Error::from)?;
+    let opened = open.then(|| {
+        let guide = written.guide.display().to_string();
+        match chat.run(&["open".to_owned(), guide]) {
+            Ok(result) if result.ok => Ok(()),
+            Ok(result) => Err(result.stderr.trim().to_owned()),
+            Err(error) => Err(error),
+        }
+    });
+    Ok(render::Answer::Recipes { written, opened })
 }

@@ -68,9 +68,6 @@ final class MacConversationLoader {
             let loaded = try await sessionForRoute()
             guard mine == generation, !Task.isCancelled else { return }
             if let previous, previous !== loaded {
-                // What was written while the link was down goes to the new session.
-                for message in previous.outbox { loaded.send(message, asksForAlerts: false) }
-                previous.discardOutbox()
                 Self.clearStale(previous)
             }
             Self.clearStale(loaded)

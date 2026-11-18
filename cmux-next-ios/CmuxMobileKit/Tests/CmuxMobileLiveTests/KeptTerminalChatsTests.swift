@@ -49,6 +49,24 @@ import Testing
         #expect(again.chat(chatKey) == nil)
     }
 
+    /// Ids are opaque: a `|` in one never makes two keys one (each part is escaped), on disk too.
+    @Test func aBarInAnIDKeepsItsOwnKey() async throws {
+        let directory = Self.folder()
+        let kept = Self.cache(directory).terminalChats
+        let file = kept.file
+        defer { try? FileManager.default.removeItem(at: file) }
+        let barred = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h|1"))
+        let split = try #require(KeptTerminalChats.key("acct", "mac", "claude|h", "1"))
+        #expect(barred != split)
+        kept.keepChat("a-1", for: barred)
+        kept.keepChat("a-2", for: split)
+        await kept.flush()
+        let relaunched = Self.cache(directory).terminalChats
+        await relaunched.load()
+        #expect(relaunched.chat(barred) == "a-1")
+        #expect(relaunched.chat(split) == "a-2")
+    }
+
     @Test func signOutDeletesThePairingsWithTheTranscripts() async throws {
         let directory = Self.folder()
         let cache = Self.cache(directory)

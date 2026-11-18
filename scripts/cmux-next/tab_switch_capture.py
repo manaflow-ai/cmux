@@ -19,17 +19,37 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import select
 import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 
-import tab_switch_judge as judge
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # run as a script (preflight), its siblings import
+import tab_switch_judge as judge  # noqa: E402
 
 CUA_DRIVER = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
 ANSWER_SECONDS = 30.0
+
+
+def driver_env(environ=None):
+    """cua-driver's environment: the account's real HOME, never the step's.
+
+    A fleet step runs with HOME=<job>/home. Where `cua-driver mcp` holds no grant of its own (a step that hops in with
+    `launchctl asuser`), it proxies to the granted daemon at $HOME/Library/Caches/cua-driver/cua-driver.sock, which
+    under the step's HOME does not exist: it waits 10 s and exits ("closed during initialize" on every lent Mac,
+    2026-11-16; pr-capture's driver_env fixed the same failure on 11-04)."""
+    env = dict(os.environ if environ is None else environ)
+    try:
+        env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        pass
+    env.pop("CFFIXED_USER_HOME", None)
+    return env
 
 
 class CaptureError(Exception):
@@ -45,6 +65,7 @@ class CuaSession:
         self.driver = driver
         self.process = None
         self.next_id = 0
+        self.stderr = None  # cua-driver's own words: why it closed, when it does
 
     def _readline(self, seconds):
         got = []
@@ -70,7 +91,7 @@ class CuaSession:
             if line is None:
                 break
             if not line:
-                raise CaptureError(f"cua-driver mcp closed during {method}")
+                raise CaptureError(f"cua-driver mcp closed during {method}{self._stderr_tail()}")
             try:
                 answer = json.loads(line)
             except ValueError:
@@ -89,9 +110,32 @@ class CuaSession:
             raise CaptureError(f"cua-driver {name}: {(facts.get('last_error') or words)[:300]}")
         return facts
 
+    def _stderr_tail(self):
+        if self.stderr is None:
+            return ""
+        code = None
+        if self.process is not None:
+            try:  # its stdout closes as it exits, a moment before it can be reaped and its stderr is all written
+                code = self.process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
+        try:
+            self.stderr.flush()
+            self.stderr.seek(0)
+            words = " ".join(self.stderr.read().decode("utf-8", "replace").split())
+        except (OSError, ValueError):
+            return ""
+        if code is not None:
+            words = f"exit {code}; {words}" if words else f"exit {code}"
+        return f" ({words[-400:]})" if words else ""
+
     def open(self):
+        # stderr goes to a file, not a pipe nobody reads: a full pipe would block cua-driver, and a closed session
+        # must say why (2026-11-16: "closed during initialize" and nothing else).
+        self.stderr = tempfile.TemporaryFile()
         self.process = subprocess.Popen([self.driver, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, bufsize=1, start_new_session=True)
+                                        stderr=self.stderr, text=True, bufsize=1, start_new_session=True,
+                                        env=driver_env())
         self._send("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                   "clientInfo": {"name": "tab-switch", "version": "1"}})
         self._send("notifications/initialized", notify=True)
@@ -116,6 +160,9 @@ class CuaSession:
     def close(self):
         process, self.process = self.process, None
         if process is None:
+            stderr, self.stderr = self.stderr, None
+            if stderr is not None:
+                stderr.close()
             return
         try:
             process.stdin.close()
@@ -126,6 +173,9 @@ class CuaSession:
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)  # our own child, by its own process group
             process.wait()
+        stderr, self.stderr = self.stderr, None
+        if stderr is not None:
+            stderr.close()
 
 
 class Marker:
@@ -206,6 +256,7 @@ class Capture:
         self.names = []
         self.blocks = 0
         self.video_fps = None
+        self.walls = {}  # flip name -> time.monotonic() when it was sent (the foreign-window watch's clock)
 
     def begin(self):
         self.names = []
@@ -216,6 +267,7 @@ class Capture:
 
     def flip(self, name):
         self.names.append(name)
+        self.walls[name] = time.monotonic()
         self.marker.flip(name)
 
     def end(self):
@@ -258,3 +310,33 @@ class Capture:
     def close(self):
         self.marker.quit()
         self.session.close()
+
+
+def preflight(driver=CUA_DRIVER):
+    """Whether this Mac can record, in seconds: CuaDriver starts, answers and holds Screen Recording.
+
+    tab-switch.sh runs it before the build, as the console user the harness runs as, so a Mac that cannot record
+    exits 3 at once instead of after an hour-long build on an exclusive display worker (2026-11-16: the pull request
+    steps on three display Macs built the app, then died in `initialize`)."""
+    session = CuaSession(driver)
+    try:
+        return session.open()
+    finally:
+        session.close()
+
+
+def main(argv):
+    if argv[1:] != ["preflight"]:
+        print("usage: tab_switch_capture.py preflight", file=sys.stderr)
+        return 2
+    try:
+        granted = preflight()
+    except CaptureError as error:
+        print(f"TSW cannot record: {error}")
+        return 3
+    print(f"TSW recorder ready: {json.dumps(granted, sort_keys=True)[:300]}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

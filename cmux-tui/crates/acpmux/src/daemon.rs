@@ -365,6 +365,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // `machine-auth` reads the env its agents start with from this record, never from /proc.
+    if let Err(e) = crate::cli::machine_auth::record_daemon_env(&home()) {
+        tracing::warn!("could not record the daemon's agent env: {e}");
+    }
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -672,6 +676,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A machine joined before the hub recorded capabilities states them with its own credential,
     // in the background (`cli/cloud_join/self_capabilities.rs`); the start never waits for it.
     crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
+    // A joined Mac's daemon serves screen shares with no app running (`share_host/`).
+    #[cfg(target_os = "macos")]
+    crate::share_host::start(&hub.scope);
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
