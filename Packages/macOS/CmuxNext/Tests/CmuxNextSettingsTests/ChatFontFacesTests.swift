@@ -46,7 +46,7 @@ import Testing
     @Test func aGoodFaceBecomesADataURL() throws {
         let folder = try Folder()
         let path = try folder.write(Self.woff2, "Lora-Italic.woff2")
-        let faces = ChatFontFaces.dataURLs(["Lora:italic": Self.file(path)])
+        let faces = ChatFontFaces.Loader().dataURLs(["Lora:italic": Self.file(path)])
         let url = try #require(faces["Lora:italic"])
         #expect(url.hasPrefix("data:font/woff2;base64,d09GMg"), "\(url)")
         #expect(url == "data:font/woff2;base64," + Self.woff2.base64EncodedString())
@@ -64,7 +64,7 @@ import Testing
             .string("x.woff2"), .string("file:fonts/x.woff2"), .number(3),
         ]
         for value in values {
-            #expect(ChatFontFaces.dataURLs(["A": value]).isEmpty, "\(value)")
+            #expect(ChatFontFaces.Loader().dataURLs(["A": value]).isEmpty, "\(value)")
         }
     }
 
@@ -73,8 +73,8 @@ import Testing
         let real = try folder.write(Self.woff2, "real.woff2")
         let link = folder.url.appending(path: "link.woff2").path
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: real)
-        #expect(ChatFontFaces.dataURLs(["A": Self.file(link)]).isEmpty)
-        #expect(ChatFontFaces.dataURLs(["A": Self.file(real)]).count == 1)
+        #expect(ChatFontFaces.Loader().dataURLs(["A": Self.file(link)]).isEmpty)
+        #expect(ChatFontFaces.Loader().dataURLs(["A": Self.file(real)]).count == 1)
     }
 
     @Test func atMostEightFacesLoadAndBadOnesAreSkipped() throws {
@@ -83,7 +83,7 @@ import Testing
         for index in 0..<10 { faces["Face \(index)"] = Self.file(try folder.write(Self.woff2, "f\(index).woff2")) }
         faces["Face 0:bold"] = .string("file:/nope.woff2")
         // Key order: "Face 0", "Face 0:bold" (bad), "Face 1" ... "Face 6" are the first eight.
-        let loaded = ChatFontFaces.dataURLs(faces)
+        let loaded = ChatFontFaces.Loader().dataURLs(faces)
         #expect(loaded.keys.sorted() == (0...6).map { "Face \($0)" })
     }
 
@@ -91,11 +91,13 @@ import Testing
     @Test func aChangedFileIsReadAgain() throws {
         let folder = try Folder()
         let path = try folder.write(Self.woff2, "x.woff2")
-        let first = ChatFontFaces.dataURLs(["A": Self.file(path)])["A"]
-        #expect(ChatFontFaces.dataURLs(["A": Self.file(path)])["A"] == first)
+        let loader = ChatFontFaces.Loader()
+        let first = loader.dataURLs(["A": Self.file(path)])["A"]
+        #expect(first != nil)
+        #expect(loader.dataURLs(["A": Self.file(path)])["A"] == first)
         let changed = Self.woff2 + Data("more".utf8)
         try folder.write(changed, "x.woff2")
-        #expect(ChatFontFaces.dataURLs(["A": Self.file(path)])["A"] == "data:font/woff2;base64," + changed.base64EncodedString())
+        #expect(loader.dataURLs(["A": Self.file(path)])["A"] == "data:font/woff2;base64," + changed.base64EncodedString())
     }
 
     /// The page gets `{family[:italic]: data URL}` at the setting's key, and the family rows as written.
@@ -106,12 +108,14 @@ import Testing
             "uiFamily": "Pack Sans, system-ui", "proseFamily": "Pack Serif",
             "faces": ["Pack Sans": Self.file(path), "Bad, Key": Self.file(path)],
         ]]]]
-        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        let values = AgentPaneDisplaySetting(fileRoot: root, fontFaces: ChatFontFaces.Loader()).values
         #expect(values["agentPane.display.font.uiFamily"] == "Pack Sans, system-ui")
         #expect(values["agentPane.display.font.proseFamily"] == "Pack Serif")
         #expect(values["agentPane.display.font.faces"] == .object(["Pack Sans": .string("data:font/woff2;base64," + Self.woff2.base64EncodedString())]))
         let none: JSONValue = ["agentPane": ["display": ["font": ["faces": ["A": "file:/nope.woff2"]]]]]
-        #expect(AgentPaneDisplaySetting(fileRoot: none).values["agentPane.display.font.faces"] == nil)
+        #expect(AgentPaneDisplaySetting(fileRoot: none, fontFaces: ChatFontFaces.Loader()).values["agentPane.display.font.faces"] == nil)
+        // With no loader (the palette's rail toggles) no face file is read and the key is left out.
+        #expect(AgentPaneDisplaySetting(fileRoot: root).values["agentPane.display.font.faces"] == nil)
     }
 
     /// A theme file may set the chat's typography, and its face files resolve against the themes
@@ -151,7 +155,7 @@ import Testing
         let settings = try ThemeFileTests.controller(home, config: #"{ "appearance": { "themeFile": "pack" }, "agentPane": { "display": { "font": { "size": 16 } } } }"#)
         await settings.reload()
         #expect(settings.fileRoot.value(at: AgentPaneDisplaySettingsSchema.uiFamilyPath) == nil)
-        let values = AgentPaneDisplaySetting(fileRoot: settings.fileRootWithThemeFile).values
+        let values = AgentPaneDisplaySetting(fileRoot: settings.chatDisplayInputs.root, fontFaces: ChatFontFaces.Loader()).values
         #expect(values["agentPane.display.font.uiFamily"] == "Pack Sans")
         #expect(values["agentPane.display.font.size"] == .number(16))
         #expect(values["agentPane.display.font.faces"] == .object(["Pack Sans": .string("data:font/woff2;base64," + Self.woff2.base64EncodedString())]))

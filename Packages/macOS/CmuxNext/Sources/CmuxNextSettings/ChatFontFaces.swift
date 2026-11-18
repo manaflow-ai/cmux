@@ -13,7 +13,7 @@ import CmuxNextCompat
 /// the chat page, which declares it as an `@font-face`. A bad entry is skipped; the rest apply.
 ///
 /// ```swift
-/// let faces = ChatFontFaces.dataURLs(["Lora:italic": "file:~/Fonts/Lora-Italic.woff2"])
+/// let faces = ChatFontFaces.Loader().dataURLs(["Lora:italic": "file:~/Fonts/Lora-Italic.woff2"])
 /// // ["Lora:italic": "data:font/woff2;base64,d09GMg..."]
 /// ```
 public nonisolated enum ChatFontFaces {
@@ -76,57 +76,70 @@ public nonisolated enum ChatFontFaces {
         return rest.hasPrefix("/") ? rest : nil
     }
 
-    /// Every good entry of a faces map as the page's `{family[:italic]: data URL}`; bad entries are
-    /// skipped. Reads each file only when its path, size or modification time changed since the last
-    /// read (``cache``). File I/O: call it off the main thread.
-    ///
-    /// - Parameter faces: The setting's map.
-    /// - Returns: The data URL of each face that loads, by page key.
-    public static func dataURLs(_ faces: [String: JSONValue]) -> [String: String] {
-        var loaded: [String: String] = [:]
-        for key in faces.keys.sorted().prefix(maximumFaces) {
-            guard let pageKey = pageKey(key), let value = faces[key], let path = path(value),
-                  let url = dataURL(path: path) else { continue }
-            loaded[pageKey] = url
-        }
-        return loaded
-    }
-
-    /// One file's data URL, or nil when it is no face: not a plain file, too large, an extension
-    /// that is not a face type or does not match the bytes.
-    static func dataURL(path: String) -> String? {
+    /// One file's type, or nil when it is no face: not a plain file, too large, or an extension that
+    /// is not a face type. The bytes are checked against it when read.
+    static func stamp(path: String) -> Loader.Stamp? {
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, Int(info.st_size) <= maximumBytes,
               let named = extensions.first(where: { $0 == (path as NSString).pathExtension.lowercased() }) else { return nil }
-        let stamp = Stamp(path: path, size: Int64(info.st_size), modified: info.st_mtimespec.tv_sec, modifiedNanoseconds: info.st_mtimespec.tv_nsec)
-        if let known = cache.withLock({ $0[path] }), known.stamp == stamp { return known.url }
-        guard let bytes = try? Data(blockingContentsOf: URL(fileURLWithPath: path)), bytes.count <= maximumBytes,
-              kind(of: bytes) == named else {
-            cache.withLock { $0[path] = nil }
-            return nil
+        return Loader.Stamp(path: path, kind: named, size: Int64(info.st_size), modified: info.st_mtimespec.tv_sec,
+                            modifiedNanoseconds: info.st_mtimespec.tv_nsec)
+    }
+
+    /// Reads faces maps into data URLs, keeping each file's URL until its path, size or modification
+    /// time changes. The chat's page settings own one (`AgentPanePageSettings`), so a settings change
+    /// that leaves the files alone reads none of them again.
+    public nonisolated final class Loader: Sendable {
+        /// What a cached read was of: the file at a path, with its type, size and modification time.
+        nonisolated struct Stamp: Equatable, Sendable {
+            let path: String
+            let kind: String
+            let size: Int64
+            let modified: Int
+            let modifiedNanoseconds: Int
         }
-        let url = "data:font/\(named);base64,\(bytes.base64EncodedString())"
-        cache.withLock { cache in
-            // Bounded: a map holds at most maximumFaces, so a full cache only holds stale paths.
-            if cache.count >= maximumFaces * 4 { cache.removeAll() }
-            cache[path] = Cached(stamp: stamp, url: url)
+
+        private nonisolated struct Cached: Sendable {
+            let stamp: Stamp
+            let url: String
         }
-        return url
-    }
 
-    /// What a cached read was of: the file at a path, with its size and modification time.
-    struct Stamp: Equatable, Sendable {
-        let path: String
-        let size: Int64
-        let modified: Int
-        let modifiedNanoseconds: Int
-    }
+        /// The data URLs read so far, by path; at most a few maps' worth.
+        private let cache = Mutex<[String: Cached]>([:])
 
-    struct Cached: Sendable {
-        let stamp: Stamp
-        let url: String
-    }
+        /// A loader with nothing read yet.
+        public init() {}
 
-    /// The data URLs read so far, by path.
-    static let cache = Mutex<[String: Cached]>([:])
+        /// Every good entry of a faces map as the page's `{family[:italic]: data URL}`; bad entries
+        /// are skipped. File I/O: call it off the main thread.
+        ///
+        /// - Parameter faces: The setting's map.
+        /// - Returns: The data URL of each face that loads, by page key.
+        public func dataURLs(_ faces: [String: JSONValue]) -> [String: String] {
+            var loaded: [String: String] = [:]
+            for key in faces.keys.sorted().prefix(ChatFontFaces.maximumFaces) {
+                guard let pageKey = ChatFontFaces.pageKey(key), let value = faces[key], let path = ChatFontFaces.path(value),
+                      let url = dataURL(path: path) else { continue }
+                loaded[pageKey] = url
+            }
+            return loaded
+        }
+
+        private func dataURL(path: String) -> String? {
+            guard let stamp = ChatFontFaces.stamp(path: path) else { return nil }
+            if let known = cache.withLock({ $0[path] }), known.stamp == stamp { return known.url }
+            guard let bytes = try? Data(blockingContentsOf: URL(fileURLWithPath: path)), bytes.count <= ChatFontFaces.maximumBytes,
+                  ChatFontFaces.kind(of: bytes) == stamp.kind else {
+                cache.withLock { $0[path] = nil }
+                return nil
+            }
+            let url = "data:font/\(stamp.kind);base64,\(bytes.base64EncodedString())"
+            cache.withLock { cache in
+                // Bounded: a map holds at most maximumFaces, so a full cache only holds stale paths.
+                if cache.count >= ChatFontFaces.maximumFaces * 4 { cache.removeAll() }
+                cache[path] = Cached(stamp: stamp, url: url)
+            }
+            return url
+        }
+    }
 }

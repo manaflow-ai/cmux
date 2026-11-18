@@ -20,6 +20,7 @@ final class AgentPanePageSettings {
     /// The chat's look (`agentPane.display.*` and the Markdown viewer keys it follows).
     private(set) var display = AgentPaneDisplaySetting.fallback
     private var displayObservation: Task<Void, Never>?
+    private let fontFaces = ChatFontFaces.Loader()
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
@@ -81,25 +82,14 @@ final class AgentPanePageSettings {
     private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
-            // A theme file's chat typography applies over the person's file (fileRootWithThemeFile).
-            for await (root, managed) in ObservationStream({ (
-                settings.fileRootWithThemeFile,
-                settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
-                    settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
-                }
-            ) }) {
-                // The font pack's face files are read here, off the main thread (ChatFontFaces).
-                let value = await Self.display(root, managed)
+            for await (root, managed) in ObservationStream({ settings.chatDisplayInputs }) {
+                guard let fontFaces = self?.fontFaces else { return }
+                let value = await AgentPaneDisplaySetting.read(fileRoot: root, managedHarnessPlacement: managed, fontFaces: fontFaces)
                 guard let self, value != display else { continue }
                 display = value
                 push()
             }
         }
-    }
-
-    /// The chat's look from a settings root, built off the main thread: it reads the face files.
-    @concurrent nonisolated private static func display(_ root: JSONValue, _ managed: JSONValue?) async -> AgentPaneDisplaySetting {
-        AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: managed)
     }
 
     /// The Text & Width popover's write: one `agentPane.display.*` key at `path`, nil removes it.
