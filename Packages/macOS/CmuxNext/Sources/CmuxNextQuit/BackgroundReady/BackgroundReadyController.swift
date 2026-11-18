@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
 public import CmuxNextDaemonService
@@ -100,9 +100,9 @@ public final class BackgroundReadyController: BackgroundStay {
     public func hide(choice: QuitSessionsChoice) async {
         guard let host, hidden == nil else { return }
         host.backgroundReadyCaptureGeometry()
-        let steps: [(String, @MainActor () async -> Void)] = [
-            ("window_records", host.backgroundReadySaveWindowRecords), ("sidebar", host.backgroundReadySaveSidebar),
-            ("home_cache", host.backgroundReadySaveHomeCache), ("launch_record", host.backgroundReadySaveLaunchRecord),
+        let steps: [(String, @MainActor @Sendable () async -> Void)] = [
+            ("window_records", { await host.backgroundReadySaveWindowRecords() }), ("sidebar", { await host.backgroundReadySaveSidebar() }),
+            ("home_cache", { await host.backgroundReadySaveHomeCache() }), ("launch_record", { await host.backgroundReadySaveLaunchRecord() }),
         ]
         for (name, save) in steps { await saves.run(name, limit: .seconds(1), save) }
         let override = ProcessInfo.processInfo.environment[BackgroundReadyRules.planOverrideVariable]

@@ -8,7 +8,7 @@ public import CmuxNextUpdater
 /// services conform: the settings, background mode, the registry, the updater and the menu bar item are
 /// theirs as they are; the rest are one-line forwards to the window manager and the quit.
 @MainActor
-public protocol BackgroundReadyHost: AnyObject {
+public protocol BackgroundReadyHost: AnyObject, Sendable {
     var settings: SettingsController? { get }
     var background: BackgroundActivation { get }
     var registry: ActionRegistry { get }
