@@ -290,10 +290,55 @@ def daemon_homes(home: str) -> list[Path]:
     return [p.parent for p in [root / "daemon.pid", *sorted(root.glob("builds/*/daemon.pid"))] if p.is_file()]
 
 
+def daemon_pid(acp_home: Path) -> int | None:
+    try:
+        return int((acp_home / "daemon.pid").read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def process_executable(pid: int) -> str | None:
+    """The executable a running process was started from, None when gone: `/proc/PID/exe` where there is one (Linux,
+    whose `ps -o comm=` is only the name), else `ps -o comm=` (a full path on macOS)."""
+    try:
+        return os.readlink(f"/proc/{pid}/exe")
+    except OSError:
+        if os.path.isdir("/proc/self"):
+            return None
+    try:
+        done = run_bounded(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    path = done.stdout.strip() if done.returncode == 0 else ""
+    return path or None
+
+
+def runs_from(executable: str | None, app: str) -> bool:
+    """Whether `executable` is inside the app bundle `app` (the bundled acpmux the app spawns its daemon from)."""
+    if not executable:
+        return False
+    bundle = os.path.realpath(app).rstrip("/") + "/"
+    return os.path.realpath(executable).startswith(bundle)
+
+
+def app_daemon_homes(inst: Instance) -> list[Path]:
+    """The acpmux homes whose running daemon is this app's: started from the app bundle's own acpmux. Another build's
+    daemon in the same HOME (several builds each keep `~/.acpmux/builds/<key>`) is never read or stopped, so the phase
+    table describes this app's daemon and --daemon cold stops only it."""
+    homes = []
+    for acp_home in daemon_homes(inst.home):
+        pid = daemon_pid(acp_home)
+        if pid is not None and runs_from(process_executable(pid), inst.app):
+            homes.append(acp_home)
+        else:
+            log(f"daemon: skipping {acp_home} (pid {pid}): not a daemon of {inst.app}")
+    return homes
+
+
 def daemon_status(inst: Instance) -> dict | None:
     """The app's daemon's `_acpmux/status` through the bundled acpmux (`status --json`), None when none answers."""
     acpmux = os.path.join(inst.app, "Contents", "Resources", "bin", "acpmux")
-    for acp_home in daemon_homes(inst.home):
+    for acp_home in app_daemon_homes(inst):
         env = {"HOME": inst.home, "CFFIXED_USER_HOME": inst.home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                "ACPMUX_HOME": str(acp_home)}
         try:
@@ -328,12 +373,12 @@ def stop_daemon(inst: Instance, seconds: float = 45.0) -> dict:
     after an update, and the new daemon adopts them. Returns what it stopped and how long that took."""
     stopped: dict = {"pids": [], "ms": None}
     began = time.monotonic()
-    for acp_home in daemon_homes(inst.home):
+    for acp_home in app_daemon_homes(inst):
+        pid = daemon_pid(acp_home)
         try:
-            pid = int((acp_home / "daemon.pid").read_text().strip())
             os.kill(pid, 15)
             stopped["pids"].append(pid)
-        except (OSError, ValueError):
+        except (OSError, TypeError):
             continue
     for pid in stopped["pids"]:
         def gone(pid=pid):

@@ -510,7 +510,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_relaunch_restore_daemon_status.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Pins how scripts/ci/relaunch_restore_check.py reads `acpmux status --json` (an indented document, not one line); run python3 -I tests/test_ci_relaunch_restore_daemon_status.py yourself after changing daemon_status or status_json (under 1 s, no build)."
+reason = "No new CI tests (Lawrence 2026-10-23). Pins how scripts/ci/relaunch_restore_check.py reads `acpmux status --json` (an indented document, not one line) and picks only the daemon run from the app bundle; run python3 -I tests/test_ci_relaunch_restore_daemon_status.py yourself after changing daemon_status, status_json or app_daemon_homes (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_relay_deploy_plan.py"

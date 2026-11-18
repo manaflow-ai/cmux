@@ -756,9 +756,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment,
                                                  mayHandOff: Self.mayHandOff(after: launched))
+                Self.markLookup("person_enrolled", owned: owned)
                 await AcpmuxComputerUse.enroll(environment)
+                Self.markLookup("computer_use_enrolled", owned: owned)
                 approver?.register(environment)
             }
+            // The launch's own ready endpoint: the fresh daemon's counterpart of `verifiedEndpoint`.
+            Self.markLookup("endpoint_verified", owned: owned)
             return launched.endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
