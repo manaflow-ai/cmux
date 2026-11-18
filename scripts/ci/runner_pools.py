@@ -40,7 +40,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
-  the linux pool went from 16 back to the stalled 32 vCPU size;
+  the linux pool went from 16 back to the stalled 32 vCPU size. A refused janitor snapshot read (refused())
+  ends the pass with RUNNER_POOLS unchanged: on 2026-11-18 the cmux-bot installation ran dry, the pass judged
+  on the probe alone and marked every large Linux size dead, so every x64 Linux pool took 2 vCPU;
 - points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
   release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
   linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
