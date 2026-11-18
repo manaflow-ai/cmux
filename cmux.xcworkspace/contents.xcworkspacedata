@@ -35,6 +35,9 @@
          location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxConnectivityTelemetry">
+      </FileRef>
+      <FileRef
          location = "group:CmuxDeviceHub">
       </FileRef>
       <FileRef
@@ -71,6 +74,9 @@
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
+         location = "group:CmuxSpinner">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
@@ -88,6 +94,9 @@
       <FileRef
          location = "group:CmuxVNCWebRTC">
       </FileRef>
+      <FileRef
+         location = "group:GlassHost">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
@@ -97,6 +106,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxConversation">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileBilling">
       </FileRef>
       <FileRef
          location = "group:CmuxMobilePairedMac">
@@ -127,10 +139,16 @@
          location = "group:CmuxComputerUseHelper">
       </FileRef>
       <FileRef
+         location = "group:CmuxNativeSidebarGallery">
+      </FileRef>
+      <FileRef
          location = "group:CmuxNext">
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemote">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">
