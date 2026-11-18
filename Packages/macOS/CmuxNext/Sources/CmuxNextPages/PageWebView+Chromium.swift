@@ -37,8 +37,13 @@ extension PageWebView {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
             && (liesOutsideWindowContent || sequence(first: self as NSView, next: \.superview).dropFirst()
                 .allSatisfy { $0.alphaValue > 0.001 || $0 is PageOffscreenParking })
+        chromiumSession?.reportedVisible = visible
         chromiumSession?.page.setVisible(visible)
     }
+
+    /// What the Chromium page was last told about its visibility (nil: no Chromium page). A page told it is
+    /// visible keeps drawing wherever its view is, so the agent page census (`AgentPageLiveness`) reads this.
+    public var chromiumReportedVisible: Bool? { chromiumSession.map { $0.reportedVisible ?? false } }
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
