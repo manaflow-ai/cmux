@@ -110,7 +110,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         let action = match copy_flags.as_slice() {
             [] => copy::Action::Run,
             [(_, action)] => *action,
-            [_, (extra, _), ..] => return Err(unexpected(*extra)),
+            [_, (extra, _), ..] => return Err(unexpected(extra)),
         };
         if from.is_some() && app.is_some() {
             return Err(unexpected("--app"));
