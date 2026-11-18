@@ -3,6 +3,9 @@
 //! `STATE/` holds `lower/` (the FUSE mountpoint), `upper/` and `work/` (the overlay's),
 //! `cache/` (the chunk cache), `helper.pid` while a helper serves it, and `stats.json`.
 
+use std::fs::File;
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
@@ -226,12 +229,46 @@ pub(super) fn write_atomic(path: &Path, value: &Value) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// The pid of a live helper process serving `paths` (by its pid file), if any.
+/// A serving helper's hold on its state directory: an exclusive lock on `helper.pid`, kept for as
+/// long as it serves and gone with the process however it ends. Whether a helper serves a
+/// directory is then a lock test on that file, never a look at another process.
+pub(super) struct HelperLock(
+    #[allow(dead_code, reason = "held for its lock, released on drop")] File,
+);
+
+/// Takes `paths`' helper lock and records this process's pid in the file. `Ok(None)`: another
+/// helper holds it.
+pub(super) fn lock_helper(paths: &Paths) -> std::io::Result<Option<HelperLock>> {
+    let file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(paths.pid_file())?;
+    if !try_lock(&file) {
+        return Ok(None);
+    }
+    file.set_len(0)?;
+    (&file).write_all(std::process::id().to_string().as_bytes())?;
+    Ok(Some(HelperLock(file)))
+}
+
+/// Whether `file`'s exclusive lock was free, and is now this descriptor's.
+fn try_lock(file: &File) -> bool {
+    // SAFETY: flock on a descriptor borrowed for the call; it touches no memory.
+    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+}
+
+/// The pid of the helper serving `paths` (the holder of its lock), if one is.
 pub(super) fn running_helper(paths: &Paths) -> Option<i32> {
-    let pid: i32 = std::fs::read_to_string(paths.pid_file()).ok()?.trim().parse().ok()?;
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-    let is_helper = cmdline.windows(6).any(|w| w == b"projfs");
-    (pid > 0 && is_helper).then_some(pid)
+    let file = File::open(paths.pid_file()).ok()?;
+    if try_lock(&file) {
+        return None; // nobody held it; this probe's lock goes with `file`
+    }
+    let mut text = String::new();
+    (&file).read_to_string(&mut text).ok()?;
+    let pid: i32 = text.trim().parse().ok()?;
+    (pid > 0).then_some(pid)
 }
 
 #[cfg(test)]

@@ -145,7 +145,20 @@ pub(super) fn mount(args: &MountArgs, out: &mut dyn Write) -> Result<(), Failure
             return Err(Failure::new("io", format!("cannot handle signals: {e}")));
         }
     };
-    let _ = std::fs::write(p.pid_file(), std::process::id().to_string());
+    let _lock = match state::lock_helper(p) {
+        Ok(Some(lock)) => lock,
+        held_or_failed => {
+            let _ = overlay::unmount_overlay(p, &args.at);
+            let _ = mounted.unmount();
+            return Err(match held_or_failed {
+                Err(e) => io("lock", &p.pid_file(), &e),
+                _ => Failure::new(
+                    "busy",
+                    format!("{} is already served; unmount it first", p.state.display()),
+                ),
+            });
+        }
+    };
     print_line(
         out,
         &json!({
