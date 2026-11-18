@@ -291,6 +291,10 @@ pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const SITE_HOST: Argument = Argument { name: "host", title: t("HistoryActions", "argument.history.siteHost", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CLOSED_ITEM: Argument = Argument { name: "closed", title: t("HistoryActions", "argument.history.closed", "Closed Item"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:closed.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const PROXY_SCHEME: Argument = Argument { name: "scheme", title: t("BrowserProfileActions", "argument.browserProfile.proxyScheme", "Proxy Type"), kind: ArgKind::Enumeration(CASES_PROXY_SCHEME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PROXY_HOST: Argument = Argument { name: "host", title: t("BrowserProfileActions", "argument.browserProfile.proxyHost", "Proxy Host"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -356,8 +360,10 @@ pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCata
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const HOST: Argument = Argument { name: "host", title: t("Localizable", "argument.agent.host", "Session Host"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// An acpmux session of this machine, by id; the palette lists them from acpmux `session/list`
+/// (newest first, by title), as `agent open` and `agent open-tab` take them.
 #[rustfmt::skip]
-pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:session/list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const NAME_4: Argument = Argument { name: "name", title: t("Localizable", "argument.agent.workspaceName", "Workspace Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -510,8 +516,6 @@ pub const AGENT_3: Argument = Argument { name: "agent", title: t("CloudSessionAc
 pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActions", "argument.cloudStartSession.name", "Machine Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
-pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -708,3 +712,28 @@ pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionC
 pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const APP_TRY_TARGET: Argument = Argument { name: "target", title: t("ActionCatalog", "argument.app.try.target", "PR, Branch or Commit"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_UPDATE_SNOOZE: &[EnumCase] = &[EnumCase { value: "update-hide-version", title: t("ActionCatalog", "argument.value.updates.snooze.hideVersion", "Hide Until a Newer Version") }, EnumCase { value: "update-remind-day", title: t("ActionCatalog", "argument.value.updates.snooze.remindDay", "Remind Me in 1 Day") }, EnumCase { value: "update-remind-3-days", title: t("ActionCatalog", "argument.value.updates.snooze.remindThreeDays", "Remind Me in 3 Days") }, EnumCase { value: "update-remind-week", title: t("ActionCatalog", "argument.value.updates.snooze.remindWeek", "Remind Me in 1 Week") }];
+#[rustfmt::skip]
+pub const UPDATE_SNOOZE: Argument = Argument { name: "option", title: t("ActionCatalog", "argument.updates.snooze", "Snooze"), kind: ArgKind::Enumeration(CASES_UPDATE_SNOOZE), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_REMOTE_QUALITY: &[EnumCase] = &[EnumCase { value: "auto", title: t("ActionCatalog", "argument.value.remote.quality.auto", "Auto") }, EnumCase { value: "sharpText", title: t("ActionCatalog", "argument.value.remote.quality.sharpText", "Sharp Text") }, EnumCase { value: "smoothMotion", title: t("ActionCatalog", "argument.value.remote.quality.smoothMotion", "Smooth Motion") }, EnumCase { value: "lowBandwidth", title: t("ActionCatalog", "argument.value.remote.quality.lowBandwidth", "Low Bandwidth") }];
+#[rustfmt::skip]
+pub const REMOTE_QUALITY: Argument = Argument { name: "quality", title: t("ActionCatalog", "argument.remote.quality", "Quality"), kind: ArgKind::Enumeration(CASES_REMOTE_QUALITY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A page of the tab's back/forward list, by its offset from the current page (`-2` two back,
+/// `1` one forward), as `goToEntry(offset:)` takes it; the App lists the tab's entries.
+#[rustfmt::skip]
+pub const BACK_FORWARD_ENTRY: Argument = Argument { name: "entry", title: t("ActionCatalog", "argument.browser.backForwardEntry", "Page"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserBackForwardEntries", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// One download of the browser's downloads list, by id; the App lists them, newest first.
+#[rustfmt::skip]
+pub const DOWNLOAD: Argument = Argument { name: "download", title: t("BrowserToolbarActions", "argument.browser.download", "Download"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserDownloads", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A browser toolbar button to pin or unpin (`browser.toolbarButtons`, a BrowserToolbarButton raw
+/// value); the App lists the pinnable buttons, the pinned ones marked.
+#[rustfmt::skip]
+pub const BROWSER_TOOLBAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserToolbarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A tab bar button to pin or unpin (`tabs.toolbarButtons`, a catalog action id); the App lists the
+/// pinnable actions, the pinned ones marked.
+#[rustfmt::skip]
+pub const TAB_BAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "tabBarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

@@ -17,7 +17,8 @@ $NX_ARTIFACTS/<phase>/. Exit 0 when every check of the phase passed.
 Checks (ublock): loaded and enabled as manifest 2 with a background page;
 a known ad script is blocked by a network filter; a cosmetic filter hides an
 ad slot (with a control that the host itself reaches both scripts); the
-popup opens; the dashboard loads; a dynamic rule (`* * 3p-script block`)
+popup opens; the element picker launches and starts; a website cannot drive
+the picker (GHSA-cmqw-9r2w-6wv2 probe); the dashboard loads; a dynamic rule (`* * 3p-script block`)
 blocks a third-party script that loads without it. The public score pages
 (d3ward, turtlecute) are recorded as information, not checks.
 """
@@ -44,6 +45,7 @@ import kit_downloads  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
+UBO_ID = "cjpalhdlnbpafiamejdnhcphjbkeiagm"  # the Web Store id the built-in copy keeps
 # Public ad block score pages: informational only (third-party pages that can
 # change or stop running; d3ward's is archived and shows no score). The gating checks are the
 # local ad page and dynamic filtering.
@@ -83,8 +85,23 @@ def log(message):
     print(f"[ext-mv2] {message}", flush=True)
 
 
+# GHSA-cmqw-9r2w-6wv2 probe (scripts/cmux-next/ublock-picker-probe/index.html): a website that
+# tries to frame and drive uBlock Origin's element picker. Served on a host a default war: filter
+# matches (dropgalaxy.localhost: `dropgalaxy.*##+js(no-fetch-if, adsbygoogle, war:...)`).
+PICKER_PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ublock-picker-probe", "index.html")
+
+
 class Pages(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
+        if self.path.startswith("/ubo-picker-probe.html"):
+            with open(PICKER_PROBE, "rb") as probe:
+                body = probe.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = ADS_PAGE.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -194,7 +211,10 @@ class Job:
             return self.client.call(method, params or {})
 
     def open_tab(self, url, match=None, timeout=30):
-        before = {t.get("id") for t in cdp.targets(self.port)}
+        key = match or url
+        # A new tab can take over a page target that already exists (a preloaded New Tab
+        # page), so "new" means a target that did not show this URL before, not a new id.
+        before = {t.get("id") for t in cdp.targets(self.port) if key in t.get("url", "")}
         # A tab a person opens (origin remote), not an agent-driven one: extensions
         # cannot reach agent-driven tabs (fork API 20, cmux_tab_set_extension_access).
         for _ in range(3):  # right after a start the action can miss its 2 s deadline
@@ -204,7 +224,6 @@ class Job:
                 break
             time.sleep(2)
         self.last_created = ((opened.get("result") or {}).get("created") or [None])[0]
-        key = match or url
         target = cdp.wait_target(self.port, lambda t: t.get("type") == "page" and t.get("id") not in before
                                  and key in t.get("url", ""), timeout)
         if not target:
@@ -465,22 +484,53 @@ def run_phase(job, steps, cleanup=()):
     return job.finish()
 
 
-def phase_store(_args):
+def appearance_shots(job, session, name):
+    """The page in the app's light and dark appearance (`debug.appearance`), back to the system's after."""
+    for mode in ("light", "dark"):
+        job.call("debug.appearance", {"mode": mode})
+        time.sleep(2)  # proof capture only: the page repaints in the new scheme before the shot
+        # The viewport as the person sees it (a clipped 2x capture of the layout viewport came out blank).
+        try:
+            data = session.call("Page.captureScreenshot", {"format": "png"}, timeout=30)["data"]
+            with open(os.path.join(job.out, f"{name}-{mode}.png"), "wb") as png:
+                png.write(base64.b64decode(data))
+        except Exception as error:  # noqa: BLE001 - a shot is evidence, not a check
+            log(f"page shot {name}-{mode} failed: {error!r}")
+    job.call("debug.appearance", {"mode": "system"})
+
+
+def phase_store(args):
     job = Job("store")
-    ext_id, _ = STORE_EXTENSION
+    ext_id = getattr(args, "store_id", None) or STORE_EXTENSION[0]
     state = {}
 
     def install():
         session = job.open_tab(f"https://chromewebstore.google.com/detail/{ext_id}", match=ext_id, timeout=45)
         try:
-            find = ("(() => { const b = [...document.querySelectorAll('button')].find(e => /add to chrome/i.test(e.innerText));"
+            # "Add to cmux" since 2026-11-16 (BrowserWebStoreLabels); "Add to Chrome" on a build before it.
+            find = ("(() => { const b = [...document.querySelectorAll('button')].find(e => /add to (chrome|cmux)/i.test(e.innerText));"
                     " if (!b) return null; b.scrollIntoView({block: 'center'}); const r = b.getBoundingClientRect();"
                     " return [r.x + r.width / 2, r.y + r.height / 2, b.innerText.trim()]; })()")
             button = poll(session, find, 45)
-            job.page_shot(session, "store-detail")
-            job.row("store: Add to Chrome button", bool(button), button or "no button within 45 s")
+            job.row("store: install button", bool(button), button or "no button within 45 s")
             if not button:
                 return "stop"
+            # The store's "Switch to Chrome" banner is a server flag; the shim's headers and
+            # sec-ch-ua brand turn it off (CEFShim/src/webstore_headers.h).
+            # The page's own flag (IJ_values[24], true when the store saw Google Chrome) and its text.
+            banner = session.evaluate(
+                "(() => { const t = [...document.scripts].map(x => x.textContent).find(x => x.includes('IJ_values')) || '';"
+                " const m = t.match(/IJ_values = (\\[[\\s\\S]*?\\]);/); let flag = null;"
+                " try { flag = m ? Function('return ' + m[1])()[24] : null; } catch (e) { flag = String(e); }"
+                " return {flag, text: /Switch to Chrome/i.test(document.body.innerText)}; })()")
+            job.row("store: no Switch to Chrome banner", banner == {"flag": True, "text": False}, banner)
+            job.row("store: the install button says Add to cmux", button[2] == "Add to cmux", button[2])
+            # The Google bar's "Switch to Chrome?" card (an ogs.google.com callout iframe) opens a few
+            # seconds after load when the page does not see the Google Chrome brand.
+            time.sleep(8)
+            card = session.evaluate("document.getElementsByName('callout').length")
+            job.row("store: no Switch to Chrome? card", card == 0, {"callout_frames": card})
+            appearance_shots(job, session, "store-detail")
             time.sleep(1)
             button = poll(session, find, 5) or button
             session.click(button[0], button[1])  # a trusted click: user gesture
@@ -505,7 +555,10 @@ def phase_store(_args):
             errors = poll(session, "(() => { const t = document.body.innerText;"
                                    " const m = t.match(/Could not install package[^\\n]*/); return m ? m[0] : ''; })()", 2)
             job.row("store: no install error on the page", not errors, errors or "none", gating=False)
-            job.page_shot(session, "store-after-install")
+            removed = poll(session, "(() => { const b = [...document.querySelectorAll('button')]"
+                                    ".find(e => /remove from (chrome|cmux)/i.test(e.innerText)); return b ? b.innerText.trim() : ''; })()", 20)
+            job.row("store: after install the button says Remove from cmux", removed == "Remove from cmux", removed or "none in 20 s")
+            appearance_shots(job, session, "store-after-install")
             job.window_shot("store-window")
         finally:
             session.close()
@@ -555,7 +608,7 @@ def phase_ublock(args):
         if not ubo:
             return "stop"
         if not args.ubo:
-            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == "cjpalhdlnbpafiamejdnhcphjbkeiagm", ubo)
+            job.row("builtin: the bundled copy keeps the Web Store id", ubo["id"] == UBO_ID, ubo)
         ctx["id"] = ubo["id"]
         ctx["prefix"] = f"chrome-extension://{ubo['id']}/"
 
@@ -744,6 +797,66 @@ def phase_ublock(args):
         job.row("ublock: popup opens", bool(target and detail.get("size")), detail)
         job.call("debug.extensions.popup", {"hide": True})
 
+    def picker():
+        """The element picker, launched as the popup's eyedropper does (µBlock.elementPickerExec
+        for the tab): its frame loads in the page and starts, which it does only after the
+        content script hands it the launch secret (1.75.4+)."""
+        session = job.open_tab("https://example.com/?pick=1", match="example.com/?pick=1")
+        detail = {}
+        try:
+            poll(session, "document.readyState === 'complete' && !!document.body", 30)
+            bg = cdp.Session(ctx["bg"]["webSocketDebuggerUrl"])
+            try:
+                detail["launch"] = bg.evaluate("""new Promise(r => chrome.tabs.query({}, tabs => {
+                  const t = tabs.find(t => (t.url || '').includes('example.com/?pick=1'));
+                  if (!t) return r({error: 'no tab'});
+                  self.µBlock.epickerArgs.mouse = false;
+                  self.µBlock.elementPickerExec(t.id, 0);
+                  r({tab: t.id});
+                }))""")
+            finally:
+                bg.close()
+            detail["frame_loaded"] = poll(session, "[...document.documentElement.children].some(e => e.tagName === 'IFRAME'"
+                                                   " && [...e.attributes].some(a => a.name.endsWith('-loaded')))", 15)
+            frame = cdp.wait_target(job.port, lambda t: "epicker-ui.html" in t.get("url", ""), 10)
+            detail["frame"] = (frame or {}).get("url")
+            if frame:
+                ui = cdp.Session(frame["webSocketDebuggerUrl"])
+                try:
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline and not detail.get("started"):
+                        # startPicker() alone adds the Create button's click listener.
+                        r = ui.call("Runtime.evaluate", {"expression": "(getEventListeners(document.getElementById('create')).click || []).length",
+                                                         "includeCommandLineAPI": True, "returnByValue": True})
+                        detail["started"] = ((r.get("result") or {}).get("value") or 0) > 0
+                        time.sleep(0.5)
+                finally:
+                    ui.close()
+            time.sleep(1)
+            detail["shot"] = job.page_shot(session, "ublock-picker")
+            detail["window_shot"] = job.window_shot("ublock-picker-window")
+            session.call("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        finally:
+            session.close()
+        job.row("ublock: element picker launches and starts (secret handshake)",
+                bool(detail.get("frame_loaded") and detail.get("started")), detail)
+
+    def website_picker():
+        """GHSA-cmqw-9r2w-6wv2: a website must not be able to frame and drive the picker. The
+        probe hooks XHR to catch a war: URL (and its secret), frames epicker-ui.html and sends
+        epickerStart without the launch secret; uBlock Origin 1.75.0 answered "start"."""
+        port = server.server_address[1]
+        session = job.open_tab(f"http://dropgalaxy.localhost:{port}/ubo-picker-probe.html",
+                               match="/ubo-picker-probe.html")
+        try:
+            verdict = poll(session, "/^(SAFE|VULNERABLE)/.test(document.title) && document.title", 25)
+            log = session.evaluate("document.getElementById('log').textContent")
+            shot = job.page_shot(session, "ublock-website-picker-probe")
+        finally:
+            session.close()
+        job.row("ublock: a website cannot drive the element picker (GHSA-cmqw-9r2w-6wv2)",
+                bool(verdict) and verdict.startswith("SAFE"), {"verdict": verdict, "log": log, "shot": shot})
+
     def dynamic():
         state, outcomes = observed_load(job, url + "?dyn=1", "ublock-dynamic", {"jQuery": JQUERY})
         before = (ctx.get("net") or {}).get("jQuery")
@@ -777,7 +890,7 @@ def phase_ublock(args):
 
     def menu_note():
         """The Extensions menu says the full uBlock Origin is built in (the Web Store
-        lists only uBlock Origin Lite)."""
+        lists only uBlock Origin Lite): the note is the uBlock Origin row's tooltip."""
         job.call("debug.extensions.click", {"button": "extensions"})
         state = {}
         deadline = time.monotonic() + 5
@@ -786,10 +899,11 @@ def phase_ublock(args):
             time.sleep(0.25)
         shot = job.window_shot("builtin-extensions-menu", popups=True)
         job.call("debug.extensions.menu", {"dismiss": True})
-        note = [i for i in state.get("items", []) if isinstance(i, dict) and str(i.get("identifier", "")).endswith(".builtInAdBlocker")]
+        rows = [i for i in state.get("items", []) if isinstance(i, dict) and i.get("extension") == UBO_ID]
+        note = [i for i in rows if i.get("tooltip")]
         want = getattr(main, "menu_note", None) or "present"
         job.row(f"menu: the built-in line is {want} (built-in copy {'loaded' if want == 'present' else 'skipped'})",
-                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "shot": shot, "open": state.get("open")})
+                bool(state.get("open")) and bool(note) == (want == "present"), {"note": note, "rows": rows, "shot": shot, "open": state.get("open")})
 
     def dashboard():
         """Automation may not open extension pages as tabs; a person's tab is
@@ -815,6 +929,7 @@ def phase_ublock(args):
                            *([("agent read", agent_read)] if args.agent_read else []),
                            ("ublock: ready", ready), ("ublock: network", network),
                            ("ublock: insertCSS", insert_css), ("ublock: popup", popup),
+                           ("ublock: element picker", picker), ("ublock: website-driven picker", website_picker),
                            ("ublock: dynamic filtering", dynamic), ("ublock: dashboard", dashboard),
                            ("ublock: score pages", lambda: score_pages(job, "ublock"))],
                      cleanup=[server.shutdown])
@@ -833,6 +948,7 @@ def ads_check_jq(job, url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("phase", choices=["store", "baseline", "ublock", "builtin"])
+    parser.add_argument("--store-id", help="store: the Web Store item to install (default Dark Reader)")
     parser.add_argument("--ubo", help="ublock: unpacked uBlock Origin directory")
     parser.add_argument("--label", help="artifact folder name (default: the phase)")
     parser.add_argument("--load-unpacked", help="builtin: first Load Unpacked this folder as the person's own copy")

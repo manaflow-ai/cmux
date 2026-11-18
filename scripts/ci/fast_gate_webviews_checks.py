@@ -46,6 +46,7 @@ CHECKS = (
     "typecheck",
     "acpmux-protocol:check",
     "check:catalog-keys",
+    "check:catalog-unused",
     "check:popup-hover-reveals",
 )
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")

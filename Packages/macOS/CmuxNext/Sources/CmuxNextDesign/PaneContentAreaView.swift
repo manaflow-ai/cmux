@@ -93,9 +93,19 @@ public final class PaneContentAreaView: NSView {
     /// pane has its terminal's ground from the key's frame, never the window's color.
     public var waitingGround: CGColor? { didSet { paintGround() } }
 
+    /// The ground the area paints where no view above paints its pane's ground (``PaneGroundOwning``).
+    private var ownGround: CGColor? { waitingGround ?? (paintsRestingGround ? restingGround : nil) }
+
     private func paintGround() {
-        let ground = waitingGround ?? (paintsRestingGround ? restingGround : nil)
+        let ground = paneGroundIsOwnedAbove ? nil : ownGround
         if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
+    }
+
+    /// In a window the area knows the pane it is in: a pane whose ground a view above paints gets none here, and an
+    /// area that came out from under an owner paints its own again (the paint writes the layer only on a change).
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { paintGround() }
     }
 
     /// The area's size when the hold began: what a producer that hears the hold measures its pane's size change from;
@@ -318,8 +328,13 @@ public final class PaneContentAreaView: NSView {
             if let ground = (view as? any PaneGroundReporting)?.paneGround, ground.alpha > 0 { return ground }
             if let color = view.layer?.backgroundColor, color.alpha > 0 { return color }
         }
-        return layer?.backgroundColor.flatMap { $0.alpha > 0 ? $0 : nil }
+        // Where a view above paints the ground (a see-through floating pane), the area's own ground is what it gives.
+        return (paneGroundIsOwnedAbove ? ownGround : layer?.backgroundColor).flatMap { $0.alpha > 0 ? $0 : nil }
     }
+}
+
+extension PaneContentAreaView: PaneGroundFollowing {
+    public func paneGroundOwnerChanged() { paintGround() }
 }
 
 /// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a

@@ -80,6 +80,22 @@ fn only_a_run_the_app_never_started_counts_as_never_ran() {
     assert!(!never_ran(&Failure::Transport("broken pipe".into())));
 }
 
+/// The app refused the run because it cannot place the caller (an agent whose
+/// chat and workspace are gone): that refusal is final. Opening the tab on the
+/// daemon's default pane instead put agents' tabs in the focused workspace,
+/// Home (user, 2026-11-18). Only a window that shows a page (no focused pane)
+/// falls back there.
+#[test]
+fn a_caller_the_app_cannot_place_never_opens_on_the_default_pane() {
+    let fallback = |error: Value| opens_on_default_pane(&Failure::Resource(error));
+    assert!(!fallback(json!({"code": "caller_unavailable",
+        "details": {"agent_session": "a1", "not_run": true, "state": "rejected"}})));
+    assert!(fallback(
+        json!({"code": "unavailable", "details": {"reason": "This page has no tabs."}})
+    ));
+    assert!(!fallback(json!({"code": "operation.failed", "details": {}})));
+}
+
 #[test]
 fn the_default_pane_is_the_daemons_current_one() {
     let route = object(json!({"machine": "current", "session": "current"}));

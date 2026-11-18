@@ -70,7 +70,15 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_base_merge_carry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_base_tier.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_bench_cli_calls.py"
 lane = "linux-guard"
 
 [[test]]
@@ -129,6 +137,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_release_import_out.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dispatch_heavy_compiles.py"
 lane = "linux-guard"
 
 [[test]]
@@ -265,6 +277,10 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_prepush_main_twin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_prepush_workflow_yaml.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. It pushes a workflow that does not parse through the real pre-push hook in a throwaway repository; CI's Lint every workflow step (actionlint) is the backstop. Run python3 tests/test_cmux_next_prepush_workflow_yaml.py yourself after changing the workflow YAML layer of scripts/cmux-next/prepush-gate.py."
@@ -303,6 +319,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_static_capability_runtime_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tab_switch_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -418,6 +438,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_team_sign.py"
 lane = "linux-guard"
 
 [[test]]

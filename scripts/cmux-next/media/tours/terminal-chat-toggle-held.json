@@ -182,7 +182,49 @@
         "--text",
         "true\r"
       ],
-      "wait": 65,
+      "wait": 30,
+      "shot": false
+    },
+    {
+      "title": "Run 1: the terminal face shows for 65 s (35 s left)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Helper",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "true\r"
+      ],
+      "wait": 30,
+      "shot": false
+    },
+    {
+      "title": "Run 1: the terminal face shows for 65 s (5 s left)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Helper",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "true\r"
+      ],
+      "wait": 5,
       "shot": false
     },
     {
