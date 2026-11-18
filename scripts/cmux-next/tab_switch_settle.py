@@ -123,7 +123,9 @@ def settle(frames, mark, w, h, frame_ms, end=None, ambient_tiles=(), quiet_ms=QU
     if cols * rows:
         out["ambient_share"] = round(len(set(ambient_tiles)) / (cols * rows), 3)
     before = [f for f in frames if f[0] <= mark][-1:] or frames[:1]
-    after = [f for f in frames if f[0] > mark]
+    # The end flip's own frame is the harness's, not the action's: on cmux21 (2026-11-18) it carried a change in the
+    # window in most rounds, "still changing 0 ms before the recording ended" at any record length (3 s and 6 s).
+    after = [f for f in frames if f[0] > mark and (end is None or f[0] < end)]
     if not before or not after:
         out["settle_note"] = "no frames after the action"
         return out
