@@ -226,6 +226,19 @@ class SummaryTests(unittest.TestCase):
         head = ssm.headline(cells, ssm.flatness(cells), strip_ms=900)
         self.assertEqual((head["cell"], head["settled_ms"], head["at_least"]), ("s9-browser-w30", 900, True))
         self.assertIsNone(ssm.headline(cells, ssm.flatness(cells))["settled_ms"])
+        self.assertIsNone(ssm.headline(cells, ssm.flatness(cells), strip_ms=100)["settled_ms"])
+        cells["s9-chat-w1"] = {"close_right": self.summary(50, failed_rounds=1)}
+        self.assertIsNone(ssm.headline(cells, ssm.flatness(cells), strip_ms=900)["settled_ms"])
+
+    def test_an_untraced_round_fails_its_cell_beside_traced_ones(self):
+        traced = {"first_frame_ms": 8, "settled_ms": 16.7, "frame_p95_ms": 8.33, "blank_frames": 0, "retargets": 0,
+                  "refresh_ms": 8.33}
+        untraced = {"first_frame_ms": 20, "settled_ms": 28, "blank_frames": 0, "untraced": True}
+        s = ssm.summarize([traced, dict(traced), untraced])
+        self.assertEqual((s["untraced"], s["failed_rounds"]), (1, 0))
+        self.assertFalse(ssm.verdict(s, 8.33)["traced"])
+        self.assertFalse(ssm.verdict(s, 8.33)["pass"])
+        self.assertTrue(ssm.verdict(ssm.summarize([traced, dict(traced)]), 8.33)["pass"])
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])

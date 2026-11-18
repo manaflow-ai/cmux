@@ -312,6 +312,8 @@ def verdict(summary, refresh_ms=None):
         return None if value is None else value <= limit
     checks = {
         "complete": summary.get("rounds", 0) > 0 and not summary.get("failed_rounds"),
+        # A round only the screen saw (transition's `untraced`) has no frame times; the other rounds' must not stand in.
+        "traced": not summary.get("untraced"),
         "first_frame": under("first_frame_ms", TARGETS["first_frame_ms"]),
         "settled": under("settled_ms", TARGETS["settled_ms"]) if not summary.get("unsettled") else False,
         "p95": under("frame_p95_ms", p95_target(refresh)),
@@ -381,12 +383,14 @@ def headline(cells, flat, strip_ms=None):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
     transition and the worst flatness ratio. A cell with a failed round is the worst (settled None). A round that
     never settled inside its strip took at least `strip_ms`, so its cell counts as that (`at_least` true): a lower
-    bound past every budget, which keeps the number known without letting the cell pass."""
+    bound past every budget, which keeps the number known without letting the cell pass. A strip no longer than the
+    settled budget bounds nothing, so such a cell stays the worst (settled None)."""
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
             value, bound = summary.get("settled_ms"), False
-            if summary.get("unsettled") and _number(strip_ms) and not summary.get("failed_rounds"):
+            if (summary.get("unsettled") and _number(strip_ms) and strip_ms > TARGETS["settled_ms"]
+                    and not summary.get("failed_rounds")):
                 value, bound = max(value or 0, strip_ms), True
             elif summary.get("unsettled") or summary.get("failed_rounds") or value is None:
                 value = float("inf")
