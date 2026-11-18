@@ -1918,7 +1918,8 @@ mod help_contract_tests {
     #[test]
     fn acpmux_skill_names_every_top_level_command() {
         let skill = include_str!("../../skills/acpmux/SKILL.md");
-        let missing: Vec<&str> = Cli::command()
+        let cli = Cli::command();
+        let missing: Vec<&str> = cli
             .get_subcommands()
             .filter(|command| !command.is_hide_set() && command.get_name() != "help")
             .map(|command| command.get_name())
