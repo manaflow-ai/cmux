@@ -213,20 +213,33 @@ cmd_build() {
     while IFS= read -r s; do settings+=("$s"); done < <(source "$src/scripts/cmux-next/lib/swift-size-opt.sh"; swift_size_opt_xcodebuild_args)
   fi
   local scheme log="$out/xcodebuild.log" t0=$SECONDS status=0
-  scheme="$(cd "$root/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$root/spm" 2>"$out/list.err" | python3 -I -c '
+  scheme="$(cd "$root/app-exe" && xcodebuild -list -json -derivedDataPath "$root/dd" 2>"$out/list.err" | python3 -I -c '
 import json, sys
 s = (json.load(sys.stdin).get("workspace") or {}).get("schemes") or []
 print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxNextAppExecutable") if n in s), ""))')" || true
   [[ -n "$scheme" ]] || { tail -20 "$out/list.err" >&2; die "no scheme for the wrapper package"; }
-  # shellcheck disable=SC2016 # $(inherited) is an Xcode setting
-  (cd "$root/app-exe" && xcodebuild -scheme "$scheme" -configuration Release \
-    -destination 'generic/platform=macOS' -derivedDataPath "$root/dd" -clonedSourcePackagesDirPath "$root/spm" \
-    -skipPackagePluginValidation -skipMacroValidation -showBuildTimingSummary \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEAD_CODE_STRIPPING=YES \
-    COMPILATION_CACHE_ENABLE_CACHING=YES COMPILATION_CACHE_LIMIT_SIZE=10737418240 \
-    COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-    "OTHER_SWIFT_FLAGS=\$(inherited)${defines:+ $defines}" ${settings[@]+"${settings[@]}"} \
-    build >"$log" 2>&1) || status=$?
+  xcb() {
+    (cd "$root/app-exe" && xcodebuild -scheme "$scheme" -configuration Release \
+      -destination 'generic/platform=macOS' -derivedDataPath "$root/dd" \
+      -skipPackagePluginValidation -skipMacroValidation -showBuildTimingSummary \
+      ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEAD_CODE_STRIPPING=YES \
+      COMPILATION_CACHE_ENABLE_CACHING=YES COMPILATION_CACHE_LIMIT_SIZE=10737418240 \
+      COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+      "OTHER_SWIFT_FLAGS=\$(inherited)${defines:+ $defines}" ${settings[@]+"${settings[@]}"} \
+      build >"$log" 2>&1)
+  }
+  # The kept DerivedData's explicit modules, as check-release-compile.sh keeps them right: cleared when a binary
+  # target's headers changed (swiftpm-binary-module-guard.sh), and once more after a stale-module failure.
+  if [[ -f "$src/scripts/ci/swiftpm-binary-module-guard.sh" ]]; then
+    # shellcheck disable=SC1091
+    (cd "$root/app-exe" && source "$src/scripts/ci/swiftpm-binary-module-guard.sh" \
+      && xcode_binary_module_guard "$root/app-exe" "$root/dd" -scheme "$scheme") >&2 || true
+  fi
+  xcb || status=$?
+  if [[ $status != 0 && -x "$src/scripts/cmux-next/stale-pcm-retry-needed.sh" ]] && "$src/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
+    echo "SB-WARN stale precompiled modules in $root/dd: cleared, building again" >&2
+    "$src/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$root/dd" >&2 && status=0 && { xcb || status=$?; }
+  fi
   local build_s=$((SECONDS - t0))
   if [[ $status != 0 ]]; then
     grep -E 'error:|BUILD FAILED' "$log" | head -30 >&2 || true
