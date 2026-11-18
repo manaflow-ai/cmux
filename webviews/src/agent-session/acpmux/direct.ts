@@ -9740,6 +9740,9 @@ export class AcpmuxDirectClient {
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
+        // Older daemons journaled every recovered sleep. Recovery is silent now; replay its
+        // old diagnostics without filling the transcript with pause notices.
+        if (msg.source === "resume") return;
         // A line from outside the chat, such as cmux Cloud's after it resized the machine
         // (acpmux `server/host_notice.rs`): one muted notice where it happened.
         if (typeof msg.text === "string" && msg.text.trim()) {
