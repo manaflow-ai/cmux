@@ -97,6 +97,31 @@ struct SidebarRowStatusPlacementTests {
         #expect(idle.title.frame.minX == working.title.frame.minX)
     }
 
+    /// An agent mark that stands in for the status (`sidebar.agentMark` `replacesStatus`) gives way when the row
+    /// badge takes the leading slot: it is not left drawn where the trailing layout last put it (review of #45143
+    /// at 2371b98d824, F2). With no badge it is the leading mark itself.
+    @Test func leadingDrawsOneMarkWhenTheAgentMarkStandsInForTheStatus() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarTunables.agentMark.key
+        defer { TunableStore.shared.set(key, nil) }
+        let value = SidebarAgentMarkVariant.replacesStatus.tunableValue
+        try #require(TunableStore.shared.set(key, value) == value, "the variant takes the override")
+        var badged = Self.workspace(.waiting(kind: .permission), unread: .dot)
+        badged.kind = .harness
+        let (view, window) = Self.row(badged, placement: .leading)
+        defer { window.close() }
+        #expect(view.agentMarkVariant == .replacesStatus)
+        #expect(view.leadingStatusMark === view.rowBadge)
+        #expect(view.agentMark.isHidden, "the agent mark still draws beside the badge that leads")
+        var plain = Self.workspace(.working(progress: nil), unread: .none)
+        plain.kind = .harness
+        let (agentView, agentWindow) = Self.row(plain, placement: .leading, badgeStyle: .trailing)
+        defer { agentWindow.close() }
+        #expect(agentView.leadingStatusMark === agentView.agentMark)
+        #expect(!agentView.agentMark.isHidden)
+    }
+
     @Test func leadingReservesTheSlotOnATextOnlyRow() {
         let (leading, leadingWindow) = Self.row(Self.workspace(.idle, unread: .none), placement: .leading)
         defer { leadingWindow.close() }
