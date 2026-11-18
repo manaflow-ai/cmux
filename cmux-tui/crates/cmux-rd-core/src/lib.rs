@@ -12,6 +12,7 @@ pub mod fec;
 pub mod flow;
 pub mod input;
 pub mod ladder;
+pub mod link;
 pub mod loss;
 pub mod pacer;
 pub mod packetize;
