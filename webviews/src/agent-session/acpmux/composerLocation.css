@@ -1196,10 +1196,12 @@
    max-height bounds it, and the list gives up room first (flex, min-height 0). The designed scroll
    height popupHost.ts measures is the same. */
 .acpmux-folder-popover .ui-combobox-scroll.acpmux-location-folders { --popup-scroll-cap: 440px; max-height: none; }
-/* Short of room (a short pane, a small window), nothing is cut off: the list gives up room first
-   but keeps up to three of its rows (FolderPopover counts them, `acpmux-folder-rows-N`), then the
-   actions under it scroll in what is left, one row at the least. */
-.acpmux-folder-popover .ui-combobox-pinned { flex: 0 1 auto; min-height: calc(var(--ui-row-height) + 3 * var(--ui-popup-padding)); overflow-y: auto; }
+/* Short of room (a short pane, a small window): the list gives up room first but keeps up to three
+   of its rows (FolderPopover counts them, `acpmux-folder-rows-N`), then the actions under it scroll
+   in what is left: one whole action at the least (its row, the group's padding, the rule and the
+   rule's gap), and the arrows bring a hidden one into view (the Combobox's own keyboard scroll).
+   Only a popup shorter than the field, those rows and one action still cuts its last row. */
+.acpmux-folder-popover .ui-combobox-pinned { flex: 0 1 auto; min-height: calc(var(--ui-row-height) + 4px + var(--ds-space-1) + 1px); overflow-y: auto; }
 .acpmux-folder-popover.acpmux-folder-rows-1 .ui-combobox-scroll.acpmux-location-folders { min-height: var(--ui-row-height); }
 .acpmux-folder-popover.acpmux-folder-rows-2 .ui-combobox-scroll.acpmux-location-folders { min-height: calc(2 * var(--ui-row-height)); }
 .acpmux-folder-popover.acpmux-folder-rows-3 .ui-combobox-scroll.acpmux-location-folders { min-height: calc(3 * var(--ui-row-height)); }
