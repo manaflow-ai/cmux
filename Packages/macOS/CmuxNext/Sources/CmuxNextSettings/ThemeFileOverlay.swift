@@ -47,11 +47,13 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities", "appearance.backgroundLocation",
     ]
-    static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
-                               "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font and the sidebar's shape and edges.
-    static let lookKeys: Set<String> = ["terminal.fontFamily", "terminal.fontSize", "sidebar.style", "sidebar.border",
-                                        "sidebar.borderWidth", "sidebar.sectionLook"]
+    /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's
+    /// families and face files).
+    static let lookPrefixes = ["appearance.", "agentPane.display.font.", "ui.animation", "ui.calm", "ui.paneAnimations",
+                               "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
+    /// Look keys outside those prefixes: the terminal and chat code fonts and the sidebar's shape and edges.
+    static let lookKeys: Set<String> = ["terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize", "sidebar.style",
+                                        "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook"]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
@@ -151,7 +153,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
             let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
-            let value = pictures.contains(descriptor.path) ? picture(written) : written
+            var value = pictures.contains(descriptor.path) ? picture(written) : written
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            if descriptor.path == AgentPaneDisplaySettingsSchema.facesPath, case .object(let faces) = written {
+                value = .object(faces.mapValues(picture))
+            }
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }

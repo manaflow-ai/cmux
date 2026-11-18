@@ -50,6 +50,12 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
     nonisolated static let uiFontDefault = "system-ui"
     nonisolated static let uiFontValues = ["system-ui", "system-ui-tight", "inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson"]
+    /// `agentPane.display.font.uiFamily`: A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.
+    nonisolated static let uiFamilyPath = ["agentPane", "display", "font", "uiFamily"]
+    /// `agentPane.display.font.proseFamily`: The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.
+    nonisolated static let proseFamilyPath = ["agentPane", "display", "font", "proseFamily"]
+    /// `agentPane.display.font.faces`: Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.
+    nonisolated static let facesPath = ["agentPane", "display", "font", "faces"]
     /// `agentPane.display.font.size`.
     nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
     nonisolated static let fontSizeDefault: Double = 14

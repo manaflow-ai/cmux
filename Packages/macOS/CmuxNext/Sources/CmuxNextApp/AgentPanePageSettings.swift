@@ -81,17 +81,25 @@ final class AgentPanePageSettings {
     private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
-            for await value in ObservationStream({ AgentPaneDisplaySetting(
-                fileRoot: settings.fileRoot,
-                managedHarnessPlacement: settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
+            // A theme file's chat typography applies over the person's file (fileRootWithThemeFile).
+            for await (root, managed) in ObservationStream({ (
+                settings.fileRootWithThemeFile,
+                settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
                     settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
                 }
             ) }) {
+                // The font pack's face files are read here, off the main thread (ChatFontFaces).
+                let value = await Self.display(root, managed)
                 guard let self, value != display else { continue }
                 display = value
                 push()
             }
         }
+    }
+
+    /// The chat's look from a settings root, built off the main thread: it reads the face files.
+    @concurrent nonisolated private static func display(_ root: JSONValue, _ managed: JSONValue?) async -> AgentPaneDisplaySetting {
+        AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: managed)
     }
 
     /// The Text & Width popover's write: one `agentPane.display.*` key at `path`, nil removes it.

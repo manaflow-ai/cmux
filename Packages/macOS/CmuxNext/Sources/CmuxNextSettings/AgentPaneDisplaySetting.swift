@@ -32,7 +32,9 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let fallback = AgentPaneDisplaySetting()
 
     /// Reads the chat's keys and the followed Markdown viewer keys from a cmux.json root, keeping
-    /// each value its row accepts and dropping the rest.
+    /// each value its row accepts and dropping the rest. `agentPane.display.font.faces` arrives as
+    /// each good face's data URL (``ChatFontFaces``), which reads the font files: build it off the
+    /// main thread.
     ///
     /// - Parameter fileRoot: The settings file's root object.
     public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil) {
@@ -49,6 +51,12 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
                   let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
             else { continue }
             values[descriptor.id] = value
+        }
+        // The page gets the face files as data URLs (`{family[:italic]: data URL}`), never paths.
+        let facesKey = AgentPaneDisplaySettingsSchema.facesPath.joined(separator: ".")
+        if let faces = values.removeValue(forKey: facesKey)?.objectValue {
+            let loaded = ChatFontFaces.dataURLs(faces)
+            if !loaded.isEmpty { values[facesKey] = .object(loaded.mapValues(JSONValue.string)) }
         }
         values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement
         self.init(values: values)

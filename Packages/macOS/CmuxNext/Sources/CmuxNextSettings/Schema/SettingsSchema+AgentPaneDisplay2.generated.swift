@@ -175,6 +175,36 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.uiFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.uiFamily", "Chat Interface Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.uiFamily.help", "A font family or a comma list of them. When set, it replaces the Chat Interface Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "font", "interface", "ui", "family", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.proseFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.proseFamily", "Chat Reply Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.proseFamily.help", "The font of the agent's replies. When set, it replaces the Chat Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "reply", "prose", "family", "serif", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.facesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.fontFaces", "Chat Font Files"),
+                help: SettingsText.keyed("settings.agentPane.display.fontFaces.help", "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["agent", "chat", "display", "font", "file", "woff2", "ttf", "otf", "face", "typeface", "custom"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,
                 section: .appearance,
                 group: group,
