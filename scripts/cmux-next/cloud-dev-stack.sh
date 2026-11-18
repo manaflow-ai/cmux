@@ -130,8 +130,14 @@ give_db() {  # give_db KIND MODE
   if [ "$mode" = branch ]; then
     branch="lane-wd-$tag"
     if ! ps branch show "$db" "$branch" >/dev/null 2>&1; then
-      echo "   $db: branch $branch from $DEV_BRANCH (schema; deleted by down)"
+      echo "   $db: branch $branch from $DEV_BRANCH (deleted by down)"
       ps branch create "$db" "$branch" --from "$DEV_BRANCH" --wait >/dev/null
+      if [ "$kind" = mysql ]; then
+        # A Vitess branch has development's schema but not its schema_migrations rows: a 1 h reader on
+        # development lets the VM copy that history before the first migration run (vm_stack.py migrate).
+        ps password create "$db" "$DEV_BRANCH" "wdev-$tag-history-$(date +%s)" --role reader --ttl 1h \
+          | vm put-cred --tag "$tag" --kind mysql-parent --db-name "$db" --branch "$DEV_BRANCH" --database "$MYSQL_DB" --mode shared >/dev/null
+      fi
     fi
   fi
   if cred_fresh "$kind" "$mode"; then echo "   $db/$branch: credential still valid"; return 0; fi
@@ -214,7 +220,8 @@ case "$cmd" in
     done
     if [ -n "$kinds" ] || [ "$db_mode" = branch ]; then
       echo "== migrate lane-wd-$tag with this tree"
-      vm migrate --tag "$tag" | json "print('\n'.join(f'   {k}: '+' | '.join(v) for k,v in d['migrated'].items()))"
+      out="$(vm migrate --tag "$tag")" || die "migration failed (above). Fix it and run up again, or: $0 down --tag $tag"
+      json "print('\n'.join(f'   {k}: '+' | '.join(v) for k,v in d['migrated'].items()))" <<<"$out"
     fi
     sha="$(git -C "$root" rev-parse --short=12 HEAD)"
     dirty=(); [ -n "$(git -C "$root" status --porcelain -- "${SYNC_PATHS[@]}")" ] && dirty=(--dirty)

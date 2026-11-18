@@ -480,11 +480,37 @@ def run_quiet(cmd: list[str], cwd: Path, env: dict[str, str], what: str) -> str:
     out = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=900)
     if out.returncode != 0:
         tail = (out.stdout + out.stderr)[-3000:]
+        from urllib.parse import unquote, urlsplit
         for v in env.values():  # never echo a credential that reached a child's output
-            if len(v) > 12 and ("://" in v or "pscale" in v):
-                tail = tail.replace(v, "<redacted>")
+            if "://" in v:
+                secret = unquote(urlsplit(v).password or "")
+                for s in (v, secret):
+                    if len(s) > 8:
+                        tail = tail.replace(s, "<redacted>")
         raise Refused(f"{what} failed (exit {out.returncode}):\n{tail}")
     return out.stdout[-2000:]
+
+
+# A Vitess branch copies development's schema but not its rows, so its schema_migrations is empty and the
+# runner would apply 0000_baseline onto tables that exist. Before the first run, copy development's history
+# rows for the files this tree has (a file development ran that this tree lacks stays out: the runner
+# refuses a history row it has no file for).
+SEED_MYSQL_HISTORY = """import mysql from "mysql2/promise"
+import { loadMigrations } from "./migrate-mysql.ts"
+const opts = { timezone: "Z" as const, dateStrings: true }
+const parent = await mysql.createConnection({ uri: process.env.CMUX_WDEV_PARENT_URL ?? "", ...opts })
+const branch = await mysql.createConnection({ uri: process.env.CMUX_WDEV_MIGRATE_URL ?? "", ...opts })
+await branch.query("CREATE TABLE IF NOT EXISTS schema_migrations (name varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY, checksum char(64) CHARACTER SET ascii NOT NULL, applied_at datetime(3) NOT NULL DEFAULT (CURRENT_TIMESTAMP(3)))")
+const [have] = (await branch.query("SELECT COUNT(*) AS n FROM schema_migrations")) as unknown as [Array<{ n: number }>]
+let copied = 0
+if (Number(have[0]?.n ?? 0) === 0) {
+  const local = new Set(loadMigrations().map((m) => m.name))
+  const [rows] = (await parent.query("SELECT name, checksum FROM schema_migrations ORDER BY name")) as unknown as [Array<{ name: string; checksum: string }>]
+  for (const r of rows) if (local.has(r.name)) { await branch.query("INSERT INTO schema_migrations (name, checksum) VALUES (?, ?)", [r.name, r.checksum]); copied++ }
+}
+console.log(`history: ${copied} rows copied from development`)
+await parent.end(); await branch.end()
+"""
 
 
 def cmd_migrate(args) -> dict[str, Any]:
@@ -494,15 +520,27 @@ def cmd_migrate(args) -> dict[str, Any]:
     entry = read_entry(tag) or {}
     env = {**os.environ, "PATH": tool_path()}
     done = {}
+    tls = '?ssl={"rejectUnauthorized":true}'
     for kind, runner in (("pg", "migrate.ts"), ("mysql", "migrate-mysql.ts")):
         info = (entry.get("db") or {}).get(kind) or {}
         if info.get("mode") != "branch":
             continue
         url = (d / "secrets" / f"{kind}.url").read_text().strip()
+        lines = []
         if kind == "mysql":
-            url += '?ssl={"rejectUnauthorized":true}'
+            url += tls
+            parent = d / "secrets" / "mysql-parent.url"
+            if parent.exists():
+                env["CMUX_WDEV_PARENT_URL"] = parent.read_text().strip() + tls
+                env["CMUX_WDEV_MIGRATE_URL"] = url
+                seed = d / "src/backend/db/wdev-seed-history.generated.ts"
+                seed.write_text(SEED_MYSQL_HISTORY)
+                lines += run_quiet(["bun", seed.name], seed.parent, env, "copy development's migration history").strip().splitlines()[-1:]
+                parent.unlink()
+                env.pop("CMUX_WDEV_PARENT_URL")
         env["CMUX_WDEV_MIGRATE_URL"] = url
-        done[kind] = run_quiet(["bun", runner, "--url-env", "CMUX_WDEV_MIGRATE_URL"], d / "src/backend/db", env, f"{runner} on {info.get('branch')}").strip().splitlines()[-5:]
+        lines += run_quiet(["bun", runner, "--url-env", "CMUX_WDEV_MIGRATE_URL"], d / "src/backend/db", env, f"{runner} on {info.get('branch')}").strip().splitlines()[-5:]
+        done[kind] = lines
     return {"migrated": done}
 
 
@@ -782,7 +820,7 @@ def main() -> int:
     for name in ("prepare", "touch", "forget"):
         s = sub.add_parser(name); s.add_argument("--tag", required=True)
     s = sub.add_parser("prune"); s.add_argument("--tag", required=True); s.add_argument("--tree", choices=("src", "platform"), default="src")
-    s = sub.add_parser("put-cred"); s.add_argument("--tag", required=True); s.add_argument("--kind", choices=("pg", "mysql"), required=True)
+    s = sub.add_parser("put-cred"); s.add_argument("--tag", required=True); s.add_argument("--kind", choices=("pg", "mysql", "mysql-parent"), required=True)
     s.add_argument("--db-name", required=True); s.add_argument("--branch", required=True); s.add_argument("--database", default="")
     s.add_argument("--mode", choices=("shared", "branch"), required=True)
     s = sub.add_parser("migrate"); s.add_argument("--tag", required=True)
