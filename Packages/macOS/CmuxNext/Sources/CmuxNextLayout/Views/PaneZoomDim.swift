@@ -46,6 +46,8 @@ final class PaneZoomDim {
     /// a page had the whole window since, and the pane's own state wrote its marks in that time.
     private var owesMarks = true
     private weak var view: PaneZoomDimView?
+    /// The panes' move at a split: it hears what this object hears, and its time is counted with the dim's.
+    let motion = PaneCommitMotion()
 
     /// The longest the dim's time may be, whatever the pane veil's fade is. A zoom shows in the frame after the one in
     /// which that time is spent, or at most three frames later when a pane's content is late
@@ -71,6 +73,7 @@ final class PaneZoomDim {
     /// none: the canvas's camera changes in the zoom's own turn, and a page's zoom is the page's act.
     func layoutWillChange(on screen: ScreenContentView, to layout: ScreenLayout, zoomed: Bool, structural: Bool, onCanvas: Bool,
                           waitsForFrame: Bool) {
+        motion.layoutWillChange(on: screen, to: layout, zoomed: zoomed, structural: structural, still: presentsPage || onCanvas || !waitsForFrame)
         let zooming = !screen.zoomed && zoomed
         let unzooming = screen.zoomed && !zoomed
         guard structural || zooming || unzooming else { return }
@@ -84,7 +87,7 @@ final class PaneZoomDim {
             phase = .off
             remaining = 0
         } else {
-            end()
+            leave()
         }
         if holdsSizes {
             // The change that waited behind a dim is replaced: the newer one gives its sizes itself, and the dim's time
@@ -101,11 +104,12 @@ final class PaneZoomDim {
     /// none yet: its change is marked as waiting, and the dim comes over the other panes of the layout the screen
     /// still shows. Returns whether it did; false leaves the sizes to the caller.
     func holdsSnap(of screen: ScreenContentView) -> Bool {
+        motion.sizesWillChange(on: screen) // no pane heard a size of this change yet
         guard comes else { return false }
         comes = false
         let continuing = view?.superview != nil
         guard let pane = screen.layout.panes.first, let view = place(around: pane, on: screen) else {
-            end()
+            leave()
             return false
         }
         view.fadeIn(continuing: continuing)
@@ -136,7 +140,7 @@ final class PaneZoomDim {
     /// `screen` shows its waiting change in this pass: a dim that came before a zoom leaves in that commit.
     func changeShows() {
         holdsSizes = false
-        if phase == .coming { end() }
+        if phase == .coming { leave() }
     }
 
     /// A pass of `screen` placed the panes: the panes' own zoom marks become those of the layout that this pass shows
@@ -144,6 +148,7 @@ final class PaneZoomDim {
     /// goes.
     func panesPlaced(on screen: ScreenContentView) {
         showMarks(on: screen)
+        motion.panesPlaced(on: screen)
         guard let pane = returning else { return }
         returning = nil
         let fade = self.fade(on: screen)
@@ -181,9 +186,17 @@ final class PaneZoomDim {
         return view
     }
 
-    /// Takes the dim away now: its zoom shows, a newer change or a second key came, the screen's size changed, or the
-    /// screen goes out of sight. A change that still waits behind it gives its sizes at the next frame tick.
+    /// Ends the dim and the panes' move now: the screen's size changed, the screen goes out of sight, or no motion
+    /// goes on from here.
     func end() {
+        motion.finish()
+        leave()
+    }
+
+    /// Takes the dim away now: its zoom shows, a newer change or a second key came, the screen's size changed, or the
+    /// screen goes out of sight. A change that still waits behind it gives its sizes at the next frame tick. The
+    /// panes' move goes on: a newer change that moves adds to it.
+    private func leave() {
         view?.removeFromSuperview()
         phase = .off
         remaining = 0
@@ -201,12 +214,14 @@ final class PaneZoomDim {
 
     /// The dim goes (it fades out after an unzoom showed): it keeps the frames coming until it left. It is no motion
     /// of the layout: no pane moves, and what waits for the layout to land does not wait for it.
-    var goes: Bool { phase == .going }
+    /// The panes' move at a split keeps the frames coming too, until its time is spent.
+    var goes: Bool { phase == .going || motion.inFlight }
 
-    /// One frame tick of the dim's time. A dim that goes leaves when its time is spent.
+    /// One frame tick of the dim's time, and of the panes' move. A dim that goes leaves when its time is spent.
     func step(_ dt: Double) {
+        motion.step(dt)
         guard phase != .off else { return }
         remaining -= dt
-        if phase == .going, remaining <= Self.spent { end() }
+        if phase == .going, remaining <= Self.spent { leave() }
     }
 }

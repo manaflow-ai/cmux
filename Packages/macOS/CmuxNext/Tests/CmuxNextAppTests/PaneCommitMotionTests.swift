@@ -42,9 +42,11 @@ import Testing
     nonisolated static let zoom = Act(name: "zoom", time: 0.24)
     nonisolated static let acts = [split, Act(name: "split down", time: 0.10), close, zoom]
 
-    /// From here on a split, a close and a zoom of `harness` move their panes: the pane animations are on.
+    /// From here on a split, a close and a zoom of `harness` move their panes: the pane animations are on, and the
+    /// fixture asks for the move (a fixture that only pins Reduce Motion gets none).
     static func movePanes(_ harness: Commit.Harness) {
         harness.root.context.reduceMotionOverride = false
+        harness.root.context.commitMotionOverride = true
     }
 
     // MARK: What a layer shows
