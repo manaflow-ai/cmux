@@ -62,7 +62,6 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("ios-app-store.yml", "upload-and-validate"): SIGNING,
     ("ios-appstore-upload.yml", "upload"): SIGNING,
     ("ios-screenshots.yml", "app-store-upload"): SIGNING,
-    ("ios-testflight.yml", "upload"): SIGNING,
     ("release.yml", "build-sign-notarize"): SIGNING,
     ("repair-v0-64-25-helper-rpaths.yml", "verify-shipped"): SIGNING,
     ("repair-v0-64-25-helper-rpaths.yml", "repair"): SIGNING,
