@@ -179,3 +179,26 @@ struct CmuxFloatingDialogPanelTests {
         #expect(abs(card.height - second.fittingSize.height) < 1)
     }
 }
+
+/// A floating dialog never stays up with no content (Lawrence 2026-11-17, a stuck empty glass card): a card with no
+/// title and no lines is not shown, and showing one hides the panel.
+@MainActor
+struct CmuxFloatingDialogNeverEmptyTests {
+    @Test func anEmptyCardIsNeverShown() {
+        let panel = CmuxFloatingDialogPanel(identifier: "test.empty")
+        defer { panel.close() }
+        panel.show(CmuxDialogSpec(title: "One", buttons: [.ok()])) { _ in }
+        #expect(panel.isVisible)
+        panel.show(CmuxDialogSpec(title: "", buttons: [.ok()])) { _ in }
+        #expect(!panel.isVisible, "an empty card hides the panel")
+        #expect(panel.cardFrame == nil)
+    }
+
+    /// A content view that holds no card is never shown either.
+    @Test func aHostWithNoCardIsNeverShown() {
+        let panel = CmuxFloatingDialogPanel(identifier: "test.empty")
+        defer { panel.close() }
+        panel.present(NSView())
+        #expect(!panel.isVisible)
+    }
+}

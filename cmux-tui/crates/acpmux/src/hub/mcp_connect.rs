@@ -179,7 +179,18 @@ impl Hub {
         let connected = self
             .first_connect(session, &request_id, &card, key.as_deref().map(String::as_str))
             .await;
+        let store = self.mcp_store_dir().await;
+        let kept = self.keep_in_shared_store(
+            &store,
+            &card,
+            &scope,
+            &connected,
+            key.as_deref().map(String::as_str),
+        );
         let mut reply = json!({"status": status, "name": name, "scope": scope});
+        if let Some(kept) = kept {
+            reply.set("kept", json!(kept));
+        }
         if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
             out.extend(extra);
         }
@@ -248,6 +259,80 @@ impl Hub {
         result
     }
 
+    /// The machine's store of MCP connections (cmux-mcp-connect `shared`), the one every Chief
+    /// reads: config `mcpStore`, else `$CMUX_MCP_HOME`, else `<acpmux home>/mcp`.
+    pub async fn mcp_store_dir(&self) -> std::path::PathBuf {
+        let configured = self.config.read().await.mcp_store.clone();
+        configured.unwrap_or_else(|| {
+            cmux_mcp_connect::shared::dir(&crate::config::home(), &|k| std::env::var(k).ok())
+        })
+    }
+
+    /// Keeps an approved remote server in the machine's store, so every Chief and agent of this
+    /// machine has it (and a Chief's `mcp` finishes a sign-in it needs). A key the person typed
+    /// goes to the 0600 secrets file only. A server of that name already there with another URL
+    /// is left alone. Returns the store's name for it, or None when nothing was kept.
+    fn keep_in_shared_store(
+        &self,
+        dir: &std::path::Path,
+        card: &Value,
+        scope: &str,
+        connected: &Value,
+        key: Option<&str>,
+    ) -> Option<String> {
+        use cmux_mcp_connect::shared;
+        // "This chat" stays this chat's: the store is what every Chief and agent shares.
+        if field(card, "transport").as_str() != Some("remote") || scope == "chat" {
+            return None;
+        }
+        let state = match field(connected, "connect").as_str() {
+            Some("connected") => "connected",
+            Some("signInNeeded") => "needs sign-in",
+            _ => return None,
+        };
+        let url = field(card, "url").as_str()?;
+        let name = shared::clean_name(field(card, "name").as_str()?);
+        let path = shared::server_path(dir, &name);
+        if let Some(old) =
+            std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        {
+            if old.pointer("/transport/url").and_then(Value::as_str) != Some(url) {
+                return None;
+            }
+            // Signed in already (by a Chief or an earlier card): keep it as it is.
+            if *field(&old, "state") == "connected" && state != "connected" {
+                return Some(name);
+            }
+        }
+        let secret_names: Vec<String> = match (key, field(card, "keyName").as_str()) {
+            (Some(_), Some(header)) => vec![header.to_owned()],
+            _ => Vec::new(),
+        };
+        let added_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        let record = shared::Remote {
+            name: &name,
+            url,
+            publisher: field(card, "publisher").as_str().unwrap_or_default(),
+            verified: *field(card, "verified") == json!(true),
+            added_by: "a cmux chat (connect card)",
+            added_ms,
+            state,
+            scope: Some(scope),
+            secret_names: &secret_names,
+        }
+        .record();
+        if let (Some(value), Some(header)) = (key, field(card, "keyName").as_str()) {
+            let secrets = shared::key_secrets(header, value);
+            write_private(&shared::secrets_path(dir, &name), secrets.to_string().as_bytes())
+                .ok()?;
+        }
+        let text = serde_json::to_vec_pretty(&record).ok()?;
+        write_file(&path, &text, 0o644).ok()?;
+        Some(name)
+    }
+
     /// The person's answer to a connect card. `scope` is theirs (the card's menu); it must be one
     /// of [`SCOPES`].
     pub fn answer_mcp_connect(
@@ -312,4 +397,36 @@ impl McpConnects {
             .values()
             .any(|p| p.session == session)
     }
+}
+
+/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`.
+fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(
+        ".{}.acpmux.{}.tmp",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
+        std::process::id()
+    ));
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(mode)
+        .open(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    std::fs::rename(&tmp, path)
+}
+
+/// [`write_file`] at 0600 in a 0700 folder (a secret).
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    write_file(path, bytes, 0o600)
 }

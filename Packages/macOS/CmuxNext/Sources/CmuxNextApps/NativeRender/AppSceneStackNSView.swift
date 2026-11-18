@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// Vertical: each child fills the width, or keeps its natural width at the stack's `alignment`; the
 /// height is the sum plus `spacing`. Horizontal: children keep their natural widths, filling children
 /// share what is left (spacers last), text shrinks when the row is too narrow (lowest `layoutPriority` first,
-/// never a `fixedSize` text), and each child centers
+/// never a `fixedSize` text), and each child sits at the row's `alignment` (`top`, `bottom`; centered by default)
 /// on the row's height. A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
 final class AppSceneStackNSView: AppSceneNodeNSView {
@@ -35,7 +35,13 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             var x = rect.minX
             for (child, width) in zip(childViews, widths(for: rect.width)) {
                 let height = child.height(width: width)
-                child.frame = CGRect(x: x, y: rect.minY + (rect.height - height) / 2, width: width, height: height).integral
+                // `alignment` top, center (the default) or bottom, as SwiftUI's HStack (the view is flipped).
+                let y: CGFloat = switch node.string("alignment") {
+                case "top": rect.minY
+                case "bottom": rect.maxY - height
+                default: rect.minY + (rect.height - height) / 2
+                }
+                child.frame = CGRect(x: x, y: y, width: width, height: height).integral
                 x += width + spacing
             }
             return

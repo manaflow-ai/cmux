@@ -359,6 +359,7 @@ impl<T> Pool<T> {
 
     /// Take the ready session for `key`. A session in the same slot under
     /// another key is removed and handed back for ending.
+    #[cfg(test)]
     pub fn take(&mut self, key: &PoolKey) -> Take<T> {
         self.take_or_keep(key, true)
     }
