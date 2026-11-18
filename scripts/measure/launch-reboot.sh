@@ -7,10 +7,13 @@
 #   cmux-ci run ... --script scripts/measure/launch-reboot.sh --ref <sha> --arg=phase=after --arg=arm=noread|read|residency \
 #     --arg=reboot=N
 #   phase=before  the copy (installed from dmg= when there is none yet, or on reboot=1) launched once and quit with Keep
-#                 Sessions (SIGTERM), every process of it gone, LB-COPY (path, version, sizes), then
-#                 `sudo -n /sbin/shutdown -r now`, the very last thing: the controller sees the step lost or ended.
-#   phase=after   the step that runs first after the auto-login. LB-LOGIN: seconds since kern.boottime and since the
-#                 loginwindow process started (login; kern.boottime when there is none). Then, by arm:
+#                 Sessions (SIGTERM), every process of it gone, LB-COPY (path, version, sizes), then LB-REBOOT and
+#                 exit 0. `sudo -n /sbin/shutdown -r now` runs LB_REBOOT_DELAY s later (default 20), in a session of its
+#                 own, so the worker has reported the step done first and never counts the reboot as a lost job.
+#   phase=after   the step that runs first after the auto-login. It refuses (LB-FAIL not rebooted, exit 3) while
+#                 kern.boottime is still the before step's: one claimed in those 20 s goes again once the host is back.
+#                 LB-LOGIN: seconds since kern.boottime and since the loginwindow process started (login;
+#                 kern.boottime when there is none). Then, by arm:
 #     noread      at login+60 s one measured launch
 #     read        at login+5 s each binary read with `/usr/bin/time -l cat FILE >/dev/null` (LB-READ), then at
 #                 login+60 s the measured launch
@@ -57,7 +60,11 @@ main() {
   [[ "$PHASE" == before || -n "$ARM" ]] || bad "phase=after needs arm=noread, arm=read or arm=residency"
   [[ "$PHASE" == after || -z "$ARM" ]] || bad "arm= is for phase=after"
   if [[ "$PHASE" == after ]]; then
-    # First thing: when the step started, against boot and login.
+    # First thing: a host the before step's reboot has not reached yet; then when the step started, against boot and
+    # login.
+    local was
+    was="$(cat "$ROOT/before.boot" 2>/dev/null)"
+    [[ -z "$was" || "$(boot_time)" != "$was" ]] || fail "not rebooted: kern.boottime is still the before step's ($was)"
     login_times
     after
   else
@@ -96,8 +103,25 @@ before() {
   echo "LB-PRIME reboot=$REBOOT window_on_screen=$(field window_on_screen "$line") main_start=$(field main_start "$line")$(err "$line")"
   [[ -n "$(field window_on_screen "$line")" && "$(field window_on_screen "$line")" != null ]] || fail "the priming launch showed no window"
   ended
-  echo "LB-REBOOT reboot=$REBOOT left=$(left | wc -l | tr -d ' ')"
-  sudo -n /sbin/shutdown -r now || fail "sudo -n /sbin/shutdown -r now refused"
+  boot_time >"$ROOT/before.boot" || fail "cannot write $ROOT/before.boot"
+  echo "LB-REBOOT reboot=$REBOOT left=$(left | wc -l | tr -d ' ') in_s=${LB_REBOOT_DELAY:-20}"
+  reboot_later
+}
+
+boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
+
+# reboot_later: `sudo -n /sbin/shutdown -r now` LB_REBOOT_DELAY s (default 20) from now, in a new session with no
+# terminal or pipes, so this step exits 0 and its worker reports it before the host goes down, and the end of the
+# step's process group does not take the reboot with it (nohup alone when there is no perl). The before step has
+# already checked the sudo rule.
+reboot_later() {
+  local later=(/bin/sh -c "sleep ${LB_REBOOT_DELAY:-20}; exec sudo -n /sbin/shutdown -r now")
+  if command -v perl >/dev/null; then
+    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' "${later[@]}" </dev/null >/dev/null 2>&1 &
+  else
+    nohup "${later[@]}" </dev/null >/dev/null 2>&1 &
+  fi
+  disown
 }
 
 after() {
