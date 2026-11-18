@@ -123,4 +123,19 @@ holds to its own contrast floor; Gel writes no hex color there.
 
 ## Visual review
 
-See the end of this file once the captures are reviewed.
+Reviewed by the visual-review procedure against the references above, on the chat captures the
+look-addons browser test draws (`webviews/test/browser/look-addons.test.ts`, headless Chromium on
+Linux, light and dark; the test passes: every token lands, and applying, reloading and switching
+the look moves no box).
+
+1. Fixed: the prompt corner. At 20 and then 16 a one-line prompt read as a capsule, which the
+   house rules reserve for circular marks; it is 14 now and reads as a soft rounded container.
+2. Pass: the prompt bubble takes its own tone in each appearance (light-dark() follows the host's
+   color-scheme), with no edge, on the tonal step the references show.
+3. Pass: no hairline on the prompt or on cards; text, muted and dim text read at the contrasts above.
+4. Open, evidence: the gallery draws the chat on the gallery's own page color, not the theme file,
+   so the page tone, the sidebar glass, the flush-goo tab and the hover card are not in these
+   images. A capture in the real macOS app is still owed.
+
+Verdict: FIX (evidence) until a real-app capture shows the chrome; no open design fix in the
+captured surfaces.

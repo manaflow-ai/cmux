@@ -33,10 +33,11 @@ the place chips) shows after you click Show details on it.
 
 ## Screenshots
 
-See [Media](#media).
+The chat with Gel's tokens, drawn by the look-addons browser test (Linux, so the page color is the
+gallery's, not the theme's; captures from the macOS app follow):
 
-## Media
-
-The screenshots and the demo video are linked here once captured.
+| Light | Dark |
+| --- | --- |
+| prompt bubble in the secondary-container tone, no edge | the same in the dark tone |
 
 How looks like this one are written: [docs/cmux-next/look-addons.md](../../../docs/cmux-next/look-addons.md).
