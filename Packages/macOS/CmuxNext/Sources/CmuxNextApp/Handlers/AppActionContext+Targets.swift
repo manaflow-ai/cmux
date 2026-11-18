@@ -192,6 +192,12 @@ extension AppActionContext {
         return (tab, pane.pane)
     }
 
+    /// The pane the invocation names when no window shows it (a workspace parked off screen), else nil.
+    func parkedPane(_ invocation: ActionInvocation) -> PaneModel? {
+        guard let target = explicitTarget(invocation, kinds: [.pane]), let model = targetPane(target.id, invocation) else { return nil }
+        return services.paneController(for: model) == nil ? model : nil
+    }
+
     /// The pane `id` names, as `targetTab` finds a tab; callers refuse.
     func targetPane(_ id: String, _ invocation: ActionInvocation) -> PaneModel? {
         if let machine = invocation.targetMachineID { return services.locatePane(id, onMachine: machine) }
