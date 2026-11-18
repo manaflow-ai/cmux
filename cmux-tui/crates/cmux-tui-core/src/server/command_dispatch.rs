@@ -119,11 +119,12 @@ fn dispatch_command(
         Command::RemoteHostCall { method, params } => {
             remote_host_command::call(mux, client, &method, params)
         }
-        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
             remote_host_command::config(
                 mux,
                 client,
                 json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
+                app_permissions,
             )
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),

@@ -55,6 +55,16 @@ const option = (name: string): string | undefined => {
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
+// The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
+// whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
+const cmuxVmPath = option("--cmux-vm") ?? "";
+const cliPath = cmuxVmPath !== "" ? cmuxVmPath : cmuxPath;
+/** `cmux vm WORD` -> the headless CLI's own word for it (cmux-tui cli/vm.rs maps the same: new -> create, rm -> delete). */
+const cliArgv = (args: string[]): string[] => {
+  if (cmuxVmPath === "") return ["vm", ...args];
+  const [word, ...rest] = args;
+  return [word === "new" ? "create" : word === "rm" ? "delete" : (word ?? ""), ...rest];
+};
 const resultFile = option("--result-file");
 const base = option("--url") ?? process.env["CMUX_VM_DOGFOOD_URL"] ?? "";
 const tenantKey = process.env["CMUX_VM_SMOKE_API_KEY"] ?? "";
@@ -274,7 +284,8 @@ const lifecycleVms = new Set<string>();
 const lifecycleSnapshots = new Set<string>();
 const lifecycleAgentKeys = new Set<string>();
 const VM_ID = /^vm_[0-9a-z]{26}$/;
-const LIFECYCLE_FILE = "/tmp/cmux-lifecycle-marker";
+// On the disk, not /tmp: the guest clears /tmp at boot, so a stop and start would lose it whatever the disk keeps.
+const LIFECYCLE_FILE = "/var/tmp/cmux-lifecycle-marker";
 
 async function lifecycleCreate(label: string, body: Record<string, unknown>, token = bearer): Promise<string> {
   const reply = await call(
@@ -335,7 +346,7 @@ async function readMarker(id: string): Promise<string> {
 function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; stdout: string; stderr: string; ms: number }> {
   const startedAt = performance.now();
   return new Promise((resolve) => {
-    const child = spawn(cmuxPath, ["vm", ...args], {
+    const child = spawn(cliPath, cliArgv(args), {
       env: { ...process.env, CMUX_VM_BASE_URL: origin.origin, CMUX_VM_API_KEY: bearer, ...(useService ? { CMUX_VM_TEAM_ID: serviceTeam } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -358,6 +369,15 @@ function cli(args: string[], timeoutMs = 5 * 60_000): Promise<{ code: number; st
     });
     child.on("close", (code) => done(code ?? -1));
   });
+}
+
+/** Why the CLI under test cannot run `vm` verbs, or null when it can (`vm --help` answers without a scope error). */
+async function cliLacksVm(): Promise<string | null> {
+  const out = await cli(["--help"], 60_000);
+  if (out.code === 0) return null;
+  return /unknown resource scope/.test(out.stderr)
+    ? `${cliPath} has no \`vm\` scope (${out.stderr.trim().slice(0, 120)})`
+    : `${cliPath} vm --help exited ${out.code}: ${out.stderr.trim().slice(0, 160)}`;
 }
 
 /** CLI runs still going; cleanup stops them first, so none makes a VM after the sweep looked. */
@@ -467,7 +487,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     return key;
   };
   const source = await timed("cliNew", async () =>
-    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("source")], "new"), "new"));
+    idOf(await cliJson(["new", "--name", `lifecycle cli ${runId}`.slice(0, 100), "--idempotency-key", cliKey("source")], "new"), "new"));
   await timed("cliRunning", () => waitForState(source, "running", 5 * 60_000));
   await timed("cliExecWrite", async () => {
     const out = await cli(["exec", source, "--", `printf %s ${marker} > ${LIFECYCLE_FILE} && sync`]);
@@ -488,7 +508,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
   await timed("cliStarted", () => waitForState(source, "running", 5 * 60_000));
   proofs["fileAfterStopStart"] = (await cliRead(source)) === marker;
   const fork = await timed("cliFork", async () =>
-    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("fork")], "fork"), "fork"));
+    idOf(await cliJson(["fork", source, "--name", `lifecycle cli fork ${runId}`.slice(0, 100), "--idempotency-key", cliKey("fork")], "fork"), "fork"));
   await timed("cliForkRunning", () => waitForState(fork, "running", 5 * 60_000));
   proofs["fileInFork"] = (await cliRead(fork)) === marker;
   await awake(source);
@@ -504,7 +524,7 @@ async function lifecycleCli(failed: string[]): Promise<void> {
     lifecycleSnapshots.add(snapshotId);
     await cliJson(["snapshot", "get", snapshotId], "snapshot get");
     const fromSnapshot = await timed("cliNewFromSnapshot", async () =>
-      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idle-timeout", "300", "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
+      idOf(await cliJson(["new", "--snapshot", snapshotId, "--name", `lifecycle cli snap ${runId}`.slice(0, 100), "--idempotency-key", cliKey("from-snap")], "new --snapshot"), "new --snapshot"));
     await timed("cliFromSnapshotRunning", () => waitForState(fromSnapshot, "running", 5 * 60_000));
     proofs["fileInSnapshotVm"] = (await cliRead(fromSnapshot)) === marker;
     await timed("cliSnapshotDelete", async () => {
@@ -761,7 +781,8 @@ try {
 
   if (lifecycle) {
     await lifecycleApi(failed);
-    if (cmuxPath === "") note("no --cmux binary; the CLI lifecycle legs were skipped");
+    const cliMissing = cliPath === "" ? "no --cmux or --cmux-vm binary" : await cliLacksVm();
+    if (cliMissing !== null) note(`${cliMissing}; the CLI lifecycle legs were skipped`);
     else if (useService) note("a service key needs role=chief on every VM and `cmux vm` sets no labels; the CLI lifecycle legs were skipped");
     else await lifecycleCli(failed);
     await lifecycleCleanup(failed);

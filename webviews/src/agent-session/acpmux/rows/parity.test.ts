@@ -12,8 +12,9 @@ import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { permissionDecision } from "../permissions/record";
 import { permissionOptionKind } from "../permissions/prompt";
+import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
 import { adaptChat, askDecision } from "./adapter";
-import { ChatRowsHost } from "./host";
+import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { NOT_IN_CORPUS, NOT_YET } from "./notYet";
 import { ChatRowStore } from "./store";
 import type { ChatRow } from "./wire";
@@ -107,6 +108,11 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "the turn's Retry is named by its prompt row's id",
   },
   {
+    field: "worked.workedRun",
+    from: ["id"],
+    why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
+  },
+  {
     field: "row:worked",
     from: ["row:permissionRecord"],
     why: "v1's receipt is the work of its turn, which the turn folds",
@@ -145,17 +151,14 @@ async function v2(name: string) {
       .map((line) => JSON.parse(line)) as string[]
   ).map((text) => ({ text, change: JSON.parse(text) as { kind: string } }));
   const store = new ChatRowStore();
-  const host = new ChatRowsHost(
-    async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {}),
-    store,
-    () => SID,
-  );
+  const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
+  const host = new ChatRowsHost(post, store, () => SID);
   await host.open("parity");
-  let batch = 0;
+  const feed = chatRowsFeed(host, post);
   const folds: number[] = [];
   for (const { text, change } of changes) {
     if (change.kind === "chatPage") expect(host.page(SID, "after", { from: folds[0], fold: folds.shift() })).toBe(true);
-    host.receive({ batch: ++batch, changes: [text] });
+    feed([text]);
     if (change.kind === "chatWindow")
       for (const row of (change as unknown as { window: { rows: ChatRow[] } }).window.rows)
         if (row.kind === "group" && !row.open) folds.push(row.id);

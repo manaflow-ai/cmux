@@ -48,6 +48,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     token: "never shown",
   });
   expect(pushed).toEqual({
+    advancedAt: expect.any(Number),
     key: "k-1",
     task: "fix the build",
     state: "starting",
@@ -59,7 +60,7 @@ test("the host's push fills the card, field by field, each checked", () => {
     network: "limited",
   });
   const odd = cloudStartPushed(begun(), { key: "k-1", step: "done", secrets: -1, network: "open", machine: 7 });
-  expect(odd).toEqual(begun());
+  expect(odd).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   expect(cloudStartPushed(begun(), { key: "k-1", machine: "x".repeat(100) })?.machine).toHaveLength(64);
   expect(cloudStartPushed(begun(), { key: "k-1", folder: "/Users/me/src" })?.folder).toBe("paint");
 });
@@ -171,6 +172,30 @@ test("a copy's files and bytes, its fallback and an https install link reach the
   expect(unsafe?.clone?.installUrl).toBeUndefined();
 });
 
+test("the files a first pass left on this Mac stay on the clone through its end", () => {
+  const copying = cloudStartPushed(begun(), {
+    key: "k-1",
+    step: "folder",
+    clone: { state: "running", phase: "copy", left_on_mac: 1204 },
+  });
+  expect(copying?.clone?.leftOnMac).toBe(1204);
+  // The final answer without the count keeps it: a partial copy never reads as complete.
+  const ended = cloudStartPushed(copying, { key: "k-1", step: "folder", clone: { state: "done", phase: "complete" } });
+  expect(ended?.clone).toEqual({ state: "done", phase: "complete", leftOnMac: 1204 });
+  // A plain copy's end carries only the count; it lands on the clone it ends.
+  const plain = cloudStartPushed(begun(), { key: "k-1", step: "folder", clone: { left_on_mac: 7 } });
+  expect(plain?.clone).toEqual({ state: "done", leftOnMac: 7 });
+  // Nothing left, or a malformed count, adds nothing.
+  for (const left of [0, -3, 1.5, "12"]) {
+    const whole = cloudStartPushed(begun(), {
+      key: "k-1",
+      step: "folder",
+      clone: { state: "done", phase: "complete", left_on_mac: left },
+    });
+    expect(whole?.clone).toEqual({ state: "done", phase: "complete" });
+  }
+});
+
 test("forwards the environment id and setup ran or cached state", () => {
   const ran = cloudStartPushed(begun(), {
     key: "k-1",
@@ -272,7 +297,7 @@ test("the host's question shows in the card and leaves it when the host takes it
   const asked = cloudStartPushed(begun(), { key: "k-1", ask: question });
   expect(asked?.ask).toEqual(question);
   expect(cloudStartPushed(asked, { key: "k-1", step: "folder" })?.ask).toEqual(question);
-  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual(begun());
+  expect(cloudStartPushed(asked, { key: "k-1", ask: null })).toEqual({ ...begun(), advancedAt: expect.any(Number) });
   // Another start's question, or one after the start failed, shows nothing.
   expect(cloudStartPushed(begun(), { key: "k-2", ask: question })).toEqual(begun());
   const failed = cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "x" });
@@ -309,7 +334,14 @@ test("a failed start drops its question and says whether Retry can help", () => 
     message: "Slow",
     retryable: true,
   });
-  expect(retry).toEqual({ ...begun(), state: "failed", code: "cloud_start_failed", message: "Slow", retryable: true });
+  expect(retry).toEqual({
+    ...begun(),
+    advancedAt: expect.any(Number),
+    state: "failed",
+    code: "cloud_start_failed",
+    message: "Slow",
+    retryable: true,
+  });
   const final = cloudStartEnded(asked, "k-1", { ok: false, code: "cloud_start_failed", message: "No" });
   expect(final?.retryable).toBeUndefined();
   expect(final?.ask).toBeUndefined();
