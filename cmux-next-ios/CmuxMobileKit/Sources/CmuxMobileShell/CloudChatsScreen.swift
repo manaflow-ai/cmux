@@ -79,7 +79,7 @@ struct CloudChatsScreen: View {
                 }
             }
             .navigationDestination(item: $selectedLocation) { location in
-                CloudMachineChatsScreen(connect: shell.live.map { live in { try await live.cloudChats(on: location.macID, machine: location.machine) } },
+                CloudMachineChatsScreen(connect: connect(to: location),
                                         macID: location.macID, machine: location.machine,
                                         macName: macName(location.macID), preferredSession: attention?.sessionID)
             }
@@ -127,6 +127,13 @@ struct CloudChatsScreen: View {
                 }
             }
         }
+    }
+
+    /// The machine's chat channel through the live coordinator (nil: no live link). Built here, typed,
+    /// and not inline in `body`, where the compiler could not type the optional async closure.
+    private func connect(to location: CloudChatLocation) -> (@MainActor () async throws -> CloudChatRelay)? {
+        guard let live = shell.live else { return nil }
+        return { try await live.cloudChats(on: location.macID, machine: location.machine) }
     }
 
     private func macName(_ id: String) -> String {
