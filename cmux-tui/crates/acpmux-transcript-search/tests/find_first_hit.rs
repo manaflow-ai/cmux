@@ -361,7 +361,7 @@ fn row_texts<'a>(record: &'a Value, out: &mut Vec<std::borrow::Cow<'a, str>>) {
                         }
                     }
                     Some("tool_use") => {
-                        out.push(b.get("input").map(Value::to_string).unwrap_or_default().into())
+                        out.push(b.get("input").map(Value::to_string).unwrap_or_default().into());
                     }
                     Some("tool_result") => match b.get("content") {
                         Some(Value::String(s)) => out.push(s.as_str().into()),
@@ -584,7 +584,7 @@ fn find_to_first_hit_before_and_after_the_index() {
     let mut others = Vec::new();
     for k in 0..files {
         let path = dir.path().join(format!("s{k}.jsonl"));
-        let mut p = vec![Plant {
+        let mut p = [Plant {
             label: "",
             phrase: "quokka middle beacon",
             target: (file_mb << 20) / 2,
