@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextPages
 
 /// "im at 100% cpu rn" (Leo, 2026-11-03): 11% of the NIGHTLY's main thread was DevTools
 /// `Runtime.evaluate` calls of the agent pages' host pushes. The Chats feed set every agent pane's
@@ -135,5 +136,83 @@ struct AgentPaneShownPushesTests {
         } else {
             #expect(evaluates == turns, "one evaluate per turn, for the one seen pane")
         }
+    }
+
+    /// A window that says it is on screen: the real seen check (``AgentPaneFramePacer/nobodySees(_:)``)
+    /// then judges only where a pane sits in it, on a CI Mac with no screen as on Leo's.
+    final class ShownWindow: NSWindow {
+        override var occlusionState: NSWindow.OcclusionState { .visible }
+    }
+
+    /// The four agent pages of Lawrence's report (2026-11-18: dropped frames scrolling a short chat
+    /// while hidden pages shared its renderer), with the real seen check: a chat in sight, a chat
+    /// and a New Tab page behind other tabs, and the prewarmed New Tab spare, painted and parked
+    /// 100,000 pt off screen (``PageOffscreenParking``). Each Chats-feed change sets every page's
+    /// device chats and recently closed items (AgentPageChats, NewTabClosed); each attention and
+    /// Now Playing change pushes to every page that got them. Counts the push scripts each page
+    /// evaluates over `changes` changes, one change per turn. Built only from what the base has, so
+    /// the same test gives the before numbers at the base and the after numbers here.
+    @Test func hiddenPagesEvaluateNoPushScripts() throws {
+        let changes = 100
+        _ = NSApplication.shared
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = content
+        let shownTab = NSView(frame: content.bounds), hiddenTabs = NSView(frame: content.bounds)
+        hiddenTabs.isHidden = true
+        let parking = PageOffscreenParking(frame: PageOffscreenParking.frame(in: content.bounds, size: content.bounds.size))
+        for view in [shownTab, hiddenTabs, parking] { content.addSubview(view) }
+        let attention = AgentPaneAttentionTabs(), nowPlaying = AgentPaneNowPlaying()
+        func page(_ name: String, newTab: Bool, in parent: NSView) throws -> (String, AgentPaneView) {
+            let model = AgentPaneModel(host: NoHost(), attentionTabs: attention, newTab: newTab ? AgentPaneNewTab(kind: .agent) : nil)
+            let view = try #require(AgentPaneView(model: model, source: .bundled(URL(filePath: "/dev/null"))))
+            view.frame = parent.bounds
+            parent.addSubview(view)
+            return (name, view)
+        }
+        let pages = try [page("seen chat", newTab: false, in: shownTab), page("hidden chat", newTab: false, in: hiddenTabs),
+                         page("hidden New Tab", newTab: true, in: hiddenTabs), page("parked spare", newTab: true, in: parking)]
+        pages[3].1.model.markPainted()
+        var later: [@MainActor () -> Void] = []
+        var counts: [String: Int] = [:]
+        let pushes = ["applyDeviceChats", "applyRecentlyClosed", "applyAttentionTabs", "applyNowPlaying"]
+        for (name, view) in pages {
+            view.shownPushes.nextTurn = { later.append($0) }
+            attention.push(to: view)
+            nowPlaying.push(to: view)
+            view.evaluateScript = { script in if pushes.contains(where: script.contains) { counts[name, default: 0] += 1 } }
+        }
+        func runTurn() {
+            while !later.isEmpty {
+                let work = later
+                later.removeAll()
+                for flush in work { flush() }
+            }
+        }
+        runTurn()
+        counts = [:]
+        for change in 1...changes {
+            let chats = Self.chats(change)
+            let closed = AgentPaneClosedList([AgentPaneClosedItem(id: "closed:\(change)", kind: .terminal, title: "zsh \(change)", detail: nil,
+                                                                  closedAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(change)),
+                                                                  icon: nil, isAvailable: true)])
+            for (_, view) in pages {
+                view.deviceChats = chats
+                view.recentlyClosed = closed
+            }
+            attention.items = [AgentPaneAttentionTabs.Item(tabId: "tab_\(change)", reason: "Look", workspaceTitle: "W", tabTitle: "T", atMs: UInt64(change))]
+            nowPlaying.track = AgentPaneNowPlaying.Track(title: "Song \(change)", artist: "A", artwork: nil, isPlaying: true, position: nil, duration: nil,
+                                                         rate: 1, positionDate: Date(timeIntervalSince1970: 0), canPrevious: false, canNext: false, labels: [:])
+            runTurn()
+        }
+        let row = pages.map { "\($0.0)=\(counts[$0.0, default: 0])" }.joined(separator: " ")
+        print("AgentPaneShownPushes hidden pages: push scripts over \(changes) changes: \(row)")
+        #expect(counts["hidden chat", default: 0] == 0, "a chat behind another tab evaluated \(counts["hidden chat", default: 0]) push scripts")
+        #expect(counts["hidden New Tab", default: 0] == 0, "a New Tab page behind another tab evaluated \(counts["hidden New Tab", default: 0]) push scripts")
+        #expect(counts["parked spare", default: 0] == 0, "the painted parked spare evaluated \(counts["parked spare", default: 0]) push scripts")
+        #expect(counts["seen chat", default: 0] == changes, "the seen chat gets the attention list once per change, and no New Tab data")
     }
 }
