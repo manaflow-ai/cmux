@@ -110,10 +110,11 @@ public struct AutomationsPageView: View {
                     Text(strings.section(section).uppercased()).font(palette.caption).foregroundStyle(palette.tertiary)
                         .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 4)
                     ForEach(rows) { row in
-                        AutomationListRow(row: row, selected: row.id == selection, palette: palette, strings: strings, now: now) {
-                            page.selection = row.id
-                        }
-                        .equatable()
+                        AutomationListRow(row: row, selected: row.id == selection, palette: palette, strings: strings, now: now,
+                                          work: page.listWork) { page.selection = row.id }
+                            .equatable()
+                            .onAppear { page.rowViewsAlive += 1 }
+                            .onDisappear { page.rowViewsAlive -= 1 }
                     }
                 }
             }

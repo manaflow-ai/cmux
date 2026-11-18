@@ -89,15 +89,19 @@ public struct ChiefMemoryInspectorView: View {
                 if searching {
                     ForEach(hits) { hit in
                         ChiefMemoryLineRow(name: hit.name, detail: hit.type, text: hit.snippet, stale: stale.contains(hit.name),
-                                           selected: selected == hit.name, open: open(hit.name))
+                                           selected: selected == hit.name, open: open(hit.name), work: model.listWork)
                             .equatable()
+                            .onAppear { model.rowViewsAlive += 1 }
+                            .onDisappear { model.rowViewsAlive -= 1 }
                     }
                 } else {
                     ForEach(lines.reversed()) { line in
                         ChiefMemoryLineRow(name: line.name, detail: "L\(line.level)", text: line.text ?? "…",
                                            stale: line.stale || stale.contains(line.name),
-                                           selected: selected == line.name, open: open(line.name))
+                                           selected: selected == line.name, open: open(line.name), work: model.listWork)
                             .equatable()
+                            .onAppear { model.rowViewsAlive += 1 }
+                            .onDisappear { model.rowViewsAlive -= 1 }
                     }
                 }
             }
@@ -130,7 +134,8 @@ public struct ChiefMemoryInspectorView: View {
                         let stale = Set(model.status?.stale ?? [])
                         ForEach(node.children) { child in
                             ChiefMemoryLineRow(name: child.name, detail: "L\(child.level)", text: child.text ?? "…",
-                                               stale: stale.contains(child.name), selected: false, open: open(child.name))
+                                               stale: stale.contains(child.name), selected: false, open: open(child.name),
+                                               work: model.listWork)
                                 .equatable()
                         }
                     }

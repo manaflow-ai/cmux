@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxVisibleRows
 import SwiftUI
 
 /// One line in the view or search list: its node name, level and text.
@@ -10,7 +11,8 @@ struct ChiefMemoryLineRow: View, Equatable {
     let stale: Bool
     let selected: Bool
     let open: () -> Void
-    @Environment(\.rowDrawn) private var rowDrawn
+    /// The inspector's work meter (``ChiefMemoryInspectorModel/listWork``): each body counts one row configured.
+    let work: ListWorkMeter
 
     /// Equal when what the row draws is: the inspector makes `open` again with each body.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -19,7 +21,7 @@ struct ChiefMemoryLineRow: View, Equatable {
     }
 
     var body: some View {
-        rowDrawn?(name)
+        work.configured()
         return Button(action: open) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {

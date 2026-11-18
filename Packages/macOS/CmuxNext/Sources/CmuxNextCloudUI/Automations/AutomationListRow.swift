@@ -1,5 +1,6 @@
 import SwiftUI
 import CmuxNextDesign
+import CmuxVisibleRows
 
 /// One list row: name, schedule and target, the next time, the last result's dot.
 struct AutomationListRow: View, Equatable {
@@ -8,8 +9,9 @@ struct AutomationListRow: View, Equatable {
     let palette: AutomationsPalette
     let strings: AutomationStrings
     let now: Date
+    /// The list's work meter (``AutomationsPage/listWork``): each body counts one row configured.
+    let work: ListWorkMeter
     let select: @MainActor () -> Void
-    @Environment(\.rowDrawn) private var rowDrawn
 
     /// Equal when what the row draws is: the page makes `select` again with each body.
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -17,7 +19,7 @@ struct AutomationListRow: View, Equatable {
     }
 
     var body: some View {
-        rowDrawn?(row.id)
+        work.configured()
         return Button(action: select) {
             HStack(alignment: .top, spacing: 10) {
                 Circle().fill(row.enabled ? palette.color(row.last) : palette.tertiary).frame(width: 8, height: 8).padding(.top, 5)

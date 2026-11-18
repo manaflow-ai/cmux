@@ -15,5 +15,9 @@ public enum VisibleRowsBaseline {
     public static let knownFailures: [String: Known] = [
         "notifications panel": Known("a new row view for every ledger entry on every render, all measured; the ledger has no cap "
             + "(macOS NotificationsPanelController.render; fix: visible-only-macos-lists)"),
+        "automations list": Known("a change comes as a reload of both sources' whole lists, indexed and sorted again "
+            + "(macOS AutomationsPage.reload; fix: visible-only-macos-lists)", only: "items walked"),
+        "memory inspector": Known("a change comes as a reload of the whole view (/api/view answers every line) "
+            + "(macOS ChiefMemoryInspectorModel.reload; fix: visible-only-macos-lists)", only: "items walked"),
     ]
 }

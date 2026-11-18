@@ -1504,7 +1504,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // over its daemon connection); model and SwiftUI view, no daemon or AppKit types.
         .target(
             name: "CmuxNextChiefMemory",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextDesign",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+            ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1512,10 +1515,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChiefMemoryTests",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextChiefMemory",
-                "CmuxNextDesign",
-            ],
+            dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
         // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows
@@ -1951,6 +1951,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextSettings",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings

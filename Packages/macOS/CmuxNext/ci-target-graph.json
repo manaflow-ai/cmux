@@ -764,7 +764,9 @@
       "targets": [
         "CmuxNextDesign"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextChiefMemoryTests": {
       "kind": "test",
@@ -915,7 +917,9 @@
         "CmuxNextPalette",
         "CmuxNextSettings"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextCloudUITests": {
       "kind": "test",

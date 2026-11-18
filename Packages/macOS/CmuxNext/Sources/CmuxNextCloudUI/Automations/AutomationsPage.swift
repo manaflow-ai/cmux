@@ -1,3 +1,4 @@
+public import CmuxVisibleRows
 public import Foundation
 public import Observation
 
@@ -14,7 +15,7 @@ public import Observation
 /// await page.reload(now: .now)
 /// ```
 @MainActor @Observable
-public final class AutomationsPage {
+public final class AutomationsPage: VisibleRowsList {
     /// One group of the list, in page order.
     public enum Section: Int, CaseIterable, Sendable {
         case needsYou, today, later, paused
@@ -30,6 +31,10 @@ public final class AutomationsPage {
     /// (`automation.signed_out`, `feature.disabled`, `no_cli`, `cli_failed`), else `unreachable`.
     public private(set) var problems: [AutomationRow.Target: String] = [:]
 
+    /// The list's row work (the visible-rows contract): rows configured, and rows walked by a load and a sort.
+    @ObservationIgnored public let listWork = ListWorkMeter()
+    /// List rows on screen now: each counts itself on appear and off on disappear.
+    @ObservationIgnored public internal(set) var rowViewsAlive = 0
     /// How many times ``sections(now:calendar:)`` grouped and sorted every row (the row-count tests).
     @ObservationIgnored private(set) var sectionBuilds = 0
     /// Loads so far: the sections and places below hold for the load they were made in.
@@ -82,6 +87,7 @@ public final class AutomationsPage {
     private func load(_ next: [AutomationRow]) {
         rows = next
         loads += 1
+        listWork.walked(next.count)
         activeCount = next.filter(\.enabled).count
         places = Dictionary(next.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
@@ -100,6 +106,7 @@ public final class AutomationsPage {
         let rows = rows // read here, so a body that shows the sections follows a load
         if let arranged, arranged.load == loads, arranged.now == now, arranged.calendar == calendar { return arranged.sections }
         sectionBuilds += 1
+        listWork.walked(rows.count)
         let sections: [(Section, [AutomationRow])] = Section.allCases.compactMap { section in
             let members = rows
                 .filter { Self.section(of: $0, now: now, calendar: calendar) == section }
