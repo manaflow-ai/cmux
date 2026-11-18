@@ -5496,6 +5496,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     generation: newTabGeneration,
   });
   useEffect(() => {
+    // The empty chat's own first session (a model pick of another agent opened it at once, `emptyLocalChat`) is
+    // still this new chat: a Cloud start sent from it keeps its card, its held prompt and its reservation here.
+    // Dropping them hid the start and its failure, and the prompt with it (cmux#45774).
+    const shown = cloudShownView.current;
+    if (
+      shown.session === undefined &&
+      shown.generation === newTabGeneration &&
+      snapshot.sessionId !== undefined &&
+      sandbox.mode === "cloud" &&
+      emptyLocalChat
+    ) {
+      cloudShownView.current = { session: snapshot.sessionId, generation: newTabGeneration };
+      return;
+    }
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
