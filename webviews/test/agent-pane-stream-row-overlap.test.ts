@@ -207,6 +207,27 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     changed();
   }
 
+  /// A stretch of a coordinator's chat as acpmux wrote it (scrubbed): turns that other agents'
+  /// messages, a queue's start and background finishes open, one after another, replayed live at
+  /// a stream's pace.
+  const coordinator = (
+    await Bun.file(
+      path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/fixtures/sr2-coord-197051.ndjson"),
+    ).text()
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { dir: string; kind: string; msg: Record<string, unknown> });
+  async function replayCoordinator() {
+    for (const event of coordinator) {
+      if (event.kind === "turn_started") status = "running";
+      emit(event.dir, event.kind, event.msg);
+      if (event.kind === "turn_result") status = "idle";
+      if (event.dir === "mux") changed();
+      await pause(event.dir === "mux" ? 50 : 8);
+    }
+  }
+
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
@@ -535,7 +556,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         await sample(page);
         const id = `${name}-msg-${scenario.name.replace(/\W+/g, "-")}`;
         for (let index = 0; index < 3; index++) await messageTurn(`${id}-${index}`);
-        await page.getByText(`Reply to ${id}-2.`).waitFor({ timeout: 60_000 });
+        await replayCoordinator();
         // fixed-wait: the last reply's lines drain and its rows come to rest.
         await page.waitForTimeout(800);
         const report = await stop(page);
