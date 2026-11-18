@@ -1290,6 +1290,40 @@ export type IntegrationsState = {
   providers: IntegrationRow[];
 };
 
+/** One saved MCP server (Settings > MCP Servers; optchat-chief `settings_row`). Never a secret. */
+export type McpServerRow = {
+  name: string;
+  /** `remote`: a URL; `local`: a command on this Mac. */
+  kind: "remote" | "local";
+  address: string;
+  /** The publisher's domain, or `local`. */
+  publisher: string;
+  /** The address is exactly the one cmux knows for that service. */
+  verified: boolean;
+  state: "connected" | "signInNeeded" | "failed" | "unknown";
+  /** Why the last connect failed, in the server's own words. */
+  problem: string | null;
+  /** Who has it, as the person chose on the connect card. */
+  scope: "chat" | "chief" | "allChiefs" | "agents" | "everywhere";
+  tools: number;
+  /** A sign-in waits for the person; `page` is its sign-in page. */
+  signingIn: boolean;
+  page: string | null;
+  /** The last gesture's refusal ("" when it gave no words of its own). */
+  error: string | null;
+};
+
+/** Settings > MCP Servers (`SettingsMcpServers.state`). */
+export type McpServersState = {
+  loading: boolean;
+  /** `unavailable`: this build has no Chief helper; `failed`: the list did not answer. */
+  problem: "unavailable" | "failed" | null;
+  servers: McpServerRow[];
+};
+
+/** One MCP Servers gesture; sign in and remove run only on a click. */
+export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
+
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
@@ -1487,6 +1521,10 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the person's saved MCP servers (Settings > MCP Servers). */
+  "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
+  /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
+  "cmux.settings.mcp.run": [McpServersRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
