@@ -66,7 +66,9 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
   const after = windowed ? (total - to) * range.line : 0;
   const topNode = useRef<HTMLElement | null>(null);
   const bottomNode = useRef<HTMLElement | null>(null);
-  // What the last commit drew, the selection's lines, and the line to hold through the next commit.
+  // What the last commit drew, the selection's lines, and the line to hold through the next commit:
+  // its place in the box's content (its top plus the box's scroll), so a scroll that lands before
+  // the commit is kept, and only the spacers' change above it is taken back.
   const drawn = useRef({ from, to, total, base: 0, line: range.line, windowed });
   const pin = useRef<{ from: number; to: number } | null>(null);
   const hold = useRef<{ line: number; offset: number } | null>(null);
@@ -126,7 +128,9 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     // Hold the line at the top edge when it is drawn; a jump into a spacer has none to hold.
     const anchor = Math.floor(at);
     const node = lineNode(anchor);
-    hold.current = node ? { line: anchor, offset: node.getBoundingClientRect().top - view.top } : null;
+    hold.current = node
+      ? { line: anchor, offset: node.getBoundingClientRect().top - view.top + scroller.scrollTop }
+      : null;
     setRange({ ...next, line, armed: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `lineNode` reads only refs.
   }, [box]);
@@ -141,7 +145,8 @@ export function useLineWindow(box: RefObject<HTMLElement | null>, total: number,
     if (!windowed || !held || !scroller) return;
     const node = lineNode(held.line);
     if (!node) return;
-    const moved = node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - held.offset;
+    const moved =
+      node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - held.offset;
     if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, total, range.line, windowed, box]);
