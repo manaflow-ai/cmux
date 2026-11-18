@@ -5,10 +5,10 @@ import CmuxDeviceHub
 import Testing
 
 /// The worker's approval banner draws the cmux dialog card (Lawrence 2026-11-17, "improve this UI, think liquid
-/// glass, match all modern parts of our cmux dialogs"): the four answers stacked the card's width, Allow Once first
-/// with its Return keycap, Deny last as quiet red text with its Escape keycap, the fingerprint in two lines of four
-/// groups on a well. Before, Deny and Allow Once sat on one row and the two Always Allow buttons on another, each at
-/// its own width, as system push buttons on a grey popover.
+/// glass, match all modern parts of our cmux dialogs"), worded as the app's prompt (Leo, 2026-11-16: "i dont want to
+/// have to click share this mac allow every single time"): three answers stacked the card's width, Allow first (the
+/// hub's Always at the scope asked for) with no key, Allow Only This Time, Not Now last as quiet red text with its
+/// Escape keycap, the key in two lines of four groups on a well.
 @MainActor
 @Suite struct ApprovalBannerLookTests {
     private static func views(under root: NSView) -> [NSView] { root.subviews.flatMap { [$0] + views(under: $0) } }
@@ -23,7 +23,7 @@ import Testing
         defer { window.close() }
         window.contentView?.addSubview(view)
         window.contentView?.layoutSubtreeIfNeeded()
-        let ids = ["once", "alwaysView", "alwaysFull", "deny"]
+        let ids = ["alwaysFull", "once", "deny"]
         let buttons = try ids.map { id in
             try #require(Self.views(under: view).first { $0.accessibilityIdentifier() == "macScreen.approval.\(id)" } as? ApprovalButton, "\(id)")
         }
@@ -32,17 +32,20 @@ import Testing
             #expect(lower.maxY <= upper.minY)
             #expect(lower.width == upper.width && lower.minX == upper.minX && lower.height == upper.height)
         }
-        #expect(buttons.map(\.role) == [.primary, .secondary, .secondary, .quietDestructive])
+        #expect(buttons.map(\.role) == [.primary, .secondary, .quietDestructive])
+        #expect(buttons.map(\.title) == ["Allow", "Allow Only This Time", "Not Now"])
+        let texts = Self.views(under: view).compactMap { ($0 as? NSTextField)?.stringValue }
+        #expect(texts.contains("It can see your screen and use your mouse and keyboard."))
         let code = Self.views(under: view).compactMap { $0 as? NSTextField }.first { $0.stringValue.contains("\n") }
         #expect(code?.stringValue == "78BE 18E0 C08C 9C4D\n7443 D95E 2DB6 8074")
         #expect(code?.font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true)
         #expect(view.fittingSize.width == ApprovalView.width)
         // SECURITY: an Allow's own press answers nothing (only the person's click does, ``ApprovalPanel``); Deny takes any.
         buttons[0].performClick(nil)
-        buttons[3].performClick(nil)
+        buttons[2].performClick(nil)
         #expect(answered == [.deny])
-        #expect(buttons[0].keycapText == nil, "Allow Once shows no Return key")
-        #expect(buttons[3].keycapText == "esc")
+        #expect(buttons[0].keycapText == nil, "Allow shows no Return key")
+        #expect(buttons[2].keycapText == "esc")
     }
 
     /// SECURITY: Return never allows, after a click into the banner either; Escape denies.
