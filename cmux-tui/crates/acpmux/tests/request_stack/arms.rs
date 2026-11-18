@@ -336,6 +336,11 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_TYPING, Run(json!({"sessionId": "$S", "on": true}))),
         (method::MUX_MARK_UNREAD, Run(json!({"sessionId": "$S"}))),
         (method::MUX_MARK_READ, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_SEEN, Run(json!({"sessionId": "$S", "seq": 1}))),
+        (
+            method::MUX_COMPUTER_USE_ENDPOINT,
+            Any(json!({}), "answers a proven acpmux session only; this socket proves none"),
+        ),
         (
             method::MUX_APP_REPLY,
             Any(
