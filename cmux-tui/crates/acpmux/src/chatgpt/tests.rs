@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::{Form, State};
+use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -26,7 +26,8 @@ struct Fake {
     /// The ChatGPT account the ID token names (None: an API-only account).
     account: Option<&'static str>,
     refresh_calls: usize,
-    refresh_error: Option<&'static str>,
+    /// A refresh's failure: its status and body.
+    refresh_error: Option<(u16, Value)>,
     token_forms: Vec<HashMap<String, String>>,
     revoke_forms: Vec<HashMap<String, String>>,
     /// The content type of each token request, in order.
@@ -92,7 +93,7 @@ async fn discovery(State(app): State<App>) -> Json<Value> {
     Json(json!({
         "issuer": app.base,
         "jwks_uri": format!("{}/jwks", app.base),
-        "revocation_endpoint": format!("{}/revoke", app.base),
+        "revocation_endpoint": format!("{}/api/accounts/oauth/revoke", app.base),
     }))
 }
 
@@ -151,8 +152,9 @@ async fn token(
                         "scope": "openid profile email offline_access", "token_type": "Bearer"})),
         );
     }
-    if let Some(error) = app.state.lock().unwrap().refresh_error {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error": error})));
+    let failure = app.state.lock().unwrap().refresh_error.clone();
+    if let Some((status, body)) = failure {
+        return (StatusCode::from_u16(status).unwrap(), Json(body));
     }
     // Slow enough that concurrent callers overlap with it.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -170,7 +172,14 @@ async fn token(
     )
 }
 
-async fn revoke(State(app): State<App>, Form(form): Form<HashMap<String, String>>) -> StatusCode {
+/// Codex's revocation: a JSON body.
+async fn revoke(State(app): State<App>, Json(body): Json<Value>) -> StatusCode {
+    let form = body
+        .as_object()
+        .map(|o| {
+            o.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned())).collect()
+        })
+        .unwrap_or_default();
     app.state.lock().unwrap().revoke_forms.push(form);
     StatusCode::OK
 }
@@ -184,7 +193,7 @@ async fn server() -> Server {
         .route("/.well-known/openid-configuration", get(discovery))
         .route("/jwks", get(jwks))
         .route("/oauth/token", post(token))
-        .route("/revoke", post(revoke))
+        .route("/oauth/revoke", post(revoke))
         .with_state(app);
     tokio::spawn(async move {
         let _ = axum::serve(listener, router).await;
@@ -240,6 +249,7 @@ fn production_signs_in_with_codex_s_own_client() {
     assert_eq!(e.callback_port, 1455);
     assert_eq!(e.authorize_url, "https://auth.openai.com/oauth/authorize");
     assert_eq!(e.token_url, "https://auth.openai.com/oauth/token");
+    assert_eq!(e.revoke_url, "https://auth.openai.com/oauth/revoke");
 }
 
 /// cmux#45774: Sign in with ChatGPT is Codex's own sign-in, so its token runs Codex on the
@@ -259,7 +269,7 @@ async fn sign_in_with_chatgpt_is_codex_s_own_sign_in() {
     for gone in ["resource", "ext_agent_host_id", "agent_name_hint"] {
         assert!(!params.contains_key(gone), "{gone} is the token-sharing protocol's");
     }
-    assert!(params["redirect_uri"].starts_with("http://localhost:"));
+    assert!(params["redirect_uri"].starts_with("http://127.0.0.1:"), "the address it listens on");
     assert!(params["redirect_uri"].ends_with("/auth/callback"));
 
     let forms = s.fake.state.lock().unwrap().token_forms.clone();
@@ -319,11 +329,41 @@ async fn a_sign_in_with_no_chatgpt_account_stores_nothing() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_callback_with_another_state_fails_without_an_exchange() {
+async fn a_stray_callback_is_turned_away_and_the_sign_in_goes_on() {
     let s = setup().await;
-    let (status, _) = sign_in(&s, &[("code", "c1"), ("state", "forged")]).await;
-    assert_eq!(status, Status::Failed("state_mismatch".into()));
+    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.expect("begin");
+    let params = query(&begun.url);
+    s.fake.state.lock().unwrap().nonce = params["nonce"].clone();
+    // A stale tab or a page that navigates to the well-known port: 400, no exchange, still waiting.
+    let forged = format!(
+        "{}?{}",
+        params["redirect_uri"],
+        form_encode(&[("code", "x"), ("state", "forged")])
+    );
+    assert_eq!(reqwest::get(&forged).await.unwrap().status(), 400);
     assert!(s.fake.state.lock().unwrap().token_forms.is_empty());
+    let status = s.service.wait(&begun.attempt, Duration::from_millis(50)).await.unwrap();
+    assert_eq!(status, Status::Pending);
+    // This sign-in's own callback still finishes it.
+    let real = format!(
+        "{}?{}",
+        params["redirect_uri"],
+        form_encode(&[("code", "c1"), ("state", params["state"].as_str())])
+    );
+    assert_eq!(reqwest::get(&real).await.unwrap().status(), 200);
+    let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(status, Status::Done("chatgpt".into()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn codex_login_s_cancel_ends_the_sign_in_and_frees_the_port() {
+    let s = setup().await;
+    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.expect("begin");
+    let redirect = reqwest::Url::parse(&query(&begun.url)["redirect_uri"]).unwrap();
+    let cancel = format!("http://127.0.0.1:{}/cancel", redirect.port().unwrap());
+    assert_eq!(reqwest::get(&cancel).await.unwrap().status(), 200);
+    let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(status, Status::Failed("cancelled".into()));
     assert!(store::all(&s.places.home).is_empty());
 }
 
@@ -398,17 +438,33 @@ async fn concurrent_token_calls_share_one_refresh() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_dead_refresh_token_signs_the_account_out() {
-    for error in ["invalid_grant", "refresh_token_reused", "refresh_token_expired"] {
+    // The shapes the real server answers (Codex's own tests model 401 with `error.code`), and any
+    // 401: each signs the account out so the person is asked to sign in again.
+    for (status, body) in [
+        (401, json!({"error": {"code": "refresh_token_expired"}})),
+        (401, json!({"error": {"code": "refresh_token_reused"}})),
+        (401, json!({"error": "something_new"})),
+        (400, json!({"error": "invalid_grant"})),
+        (400, json!({"code": "refresh_token_invalidated"})),
+    ] {
         let s = setup().await;
         sign_in(&s, &[("code", "c1")]).await;
         expire(&s);
-        s.fake.state.lock().unwrap().refresh_error = Some(error);
+        s.fake.state.lock().unwrap().refresh_error = Some((status, body.clone()));
         let failure = s.service.token(&s.places.home, "chatgpt").await.unwrap_err();
-        assert_eq!(failure.code, "reauth_required", "{error}");
+        assert_eq!(failure.code, "reauth_required", "{status} {body}");
         let record = store::read(&s.places.home, "chatgpt").unwrap().unwrap();
         assert!(!record.signed_in());
         assert_eq!(record.sub, "user-1", "the identity stays for a reauth");
     }
+    // A passing server error keeps the sign-in.
+    let s = setup().await;
+    sign_in(&s, &[("code", "c1")]).await;
+    expire(&s);
+    s.fake.state.lock().unwrap().refresh_error = Some((503, json!({"error": "unavailable"})));
+    let failure = s.service.token(&s.places.home, "chatgpt").await.unwrap_err();
+    assert_eq!(failure.code, "refresh_failed");
+    assert!(store::read(&s.places.home, "chatgpt").unwrap().unwrap().signed_in());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

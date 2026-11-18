@@ -4,8 +4,8 @@
 //! (OpenAI's separate token-sharing protocol, `chatgpt.tokens.use.direct` on api.openai.com,
 //! refuses most accounts with `subscription_sharing_user_not_eligible`; cmux no longer uses it.)
 //!
-//! `begin` starts a `localhost:1455/auth/callback` listener (the redirect Codex's OAuth client is
-//! registered with) and answers the authorize URL, which the app opens in the person's browser.
+//! `begin` starts a `127.0.0.1:1455/auth/callback` listener (the redirect Codex's OAuth client is
+//! registered with; 1457 when another program holds 1455, and a `/cancel` from `codex login` ends it) and answers the authorize URL, which the app opens in the person's browser.
 //! The callback checks `state`, exchanges the code with PKCE (S256), validates the ID token (JWKS
 //! from the OpenID configuration; `iss`, `aud`, `exp`), requires the ChatGPT account the tokens
 //! act for, and stores the account (`store.rs`) with a `chatgpt-plan` route. The daemon owns this
@@ -35,6 +35,8 @@ pub use oauth::Endpoints;
 pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// The loopback port Codex's client is registered to redirect to.
 pub const CALLBACK_PORT: u16 = 1455;
+/// Codex's registered fallback port, used when [`CALLBACK_PORT`] is held by another program.
+pub const CALLBACK_FALLBACK_PORT: u16 = 1457;
 /// The scopes asked for: Codex's own.
 pub const SCOPES: &str =
     "openid profile email offline_access api.connectors.read api.connectors.invoke";
@@ -58,7 +60,7 @@ fn sign_in_scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("chatgpt sign-in"))
 }
 
-/// A sign-in or token failure: a stable `code` (`access_denied`, `no_plan_scope`, ...) the app
+/// A sign-in or token failure: a stable `code` (`access_denied`, `no_chatgpt_account`, ...) the app
 /// shows, and a message with no token in it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Failure {
@@ -186,15 +188,22 @@ impl Service {
         for id in pending_ids {
             let _ = self.cancel(&id).await;
         }
-        let listener =
-            tokio::net::TcpListener::bind(("127.0.0.1", self.oauth.endpoints.callback_port))
-                .await
-                .map_err(|e| {
-                    Failure::new(
-                        "port_busy",
-                        format!("another ChatGPT sign-in holds the callback port: {e}"),
-                    )
-                })?;
+        let primary = self.oauth.endpoints.callback_port;
+        let listener = match tokio::net::TcpListener::bind(("127.0.0.1", primary)).await {
+            Ok(listener) => listener,
+            // Port 0 (tests) never fails to bind; a real one falls back to Codex's second port.
+            Err(_) if primary != 0 => {
+                tokio::net::TcpListener::bind(("127.0.0.1", CALLBACK_FALLBACK_PORT)).await.map_err(
+                    |e| {
+                        Failure::new(
+                            "port_busy",
+                            format!("another program holds both ChatGPT callback ports: {e}"),
+                        )
+                    },
+                )?
+            }
+            Err(e) => return Err(Failure::new("port_busy", e.to_string())),
+        };
         let port = listener.local_addr().map_err(io("listener"))?.port();
         let pending = oauth::Pending::new(port, reauth, prior.as_ref())?;
         let url = self.oauth.authorize_url(&pending)?;

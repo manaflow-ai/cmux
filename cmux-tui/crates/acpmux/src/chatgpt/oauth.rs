@@ -31,8 +31,10 @@ pub struct Endpoints {
     pub issuer: String,
     pub authorize_url: String,
     pub token_url: String,
-    /// The OpenID configuration (its `jwks_uri` and `revocation_endpoint`).
+    /// The OpenID configuration (its `jwks_uri`).
     pub discovery_url: String,
+    /// Where a sign-out revokes the refresh token (Codex's `/oauth/revoke`, a JSON body).
+    pub revoke_url: String,
     /// The OAuth client signed in with: Codex's.
     pub client_id: String,
     /// The loopback port the callback listens on ([`CALLBACK_PORT`]; 0 in tests: any free one).
@@ -52,6 +54,7 @@ impl Endpoints {
             authorize_url: format!("{issuer}/oauth/authorize"),
             token_url: format!("{issuer}/oauth/token"),
             discovery_url: format!("{issuer}/.well-known/openid-configuration"),
+            revoke_url: format!("{issuer}/oauth/revoke"),
             client_id: CODEX_CLIENT_ID.to_owned(),
             callback_port: CALLBACK_PORT,
         }
@@ -111,8 +114,9 @@ impl Pending {
             state: random_token(24)?,
             nonce: random_token(24)?,
             verifier: random_token(32)?,
-            // The exact redirect Codex's client is registered with.
-            redirect_uri: format!("http://localhost:{port}/auth/callback"),
+            // Codex's registered redirect, on the address the listener binds (Codex moved from
+            // `localhost` to 127.0.0.1: a browser that tries ::1 first never reaches 127.0.0.1).
+            redirect_uri: format!("http://127.0.0.1:{port}/auth/callback"),
             reauth,
             login_hint: prior.and_then(|r| r.email.clone()),
         })
@@ -123,7 +127,6 @@ impl Pending {
 struct Keys {
     fetched: Instant,
     jwks: Vec<Value>,
-    revocation: Option<String>,
 }
 
 /// A token endpoint answer. Not `Debug`: it holds tokens.
@@ -170,10 +173,15 @@ pub(crate) struct Client {
 }
 
 /// The OAuth `error` code of an answer, only when it is a plain code (never echoed text).
+/// Read where Codex reads it: `error` as a string, `error.code`, or a top-level `code`.
 fn error_code(body: &Value) -> Option<&str> {
-    body.get("error")
-        .and_then(Value::as_str)
-        .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
+    fn plain(v: Option<&Value>) -> Option<&str> {
+        v.and_then(Value::as_str)
+            .filter(|c| c.len() <= 64 && c.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))
+    }
+    plain(body.get("error"))
+        .or_else(|| plain(body.pointer("/error/code")))
+        .or_else(|| plain(body.get("code")))
 }
 
 impl Client {
@@ -288,10 +296,6 @@ impl Client {
         let keys = Keys {
             fetched: Instant::now(),
             jwks: jwks.get("keys").and_then(Value::as_array).cloned().unwrap_or_default(),
-            revocation: config
-                .get("revocation_endpoint")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
         };
         *cached = Some(keys.clone());
         Ok(keys)
@@ -335,11 +339,23 @@ impl Client {
                 let _ = respond(&mut stream, "400 Bad Request", "Bad request.").await;
                 continue;
             };
+            if url.path() == "/cancel" {
+                // `codex login` asks an earlier login server on the shared port to stop before it
+                // binds: this sign-in gives the port up instead of making Codex's fail.
+                let _ = respond(&mut stream, "200 OK", "Login cancelled.").await;
+                return Err(Failure::new("cancelled", "another ChatGPT sign-in took the port"));
+            }
             if url.path() != "/auth/callback" {
                 let _ = respond(&mut stream, "404 Not Found", "Not found.").await;
                 continue;
             }
             let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
+            if query.get("state").map(String::as_str) != Some(pending.state.as_str()) {
+                // A stray request (a stale tab, a page that navigates here) never ends the
+                // sign-in on this well-known port; only this sign-in's own callback does.
+                let _ = respond(&mut stream, "400 Bad Request", "Not this sign-in.").await;
+                continue;
+            }
             let result = self.complete(pending, &query, places).await;
             let page = match &result {
                 Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
@@ -431,39 +447,34 @@ impl Client {
             .await?;
         if !(200..300).contains(&status) {
             let why = error_code(&body);
-            let dead = matches!(
-                why,
-                Some(
-                    "invalid_grant"
-                        | "refresh_token_expired"
-                        | "refresh_token_reused"
-                        | "refresh_token_invalidated"
-                )
-            );
-            let code = if matches!(status, 400 | 401) && dead {
-                "reauth_required"
-            } else {
-                "refresh_failed"
-            };
+            // Codex treats every 401 as a dead sign-in, and so do the codes below on a 400.
+            let dead = status == 401
+                || matches!(
+                    why,
+                    Some(
+                        "invalid_grant"
+                            | "refresh_token_expired"
+                            | "refresh_token_reused"
+                            | "refresh_token_invalidated"
+                    )
+                );
+            let code = if dead { "reauth_required" } else { "refresh_failed" };
             return Err(Failure::new(code, format!("{status} {}", why.unwrap_or("no error code"))));
         }
         serde_json::from_value(body)
             .map_err(|_| Failure::new("refresh_failed", "the token answer has no access_token"))
     }
 
-    /// Revokes `record`'s refresh token at the OpenID configuration's revocation endpoint.
+    /// Revokes `record`'s refresh token the way Codex does (`/oauth/revoke`, a JSON body).
     pub async fn revoke(&self, record: &Record) -> Result<(), Failure> {
-        let endpoint = self.keys(false).await?.revocation.ok_or_else(|| {
-            Failure::new("no_revocation_endpoint", "the OpenID configuration names none")
-        })?;
         let (status, body) = self
-            .post_form(
-                &endpoint,
-                &[
-                    ("token", record.refresh_token.as_str()),
-                    ("token_type_hint", "refresh_token"),
-                    ("client_id", record.client_id.as_str()),
-                ],
+            .post_json(
+                &self.endpoints.revoke_url,
+                &serde_json::json!({
+                    "token": record.refresh_token,
+                    "token_type_hint": "refresh_token",
+                    "client_id": record.client_id,
+                }),
             )
             .await?;
         if (200..300).contains(&status) {
