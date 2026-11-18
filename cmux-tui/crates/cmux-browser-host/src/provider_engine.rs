@@ -152,7 +152,8 @@ impl ProviderEngine {
     /// The session runs in the caller's workspace `workspace` (its key): the
     /// app opens the session's tabs there, never in the focused one.
     #[must_use]
-    pub fn placed_in(self, _workspace: Option<String>) -> ProviderEngine {
+    pub fn placed_in(mut self, workspace: Option<String>) -> ProviderEngine {
+        self.workspace = workspace;
         self
     }
 
@@ -219,13 +220,21 @@ impl ProviderEngine {
             "tabs.list" => return Ok(Reply::Value(self.tabs_list(params))),
             // The app owns tabs: it opens them in the session's engine. Only
             // the URL and background pass; profile, workspace and focus are
-            // never the agent's to pick (D12).
+            // never the agent's to pick (D12). The app places the tab beside
+            // the session's caller (its workspace and terminal, stated when
+            // the session opened), never in the focused workspace.
             "tabs.open" => {
                 let mut open = serde_json::Map::new();
                 for key in ["url", "background", "timeoutMs"] {
                     if let Some(value) = params.get(key) {
                         open.insert(key.into(), value.clone());
                     }
+                }
+                if let Some(workspace) = &self.workspace {
+                    open.insert("callerWorkspace".into(), Value::String(workspace.clone()));
+                }
+                if let Some(terminal) = &self.lease.terminal {
+                    open.insert("callerTerminal".into(), Value::String(terminal.clone()));
                 }
                 // An incognito tab needs a store that keeps nothing: a source
                 // without one (the app: decision D1, issue 13742) refuses the call, never

@@ -622,8 +622,14 @@ fn lease_label(label: Option<&str>, session: &str) -> String {
 
 /// The caller's workspace key when it has a workspace key's shape (hex
 /// digits and dashes, at most 64 characters), else none.
-fn lease_workspace(_workspace: Option<&str>) -> Option<String> {
-    None
+fn lease_workspace(workspace: Option<&str>) -> Option<String> {
+    workspace
+        .filter(|key| {
+            !key.is_empty()
+                && key.len() <= 64
+                && key.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        })
+        .map(str::to_owned)
 }
 
 /// The caller's terminal id when it has a cmux terminal id's shape

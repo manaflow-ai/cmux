@@ -13,6 +13,20 @@ extension StateResourceQueries {
     ///   - terminal: The caller's terminal id, or nil.
     /// - Returns: The caller's pane, or nil.
     public func callerPane(workspace: String?, terminal: String?) -> PaneModel? {
-        nil
+        let panes = workspaces.lazy.flatMap(\.screens).flatMap(\.panes)
+        if let terminal, !terminal.isEmpty,
+           let pane = panes.first(where: { pane in pane.tabs.contains { $0.terminalResourceID?.rawValue == terminal } }) {
+            return pane
+        }
+        guard let key = workspace.map(keyForm), !key.isEmpty,
+              let model = workspaces.first(where: { keyForm($0.key?.rawValue ?? $0.id) == key }),
+              let screen = model.screens.first else { return nil }
+        return screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first
     }
+}
+
+/// A workspace key as compared: lower case, no dashes (`CMUX_WORKSPACE_ID`
+/// is upper case and dashed; the store's keys are lower case).
+private func keyForm(_ key: String) -> String {
+    key.lowercased().replacingOccurrences(of: "-", with: "")
 }
