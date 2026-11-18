@@ -56,7 +56,9 @@ pub(super) fn device_identity() -> Result<StaticIdentity, String> {
         let why = match receiver.recv_timeout(DEV_KEYCHAIN_WAIT) {
             Ok(Ok(key)) => return Ok(StaticIdentity::from_private(key)),
             Ok(Err(why)) => why,
-            Err(_) => "the Keychain did not answer for the carrier key (a prompt is open)".to_owned(),
+            Err(_) => {
+                "the Keychain did not answer for the carrier key (a prompt is open)".to_owned()
+            }
         };
         eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
         StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
