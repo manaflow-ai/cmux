@@ -95,13 +95,18 @@ final class MessageLayoutCache {
         var model: MessageRowModel
         var width: CGFloat
         var margin: CGFloat
+        var generation: Int
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
+    private var attributed: [String: (ConversationBubbleInputs, Int, NSAttributedString)] = [:]
+    /// Moves to forget every entry at once (`invalidateAll`): an entry from
+    /// an older generation is rebuilt when its row asks again, so a text
+    /// size change walks no row the transcript does not show.
+    private var generation = 0
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
-        let key = Key(model: model, width: width, margin: margin)
+        let key = Key(model: model, width: width, margin: margin, generation: generation)
         if let (cachedKey, layout) = cache[model.rowID], cachedKey == key {
             return layout
         }
@@ -113,11 +118,11 @@ final class MessageLayoutCache {
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
         let inputs = Self.attributedInputs(model)
-        if let (cachedInputs, value) = attributed[cacheKey], cachedInputs == inputs {
+        if let (cachedInputs, cachedGeneration, value) = attributed[cacheKey], cachedGeneration == generation, cachedInputs == inputs {
             return value
         }
         let value = MessageCellLayout.attributedBody(inputs)
-        attributed[cacheKey] = (inputs, value)
+        attributed[cacheKey] = (inputs, generation, value)
         return value
     }
 
@@ -147,7 +152,7 @@ final class MessageLayoutCache {
     func unmeasured(_ models: [MessageRowModel], width: CGFloat, margin: CGFloat) -> [MessageRowModel] {
         models.filter { model in
             guard Self.measuresOffMain(model) else { return false }
-            if let (key, _) = cache[model.rowID], key == Key(model: model, width: width, margin: margin) { return false }
+            if let (key, _) = cache[model.rowID], key == Key(model: model, width: width, margin: margin, generation: generation) { return false }
             return true
         }
     }
@@ -169,10 +174,10 @@ final class MessageLayoutCache {
     func adopt(_ measured: [Measured], width: CGFloat, margin: CGFloat) {
         for item in measured {
             let model = item.model
-            let key = Key(model: model, width: width, margin: margin)
+            let key = Key(model: model, width: width, margin: margin, generation: generation)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
             cache[model.rowID] = (key, item.layout)
-            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (Self.attributedInputs(model), item.text)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (Self.attributedInputs(model), generation, item.text)
         }
     }
 
@@ -187,8 +192,7 @@ final class MessageLayoutCache {
     }
 
     func invalidateAll() {
-        cache.removeAll()
-        attributed.removeAll()
+        generation += 1
     }
 }
 

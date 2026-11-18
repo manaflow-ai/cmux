@@ -146,11 +146,18 @@ public final class ConversationViewController: UIViewController {
     /// update's rebuild is done (see `sendFlightLanded`).
     private var releasedInsideUpdate: ConversationStoreChange?
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
-    /// measured), valid for `rowMetricsKey`. An update re-measures only the
-    /// rows it inserts or changes (and their followers' spacing), so a layout
-    /// pass over a long transcript is a sum instead of a walk over row models.
+    /// measured), valid for `rowMetricsKey` and only when stamped with
+    /// `rowMetricsEpoch`. An update re-measures only the rows it inserts or
+    /// changes (and their followers' spacing).
     private var rowMetrics: [RowMetrics] = []
     private var rowMetricsKey: (width: CGFloat, margin: CGFloat) = (0, 0)
+    /// Moves to forget every row's metrics at once (a width, margin, scale
+    /// or text size change); the layout reads it to measure rows again as
+    /// they come into view instead of every row at once.
+    private var rowMetricsEpoch = 1
+    /// The batch being applied, as the layout's next pass takes it
+    /// (`transcriptTakeEdits`).
+    private var pendingLayoutEdits: (deleted: [Int], inserted: [Int], updated: [Int])?
     /// When the layout pass in progress began (DEBUG probe; 0 when off).
     private var layoutPrepareStart: CFTimeInterval = 0
     /// Rows whose insertion should use a specific appearance on the next update.
@@ -1254,6 +1261,7 @@ public final class ConversationViewController: UIViewController {
                 defer { previousOld = changed.contains(index) ? nil : old }
                 guard let old, !changed.contains(index) else { continue }
                 carried[index].height = rowMetrics[old].height
+                carried[index].epoch = rowMetrics[old].epoch
                 let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
                 if samePredecessor { carried[index].spacing = rowMetrics[old].spacing }
             }
@@ -1319,6 +1327,7 @@ public final class ConversationViewController: UIViewController {
                 var metric = RowMetrics()
                 if let old, !changed.contains(index) {
                     metric.height = rowMetrics[old].height
+                    metric.epoch = rowMetrics[old].epoch
                     if previousOld.map({ $0 == old - 1 }) ?? false { metric.spacing = rowMetrics[old].spacing }
                 }
                 carried.append(metric)
@@ -1488,6 +1497,13 @@ public final class ConversationViewController: UIViewController {
             self.rowIDs = newIDs
             if let carriedMetrics { self.rowMetrics = carriedMetrics } else { self.invalidateRowMetrics() }
             if structural {
+                // The layout measures the rows this batch inserts or changes,
+                // not every row (a move is a delete and an insert to it).
+                self.noteLayoutEdits(
+                    deleted: deleted.map(\.item) + (diff.moved.map { [$0.from] } ?? []),
+                    inserted: inserted.map(\.item) + (diff.moved.map { [$0.to] } ?? []),
+                    updated: updated.map(\.item)
+                )
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
                 if let moved = diff.moved {
@@ -2066,6 +2082,27 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     func transcriptItemIDs() -> [String] { rowIDs }
     func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
 
+    func transcriptTakeEdits() -> (deleted: [Int], inserted: [Int], updated: [Int])? {
+        defer { pendingLayoutEdits = nil }
+        return pendingLayoutEdits
+    }
+
+    func transcriptMetricsEpoch() -> Int { rowMetricsEpoch }
+
+    func transcriptDidShiftContent(by delta: CGFloat) {
+        decelerationFill.contentShifted(by: delta)
+    }
+
+    /// A batch the layout's next pass applies. Two batches before one pass
+    /// cannot be told apart from the rows, so the layout starts over then.
+    private func noteLayoutEdits(deleted: [Int], inserted: [Int], updated: [Int]) {
+        if pendingLayoutEdits != nil {
+            pendingLayoutEdits = nil
+            return
+        }
+        pendingLayoutEdits = (deleted, inserted, updated)
+    }
+
     func transcriptWillPrepare(width: CGFloat) {
         layoutPrepareStart = probeClock()
         let margin = layoutMargin
@@ -2082,10 +2119,19 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat {
-        if index < rowMetrics.count, !rowMetrics[index].height.isNaN { return rowMetrics[index].height }
+        if index < rowMetrics.count, rowMetrics[index].epoch == rowMetricsEpoch, !rowMetrics[index].height.isNaN { return rowMetrics[index].height }
         let height = measuredHeight(at: index, width: width)
-        if index < rowMetrics.count { rowMetrics[index].height = height }
+        if index < rowMetrics.count {
+            stampRowMetrics(index)
+            rowMetrics[index].height = height
+        }
         return height
+    }
+
+    /// Row `index`'s metrics from an older epoch are forgotten before one is kept.
+    private func stampRowMetrics(_ index: Int) {
+        guard rowMetrics[index].epoch != rowMetricsEpoch else { return }
+        rowMetrics[index] = RowMetrics(epoch: rowMetricsEpoch)
     }
 
     func transcriptBottomOverhang() -> CGFloat {
@@ -2128,9 +2174,12 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     func transcriptSpacing(before index: Int) -> CGFloat {
-        if index < rowMetrics.count, !rowMetrics[index].spacing.isNaN { return rowMetrics[index].spacing }
+        if index < rowMetrics.count, rowMetrics[index].epoch == rowMetricsEpoch, !rowMetrics[index].spacing.isNaN { return rowMetrics[index].spacing }
         let spacing = measuredSpacing(before: index)
-        if index < rowMetrics.count { rowMetrics[index].spacing = spacing }
+        if index < rowMetrics.count {
+            stampRowMetrics(index)
+            rowMetrics[index].spacing = spacing
+        }
         return spacing
     }
 
@@ -2186,11 +2235,18 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     struct RowMetrics {
         var height: CGFloat = .nan
         var spacing: CGFloat = .nan
+        /// The `rowMetricsEpoch` these were measured in (0: never).
+        var epoch = 0
     }
 
-    /// Forgets every measurement (width, margin or appearance changed).
+    /// Forgets every measurement (width, margin or appearance changed): the
+    /// epoch moves, so no row is walked; the layout measures rows again as
+    /// they come into view.
     func invalidateRowMetrics() {
-        rowMetrics = Array(repeating: RowMetrics(), count: rows.count)
+        rowMetricsEpoch += 1
+        if rowMetrics.count != rows.count {
+            rowMetrics = Array(repeating: RowMetrics(), count: rows.count)
+        }
     }
 
     /// Metrics for the new rows. A row keeps its height when it is unchanged,
@@ -2207,6 +2263,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             defer { previousOld = changed[index] ? nil : old }
             guard let old, !changed[index] else { continue }
             metrics[index].height = rowMetrics[old].height
+            metrics[index].epoch = rowMetrics[old].epoch
             let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
             if samePredecessor { metrics[index].spacing = rowMetrics[old].spacing }
         }
