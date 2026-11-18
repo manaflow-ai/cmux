@@ -51,6 +51,11 @@ public final class PageVisibleSlices: PageProvider {
         return true
     }
 
+    /// `surface` is gone (a panel unmounted): its last slice is dropped, so a new surface of that name starts afresh.
+    public func forget(_ surface: String) {
+        latest[surface] = nil
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         throw PageError.unknownOp(op)
     }
@@ -71,44 +76,53 @@ public final class PageVisibleSlices: PageProvider {
 }
 
 /// Measures one surface a view draws and pushes its slice to ``PageVisibleSlices``, at most once a display frame
-/// (``needsSlice()``: the latest wins) and never when it did not change. `measure` answers the surface's visible rect in
-/// its own flipped points (empty: off screen) and its height; `revision` its content revision; `zoom` the page zoom
-/// (points to CSS px). `view` is the view whose window paces the frames.
+/// (``needsSlice()``: the latest wins) and never when it did not change. `measure` answers the surface's visible rect
+/// from its top (empty: off screen) and its height, or nil while no view draws it (nothing is sent: the page draws
+/// whole); `revision` its content revision; `zoom` the page zoom (points to CSS px); `view` the view whose window
+/// paces the frames.
 @MainActor
 public final class PageVisibleSliceTracker {
+    public typealias Measure = @MainActor () -> (visible: CGRect, height: CGFloat)?
     public let surface: String
     private let slices: PageVisibleSlices
-    private let measure: @MainActor () -> (visible: CGRect, height: CGFloat)
+    private let measure: Measure
     private let revision: @MainActor () -> Int
     private let zoom: @MainActor () -> Double
     /// Runs for each slice sent (a list's work meter).
     public var onSend: (@MainActor (PageVisibleSlices.Slice) -> Void)?
     private var frame: FrameClient?
 
-    public init(surface: String, slices: PageVisibleSlices, view: NSView,
-                measure: @escaping @MainActor () -> (visible: CGRect, height: CGFloat),
+    public init(surface: String, slices: PageVisibleSlices, view: @escaping @MainActor () -> NSView?, measure: @escaping Measure,
                 revision: @escaping @MainActor () -> Int, zoom: @escaping @MainActor () -> Double = { 1 }) {
         (self.surface, self.slices, self.measure, self.revision, self.zoom) = (surface, slices, measure, revision, zoom)
         // One tick sends the latest, then the client idles until something moves again.
-        let tick: @MainActor (FrameTick) -> Bool = { [weak self] _ in
+        frame = FrameClient(owner: "Page.visibleSlice", scheduler: { view().map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
             self?.sendNow()
             return false
         }
-        frame = FrameClient(owner: "Page.visibleSlice", view: view, onFrame: tick)
     }
 
-    /// The surface `view` draws in its own bounds (flipped): its visible rect, empty while hidden.
+    /// The surface `view` draws in its own bounds: its visible part, empty while hidden.
     public convenience init(surface: String, slices: PageVisibleSlices, view: NSView, revision: @escaping @MainActor () -> Int,
                             zoom: @escaping @MainActor () -> Double = { 1 }) {
-        self.init(surface: surface, slices: slices, view: view, measure: { [weak view] in
-            guard let view, !view.isHiddenOrHasHiddenAncestor else { return (.zero, 0) }
-            return (view.visibleRect, view.bounds.height)
-        }, revision: revision, zoom: zoom)
+        self.init(surface: surface, slices: slices, view: { [weak view] in view },
+                  measure: { [weak view] in view.map(Self.visiblePart(of:)) }, revision: revision, zoom: zoom)
     }
 
-    /// The slice now: from the visible rect's top, clamped to the surface, for its height; 0 high when none shows.
-    public var current: PageVisibleSlices.Slice {
-        let (visible, height) = measure()
+    /// `view`'s part in sight, from its top (a view that is not flipped is turned over), and its height.
+    public static func visiblePart(of view: NSView) -> (visible: CGRect, height: CGFloat) {
+        let height = view.bounds.height
+        guard !view.isHiddenOrHasHiddenAncestor else { return (.zero, height) }
+        var visible = view.visibleRect
+        if !view.isFlipped, !visible.isEmpty { visible.origin.y = view.bounds.maxY - visible.maxY }
+        return (visible, height)
+    }
+
+    /// The slice now: from the visible rect's top, clamped to the surface, for its height; height 0 when none shows.
+    /// Nil while nothing measures the surface.
+    public var current: PageVisibleSlices.Slice? {
+        guard let measured = measure() else { return nil }
+        let (visible, height) = measured
         let zoom = max(zoom(), 0.01)
         let top = visible.isEmpty ? 0 : min(max(visible.minY, 0), height)
         let shown = visible.isEmpty ? 0 : visible.height
@@ -122,9 +136,14 @@ public final class PageVisibleSliceTracker {
     /// Sends the slice now when it changed; returns whether it did.
     @discardableResult
     public func sendNow() -> Bool {
-        let slice = current
-        guard slices.push(slice) else { return false }
+        guard let slice = current, slices.push(slice) else { return false }
         onSend?(slice)
         return true
+    }
+
+    /// The surface is gone: no more frames, and its last slice is dropped.
+    public func stop() {
+        frame?.deactivate()
+        slices.forget(surface)
     }
 }

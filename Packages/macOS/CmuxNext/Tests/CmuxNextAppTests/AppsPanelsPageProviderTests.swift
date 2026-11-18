@@ -124,7 +124,7 @@ import Testing
 
         // The mount's slice is measured against its scene's revision.
         let slices = PageVisibleSlices()
-        let tracker = PageVisibleSliceTracker(surface: a, slices: slices, view: NSView(),
+        let tracker = PageVisibleSliceTracker(surface: a, slices: slices, view: { nil },
                                               measure: { (CGRect(x: 0, y: 40, width: 300, height: 120.4), 600) },
                                               revision: { provider.sceneRevision(mountID: a) ?? 0 })
         var sliced: [JSONValue] = []
@@ -147,6 +147,73 @@ import Testing
         await #expect(throws: PageError.self) {
             _ = try await slices.subscribe(PageVisibleSlices.stream, filter: .object([:]), context: Self.page) { _ in }
         }
+    }
+
+    /// Each mount has its own slice tracker (surface = mount id, revision = its scene revision) from mount to
+    /// unmount: two mounts drawn by two views in one scrolling list each hear only their own part in sight.
+    @Test func eachMountHearsOnlyItsOwnSlice() async throws {
+        let transport = FakePanelsTransport()
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(PageDescriptor.agent.admits(PageVisibleSlices.stream))
+        #expect(provider.routes.contains { $0.prefix == PageVisibleSlices.stream })
+        let a = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        let b = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        // No view draws a mount yet (the page scrolls it itself): nothing is sent.
+        #expect(!provider.sendSliceNow(mountID: a))
+
+        // Two 600 pt mount views stacked in a 400 pt scrolling list.
+        final class Flipped: NSView { override var isFlipped: Bool { true } }
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        let document = Flipped(frame: NSRect(x: 0, y: 0, width: 300, height: 1_200))
+        scroll.documentView = document
+        let views = [a: Flipped(frame: NSRect(x: 0, y: 0, width: 300, height: 600)),
+                     b: Flipped(frame: NSRect(x: 0, y: 600, width: 300, height: 600))]
+        for view in views.values { document.addSubview(view) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        window.orderFrontRegardless()
+        defer { window.close() }
+        provider.mountView = { views[$0] }
+
+        var heard: [String: [JSONValue]] = [a: [], b: []]
+        var subscriptions: [PageSubscription] = []
+        for id in [a, b] {
+            subscriptions.append(try await provider.slices.subscribe(PageVisibleSlices.stream, filter: .object(["surface": .string(id)]),
+                                                                     context: Self.page) { heard[id, default: []].append($0) })
+        }
+        defer { for subscription in subscriptions { subscription.cancel() } }
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n1")]))
+        #expect(provider.sendSliceNow(mountID: a))
+        #expect(provider.sendSliceNow(mountID: b))
+        #expect(heard[a]?.count == 1)
+        #expect(heard[b]?.count == 1)
+        #expect(heard[a]?.last?["surface"]?.stringValue == a)
+        #expect(heard[a]?.last?["revision"]?.intValue == provider.sceneRevision(mountID: a))
+        #expect(heard[a]?.last?["top"]?.intValue == 0)
+        #expect(heard[a]?.last?["height"]?.intValue == 400)
+        #expect(heard[b]?.last?["surface"]?.stringValue == b)
+        #expect(heard[b]?.last?["height"]?.intValue == 0, "b is below the list's bottom")
+
+        // Scrolling 300 pt shows a's last 300 and b's first 100; each hears its own once more.
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 300))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(provider.sendSliceNow(mountID: a))
+        #expect(provider.sendSliceNow(mountID: b))
+        #expect(!provider.sendSliceNow(mountID: a), "nothing changed")
+        #expect(heard[a]?.count == 2)
+        #expect(heard[b]?.count == 2)
+        #expect(heard[a]?.last?["top"]?.intValue == 300)
+        #expect(heard[a]?.last?["height"]?.intValue == 300)
+        #expect(heard[b]?.last?["top"]?.intValue == 0)
+        #expect(heard[b]?.last?["height"]?.intValue == 100)
+        #expect(heard[b]?.allSatisfy { $0["surface"]?.stringValue == b } == true)
+
+        // Unmounted, a mount sends no more.
+        _ = try await provider.call("cmux.apps.panels.unmount", params: .object(["mount_id": .string(b)]), context: Self.page)
+        #expect(!provider.sendSliceNow(mountID: b))
+        #expect(provider.slices.slice(b) == nil)
     }
 
     /// A started client over `transport`, its list landed.
