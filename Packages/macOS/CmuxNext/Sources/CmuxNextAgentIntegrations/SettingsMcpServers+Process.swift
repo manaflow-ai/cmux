@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import Darwin
 public import CmuxNextSettings
 public import Foundation
 
@@ -27,6 +28,6 @@ extension SettingsMcpServers {
     @concurrent nonisolated static func chief(besideCLI cli: URL?) async -> URL? {
         guard let helper = cli?.deletingLastPathComponent().appending(path: "optchat-chief", directoryHint: .notDirectory)
         else { return nil }
-        return access(helper.path, X_OK) == 0 ? helper : nil
+        return Darwin.access(helper.path, X_OK) == 0 ? helper : nil
     }
 }
