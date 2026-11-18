@@ -41,6 +41,20 @@ class StepLog(unittest.TestCase):
         self.assertEqual(ctx.host["chip"], "Apple M4 Pro")
         self.assertEqual(ctx.host["name"], "aws-m4pro-3")
 
+    def test_each_sidebar_size_gets_its_rows(self):
+        bench = load_all()["hover-sweep"]
+        ctx = _ctx(bench)
+        bench.ingest(ctx, FIX / "sizes.log")
+        rows = {r["metric"]: r for r in ctx.rows}
+        for suffix in ("", "_rows6", "_rows600"):
+            for q in ("p50", "p95", "p99", "max"):
+                self.assertIn(f"pointer_move_{q}{suffix}", rows)
+            self.assertEqual(rows[f"pointer_move_p50{suffix}"]["n"], 2)
+        self.assertEqual(rows["pointer_move_p95_rows6"]["value"], 0.583)
+        self.assertEqual(rows["pointer_move_p95"]["value"], 0.625)
+        self.assertEqual(rows["pointer_move_p95_rows600"]["value"], 0.708)
+        self.assertEqual(rows["moves"]["value"], 96000.0)
+
     def test_no_line_is_an_error(self):
         bench = load_all()["hover-sweep"]
         with self.assertRaises(BenchError):

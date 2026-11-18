@@ -7,8 +7,9 @@ import Testing
 /// The main-thread cost of a hover sweep over the sidebar, in nanoseconds per pointer move: what
 /// `HoverCardCoordinator.pointerMoved` asks of the hover rules on each move (the safe-triangle
 /// test against the shown card, then one `HoverCardMachine` event), over a pointer that rests on
-/// a row until its card opens, then sweeps down 60 rows and back with the card following, with
-/// gaps, aims and deadlines between. p50, p95, p99 and max. A measurement, not a gate: the A/B of
+/// a row until its card opens, then sweeps down the rows and back with the card following, with
+/// gaps, aims and deadlines between. Three sidebar sizes (6, 60 and 600 rows, 96,000 timed moves
+/// each), so a cost that grows with the sidebar shows. p50, p95, p99 and max. A measurement, not a gate: the A/B of
 /// the Swift rules against the Rust call (B8 step B) runs it alone on an exclusive host with the
 /// rules of each arm (`restore=` the Swift files of the base for arm A).
 ///
@@ -18,8 +19,9 @@ import Testing
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_HOVER_SWEEP_BENCH"] == "1"))
 struct HoverCardSweepBench {
-    private static let rows = 60
-    private static let rounds = 400
+    /// Rows in the sidebar and sweeps over it: 96,000 timed moves at each size.
+    private static let sizes: [(rows: Int, rounds: Int)] = [(6, 4000), (60, 400), (600, 40)]
+    private static let warmup = 20
 
     private static func row(_ n: Int) -> HoverTarget {
         HoverTarget(id: HoverTargetID("ws:\(n)"), window: 7, delay: HoverCardTiming.showDelay,
@@ -37,25 +39,29 @@ struct HoverCardSweepBench {
     }
 
     @Test func nanosecondsPerPointerMove() {
-        let targets = (0..<Self.rows).map(Self.row)
+        for size in Self.sizes { Self.sweep(rows: size.rows, rounds: size.rounds) }
+    }
+
+    private static func sweep(rows: Int, rounds: Int) {
+        let targets = (0..<rows).map(Self.row)
         var samples: [UInt64] = []
-        samples.reserveCapacity(Self.rounds * Self.rows * 4)
+        samples.reserveCapacity(rounds * rows * 4)
         var sink = 0
-        for round in 0..<(Self.rounds + 20) {
+        for round in 0..<(rounds + Self.warmup) {
             var machine = HoverCardMachine()
             var last = CGPoint(x: 120, y: 890)
             // Rest on row 0 until its card opens.
             sink &+= machine.reduce(.hit(targets[0], moved: true)).count
             if let token = machine.armedToken { sink &+= machine.reduce(.deadline(token: token)).count }
             // Down the list and back up: each row twice (its middle, then the gap after it).
-            let path = Array(0..<Self.rows) + Array((0..<Self.rows).reversed())
+            let path = Array(0..<rows) + Array((0..<rows).reversed())
             for n in path {
                 for step in 0..<2 {
                     let point = CGPoint(x: 120 + CGFloat(step), y: 890 - CGFloat(n) * 28 - CGFloat(step) * 14)
                     let start = DispatchTime.now().uptimeNanoseconds
                     sink &+= Self.move(&machine, to: step == 0 ? n : nil, from: last, to: point, targets: targets)
                     let end = DispatchTime.now().uptimeNanoseconds
-                    if round >= 20 { samples.append(end - start) }  // the first rounds warm up
+                    if round >= Self.warmup { samples.append(end - start) }  // the first rounds warm up
                     last = point
                 }
                 // A deadline every tenth row, as the coordinator's timer fires it.
@@ -68,8 +74,8 @@ struct HoverCardSweepBench {
         samples.sort()
         func quantile(_ q: Double) -> UInt64 { samples[min(samples.count - 1, Int(Double(samples.count) * q))] }
         print("hover-card sweep bench: macOS \(ProcessInfo.processInfo.operatingSystemVersionString), "
-              + "\(samples.count) pointer moves over \(Self.rows) rows: p50 \(quantile(0.5)) ns, p95 \(quantile(0.95)) ns, "
+              + "\(samples.count) pointer moves over \(rows) rows: p50 \(quantile(0.5)) ns, p95 \(quantile(0.95)) ns, "
               + "p99 \(quantile(0.99)) ns, max \(samples.last ?? 0) ns (sink \(sink & 1))")
-        #expect(samples.count == Self.rounds * Self.rows * 4)
+        #expect(samples.count == rounds * rows * 4)
     }
 }
