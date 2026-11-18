@@ -20,6 +20,9 @@ pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
 pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACT_ID_BYTES: usize = 64;
+pub const MAX_ACT_OP_BYTES: usize = 32;
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
 
 /// Subscription and request identifiers have one UTF-8 byte bound.
 pub fn identifier_fits(value: &str) -> bool {
@@ -39,6 +42,9 @@ pub enum Request {
     Credit(Credit),
     Unsub(Unsub),
     Blob(Blob),
+    /// A v2 action request. Servers may decode this shape while keeping action
+    /// execution disabled until the corresponding surface is enabled.
+    Act(Act),
 }
 
 /// A generic stream name. The wire layer does not know which stream is being
@@ -107,6 +113,13 @@ pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
     pub origin: String,
+    /// A position, not a row (decision 290): just past every `local` key at `last_activity`.
+    /// Only a serving side mints it, as the `before` key of a peer's empty `all` page, spelled
+    /// origin `local`, chat id "" and `past` true, and only that page accepts it back; every
+    /// other door answers `InvalidPage`. So a past key never reaches the client's maps keyed
+    /// by `ListKey` (its `Ord` and `Hash` see `past`). False is omitted: today's bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub past: bool,
 }
 
 /// Stable position key for the folders view.
@@ -331,6 +344,73 @@ impl Default for Limits {
 pub struct HelloReply {
     pub daemon_id: String,
     pub limits: Limits,
+}
+
+/// A request to perform one idempotent action on a chat.
+///
+/// `body` is deliberately an arbitrary JSON value. The serving side hashes the
+/// operation and body together when it records the durable receipt, so a retry
+/// with the same id and a different body can never be mistaken for a replay.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Act {
+    pub chat: Stream,
+    pub op: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    pub body: serde_json::Value,
+}
+
+impl Act {
+    pub fn new(
+        chat: impl Into<Stream>,
+        op: impl Into<String>,
+        id: impl Into<String>,
+        body: serde_json::Value,
+    ) -> Self {
+        Self { chat: chat.into(), op: op.into(), id: id.into(), since: None, body }
+    }
+
+    pub fn since(mut self, since: u64) -> Self {
+        self.since = Some(since);
+        self
+    }
+
+    /// Validates the bounded fields used by the daemon action writer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.id.is_empty() || self.id.len() > MAX_ACT_ID_BYTES {
+            return Err("action id must be 1..64 UTF-8 bytes");
+        }
+        if self.op.len() > MAX_ACT_OP_BYTES {
+            return Err("action op must be at most 32 UTF-8 bytes");
+        }
+        let encoded =
+            serde_json::to_vec(&self.body).map_err(|_| "action body is not serializable")?;
+        if encoded.len() > MAX_DAEMON_LINE_BYTES {
+            return Err("action daemon line exceeds 256 KiB");
+        }
+        Ok(())
+    }
+}
+
+/// The successful durable receipt for an [`Act`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub id: String,
+    pub seq: u64,
+}
+
+/// A typed action error. The id is omitted when the request could not be
+/// correlated (for example, malformed JSON or an overlong identifier).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Error {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1182,6 +1262,68 @@ mod tests {
     }
 
     #[test]
+    fn act_wire_round_trips_without_changing_v1_shapes() {
+        let act =
+            Act::new("chat:demo", "append", "a-1", serde_json::json!({"text":"hello"})).since(7);
+        let value = serde_json::to_value(Request::Act(act.clone())).unwrap();
+        assert_eq!(value["method"], "act");
+        assert_eq!(value["params"]["chat"], "chat:demo");
+        assert_eq!(value["params"]["since"], 7);
+        assert!(
+            matches!(serde_json::from_value::<Request>(value), Ok(Request::Act(decoded)) if decoded == act)
+        );
+    }
+
+    #[test]
+    fn act_validation_bounds_id_op_and_body() {
+        let valid = Act::new("chat:demo", "append", "a", serde_json::json!({"text":"ok"}));
+        assert!(valid.validate().is_ok());
+        assert!(Act::new("chat:demo", "append", "", serde_json::Value::Null).validate().is_err());
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x".repeat(MAX_ACT_ID_BYTES + 1),
+                serde_json::Value::Null
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Act::new("chat:demo", "x".repeat(MAX_ACT_OP_BYTES + 1), "x", serde_json::Value::Null)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x",
+                serde_json::Value::String("x".repeat(MAX_DAEMON_LINE_BYTES))
+            )
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ack_and_error_use_compact_camel_case_fields() {
+        assert_eq!(
+            serde_json::to_string(&Ack { id: "a".into(), seq: 9 }).unwrap(),
+            r#"{"id":"a","seq":9}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Error {
+                id: Some("a".into()),
+                code: "id_reuse".into(),
+                message: "different body".into(),
+            })
+            .unwrap(),
+            r#"{"id":"a","code":"id_reuse","message":"different body"}"#
+        );
+    }
+
+    #[test]
     fn a_page_of_turns_round_trips_and_is_left_out_when_false() {
         let mut page = Page::new("s1", "chat:c", PageSide::Before, 11);
         assert!(serde_json::to_value(&page).unwrap().get("turns").is_none());
@@ -1382,8 +1524,12 @@ mod other_delta_tests {
         });
         let decoded: Page = serde_json::from_value(page).unwrap();
         assert!(matches!(decoded.keys.as_deref(), Some([PageKey::Summary(_)])));
-        let legacy =
-            vec![ListKey { last_activity: 4, chat_id: "c".into(), origin: "local".into() }];
+        let legacy = vec![ListKey {
+            last_activity: 4,
+            chat_id: "c".into(),
+            origin: "local".into(),
+            past: false,
+        }];
         assert_eq!(
             serde_json::to_vec(decoded.keys.as_ref().unwrap()).unwrap(),
             serde_json::to_vec(&legacy).unwrap(),

@@ -10,6 +10,7 @@ import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
+import { MODEL_PICKER } from "./composerSelectors";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
 type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
@@ -377,7 +378,7 @@ const manyProfiles: ModelPickerProps = {
 
 /// The compact list menu: a menu with no rail (a started chat that cannot fork).
 const openQuick: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
@@ -386,7 +387,7 @@ const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
   // The menu's width is kept for every composer (modelMenuWidth.ts): each state opens at the
   // default unless it names a dragged width, so one state's drag never carries into the next.
   setModelMenuWidth(width);
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 

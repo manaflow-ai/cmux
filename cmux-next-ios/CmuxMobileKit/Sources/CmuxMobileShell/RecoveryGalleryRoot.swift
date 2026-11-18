@@ -27,8 +27,6 @@ import SwiftUI
 /// - `cloudkept`: a Cloud machine opened again, drawing the chats this run last listed while its channel opens;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
-/// - `terminalchat`: Toggle Terminal and Chat's Chat | Terminal control (`TerminalChatToggleGallery`): A, the one
-///   the tabs show, on both faces and with a face disabled, then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -67,8 +65,6 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
-            case "terminalchat":
-                TerminalChatToggleGallery()
             default:
                 states
             }

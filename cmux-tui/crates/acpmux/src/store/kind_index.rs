@@ -259,11 +259,22 @@ pub(super) fn indexed(line: &[u8]) -> bool {
     record_kind(line).is_none_or(|kind| INDEXED_KINDS.iter().any(|k| k.as_bytes() == kind))
 }
 
+/// Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a long
+/// log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
+pub(super) fn test_scan_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
+    }
+}
+
 /// One scan for `kinds`: whether it may take copies, and whether it is strict.
-struct Scan<'a> {
-    kinds: &'a [&'a str],
-    copied: bool,
-    strict: bool,
+pub(super) struct Scan<'a> {
+    pub(super) kinds: &'a [&'a str],
+    pub(super) copied: bool,
+    pub(super) strict: bool,
 }
 
 impl Scan<'_> {
@@ -375,7 +386,7 @@ impl LocalStore {
         Ok(())
     }
 
-    fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
+    pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
 
@@ -388,14 +399,7 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
-        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
-        }
+        test_scan_delay();
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
         if strict {
@@ -413,7 +417,7 @@ impl LocalStore {
     }
 
     /// One segment of [`Self::scan_kinds_in`]; false when `visit` stopped the scan.
-    fn scan_segment(
+    pub(super) fn scan_segment(
         &self,
         id: &str,
         index: u32,

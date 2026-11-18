@@ -159,7 +159,7 @@ final class HomeFirstRunView: NSView {
         applyStoredColors()
         needsLayout = true
         if let focused {
-            window?.makeFirstResponder(zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
+            FocusRoute(.system, "Home first run: agents listed").moveKeyboard(in: window, to: zip(shown, agentRows).first { $0.0.id == focused }?.1 ?? agent)
         }
     }
 

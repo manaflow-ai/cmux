@@ -36,6 +36,30 @@ fn a_machine_without_control_consent_gets_no_computer_use_server() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A `cmux` without `mcp serve` (the static `cmux 0.1.0` lane VMs had) is no `cmux` server, so
+/// the other servers stay listed on their own instead of folding behind one that exits at once.
+#[test]
+fn a_cmux_without_mcp_serve_is_no_server_and_folds_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-cmux-no-mcp-{}", uuid::Uuid::now_v7()));
+    let names = |cmux: &str| -> Vec<String> {
+        let bin = root.join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&bin).unwrap();
+        for (name, body) in [("cmux", cmux), ("optchat-chief", "exit 0")] {
+            std::fs::write(bin.join(name), format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let inputs = memory_inputs(&bin, Some(r#"{"agents":{"memory":{"enabled":true}}}"#));
+        resolve(&inputs).folded().servers.into_iter().map(|s| s.name).collect()
+    };
+    let serves = names("exit 0");
+    assert_eq!(serves, ["cmux"], "the other servers fold behind it");
+    let old = names(r#"echo 'cmux: unknown resource scope "mcp".' >&2; exit 2"#);
+    assert_eq!(old, [super::MEMORY_SERVER_NAME], "listed on its own, not lost");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn chief_turn_tools_contain_no_mac_app_actions() {
     let tools: Vec<_> = super::CHIEF_TURN_TOOLS.split(',').map(str::trim).collect();
@@ -185,7 +209,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
-            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
+            (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {
@@ -221,7 +245,7 @@ fn a_launch_without_servers_removes_the_last_mcp_config() {
     let file = root.join("s.json");
     let mut with = super::AgentTools::default();
     with.servers.push(super::McpServer {
-        name: crate::acpmux_mcp::SERVER_NAME.to_owned(),
+        name: crate::acpmux_mcp_names::SERVER_NAME.to_owned(),
         command: "acpmux".into(),
         args: vec![],
         env: vec![],
@@ -277,7 +301,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server(crate::acpmux_mcp::SERVER_NAME), server("cmux-cua")],
+        servers: vec![server(crate::acpmux_mcp_names::SERVER_NAME), server("cmux-cua")],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -288,7 +312,7 @@ fn a_tool_allowlist_reaches_a_standalone_acpmux_server() {
     let folded = tools.scoped(&env).for_session("s-allowlist").folded();
     assert_eq!(folded.servers.len(), 1, "{:?}", folded.servers);
     let acpmux = &folded.servers[0];
-    assert_eq!(acpmux.name, crate::acpmux_mcp::SERVER_NAME);
+    assert_eq!(acpmux.name, crate::acpmux_mcp_names::SERVER_NAME);
     assert!(
         acpmux.env.iter().any(|(k, v)| k == super::MCP_TOOLS_ENV && v == super::CHIEF_TURN_TOOLS),
         "{:?}",
@@ -309,7 +333,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         env: vec![],
     };
     let tools = super::AgentTools {
-        servers: vec![server("cmux"), server(crate::acpmux_mcp::SERVER_NAME)],
+        servers: vec![server("cmux"), server(crate::acpmux_mcp_names::SERVER_NAME)],
         ..Default::default()
     };
     let env = std::collections::BTreeMap::from([
@@ -325,7 +349,7 @@ fn the_acpmux_server_gets_the_agents_gh_sign_in() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|s| s["name"] == crate::acpmux_mcp::SERVER_NAME)
+        .find(|s| s["name"] == crate::acpmux_mcp_names::SERVER_NAME)
         .unwrap();
     assert_eq!(acpmux["env"]["GH_TOKEN"], "gho_profile", "{acpmux}");
     assert_eq!(acpmux["env"]["GH_CONFIG_DIR"], "/home/u/.config/gh-work", "{acpmux}");
@@ -468,7 +492,7 @@ fn the_github_status_server_reaches_every_harness_kind() {
         ..memory_inputs(&root, None)
     };
     let tools = resolve(&inputs).for_session("s1");
-    let acpmux = crate::acpmux_mcp::SERVER_NAME;
+    let acpmux = crate::acpmux_mcp_names::SERVER_NAME;
     let acp = tools.acp_servers();
     let entry = acp.as_array().unwrap().iter().find(|s| s["name"] == acpmux).unwrap();
     assert_eq!(entry["args"], serde_json::json!(["acpmux-mcp"]));

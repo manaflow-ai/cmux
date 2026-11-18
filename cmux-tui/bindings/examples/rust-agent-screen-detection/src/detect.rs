@@ -453,6 +453,11 @@ impl ScreenDetectTracker {
         entry.osc_metadata_state.is_fresh(stream_revision)
     }
 
+    /// The tracker holds an entry for `terminal_id`.
+    pub(crate) fn tracks(&self, terminal_id: &str) -> bool {
+        self.terminals.contains_key(terminal_id)
+    }
+
     /// True when this terminal previously journaled a screen-derived state
     /// that has not been closed out by an exit emission.
     pub fn has_live_emission(&self, terminal_id: &str) -> bool {

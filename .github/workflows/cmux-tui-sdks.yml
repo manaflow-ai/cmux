@@ -177,19 +177,52 @@ jobs:
           echo "SDK package inputs changed: $changed"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
+      # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
+      # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
       - name: Set up Python
+        id: python
+        continue-on-error: true
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12.8"
 
       - name: Install workflow guard dependencies
+        env:
+          SETUP_PYTHON: ${{ steps.python.outcome }}
         run: |
+          set -euo pipefail
+          pip_flags=()
+          if [ "$SETUP_PYTHON" != "success" ]; then
+            venv="$RUNNER_TEMP/python"
+            if command -v uv >/dev/null 2>&1 && uv venv --seed --python 3.12 "$venv" >/dev/null 2>&1; then
+              echo "::warning::setup-python failed; using uv's Python 3.12"
+            elif python3 -m venv "$venv" >/dev/null 2>&1; then
+              echo "::warning::setup-python failed; using the runner's $(python3 --version) in a venv"
+            else
+              # No venv module (no ensurepip): the runner's own Python, for this user.
+              echo "::warning::setup-python failed; using the runner's $(python3 --version)"
+              venv=""
+              pip_flags=(--user --break-system-packages)
+              if python3 -c 'import yaml' 2>/dev/null; then
+                echo "the runner's Python already has PyYAML $(python3 -c 'import yaml; print(yaml.__version__)')"
+                exit 0
+              fi
+            fi
+            if [ -n "$venv" ]; then
+              echo "$venv/bin" >> "$GITHUB_PATH"
+              PATH="$venv/bin:$PATH"
+            fi
+          fi
           python3 -m pip install \
             --disable-pip-version-check \
+            "${pip_flags[@]}" \
             "PyYAML==6.0.3"
 
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
+
+      - name: Test folder sync bench harness
+        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
 
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py
@@ -328,6 +361,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test and install Python SDK
         if: matrix.language == 'python'
@@ -521,6 +559,11 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.language == 'zig'
+        uses: ./.github/actions/zig-global-cache
 
       - name: Test Python agent watchdog
         if: matrix.language == 'python'
@@ -730,6 +773,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
@@ -788,6 +835,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: 0.15.2
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       - name: Run shared fake and live protocol contract
         env:

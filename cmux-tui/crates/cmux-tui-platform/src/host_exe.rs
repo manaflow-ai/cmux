@@ -10,7 +10,9 @@
 //! `~/Library/Application Support/cmux-tui/host-exe/<sha256>/cmux-tui`
 //! (`CMUX_TUI_HOST_EXE_DIR` overrides the root). Linux hosts already exec
 //! `/proc/self/exe` (no path in their argv, and a running binary cannot be
-//! written), so this module only returns that there.
+//! written), or the slim `cmux-tui-host` beside the daemon when it answers
+//! with the daemon's build and is still the file that answered
+//! (`host_exe/linux.rs`; no copy).
 //!
 //! The slim host: when the daemon called [`use_sibling_host`] and a regular
 //! file `cmux-tui-host` sits beside its (canonical) executable, the copy is
@@ -175,7 +177,18 @@ pub fn spawn_host(
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The slim sibling this daemon runs its terminal hosts from on Linux, when
+/// it does (`host_exe/linux.rs`): a host's `/proc/<pid>/exe` names it.
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_sibling_in_use() -> Option<PathBuf> {
+    imp::sibling_in_use()
+}
+
+#[cfg(target_os = "linux")]
+#[path = "host_exe/linux.rs"]
+mod imp;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     use std::io;
     use std::path::{Path, PathBuf};

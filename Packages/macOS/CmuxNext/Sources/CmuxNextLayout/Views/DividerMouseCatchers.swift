@@ -144,13 +144,16 @@ public final class DividerMouseCatchers {
         spares.append(panel)
     }
 
+    /// A panel no divider will use again leaves the window and closes: a panel only ordered out stays open as long
+    /// as anything holds its catchers (a closed window that is still alive keeps them).
     private func remove(_ panel: DividerMousePanel) {
         if panel.parent === window { window.removeChildWindow(panel) }
-        panel.orderOut(nil)
+        panel.close()
     }
 
+    /// The window closes (`WindowController.teardown` -> `WindowOverlayLayer.teardown`): every panel closes.
     public func teardown() {
-        // The window closes: no press holds a panel.
+        // No press holds a panel.
         for panel in panels.values { panel.catcher.resetForReuse() }
         update([], active: false)
     }
@@ -172,8 +175,9 @@ public final class DividerMouseCatchers {
     }
 }
 
-/// A transparent panel that takes the mouse over a divider's hit area.
-final class DividerMousePanel: NSPanel {
+/// A transparent panel that takes the mouse over a divider's hit area. It sits under the overlay panel
+/// (``UnderOverlayWindow``): a toast over the divider takes the pointer, not this panel.
+final class DividerMousePanel: NSPanel, UnderOverlayWindow {
     let catcher = DividerMouseCatcherView()
     /// The divider this panel takes the mouse for now (a parked panel keeps its last one until reused).
     var areaID = ""
@@ -255,8 +259,21 @@ final class DividerMouseCatcherView: NSView {
     var isDividerDragging: () -> Bool = { false }
     private var keepsResizeCursor: Bool { isPressed && isDividerDragging() }
 
-    override func cursorUpdate(with event: NSEvent) { cursor.set() }
+    /// Whether an overlay of the parent window takes the mouse at the event's point (a toast over the divider).
+    /// The overlay panel is above this panel, but a pointer that came onto it before its mouse routing switched on
+    /// still comes here: this panel shows no cursor and lights no line then.
+    private func overlayTakesMouse(at event: NSEvent) -> Bool {
+        guard let panel = window, let parent = panel.parent else { return false }
+        let windowPoint = parent.convertPoint(fromScreen: panel.convertPoint(toScreen: event.locationInWindow))
+        return WindowOverlayHost.overlayTakesMouse(in: parent, atWindowPoint: windowPoint)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard !overlayTakesMouse(at: event) else { return }
+        cursor.set()
+    }
     override func mouseEntered(with event: NSEvent) {
+        guard !overlayTakesMouse(at: event) else { return }
         isEntered = true
         cursor.set()
         // A focused page window holds key. When the pointer leaves it straight onto this panel's

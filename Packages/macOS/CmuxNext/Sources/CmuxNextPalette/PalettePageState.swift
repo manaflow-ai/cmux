@@ -46,6 +46,9 @@ final class PageState {
     var answerTasks: [Task<Void, Never>] = []
     /// The page's source-change subscriptions (`PalettePageSpec.onSourceChange`), held while it is open.
     var sourceTokens: [AnyObject] = []
+    /// The providers' change follows (``PaletteProvider/followChanges(_:)``), made at each load and held while
+    /// the page is open: a change reads that provider's rows again.
+    var providerTokens: [AnyObject] = []
     /// The ranked rows last delivered, before the answers join them, and that delivery's generation
     /// and marks: an answer shows again with them only when they are the current query's.
     var rankedSections: [PaletteResultSection]?
@@ -174,6 +177,7 @@ final class PageState {
         cancelReads()
         cancelAnswers()
         sourceTokens = []
+        providerTokens = []
     }
 
     /// Ends the provider reads that still run; the rows they gave stay.

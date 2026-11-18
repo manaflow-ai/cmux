@@ -43,7 +43,7 @@ public nonisolated struct CmuxDialogKeys {
             guard others == .command else { return nil }
             if character == "." { return spec.cancelButton.map { .press($0.id) } }
             let lowered = Character(character.lowercased())
-            return spec.buttons.first { $0.key == lowered }.map { .press($0.id) }
+            return spec.buttons.first { $0.key == lowered && !$0.personOnly && $0.isEnabled }.map { .press($0.id) }
         }
     }
 
@@ -53,7 +53,7 @@ public nonisolated struct CmuxDialogKeys {
     public static func hint(for button: CmuxDialogButton, in spec: CmuxDialogSpec) -> CmuxDialogKeyHint? {
         if spec.defaultButton?.id == button.id { return .return }
         if spec.cancelButton?.id == button.id { return .escape }
-        guard let key = button.key, spec.buttons.first(where: { $0.key == key })?.id == button.id else { return nil }
+        guard !button.personOnly, let key = button.key, spec.buttons.first(where: { $0.key == key })?.id == button.id else { return nil }
         return .command(key)
     }
 

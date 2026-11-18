@@ -19,12 +19,14 @@ import CmuxNextWakeups
 final class SidebarUpdatedNotesPopover {
     /// The popover's card in the app's one hover card window.
     static let id = HoverTargetID("sidebar:updated-notes")
-    /// How long the pointer rests on the card before the popover opens.
-    static var openDelay: Duration { .milliseconds(280) }
-    /// How long the popover waits after the pointer left the card or the popover before it closes.
-    static var closeDelay: Duration { .milliseconds(250) }
+    /// How long the pointer rests on the card before the popover opens: the delay every hover card
+    /// waits (`sidebar.hoverCards.delay`, Chrome's 1300 ms by default, `HoverIntentTiming.cardDelay`).
+    static var openDelay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// How long the popover waits after the pointer left the card or the popover before it closes:
+    /// the hover card grace (`HoverIntentTiming.cardGrace`).
+    static var closeDelay: Duration { HoverIntentTiming.current.cardGrace }
     /// The longest the way between the card and the popover keeps it open (a slow hand).
-    static var corridorLimit: Duration { .milliseconds(1200) }
+    static var corridorLimit: Duration { .milliseconds(1200) } // hover-timing: travel cap, not a delay
     /// The popover is at most this share of its window's height; the page scrolls inside it.
     static var maxHeightFraction: CGFloat { 0.6 }
 

@@ -21,7 +21,7 @@ use crate::Rgb;
 
 /// The spec file, relative to this source file (repo root
 /// `plans/cmux-next/spec-proposals/visuals/design-tokens.json`).
-pub(crate) const DESIGN_TOKENS: &str =
+pub const DESIGN_TOKENS: &str =
     include_str!("../../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json");
 
 /// A color source in a formula.

@@ -24,6 +24,7 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { Popover } from "../../../ui/Popover";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -131,6 +132,146 @@ function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
+test.each(["minimal", "default"] as const)("%s home offers creation only as matching suggestions", async (template) => {
+  const creates: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        template={template}
+        onCreate={(kind) => creates.push(kind)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-create]")).toBeNull();
+  expect(document.querySelector(".nt-popover")).toBeNull();
+  await typePrompt("unrelated question");
+  for (const kind of ["terminal", "browser", "chat"] as const)
+    expect(document.querySelector(".nt-popover")?.textContent).not.toContain(translateNewTab(`create.${kind}`));
+  for (const kind of ["terminal", "browser", "chat"] as const) {
+    const field = await typePrompt(translateNewTab(`create.${kind}`));
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
+    expect(index).toBeGreaterThanOrEqual(0);
+    if (kind !== "chat") continue;
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+  }
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[1]).toBe("");
+  expect(creates).toEqual([]);
+});
+
+test.each(["terminal", "browser", "chat"] as const)(
+  "Enter on %s with staged attachments runs the creation command",
+  async (kind) => {
+    const creates: string[] = [];
+    const asks: unknown[][] = [];
+    const attachment: ComposerAttachment = {
+      id: "staged",
+      kind: "text",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      text: "hello",
+    };
+    await act(async () =>
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          takeDraft={() => ({
+            text: translateNewTab(`create.${kind}`) + inlineToken(attachment.id),
+            attachments: [attachment],
+          })}
+          onCreate={(value) => creates.push(value)}
+          onAsk={(...args) => asks.push(args)}
+        />,
+      ),
+    );
+    const field = await promptField();
+    await settleReact();
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex(
+      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
+    if (kind === "chat") {
+      expect(asks[0]?.[1]).toBe("");
+      expect(asks[0]?.[5]).toEqual([attachment]);
+    }
+  },
+);
+
+test("Add harness keeps the typed draft through setup", async () => {
+  const asks: unknown[][] = [];
+  let resume: ((harness: string) => void) | undefined;
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        chips={({ onAddAgent }) => (
+          <button className="acpmux-add-harness" onClick={onAddAgent}>
+            Add harness
+          </button>
+        )}
+        onAsk={(...args) => asks.push(args)}
+        onSetup={(continuation) => {
+          resume = continuation;
+        }}
+      />,
+    ),
+  );
+  await typePrompt("keep my draft");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-add-harness")!.click());
+  expect(resume).toBeDefined();
+  await act(async () => resume!("claude"));
+  expect(asks[0]?.[1]).toBe("keep my draft");
+});
+
+test("New Tab suggestions keep the composer's page glass", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  const popover = document.querySelector(".nt-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+});
+
+test("other popovers keep native popup glass", async () => {
+  await act(async () => {
+    root!.render(
+      <Popover open onOpenChange={() => {}} anchor={container} label="Details" initialFocus={false}>
+        Details
+      </Popover>,
+    );
+  });
+  const popover = document.querySelector(".ui-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+});
+
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {
     root!.render(
@@ -211,7 +352,7 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
-  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  // An unset template is Minimal.
   template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
@@ -522,6 +663,57 @@ test("No folder, then a remote machine with a folder: location and send name tha
   expect(asks.length).toBe(1);
   expect(asks[0]?.[2]).toBe(remoteFolder);
   expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+});
+
+// cmux#46019: Cmd-N's new workspace opens a new page; the machine picked on the last one is where it starts.
+test("a page started on the last picked machine sends there, and a machine pick is kept for the next page", async () => {
+  const asks: unknown[][] = [];
+  const page = (startMachine?: string) => (
+    <NewTabScreen
+      snapshot={noChat([], { peers: ["build-box", "gpu-box"], peerKinds: { "build-box": "ssh", "gpu-box": "ssh" } })}
+      cwd="/Users/you/src/cmux"
+      startCwd="/Users/you/src/cmux"
+      projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+      machineName="This Mac"
+      environments
+      {...(startMachine ? { startMachine } : {})}
+      onAsk={(...args) => asks.push(args)}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+    />
+  );
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = dom!.window.localStorage;
+  try {
+    await act(async () => root!.render(page("build-box")));
+    expect(container.querySelector(".nt-location")?.textContent).toContain("build-box");
+    await typePrompt("fix it");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+
+    // A machine picked on a page is what the next page starts on (lastNewChatPlace.ts).
+    await act(async () => root!.render(<div />));
+    await act(async () => root!.render(page()));
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+    const gpu = [...document.querySelectorAll<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')].find((row) =>
+      row.textContent?.includes("gpu-box"),
+    );
+    expect(gpu).toBeTruthy();
+    await act(async () => gpu!.click());
+    expect(JSON.parse(dom!.window.localStorage.getItem("cmux.agentPane.lastNewChatPlace") ?? "null")).toEqual({
+      kind: "machine",
+      peer: "gpu-box",
+    });
+  } finally {
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
 });
 
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
@@ -1292,8 +1484,17 @@ test.each(
       />,
     );
   await act(async () => render("sandboxed"));
-  const create = (kind: string) => container.querySelector<HTMLButtonElement>(`[data-create="${kind}"]`)!;
-  await act(async () => create("chat").click());
+  const create = async (kind: "chat" | "terminal" | "browser") => {
+    await typePrompt(translateNewTab(`create.${kind}`));
+    const row = [...document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')].find((item) =>
+      item.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(row).toBeTruthy();
+    await act(async () =>
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+  };
+  await create("chat");
   if (setup) {
     expect(resume).toBeDefined();
     await act(async () => resume!("claude"));
@@ -1301,7 +1502,7 @@ test.each(
   expect(sandboxed.length).toBe(1);
   expect(asks).toEqual([]);
   await act(async () => render("persistent"));
-  await act(async () => create(kind).click());
+  await create(kind);
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
@@ -1897,4 +2098,29 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1"]);
   await render("cmd-t-2");
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
+});
+
+test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("git status");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("true");
+  await press(field, "Enter");
+  expect(shells).toEqual(["git status"]);
+  expect(asks).toEqual([]);
+  field = await typePrompt("git status");
+  await press(field, "Enter", { metaKey: true });
+  expect(shells).toEqual(["git status"]);
+  expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });

@@ -27,6 +27,8 @@ public final class LinkHintController {
         var noField = false
     }
 
+    /// The held keys behind a held `j` or `k` scroll, the other Vim keys of a page.
+    public let scrollKeys = BrowserPageScrollKeys()
     private var session: Session?
     private var lastSessionID = 0
     private var replays = LinkHintReplays<NSEvent>()

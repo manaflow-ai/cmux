@@ -30,7 +30,10 @@ struct PointerMenuTrimTests {
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
             "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
-            "home.messageAbout", "moveSurfaceLeft", "moveSurfaceRight",
+            "home.messageAbout",
+            // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
+            "macScreen.open", "macScreen.stopViewing",
+            "moveSurfaceLeft", "moveSurfaceRight",
             "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
             "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
             "newSurface", "newTab.atEnd", "newTab.atStart",
@@ -46,7 +49,11 @@ struct PointerMenuTrimTests {
             "tabGroup.addTab", "tabGroup.create", "tabGroup.removeTab",
             "toggleTabAudioMute",
         ]
-        #expect(shown == retained)
+        // cloud.team.copyLink: Copy Cloud Session Link, a tab-menu row from #40159. The catalog of the pinned
+        // library can be older than that change, so the test expects the id exactly when the catalog has it. When
+        // the pinned library has the row, a change puts the id into `retained` and takes these 2 lines out.
+        let pinned: Set<ActionID> = ActionCatalog.all.contains { $0.id == "cloud.team.copyLink" } ? ["cloud.team.copyLink"] : []
+        #expect(shown == retained.union(pinned))
         for id in Self.tabTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(!descriptor.surfacePlan.contextMenus.contains { $0.context == .tab })
@@ -63,7 +70,10 @@ struct PointerMenuTrimTests {
 
     @Test func thePaneMenuKeepsCommonAndConditionalActionsAndExemptsTheLongTail() throws {
         let catalog = ContextMenuCatalog.shared
-        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane)))
+        // The floating pane rows can be in the catalog before the App code that runs them (`FloatingPanePlaceholders`):
+        // no menu shows such a row, so it is not in this set. The change that binds their handlers puts each of them
+        // that the pane menu shows into `retained` and takes the subtraction out.
+        let shown = Set(catalog.referencedIDs(catalog.entries(for: .pane))).subtracting(FloatingPanePlaceholders.ids)
         let retained: Set<ActionID> = [
             "splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom", "renamePane", "closePane", "newColumnLeft",
             "newColumn", "newRow", "splitBrowserRight", "splitBrowserDown", "pane.moveToNewWorkspace", "pane.moveToNewWindow",
@@ -71,6 +81,8 @@ struct PointerMenuTrimTests {
             "pane.setTint", "pane.clearBackground", "reconnectPane", "palette.copyPaneID", "palette.copyPaneLink",
             "pane.screenshot", "equalizeSplits", "pane.toggleTabBar", "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
             "remote.openRemote",
+            // macScreen.open: Open Screen Sharing, the row that #42789 put into the pane menu.
+            "macScreen.open",
         ]
         // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
         #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))

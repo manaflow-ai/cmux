@@ -6,6 +6,7 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { Freestyle } from "freestyle";
+import { installCapacityRetry } from "./capacity";
 import { guestShellProblems } from "./shell-check";
 
 export const BUILD_ENV = {
@@ -33,10 +34,11 @@ export function freestyleApiKey(env: Record<string, string | undefined> = proces
   throw new Error("set FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE");
 }
 
+/** The image scripts' client; a capacity answer to any of its calls is retried (capacity.ts). */
 export function freestyleClient(): Freestyle {
   const apiKey = freestyleApiKey();
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
-  return new Freestyle({ apiKey, baseUrl });
+  return installCapacityRetry(new Freestyle({ apiKey, baseUrl }));
 }
 
 export type Vm = Awaited<ReturnType<Freestyle["vms"]["create"]>>["vm"];

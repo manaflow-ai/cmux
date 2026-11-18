@@ -829,6 +829,18 @@
       "scope": "group:read",
       "class": "read"
     },
+    "group.members.list": {
+      "scope": "group:read",
+      "class": "read"
+    },
+    "group.members.remove": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
+    "group.members.set": {
+      "scope": "group:write",
+      "class": "mutation"
+    },
     "group.rename": {
       "scope": "group:write",
       "class": "mutation"
@@ -1075,6 +1087,18 @@
     },
     "notification.list": {
       "scope": "notification:read",
+      "class": "read"
+    },
+    "page.follow": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.hints": {
+      "scope": "page:write",
+      "class": "mutation"
+    },
+    "page.read": {
+      "scope": "page:read",
       "class": "read"
     },
     "palette_usage.forget": {
@@ -1745,6 +1769,38 @@
       "scope": "team:read",
       "class": "read"
     },
+    "team.cloud.session.archive": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.follow": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.cloud.session.publish": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.reassign": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.remove": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.cloud.session.viewing": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -2084,6 +2140,8 @@
     "cloud.owner.acpmux_person_holds",
     "cloud.owner.fork_run",
     "cloud.owner.github_app",
+    "cloud.owner.github_connect",
+    "cloud.owner.github_repos",
     "cloud.owner.handoff_begin_turn",
     "cloud.owner.handoff_open",
     "cloud.owner.handoff_wait",
@@ -2208,6 +2266,9 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.agent_key.remove",
+    "team.agent_key.set",
+    "team.agent_key.status",
     "team.ai_limit.member.set",
     "team.ai_limit.set",
     "team.audit.list",
@@ -2216,6 +2277,8 @@
     "team.enrollment_token.revoke",
     "team.integration.release_lock",
     "team.members.remove",
+    "team.models_policy.get",
+    "team.models_policy.set",
     "team_vm.rebuild",
     "team_vm.retired.delete",
     "team_vm.retired.export",

@@ -110,6 +110,11 @@ impl LinkTimings {
 /// before #38015. After `stable_after` with no answer that late, it halves, not under twice the
 /// longest gap meanwhile, back down to the start. A fixed `ACPMUX_PEER_PING_SECS` keeps it at
 /// the start. Kept per peer across its links, so a redial does not forget what it learned.
+///
+/// A network loss teaches it nothing: a link whose redial failed or was started over (the
+/// network was gone, which a slow peer's redial is not) opens with the budget back at the start,
+/// never doubled. Run 43783279032 grew it 6 -> 12 -> 20 s from 10 s network drops, and each drop
+/// after that took the grown budget to be noticed.
 #[derive(Debug, Clone)]
 pub struct SilenceBudget {
     floor: Duration,
@@ -124,6 +129,14 @@ pub struct SilenceBudget {
     dropped_at: Option<tokio::time::Instant>,
     reopen: Duration,
     stable_after: Duration,
+    /// A dial since the last link failed or was started over (`dial_struggled`).
+    struggled: bool,
+    /// The last link was dropped by a request that got no answer (`probe_dropped`).
+    probe_dropped: bool,
+    /// A link a request probe dropped opened again at the first try: the peer is slow, not
+    /// gone, so requests to it wait out the budget rather than drop the link. Until the budget
+    /// is back at the start.
+    slow_proven: bool,
 }
 
 impl SilenceBudget {
@@ -142,6 +155,9 @@ impl SilenceBudget {
             dropped_at: None,
             reopen: timings.connect,
             stable_after: timings.stable_after,
+            struggled: false,
+            probe_dropped: false,
+            slow_proven: false,
         }
     }
 
@@ -171,11 +187,41 @@ impl SilenceBudget {
         self.dropped_at = Some(now);
     }
 
+    /// A dial opened no path, or was started over (a client asked while it was still
+    /// connecting): the network was gone. Not a link that opened and then dropped in its
+    /// handshake, which a slow peer does too.
+    pub fn dial_struggled(&mut self) {
+        self.struggled = true;
+    }
+
+    /// The link is dropped because a request on it got no answer within `NETWORK_PROBE`.
+    pub fn probe_dropped(&mut self) {
+        self.probe_dropped = true;
+    }
+
+    /// Whether a request on a silent link may check it at once (`NETWORK_PROBE`) rather than wait
+    /// out the budget: not for a peer that proved slow, nor with a fixed budget.
+    pub fn may_probe(&self) -> bool {
+        !self.fixed && !self.slow_proven
+    }
+
     /// A new link's WebSocket opened: the peer's daemon answers.
     pub fn opened(&mut self, now: tokio::time::Instant) {
-        if let Some(at) = self.dropped_at.take()
-            && now.saturating_duration_since(at) <= self.reopen
-        {
+        let struggled = std::mem::take(&mut self.struggled);
+        let probed = std::mem::take(&mut self.probe_dropped);
+        let dropped = self.dropped_at.take();
+        if struggled {
+            // The network was gone: what the last links taught does not carry into the next drop.
+            self.current = self.floor;
+            self.moved_at = None;
+            self.longest = Duration::ZERO;
+            self.slow_proven = false;
+            return;
+        }
+        if probed {
+            self.slow_proven = true;
+            self.raise(self.current * 2, now);
+        } else if dropped.is_some_and(|at| now.saturating_duration_since(at) <= self.reopen) {
             self.raise(self.current * 2, now);
         }
     }
@@ -190,6 +236,9 @@ impl SilenceBudget {
         self.current = (self.current / 2).max(self.longest * 2).max(self.floor);
         self.moved_at = (self.current > self.floor).then_some(now);
         self.longest = Duration::ZERO;
+        if self.moved_at.is_none() {
+            self.slow_proven = false;
+        }
     }
 }
 
@@ -229,6 +278,23 @@ impl Backoff {
 
     pub fn reset(&mut self) {
         self.failures = 0;
+    }
+
+    /// The first wait after the remote refused this computer's ssh login.
+    pub const LOGIN_REFUSED_BASE: Duration = Duration::from_secs(5 * 60);
+    /// The longest wait between refused logins.
+    pub const LOGIN_REFUSED_CAP: Duration = Duration::from_secs(60 * 60);
+
+    /// The least wait after the `refusals`-th refused ssh login in a row (1 for the first):
+    /// doubling from `LOGIN_REFUSED_BASE` to `LOGIN_REFUSED_CAP`, plus up to a fifth more with
+    /// `jitter`. A refused key does not fix itself in seconds, and each attempt counts against the
+    /// remote's limit on failed logins (a ban tool blocks an address after a few in minutes), so a
+    /// computer never redials it in a loop; an explicit reconnect still tries at once.
+    pub fn login_refused(refusals: u32, jitter: f64) -> Duration {
+        let doublings = refusals.saturating_sub(1).min(8);
+        let step =
+            Self::LOGIN_REFUSED_BASE.saturating_mul(1u32 << doublings).min(Self::LOGIN_REFUSED_CAP);
+        step + step.mul_f64(jitter.clamp(0.0, 1.0) / 5.0)
     }
 
     /// Steps drawn since the last `reset`.
@@ -992,6 +1058,62 @@ mod tests {
         budget.answered_after(secs(8), at);
         budget.settle(at + t.stable_after);
         assert_eq!(budget.current(), secs(16));
+    }
+
+    /// Run 43783279032: 10 s network drops grew the budget 6 -> 12 -> 20 s, and each later drop
+    /// took the grown budget to be noticed. A redial that failed first was a network loss.
+    #[tokio::test(start_paused = true)]
+    async fn a_network_loss_neither_grows_the_budget_nor_keeps_a_grown_one() {
+        let t = LinkTimings::default();
+        let mut budget = SilenceBudget::new(&t);
+        let start = tokio::time::Instant::now();
+        let secs = Duration::from_secs;
+        budget.answered_after(secs(5), start);
+        assert_eq!(budget.current(), secs(10));
+        budget.dropped(start);
+        budget.dial_struggled();
+        budget.opened(start + secs(1));
+        assert_eq!(
+            budget.current(),
+            secs(6),
+            "a redial that failed first: back at the start, not doubled"
+        );
+        budget.dropped(start);
+        budget.dial_struggled();
+        budget.opened(start + secs(1));
+        assert_eq!(
+            budget.current(),
+            secs(6),
+            "a connect started over while the network was down: same"
+        );
+        budget.dropped(start);
+        budget.opened(start + secs(1));
+        assert_eq!(budget.current(), secs(12), "a clean reopen still reads as a slow peer");
+    }
+
+    /// A request probe that dropped a link which opened again at once found a slow peer: the
+    /// budget doubles and requests stop probing it until the budget is back at the start.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_peer_found_by_a_request_probe_is_not_probed_again() {
+        let t = LinkTimings::default();
+        let mut budget = SilenceBudget::new(&t);
+        let start = tokio::time::Instant::now();
+        let secs = Duration::from_secs;
+        assert!(budget.may_probe());
+        budget.probe_dropped();
+        budget.opened(start);
+        assert_eq!(budget.current(), secs(12));
+        assert!(!budget.may_probe(), "slow, not gone");
+        budget.settle(start + t.stable_after);
+        assert_eq!(budget.current(), secs(6));
+        assert!(budget.may_probe(), "calm again: requests may check the link");
+        budget.probe_dropped();
+        budget.dial_struggled();
+        budget.opened(start);
+        assert!(
+            budget.may_probe() && budget.current() == secs(6),
+            "a probe drop whose redial failed was a network loss"
+        );
     }
 
     #[test]

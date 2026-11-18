@@ -15,6 +15,9 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+pub(crate) mod history_window;
+use attach::window_replay_locked;
+use history_window::{HistoryWindow, WindowPlan};
 #[cfg(unix)]
 mod holder_spawn;
 mod host_launch;
@@ -298,6 +301,10 @@ pub struct AttachStream {
     /// Rows of history older than the replay's first row, left out by a
     /// tail replay (`replay_history_rows`); `None` for a whole replay.
     pub history_rows_omitted: Option<u64>,
+    /// Rows of history between a window replay's last row and the screen,
+    /// left out (`replay_history_start`); `None` when the replay reaches the
+    /// screen.
+    pub history_rows_skipped: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -330,6 +337,10 @@ pub enum AttachFrame {
         kitty_state: KittyReplayState,
         colors: Box<TerminalColors>,
         pending_sequence: Arc<[u8]>,
+        /// The replay holds the viewer's history window
+        /// (`replay_history_rows`): the older rows it left out. `None`: the
+        /// whole history.
+        history_rows_omitted: Option<u64>,
     },
     ColorsChanged(Arc<TerminalColors>),
 }
@@ -676,6 +687,10 @@ impl Surface {
         self.as_pty().map(|pty| &pty.tail_pin)
     }
 
+    pub(crate) fn port_mark(&self) -> Option<&crate::mux::PortMark> {
+        self.as_pty().map(|pty| &pty.port_mark)
+    }
+
     pub(crate) fn terminal_runtime_id(&self) -> Option<SurfaceId> {
         match self {
             Surface::Pty(surface) => Some(surface.event_surface_id),
@@ -834,6 +849,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -864,6 +880,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
@@ -933,6 +951,17 @@ impl Surface {
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
         Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface)?;
+
+        // A daemon restart adopts a host whose screen may have advanced while
+        // no parser tap existed. Mark that cut before the reader starts so an
+        // idle adopted terminal is projected from its live screen too.
+        if adopted
+            && let Some(mux) = mux.upgrade()
+            && let Some(pty) = surface.as_pty()
+            && let Some(terminal_id) = pty.terminal_public_id.clone()
+        {
+            mux.output_store.stream_gap(&terminal_id, &pty.journal_generation);
+        }
 
         // Keep exact-child rollback ownership armed through the final thread
         // spawn. If Builder::spawn fails, dropping the closure clone and

@@ -206,7 +206,7 @@ import Testing
 
     static func controller(_ home: Home, config: String, design: DesignSettings = DesignSettings()) throws -> SettingsController {
         try Data(config.utf8).write(to: home.config)
-        return SettingsController(registry: .standard(), design: design, fileURL: home.config,
+        return SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: design, fileURL: home.config,
                                   managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
     }
 

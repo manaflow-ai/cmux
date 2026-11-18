@@ -14,6 +14,10 @@ path = "tests/test_appcast_minimum_system_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_appcast_require_arm64.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
@@ -232,6 +236,10 @@ path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_generated_merge.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
@@ -270,6 +278,11 @@ path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hook_python.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
+
+[[test]]
 path = "tests/test_hosted_queue_wait.py"
 lane = "linux-guard"
 
@@ -284,6 +297,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_indexnow_notification.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_axe_ci.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing either (under a second, no build)."
 
 [[test]]
 path = "tests/test_install_git_hooks.py"
@@ -430,10 +448,6 @@ path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_mobile_attach_prefers_iroh.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
 
@@ -489,6 +503,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_one_permission_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
 
@@ -502,6 +520,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_payload_advisories.py"
 lane = "linux-guard"
 
 [[test]]
@@ -704,6 +726,11 @@ path = "tests/test_send_path_caps.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_export_key_drift.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/cmux-next/settings-export-key-drift.py and the pre-push gate's settings export keys check; run python3 tests/test_settings_export_key_drift.py yourself after changing either (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_settings_stamp_not_committed.py"
 lane = "manual"
 reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
@@ -848,6 +875,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_unittest_shard.py"
+lane = "manual"
+reason = "Run by the lane that changes tests/unittest_shard.py (no new CI tests): python3 -I tests/test_unittest_shard.py; needs only python3."
 
 [[test]]
 path = "tests/test_update_release_tag.py"

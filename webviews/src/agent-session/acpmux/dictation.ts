@@ -12,6 +12,7 @@ import { composerSettingsSnapshot } from "./composerSettings";
 import { handoffFailure } from "./dictationSources";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// Native dictation for the composer. Swift owns the microphone and speech engine
 /// (CmuxNextAgentPane `AgentPaneDictation`); this splices its text at the prompt's cursor,
@@ -178,7 +179,8 @@ export function useDictation(
         else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
       }
       // A session the shortcut started writes where the user will type, as undoable edits.
-      if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
+      if (update.state === "starting" && document.hasFocus() && !field.focused())
+        focusRoute(field, "system", "dictation started");
       const splice = applyDictation(field.text(), anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
@@ -292,7 +294,7 @@ export function useDictation(
       state,
       notice,
       toggle() {
-        if (!active) prompt.current?.focus();
+        if (!active) focusRoute(prompt.current, "system", "dictation ended");
         // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
         // own that still runs is stopped by it as before.
         const source = composerSettingsSnapshot().dictationSource;
@@ -322,7 +324,7 @@ export function useDictation(
       },
       finish(then) {
         // The keyboard stays in (or returns to) the prompt, where the words are.
-        prompt.current?.focus();
+        focusRoute(prompt.current, "system", "dictation");
         if (then) afterFinish.current = then;
         // Already finalizing: the last words are on their way, and `then` waits for them.
         if (state !== "finalizing") void call("dictation.stop").catch(() => {});

@@ -155,6 +155,10 @@ fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
     };
     assert_eq!(dead["dead"], true, "{dead}");
     assert_eq!(dead["relaunch"]["on_show"], true, "the tab without a PTY is not parked: {dead}");
+    assert_eq!(
+        dead["end"]["launch_failure"], "pty_capacity_exhausted",
+        "the end of a respawn that found no free PTY does not name that cause: {dead}"
+    );
 
     let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
     assert_eq!(restarted["ok"], true, "{restarted}");

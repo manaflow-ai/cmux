@@ -86,6 +86,8 @@ extension ActionRegistry {
         var keys: [String] = []
         if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
         if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) { keys.append(base) }
+        // The Enter key (keypad Enter, fn-Return: U+0003) is Return for a shortcut, as in Chrome; no binding names Enter.
+        if keys.contains("\u{3}"), !keys.contains("\r") { keys.append("\r") }
         return keys.map { Shortcut($0, modifiers: flags) }
     }
 }

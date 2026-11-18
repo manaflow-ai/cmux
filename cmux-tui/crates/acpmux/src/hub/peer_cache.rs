@@ -246,7 +246,7 @@ impl Hub {
 
     /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
     /// attachments before it went: what a server test sends to while the peer is unreachable.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
         use crate::peer::PeerNotice;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
@@ -261,10 +261,8 @@ impl Hub {
     /// `peer`'s link back and ready, listing `rows` again: what a finished handshake leaves.
     #[cfg(test)]
     pub(crate) fn seed_peer_back(&self, peer: &crate::peer::Peer, rows: Vec<Value>) {
-        use crate::peer::PeerNotice;
         peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
-        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
+        self.seed_peer_listed(peer, rows);
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and
