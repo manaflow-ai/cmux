@@ -138,6 +138,11 @@ export class SessionPager<S extends Summary> {
    * notice below it is older than the row held (`fresh`).
    */
   follows = false;
+  /** Whether a watch started now reads only the rows changed since the list held whole: acpmux
+   *  follows (`follows`), the list is whole and nothing reads it. */
+  get followable(): boolean {
+    return this.follows && !this.loading && this.cursor !== undefined;
+  }
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;

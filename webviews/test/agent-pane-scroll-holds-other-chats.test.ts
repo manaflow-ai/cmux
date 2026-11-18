@@ -274,7 +274,7 @@ test("another page's scroll holds this page's waits until it rests", () => {
 
 test("a scroll that goes on holds a change at most the hold limit", () => {
   const clock = manualClock();
-  const quiet = createScrollQuiet(clock, undefined);
+  const quiet = createScrollQuiet(clock, null);
   let ran = 0;
   quiet.scrolled();
   quiet.afterScroll(() => (ran += 1));
@@ -290,7 +290,7 @@ test("a scroll that goes on holds a change at most the hold limit", () => {
 
 test("a cancelled wait never runs", () => {
   const clock = manualClock();
-  const quiet = createScrollQuiet(clock, undefined);
+  const quiet = createScrollQuiet(clock, null);
   let ran = 0;
   quiet.scrolled();
   const cancel = quiet.afterScroll(() => (ran += 1));
