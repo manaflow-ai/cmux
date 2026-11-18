@@ -64,9 +64,20 @@ where
     }
 }
 
+/// Baseline: the transcript draws only its visible rows, but each frame looks for a pending
+/// permission (`Transcript::pending_permission`, from `render::draw` and `live_answering`) by
+/// reading items from the newest until it finds one: with none pending, every item, about four
+/// times a frame (#46143 review P1-F1). Cache the pending permission, then flip to `Expect::Flat`.
 #[test]
 fn the_transcript_draws_only_its_visible_rows() {
-    contract("acpmux transcript", Expect::Flat, sizes(transcript_at)).unwrap();
+    contract(
+        "acpmux transcript",
+        Expect::Grows(
+            "its pending-permission scan reads every item; cache it, then flip to Expect::Flat",
+        ),
+        sizes(transcript_at),
+    )
+    .unwrap();
 }
 
 /// Baseline: the sidebar copies every session's JSON, filters and groups them all, and builds an
