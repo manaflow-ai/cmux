@@ -220,8 +220,10 @@ pub struct Detection {
     pub visible_blocker: bool,
     pub visible_working: bool,
     /// The matched rule is the agent's idle chrome (`visible_idle`) and no
-    /// working rule of its manifest has a higher priority, so no working
-    /// rule can win while this screen shows.
+    /// working rule of its manifest has a higher priority. A working rule
+    /// with a lower priority cannot win while this rule matches; one with
+    /// the same priority wins only when it is listed first and matches too.
+    /// The field is of the matched rule, not of the whole manifest.
     pub idle_above_working: bool,
 }
 

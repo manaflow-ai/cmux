@@ -20,16 +20,22 @@
 //! output still reads as work one time, and the state is then `idle`. And an
 //! agent with no hook, whose turn starts on its idle prompt, reads `working`
 //! at the first read that matches its working rule: at most one read
-//! interval after the first frame that shows it.
+//! interval after the first frame that shows it, when that read sees the
+//! working frame. A read that sees the prompt and no working frame adds one
+//! interval, and a turn that ends before the next read gets no `working`
+//! report. No row here drives those two cases.
 //!
-//! The last row holds the one exception: a manifest whose idle rule is above
-//! each of its working rules. No working rule can win on that prompt, so
-//! output still starts `working` there.
+//! One row holds the one exception: an idle rule that no working rule of
+//! its manifest is above. No working rule below it can win on that prompt,
+//! so output still starts `working` there. Two more rows hold the
+//! condition itself: one with manifests of the row's own (no working rule,
+//! a lower one, a tie in each order, a higher one), and one that names the
+//! bundled manifests where the condition is true.
 
 use std::time::{Duration, Instant};
 
 use cmux_agent_screen_detection::detect::{AgentState, ScreenDetectTracker};
-use cmux_agent_screen_detection::manifest::{DetectionInput, ManifestSet};
+use cmux_agent_screen_detection::manifest::{Detection, DetectionInput, ManifestSet, ScreenState};
 
 const TERMINAL: &str = "term_00000000000000000000000000000e07";
 /// The one redraw. The read before it is then older than the tracker's 1 s
@@ -192,7 +198,8 @@ const LATER_REDRAW_AT_MS: u64 = 5_000;
 /// The first frame of a turn that shows the spinner: one tick after the read
 /// of the turn's first output, the worst case for the next read.
 const FIRST_WORKING_FRAME_MS: u64 = OUTPUT_AT_MS + TICK_MS;
-/// The tracker's pace on a screen that does not go quiet.
+/// The tracker's pace on a screen that does not go quiet. The row's own copy
+/// of the crate's `MAX_EVAL_INTERVAL_MS`, which the crate does not export.
 const READ_INTERVAL_MS: u64 = 1_000;
 
 /// Drives the tracker over `frame`, which answers the screen and the output
@@ -254,7 +261,9 @@ fn after_blocked_one_redraw_makes_at_most_one_working_and_one_idle_report() {
 /// with the prompt and no spinner; the tracker reads it at once and it stays
 /// `idle`. The `working` report comes at the first read that matches the
 /// working rule: at most one read interval after the first frame that shows
-/// the spinner.
+/// the spinner, when that read sees the spinner. Here each later read does.
+/// The row does not hold a turn that ends before that read, or a read that
+/// lands between two parts of a redraw: each such read adds one interval.
 #[test]
 fn the_start_of_a_turn_is_reported_within_one_read_interval() {
     let emitted = drive_frames("claude", |ms| {
@@ -303,4 +312,86 @@ fn output_still_starts_work_where_the_idle_rule_is_above_each_working_rule() {
         ],
         "output on a prompt that no working rule can out-rank did not read as work"
     );
+}
+
+/// The idle rule of the row's own manifests: the agent's idle chrome, at
+/// priority 100.
+const ROW_IDLE_RULE: &str = "[[rules]]\nid = \"prompt_idle\"\nstate = \"idle\"\npriority = 100\n\
+     visible_idle = true\ncontains = [\"ready\"]\n";
+
+/// A working rule of the row's own manifests at `priority`.
+fn row_working_rule(priority: i32) -> String {
+    format!(
+        "[[rules]]\nid = \"spinner_working\"\nstate = \"working\"\npriority = {priority}\n\
+         visible_working = true\ncontains = [\"busy\"]\n"
+    )
+}
+
+/// What a manifest made of `rules`, in that order, says of `screen`.
+fn detect_in(rules: &str, screen: &str) -> Detection {
+    let source = format!("id = \"row-agent\"\n\n{rules}");
+    let set = ManifestSet::from_sources(&[("row-agent", source.as_str())]).expect("row manifest");
+    let manifest = set.manifests().next().expect("one manifest");
+    manifest.detect(DetectionInput { screen, osc_title: "", osc_progress: "" })
+}
+
+/// The condition of the exception, by the manifest's priorities alone: the
+/// matched rule is the idle chrome and no working rule has a higher
+/// priority. A tie counts as the idle rule's.
+#[test]
+fn the_idle_rule_counts_as_above_when_no_working_rule_has_a_higher_priority() {
+    let idle = "ready\n";
+    let with_working = |priority: i32, working_first: bool| {
+        let working = row_working_rule(priority);
+        if working_first {
+            format!("{working}{ROW_IDLE_RULE}")
+        } else {
+            format!("{ROW_IDLE_RULE}{working}")
+        }
+    };
+    assert!(detect_in(ROW_IDLE_RULE, idle).idle_above_working, "no working rule");
+    assert!(detect_in(&with_working(90, false), idle).idle_above_working, "a lower working rule");
+    assert!(detect_in(&with_working(100, false), idle).idle_above_working, "a tie, idle first");
+    assert!(detect_in(&with_working(100, true), idle).idle_above_working, "a tie, working first");
+    assert!(
+        !detect_in(&with_working(110, false), idle).idle_above_working,
+        "a higher working rule"
+    );
+    assert!(!detect_in(ROW_IDLE_RULE, "no rule knows this\n").idle_above_working, "no match");
+
+    // A screen that matches both rules of a tie: the rule listed first wins.
+    // The field is the matched rule's, so it is true only when that is the
+    // idle rule.
+    let both = "ready\nbusy\n";
+    let working_won = detect_in(&with_working(100, true), both);
+    assert_eq!((working_won.state, working_won.idle_above_working), (ScreenState::Working, false));
+    let idle_won = detect_in(&with_working(100, false), both);
+    assert_eq!((idle_won.state, idle_won.idle_above_working), (ScreenState::Idle, true));
+}
+
+/// The bundled manifests where an idle rule with `visible_idle` has no
+/// working rule above it. For each name in this list one redraw of the idle
+/// prompt still makes a `working` and an `idle` report. A sync of the
+/// manifests that changes a priority shows here.
+#[test]
+fn of_the_bundled_manifests_only_kiro_has_an_idle_rule_above_each_working_rule() {
+    let input = DetectionInput { screen: "x\n", osc_title: "", osc_progress: "" };
+    let mut names = Vec::new();
+    for manifest in ManifestSet::bundled().manifests() {
+        let rules = manifest.explain(input).evaluated_rules;
+        let top_working = rules
+            .iter()
+            .filter(|rule| rule.state == ScreenState::Working)
+            .map(|rule| rule.priority)
+            .max();
+        let above = rules.iter().any(|rule| {
+            rule.visible_idle
+                && rule.state == ScreenState::Idle
+                && top_working.is_none_or(|working| rule.priority >= working)
+        });
+        if above {
+            names.push(manifest.id().to_owned());
+        }
+    }
+    assert_eq!(names, ["kiro"], "the bundled manifests with an idle rule above each working rule");
 }

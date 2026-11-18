@@ -428,10 +428,10 @@ impl ScreenDetectTracker {
     /// read can land between two parts of a redraw and see the prompt with
     /// no spinner.
     ///
-    /// One exception: a manifest whose idle rule is above each of its working
-    /// rules ([`Detection::idle_above_working`]). No working rule can win on
-    /// that prompt, so output is the only fact of work there and still
-    /// starts it.
+    /// One exception: a read whose matched idle rule has no working rule of
+    /// its manifest above it ([`Detection::idle_above_working`]). A working
+    /// rule can win on that prompt only at a tie of priorities, so output is
+    /// the fact of work there and still starts it.
     pub fn apply_output_activity(
         &mut self,
         terminal_id: &str,
