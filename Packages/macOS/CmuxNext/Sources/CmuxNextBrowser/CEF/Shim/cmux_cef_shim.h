@@ -1004,8 +1004,8 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status,
 // (the live web loop, web-dev.json). Any thread; applies to the next request.
 CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
 // The browser whose agent chat (cmux-page://cmux.agent/) top document is answered with
-// `Cross-Origin-Opener-Policy: same-origin` and `Origin-Agent-Cluster: ?1`, which puts that document
-// in the chat site's one isolated renderer instead of the renderer every other chat shares
+// `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (cross-
+// origin isolated), which puts that document in the chat site's one isolated renderer instead of the renderer every other chat shares
 // (OwnRendererHeaders, cmux_page_path.h). 0 for none. Main thread; applies to the next load.
 CMUX_SHIM_EXPORT void cmux_shim_page_own_renderer(int browser_id);
 
