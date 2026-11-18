@@ -7496,8 +7496,11 @@ struct TerminalForegroundDirectoryPreferenceTests {
     }
 
     @Test("never resurrects a directory when provenance was withheld")
-    func doesNotResurrectWithheldDirectory() {
-        #expect(selector("", "/repo/.claude/worktrees/wt") == "")
+    func doesNotResurrectWithheldDirectory() throws {
+        let worktree = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: worktree) }
+
+        #expect(selector("", worktree.path) == "")
     }
 
     @Test("does not use the cwd of a terminal multiplexer client")
