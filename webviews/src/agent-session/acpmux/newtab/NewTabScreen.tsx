@@ -25,7 +25,16 @@ import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  mostRecentProject,
+  projectLabel,
+  sessionMark,
+  folderFields,
+  SessionsBy,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -444,9 +453,14 @@ export function NewTabScreen(props: Props) {
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
+  // The chats as their folders read them (sessionList.ts `folderFields`): another chat working changes
+  // none of them, so the newest project is not looked for again in every chat on each of its events.
+  const folderSessions = useRef<SessionsBy>(null);
+  folderSessions.current ??= new SessionsBy(folderFields);
+  const foldersOf = folderSessions.current.of(snapshot.sessions);
   const candidate = useMemo(
-    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
-    [startsRecent, snapshot.sessions, home, props.knownProjects],
+    () => (startsRecent ? mostRecentProject(foldersOf, home, props.knownProjects) : undefined),
+    [startsRecent, foldersOf, home, props.knownProjects],
   );
   // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
   // flipped to the recent project): the newest in the chats the page already has, else the newest a
