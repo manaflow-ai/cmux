@@ -78,4 +78,17 @@ struct AgentPaneSeenChatMarkTests {
         defer { window.close() }
         #expect(try await Self.slowOpenShowsMark(view), "a chat never shown and still loading after the beat showed no busy mark")
     }
+
+    @Test func seenChatsAreBoundedByCountAndAge() {
+        var now = ContinuousClock.now
+        let seen = AgentPaneSeenChats(limit: 3, window: .seconds(3_600), clock: { now })
+        for name in ["a", "b", "c", "d"] { seen.noteShown(name) }
+        #expect(!seen.wasShown("a"), "a chat past the count bound still counted as shown")
+        #expect(seen.wasShown("b") && seen.wasShown("d"))
+        #expect(seen.count == 3, "the store grew past its bound")
+        now += .seconds(3_601)
+        #expect(!seen.wasShown("d"), "a chat shown over an hour ago still counted as shown")
+        seen.noteShown("e")
+        #expect(seen.count == 1, "chats past the window stayed in the store")
+    }
 }
