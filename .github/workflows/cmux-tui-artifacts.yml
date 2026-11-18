@@ -3135,7 +3135,7 @@ jobs:
     # Every push verify-cdn-publication checks whose run builds nothing: the
     # macOS targets are off (a published tree), or another run owns the key.
     # main always builds; a superseded push publishes nothing on purpose.
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true' &&
       github.event_name == 'push' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') &&
       (needs.tree-preflight.outputs.run_macos != 'true' ||
       (needs.tree-preflight.outputs.owns_key != 'true' && needs.tree-owner-wait.outputs.takeover != 'true')) }}
@@ -3351,7 +3351,7 @@ jobs:
   rerun-deferred-commits:
     name: re-run the runs that deferred to the published tree
     needs: [tree-preflight, publish-tree, adopt-commit-manifest]
-    if: ${{ always() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' &&
       (needs.publish-tree.result == 'success' || needs.adopt-commit-manifest.outputs.state == 'adopted') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
@@ -3398,7 +3398,7 @@ jobs:
   # gate so a skipped publish is also red when its manifest is missing.
   verify-cdn-publication:
     name: verify cmux-tui CDN publication
-    if: ${{ always() && needs.tree-preflight.result == 'success' &&
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'))) &&
       !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
@@ -3616,7 +3616,7 @@ jobs:
   macos-cross-runtime-x86_64:
     name: macOS cross-compile run-time check (x86_64 under Rosetta, compare only)
     needs: [macos-cross-shadow]
-    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    if: ${{ !cancelled() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled' }}
     # Pin pushes have their own daemon pool and must not join the PR side lane.
     # When that pool is unset, the light owned lane is the safe shared fallback;
     # Blacksmith 6 vCPU remains the final overflow route only while its switch is on.
@@ -4946,7 +4946,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
+    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # Secrets only: no deployment on the PR. The hand-off's spare token (below) is the cmux-bot App's.
@@ -5030,7 +5030,7 @@ jobs:
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
-    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (needs.build.result == 'success' || needs.build-linux.result == 'success' || needs.build-darwin-fallback.result == 'success') && needs.notify-unpublished-tree.result == 'skipped' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # A failed drop leaves the artifacts to their 1-day retention; it never turns the run red.

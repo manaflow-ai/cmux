@@ -1408,7 +1408,7 @@ jobs:
   # manifest is saved to the cache store the router restores it from.
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
@@ -1458,7 +1458,7 @@ jobs:
   # finishing together may drop one of their runs, which costs one data point.
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ always() && github.event_name == 'push' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:

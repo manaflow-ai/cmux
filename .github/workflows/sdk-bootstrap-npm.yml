@@ -272,7 +272,7 @@ jobs:
       - preflight
       - publish
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')

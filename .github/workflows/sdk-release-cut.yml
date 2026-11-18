@@ -16,6 +16,7 @@ concurrency:
 jobs:
   validate-release:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -155,6 +156,7 @@ jobs:
       - typescript-preflight
       - python-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -366,6 +368,7 @@ jobs:
       - python-preflight
       - registry-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -1444,6 +1447,7 @@ jobs:
       - publish-python-wheel
       - publish-python-sdist
     runs-on: ubuntu-latest # github-hosted-required: npm provenance verification
+    timeout-minutes: 20
     permissions:
       actions: read
       contents: read
@@ -1539,7 +1543,7 @@ jobs:
             --expected-ref refs/heads/main
 
   summarize:
-    if: always()
+    if: ${{ !cancelled() }}
     needs:
       - validate-release
       - rust-preflight
@@ -1557,6 +1561,7 @@ jobs:
       - publish-python-sdist
       - verify-stable-provenance
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions: {}
     steps:
       - name: Summarize release

@@ -1121,7 +1121,7 @@ jobs:
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
-      always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
+      !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) ||
       (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && inputs.image_rollback != '')) &&
       !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')

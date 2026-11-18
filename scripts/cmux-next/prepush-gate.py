@@ -339,9 +339,23 @@ PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is n
 # The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
 # scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
 # production until cmux#43866 synced main's. Local only (CLAUDE.md: no new CI gates; Lawrence, 2026-10-23).
-MAIN_TWIN_CHECK = "Production journey workflow matches main's (the schedule runs main's copy)"
-MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"
+#
+# Every scheduled workflow is held the same way (cmuxterm-hq docs/investigations/2026-11-18-boneheaded-designs.md
+# section 10: thirteen scheduled files existed only here and never fired, and all 33 on both branches differed): a push
+# that changes a workflow with a `schedule:` is refused when main has no copy of it (the schedule never fires) or when
+# its jobs or crons now differ from main's, unless a pushed commit names the main twin in a `Main-Twin:` trailer.
+# NO_MAIN_TWIN lists the scheduled files that stay here on purpose, each with why.
+MAIN_TWIN_CHECK = "Scheduled workflows match main's (a schedule runs main's copy)"
+MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"  # compared whether or not it has a schedule
+MAIN_TWIN_DIR = ".github/workflows/"
 MAIN_TWIN_REF = "refs/remotes/origin/main"
+MAIN_TWIN_SCHEDULE = re.compile(r"^  schedule:[ \t]*(#.*)?$", re.MULTILINE)
+MAIN_TWIN_CRON = re.compile(r"^\s*-\s*cron:\s*['\"]?([^'\"#\n]+?)['\"]?\s*(#.*)?$", re.MULTILINE)
+NO_MAIN_TWIN = {
+    "ios-testflight.yml": "a TestFlight delivery workflow (secrets, uploads): turning its schedule on is its owner's call",
+    "ios-internal-nightly-trigger.yml": "the INTERNAL nightly builder's trigger: turning it on is the nightly owner's call",
+    "nightly-next-cua-signed-host.yml": "an hourly nightly-next Mac check: turning it on is the nightly owner's call",
+}
 MAIN_TWIN_TRAILER = re.compile(r"^Main-Twin:[ \t]*\S", re.MULTILINE)
 # feat-cmux-next's `environment: {name, deployment: false}` and main's `environment: NAME` are one setting to compare.
 MAIN_TWIN_ENV_BLOCK = re.compile(r"^(\s*)environment:\n\s+name: (\S+)\n\s+deployment: false$")
@@ -1910,36 +1924,124 @@ def _journey_jobs(text: str) -> str:
     return "\n".join(out)
 
 
-def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
-    """What head adds to MAIN_TWIN_CHECK: a change to the production journey workflow's jobs that main's copy lacks.
+def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
+    """What a schedule runs from a workflow file: its jobs as _journey_jobs reads them, and its crons."""
+    crons = tuple(sorted(m.group(1).strip() for m in MAIN_TWIN_CRON.finditer(text))) if MAIN_TWIN_SCHEDULE.search(
+        text) else ()
+    return _journey_jobs(text), crons
 
-    The schedule registers from main, so main's definition is what runs in production; only the scripts come from
-    feat-cmux-next. cmux#43781 changed feat-cmux-next's copy (--preclaim-login) and production never ran it until
-    cmux#43866 brought main's copy along. A push that changes MAIN_TWIN_FILE's jobs so they differ from main's is
-    refused, unless a pushed commit that changes the file names the main twin PR in a `Main-Twin:` trailer. A push
-    that leaves the jobs as base had them (comments only) or makes them match main passes, and so does a push when
-    main's copy cannot be read (local only: the twin rule is not a CI gate)."""
-    names = git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_FILE,
-                check=False).decode(errors="replace").split()
-    if MAIN_TWIN_FILE not in names:
+
+def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
+    """What head adds to MAIN_TWIN_CHECK: a scheduled workflow that main lacks, or whose jobs or crons main's lacks.
+
+    A schedule registers from main, so main's definition is what runs; only scripts come from feat-cmux-next.
+    cmux#43781 changed feat-cmux-next's copy of the production journey (--preclaim-login) and production never ran it
+    until cmux#43866 brought main's copy along; thirteen scheduled files never fired at all (boneheaded-designs
+    section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
+    a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
+    is refused, unless the push left them as base had them or a pushed commit that changes the file names the main
+    twin PR in a `Main-Twin:` trailer. A push when main cannot be read passes (local only: not a CI gate)."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+    main_readable = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", main_ref],
+                                   capture_output=True).returncode == 0
+    if not main_readable:
         return []
 
-    def read(rev: str) -> str | None:
-        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{MAIN_TWIN_FILE}"], capture_output=True)
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
         return done.stdout.decode(errors="replace") if done.returncode == 0 else None
 
-    ours, before, main = read(head), read(base), read(main_ref)
-    if ours is None or main is None:
+    problems = []
+    for name in names:
+        ours, before, main = read(head, name), read(base, name), read(main_ref, name)
+        if ours is None:
+            continue  # deleted here: nothing of this branch's is left to fire
+        scheduled = bool(MAIN_TWIN_SCHEDULE.search(ours) or (main and MAIN_TWIN_SCHEDULE.search(main)))
+        if name != MAIN_TWIN_FILE and not scheduled:
+            continue
+        messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", name,
+                       check=False).decode(errors="replace")
+        if MAIN_TWIN_TRAILER.search(messages):
+            continue
+        if main is None:
+            if name == MAIN_TWIN_FILE or Path(name).name in NO_MAIN_TWIN or not MAIN_TWIN_SCHEDULE.search(ours):
+                continue
+            problems.append(f"{name}: has a schedule, but {main_ref} has no copy of it, so the schedule never fires. "
+                            f"Add the same file to main, or drop the schedule, or list it in NO_MAIN_TWIN with why. "
+                            f"{MAIN_TWIN_HINT}")
+            continue
+        shape = _twin_shape(ours)
+        if re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
+            # main's copy is a dispatcher (cmux-next-ios-kit.yml's shape): its cron starts this file on
+            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree.
+            crons = shape[1]
+            if not crons or crons == _twin_shape(main)[1] or (before is not None and crons == _twin_shape(before)[1]):
+                continue
+            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s dispatcher "
+                            f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
+            continue
+        if shape == _twin_shape(main) or (before is not None and shape == _twin_shape(before)):
+            continue
+        problems.append(f"{name}: its jobs or crons now differ from {main_ref}'s, and the schedule runs main's copy, so "
+                        f"this change never runs on its schedule. {MAIN_TWIN_HINT}")
+    return problems
+
+
+# A job with no timeout-minutes runs for GitHub's 6 h default when it hangs; a job-level always() with no !cancelled()
+# still queues on a cancelled run and holds its group on a label with no free runner (boneheaded-designs section 11).
+# Local only, like the twin check (CLAUDE.md: no new CI gates); tests/test_ci_workflow_job_bounds.py is the manual check.
+JOB_BOUNDS_CHECK = "Workflow jobs are bounded (a timeout-minutes; no always() on a cancelled run)"
+JOB_BOUNDS_ALLOW = ".github/workflow-job-bounds.json"
+
+
+def job_bounds_drift(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to JOB_BOUNDS_CHECK: a job in a changed workflow that has no timeout-minutes, or a job-level
+    always() with no !cancelled() that .github/workflow-job-bounds.json (at head) does not list. A finding base already
+    had is not the push's. The reader is the trusted hook copy beside this gate (install-git-hooks.sh), else
+    scripts/ci's; a push passes when neither is there."""
+    here = Path(__file__).resolve()
+    module_path = next((p for p in (here.with_name("workflow_job_bounds.py"),
+                                    here.parent.parent / "ci" / "workflow_job_bounds.py") if p.is_file()), None)
+    if module_path is None:
         return []
-    jobs = _journey_jobs(ours)
-    if jobs == _journey_jobs(main) or (before is not None and jobs == _journey_jobs(before)):
+    spec = importlib.util.spec_from_file_location("cmux_workflow_job_bounds", module_path)
+    bounds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bounds)
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
         return []
-    messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", MAIN_TWIN_FILE,
-                   check=False).decode(errors="replace")
-    if MAIN_TWIN_TRAILER.search(messages):
-        return []
-    return [f"{MAIN_TWIN_FILE}: its jobs now differ from {main_ref}'s, and the schedule runs main's copy, so this change "
-            f"never reaches production. {MAIN_TWIN_HINT}"]
+
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    try:
+        allow = json.loads(read(head, JOB_BOUNDS_ALLOW) or "{}").get("always_on_cancel") or {}
+    except ValueError:
+        allow = {}
+    problems = []
+    for name in names:
+        ours = read(head, name)
+        if ours is None:
+            continue
+        short = Path(name).name
+        missing, unguarded = bounds.text_bounds(short, ours)
+        before = read(base, name)
+        old_missing, old_unguarded = bounds.text_bounds(short, before) if before is not None else ([], {})
+        for where in missing:
+            if where not in old_missing:
+                problems.append(f"{where}: no timeout-minutes; size it to the job's p99 plus headroom")
+        for where, cond in unguarded.items():
+            if where not in old_unguarded and where not in allow:
+                problems.append(f"{where}: if: {cond} still queues on a cancelled run; use !cancelled(), or list it in "
+                                f"{JOB_BOUNDS_ALLOW} with why it must run on a cancel")
+    return problems
 
 
 def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -2867,6 +2969,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = main_twin_drift(repo, base, head)
         if drift:
             reserved.append((MAIN_TWIN_CHECK, drift))
+    # Local only, like the twin check (CLAUDE.md: no new CI gates).
+    if (highlights_layer if only is None else "job-bounds" in only) and restrict is None:
+        unbounded = job_bounds_drift(repo, base, head)
+        if unbounded:
+            reserved.append((JOB_BOUNDS_CHECK, unbounded))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -3653,7 +3760,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin")
+                                       "settings-export-keys,main-twin,job-bounds")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child

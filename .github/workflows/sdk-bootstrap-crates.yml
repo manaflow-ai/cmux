@@ -573,7 +573,7 @@ jobs:
       - publish-sdk
       - publish-sidebar
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       needs.preflight.result == 'success' &&
       needs.decisions.result == 'success'

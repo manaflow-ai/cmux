@@ -630,7 +630,7 @@ jobs:
   # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
   seed-link-ffi:
     needs: reviewer-path
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     # A seed that fails never turns the push run red; the report does not need it.
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -686,7 +686,7 @@ jobs:
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
-    if: always() && needs.plan.result == 'success'
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:

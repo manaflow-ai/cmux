@@ -6432,7 +6432,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-352
   same-tree-status-daemon:
     needs: [same-tree-cmux-tui, daemon-test]
-    if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'daemon') }}
+    if: ${{ !cancelled() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'daemon') }}
     name: same-tree status (daemon)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
@@ -6482,7 +6482,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-352
   same-tree-status-scheme:
     needs: [same-tree-cmux-tui, cmux-scheme-compile, crash-ends-app]
-    if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'scheme') }}
+    if: ${{ !cancelled() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'scheme') }}
     name: same-tree status (scheme)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
@@ -7038,7 +7038,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-383
   release-compile-revert:
     needs: [release-compile, release-compile-fast-admission]
-    if: ${{ always() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ !cancelled() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next Release compile revert
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
     # Why: docs/ci/cmux-next-workflow-notes.md#note-344

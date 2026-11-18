@@ -219,6 +219,7 @@ class PrePushGateTests(unittest.TestCase):
             INSTALLER,
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/workflow_job_bounds.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             "scripts/web-lint.sh",

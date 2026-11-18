@@ -22,6 +22,7 @@ jobs:
   validate-version:
     name: validate release source
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
@@ -129,6 +130,7 @@ jobs:
   publish:
     needs: validate-version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read

@@ -854,7 +854,7 @@ jobs:
 
   verdict:
     # The proof passes only when both backends did (or, for cleanup_machine and paused_capture, the staging job that does it).
-    if: ${{ always() && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
     needs: [proof-staging, proof-prod]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5

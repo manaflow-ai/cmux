@@ -575,7 +575,7 @@ jobs:
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
     needs: [route, backend, mac-ios-e2e]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:

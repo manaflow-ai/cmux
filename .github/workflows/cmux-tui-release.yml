@@ -46,6 +46,7 @@ jobs:
   version:
     name: derive package version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -101,6 +102,7 @@ jobs:
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       actions: write
       contents: read
