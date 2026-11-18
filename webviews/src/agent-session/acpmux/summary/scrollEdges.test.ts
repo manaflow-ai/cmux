@@ -288,3 +288,40 @@ test("new children of a boxless wrapper are watched and released with that wrapp
   expect(unobserved).toBe(2);
   stop();
 });
+
+test("a text edit is measured at the coming frame, not in the edit's task, and stopping drops the frame", () => {
+  installDom();
+  const frames = new Map<number, () => void>();
+  let nextFrame = 0;
+  for (const key of ["requestAnimationFrame", "cancelAnimationFrame"]) saved.set(key, scope[key]);
+  Object.assign(scope, {
+    requestAnimationFrame: (callback: () => void) => {
+      nextFrame += 1;
+      frames.set(nextFrame, callback);
+      return nextFrame;
+    },
+    cancelAnimationFrame: (id: number) => frames.delete(id),
+  });
+  const runFrame = () => {
+    const due = [...frames.values()];
+    frames.clear();
+    for (const callback of due) callback();
+  };
+  const { node, attributes } = scroller();
+  const wrapper = element(node);
+  node.children.push(wrapper);
+  const stop = followScrollEdges(node);
+  Object.assign(node, { scrollHeight: 180 });
+  // A typed key: two text records in one task ask for one frame, and read no layout before it.
+  mutate({ nodeType: 3, parentNode: wrapper } as unknown as Node, [], [], "characterData");
+  mutate({ nodeType: 3, parentNode: wrapper } as unknown as Node, [], [], "characterData");
+  expect([...attributes]).toEqual([]);
+  expect(frames.size).toBe(1);
+  runFrame();
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  Object.assign(node, { scrollHeight: 100 });
+  mutate({ nodeType: 3, parentNode: wrapper } as unknown as Node, [], [], "characterData");
+  stop();
+  expect(frames.size).toBe(0);
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+});

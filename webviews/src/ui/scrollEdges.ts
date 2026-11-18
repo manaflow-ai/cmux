@@ -77,15 +77,35 @@ export function followScrollEdges(
     resize.unobserve(element);
   };
   for (const child of node.children) watchChild(child);
+  // A content edit is measured at the coming frame, not in the edit's own task: reading
+  // scrollHeight there forces a layout of everything the edit (and the rest of the page) left
+  // dirty, before the editor and React have even run, and the frame lays it out again. A typed key
+  // in the composer's field paid that layout every key (goal typing-latency). The frame's
+  // callback runs before its paint, so the fade it sets is on the same frame as the edit.
+  let frame: number | undefined;
+  const markAtFrame =
+    typeof requestAnimationFrame === "function"
+      ? () => {
+          frame ??= requestAnimationFrame(() => {
+            frame = undefined;
+            mark();
+          });
+        }
+      : mark;
   const content = new MutationObserver((records) => {
+    let quietChanged = false;
     for (const record of records) {
+      if (record.type === "attributes") quietChanged = true;
       // Descendant edits can alter scrollHeight without resizing a capped/grid-stretched
       // direct child. Remeasure them, but only update resize targets for our outer boxes.
       if (record.type !== "childList" || (record.target !== node && !boxless.has(record.target as Element))) continue;
       for (const child of record.addedNodes) watchChild(child);
       for (const child of record.removedNodes) unwatchChild(child);
     }
-    mark();
+    // The quiet attribute flips inside a frame's own callbacks (composer/fieldGrowth.ts), where a
+    // frame request would land one frame late and show the stale fade it exists to hide.
+    if (quietChanged) mark();
+    else markAtFrame();
   });
   content.observe(node, {
     childList: true,
@@ -96,6 +116,8 @@ export function followScrollEdges(
   node.addEventListener("scroll", mark, { passive: true });
   mark();
   return () => {
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    frame = undefined;
     resize.disconnect();
     content.disconnect();
     children.clear();
