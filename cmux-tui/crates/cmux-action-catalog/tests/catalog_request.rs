@@ -6,9 +6,15 @@ use cmux_action_catalog::request::{LIST_SOURCES, list_source, params};
 use cmux_action_catalog::*;
 use serde_json::{Value, json};
 
-/// Operations that delete a person's data: a row that sends one asks before it runs.
+/// Operations that delete a person's data: a row that sends one asks before it runs, unless it
+/// removes only what the person picked ([`SINGLE_PICK_REMOVES`]).
 const DESTRUCTIVE_OPERATIONS: &[&str] =
     &["closed.delete", "git.worktree.remove", "chief.profile.delete", "history.site.remove"];
+
+/// Rows that remove one thing the person picked (a site's history, one Recently Closed item): the
+/// pick is the confirmation, as removing history entries is in Chrome. Rows that remove
+/// everything at once (Clear Recently Closed) still ask.
+const SINGLE_PICK_REMOVES: &[&str] = &["history.removeSite", "closed.delete"];
 
 /// The target kinds whose daemon id the app's `CatalogRequestHandlers` resolves.
 const RESOLVED_TARGETS: &[&str] = &["workspace", "pane"];
@@ -51,7 +57,10 @@ fn well_formed(action: &Action) -> Result<(), String> {
             _ => {}
         }
     }
-    if DESTRUCTIVE_OPERATIONS.contains(&request.operation) && !action.is_destructive {
+    if DESTRUCTIVE_OPERATIONS.contains(&request.operation)
+        && !action.is_destructive
+        && !SINGLE_PICK_REMOVES.contains(&id)
+    {
         return Err(format!(
             "{id}: {} deletes data, so the row is is_destructive",
             request.operation
