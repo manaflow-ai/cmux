@@ -177,10 +177,12 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
-            // The toolbar's Quality menu runs the palette's Set Screen Sharing Quality… on this tab.
-            page.onPickQuality = { [weak services] preset in
-                services?.registry.perform("remote.setQuality", invocation: ActionInvocation(
-                    target: ActionTargetRef(kind: .tab, id: key), arguments: ["quality": .string(preset.rawValue)], origin: .user))
+            // The toolbar's Quality menu runs the palette's Set Screen Sharing Quality… on this tab; where the
+            // action does not run (Remote Hosts turned off by policy), the menu still sets the quality.
+            page.onPickQuality = { [weak services, weak page] preset in
+                let ran = services?.registry.perform("remote.setQuality", invocation: ActionInvocation(
+                    target: ActionTargetRef(kind: .tab, id: key), arguments: ["quality": .string(preset.rawValue)], origin: .user)) ?? false
+                if !ran { page?.selectQuality(preset) }
             }
             return page
         }
