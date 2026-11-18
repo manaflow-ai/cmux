@@ -43,6 +43,12 @@ pub struct ProviderEngine {
     /// backstop drop), so a late drop of a closed engine never clears the
     /// leases of a new session with the same name.
     ended: std::sync::atomic::AtomicBool,
+    /// `session.configure {incognito: true}` on the app: every later tab
+    /// opens in the session's own in-memory store (one way).
+    incognito: std::sync::atomic::AtomicBool,
+    /// The session asked the app for its own store: its end tells the app
+    /// to close that store's workspace and drop it (`session.ended`).
+    app_store: std::sync::atomic::AtomicBool,
 }
 
 /// Driver methods that only read a tab: they never take or block a lease
@@ -142,6 +148,8 @@ impl ProviderEngine {
             events,
             lease,
             ended: std::sync::atomic::AtomicBool::new(false),
+            incognito: std::sync::atomic::AtomicBool::new(false),
+            app_store: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -216,28 +224,34 @@ impl ProviderEngine {
                         open.insert(key.into(), value.clone());
                     }
                 }
-                // An incognito tab needs a store that keeps nothing: a source
-                // without one (the app: decision D1, issue 13742) refuses the call, never
-                // opening it in the person's persistent profile (private
-                // data P1). A source with one gets the flag either way.
-                match params.get("incognito") {
-                    None | Some(Value::Null) => {}
-                    Some(Value::Bool(incognito)) => {
-                        if self.provider.capabilities(&self.engine).contains(&"incognito") {
-                            open.insert("incognito".into(), Value::Bool(*incognito));
-                        } else if *incognito {
-                            return Err(DriverError::new(
-                                crate::protocol::ErrorCode::Unsupported,
-                                format!(
-                                    "tabs.open: the cmux app opens no incognito tab for agents on {} (incognito is a whole window there); nothing was opened. Use --engine headless for incognito tabs",
-                                    self.engine
-                                ),
-                            ));
-                        }
-                    }
+                // An incognito tab needs a store that keeps nothing (private
+                // data P1). A source with its own (headless) gets the flag
+                // either way. The app (decision D1, issue 13742: the person's
+                // login stays the agents' default) opens it in a store of
+                // this session's own, named by `session`, and must say so.
+                let asked = match params.get("incognito") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Bool(incognito)) => Some(*incognito),
                     Some(_) => {
                         return Err(DriverError::invalid("tabs.open: incognito must be a boolean"));
                     }
+                };
+                let session_incognito = self.incognito.load(std::sync::atomic::Ordering::SeqCst);
+                if session_incognito && asked == Some(false) {
+                    return Err(DriverError::new(
+                        crate::protocol::ErrorCode::Forbidden,
+                        "tabs.open: an incognito session opens only incognito tabs",
+                    ));
+                }
+                let source_store = self.provider.capabilities(&self.engine).contains(&"incognito");
+                let app_store = !source_store && asked.unwrap_or(session_incognito);
+                if source_store {
+                    if let Some(incognito) = asked {
+                        open.insert("incognito".into(), Value::Bool(incognito));
+                    }
+                } else if app_store {
+                    open.insert("incognito".into(), Value::Bool(true));
+                    open.insert("session".into(), Value::String(self.subscription.to_string()));
                 }
                 // A Chromium tab opens blank; the session then navigates it
                 // to the commit, so the reply means the document committed
@@ -245,7 +259,9 @@ impl ProviderEngine {
                 // The tab is the session's (`opened`) before its first
                 // request: on a shared headless browser its own request
                 // filter and response checks apply, not every session's.
-                let navigate = if self.engine == "cef" || self.engine == "headless" {
+                // An app incognito tab loads its page only once the app said
+                // the tab is in the session's store.
+                let navigate = if self.engine == "cef" || self.engine == "headless" || app_store {
                     open.remove("url").filter(|url| url.as_str().is_some_and(|url| !url.is_empty()))
                 } else {
                     None
@@ -254,8 +270,32 @@ impl ProviderEngine {
                 // One deadline for the open and its navigation.
                 let deadline = std::time::Instant::now() + crate::protocol::timeout_of(params);
                 announce();
+                if app_store {
+                    // Set before the open: an open that failed half way may
+                    // still have made the store, and the end must drop it.
+                    self.app_store.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
+                    if app_store && opened.get("incognito") != Some(&Value::Bool(true)) {
+                        // An older app ignored the flag: its blank tab is in
+                        // the person's profile. It closes now, before any page.
+                        let _ = self.provider.call(
+                            "tabs.close",
+                            &json!({
+                                "targetId": target,
+                                "timeoutMs": SESSION_END_CLOSE_MS,
+                                "reason": SESSION_END_REASON,
+                            }),
+                        );
+                        return Err(DriverError::new(
+                            crate::protocol::ErrorCode::Unsupported,
+                            format!(
+                                "tabs.open: this cmux app opens no incognito tab for agents on {}; nothing was loaded. Use `cmux browser repl --engine headless` for incognito tabs",
+                                self.engine
+                            ),
+                        ));
+                    }
                     self.created_tabs().insert(target.to_owned());
                     if params.get("background").and_then(Value::as_bool) != Some(true) {
                         self.set_current(target);
@@ -273,6 +313,37 @@ impl ProviderEngine {
                     }
                 }
                 return Ok(Reply::Value(opened));
+            }
+            // On the app, `session.configure` takes `incognito` alone: the
+            // session's later tabs open in its own store (one way). Every
+            // other option stays unsupported there (below).
+            "session.configure"
+                if !self.provider.capabilities(&self.engine).contains(&"incognito")
+                    && params.as_object().is_some_and(|fields| {
+                        fields.contains_key("incognito")
+                            && fields.keys().all(|key| key == "incognito")
+                    }) =>
+            {
+                let on = match params.get("incognito") {
+                    Some(Value::Bool(on)) => *on,
+                    Some(Value::Null) => false,
+                    _ => {
+                        return Err(DriverError::invalid(
+                            "session.configure: incognito: expected a boolean",
+                        ));
+                    }
+                };
+                if !on && self.incognito.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(DriverError::new(
+                        crate::protocol::ErrorCode::Forbidden,
+                        "session.configure: an incognito session stays incognito",
+                    ));
+                }
+                announce();
+                if on {
+                    self.incognito.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                return Ok(Reply::Value(json!({"proxy": false, "incognito": on})));
             }
             _ => {}
         }
@@ -307,6 +378,18 @@ impl ProviderEngine {
         // Kept: the tab stays open when the session ends (the host owns the
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
+            // An incognito tab's store ends with its session.
+            if self
+                .provider
+                .all_tab_rows()
+                .iter()
+                .any(|row| row.target_id == target_id && row.incognito)
+            {
+                return Err(DriverError::new(
+                    crate::protocol::ErrorCode::Forbidden,
+                    "tab.keep: an incognito tab closes with its session; it cannot be kept",
+                ));
+            }
             self.created_tabs().remove(target_id);
             // Still the session's own tab to list and drive, and a deliverable
             // later agent sessions list (a one-shot eval ends its session).
@@ -548,6 +631,17 @@ impl ProviderEngine {
                     );
                 }
             }
+            // After its tabs closed: the app closes the session store's
+            // workspace and drops the store (cookies, cache, storage).
+            if self.app_store.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = self.provider.call(
+                    "session.ended",
+                    &json!({
+                        "session": self.subscription.to_string(),
+                        "timeoutMs": SESSION_END_CLOSE_MS,
+                    }),
+                );
+            }
             let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
             self.provider.session_ended(self.subscription);
         }
@@ -592,3 +686,7 @@ mod input_tests;
 #[cfg(test)]
 #[path = "provider_engine_reaper_tests.rs"]
 mod reaper_tests;
+
+#[cfg(test)]
+#[path = "provider_engine_incognito_tests.rs"]
+mod incognito_tests;

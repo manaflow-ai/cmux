@@ -263,7 +263,7 @@ impl TabSource for ProviderSource {
                 state: "live".to_owned(),
                 data_store: tab.profile,
                 opener: None,
-                incognito: false,
+                incognito: tab.incognito,
             })
             .collect()
     }

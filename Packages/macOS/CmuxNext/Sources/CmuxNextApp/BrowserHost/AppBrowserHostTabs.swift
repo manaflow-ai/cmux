@@ -43,7 +43,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         let listed = ObservedItemsFeed<WorkspaceModel, WorkspaceTabs>(
             list: { [weak store] in store?.workspaces }, id: { "\(ObjectIdentifier($0))" },
             // This workspace's own facts only (its window kind, its panes' tabs): no id lookup in the session.
-            item: { [weak windows] in $0.tabs(of: .browser, hidden: windows?.isIncognito(workspace: $0) ?? true) })
+            item: { [weak windows] workspace in workspace.tabs(of: .browser, hidden: windows.map { Self.hidesFromAgents(workspace, $0) } ?? true) })
         self.listed = listed
         listed.start()
     }
@@ -59,8 +59,12 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// Tab `targetID` as the list will hold it, from the store's index for that one tab now (exact in the turn of
     /// a create or a close; no session walk): a browser tab of a local workspace, not incognito.
     private func announceable(_ targetID: String) -> (model: TabModel, workspace: String)? {
-        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !services.windows.isIncognito(workspace: found.workspace) else { return nil }
+        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !Self.hidesFromAgents(found.workspace, services.windows) else { return nil }
         return (found.tab, found.workspace.id)
+    }
+    /// Agents never see incognito tabs but those an agent session made in its own workspace (`AgentIncognitoSessions`).
+    private static func hidesFromAgents(_ workspace: WorkspaceModel, _ windows: WindowManager) -> Bool {
+        windows.isIncognito(workspace: workspace) && windows.agentIncognito.session(ofWorkspace: workspace.id) == nil
     }
     func isDrivable(_ targetID: String) -> Bool { announceable(targetID) != nil }
     /// The workspace that holds an announced tab (agent input routing).
@@ -79,12 +83,13 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func providerTab(_ targetID: String) -> ProviderTab? { services.flatMap { services in announced[targetID].map { Self.providerTab($0, services) } } }
     private static func providerTab(_ entry: (model: TabModel, workspace: String), _ services: AppServices) -> ProviderTab {
         let tab = entry.model, cache: TabContentCache = services.cache, page = cache.existingBrowser(tab.id)?.tab
+        // A listed tab is the person's, or an agent session's own incognito one (by its workspace id: no tab lookup).
+        let own = services.windows.agentIncognito.profile(forWorkspace: entry.workspace)
         return ProviderTab(
             targetID: tab.id, engine: engine(of: tab, page: page), workspace: entry.workspace,
-            // A listed tab is not incognito; no lookup of its workspace by id (that reads the session's tab list).
-            profile: (page?.profileID ?? services.browserProfiles.engineProfile(for: tab, incognito: false)).rawValue.uuidString,
+            profile: (page?.profileID ?? own ?? services.browserProfiles.engineProfile(for: tab, incognito: false)).rawValue.uuidString,
             url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-            title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
+            title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false, incognito: own != nil)
     }
 
     /// The engine that renders the tab now: a Chromium record shown in
@@ -177,18 +182,35 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
     }
 
+    /// `tabs.open {incognito: true, session}`: a blank tab in the session's own profile and workspace (the host loads its page).
+    func openIncognitoProviderTab(engine: ProviderEngine, session: String) async throws(DriverError) -> String {
+        do { return try await openIncognitoSessionTab(engine == .cef ? .cef : .webkit, session: session, url: nil).id } catch {
+            throw DriverError(.unsupported, "tabs.open: \(error.localizedDescription)")
+        }
+    }
+    func openIncognitoSessionTab(_ engine: BrowserEngineTag, session: String, url: String?) async throws -> TabModel {
+        try await openSessionTab(engine, url: url, incognito: session)
+    }
+
+    /// `session.ended` (or the host link closed): the workspace closes, then the profile ends (its contexts, stores go).
+    func endIncognitoSession(_ session: String) async { await services?.windows.agentIncognito.end(session) }
+    func endIncognitoSessions() async { await services?.windows.agentIncognito.endAll() }
+
     /// A store tab of `engine` for a browser session, in the background (the
     /// pane's active tab stays: every client reads it; no selection or focus
-    /// changes), in ``sessionTabPane(_:)``. Answers once the store shows it.
-    private func openSessionTab(_ engine: BrowserEngineTag, url: String?) async throws -> TabModel {
+    /// changes), in ``sessionTabPane(_:)`` (`incognito`: that agent session's own workspace). Answers once the store shows it.
+    private func openSessionTab(_ engine: BrowserEngineTag, url: String?, incognito session: String? = nil) async throws -> TabModel {
         guard let services, case let browserTabs = services.cache.browserTabs else { throw AutomationTabError.unavailable }
         if engine == .cef, let reason = browserTabs.cefUnavailable() {
             throw AutomationTabError.chromiumUnavailable(BrowserTabService.message(reason))
         }
-        let pane = try sessionTabPane(browserTabs)
+        let pane: PaneModel
+        if let session { pane = try await services.windows.agentIncognitoPane(session: session) } else { pane = try sessionTabPane(browserTabs) }
+        let placeholders = session == nil ? [] : pane.tabs.filter { $0.kind == .pty }.map(\.surface)
         guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
-                                                 url: url ?? "about:blank", activate: false)
+                                                 url: url ?? "about:blank", incognito: session.map { _ in true }, activate: false)
+        for placeholder in placeholders { try? await services.daemon.connection?.closeTab(placeholder) }
         // The create reply can come before the store shows the tab, and the announced list follows the store.
         let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor [weak self] in
             for await found in ObservationStream({ [weak self] in services.locateTab(surface: surface).map { self?.lists($0) ?? false } ?? false }) where found { return true }

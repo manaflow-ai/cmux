@@ -127,7 +127,10 @@ final class BrowserProfileService {
     }
 
     /// `engineProfile(forTab:)` when the caller knows whether `tab` is incognito (no lookup of its workspace).
-    func engineProfile(for tab: TabModel, incognito: Bool) -> BrowserProfileID { incognito ? services.windows.incognitoProfile() : book.engineProfile(for: tab.browserProfileID) }
+    func engineProfile(for tab: TabModel, incognito: Bool) -> BrowserProfileID {
+        guard incognito else { return book.engineProfile(for: tab.browserProfileID) }
+        return services.windows.agentIncognito.holdsAny ? engineProfile(forTab: tab.id) : services.windows.incognitoProfile()
+    }
 
     /// The wire id of a tab's profile (nil record = `default`).
     func profileID(ofTab tab: TabModel) -> String {

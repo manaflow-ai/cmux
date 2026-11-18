@@ -125,6 +125,7 @@ public nonisolated struct ProviderCodec {
                                      "url": tab.url, "title": tab.title, "visible": tab.visible]
         if tab.inputScale != 1 { object["inputScale"] = tab.inputScale }
         if tab.touch { object["touch"] = true }
+        if tab.incognito { object["incognito"] = true }
         return object
     }
 
@@ -134,7 +135,8 @@ public nonisolated struct ProviderCodec {
                             url: try f.string("url"), title: (try? f.string("title")) ?? "",
                             visible: (try? f.bool("visible")) ?? false,
                             inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1,
-                            touch: (f.object["touch"] as? Bool) ?? false)
+                            touch: (f.object["touch"] as? Bool) ?? false,
+                            incognito: (f.object["incognito"] as? Bool) ?? false)
     }
 
     static func leaseObject(_ lease: ProviderLease) -> [String: Any] {

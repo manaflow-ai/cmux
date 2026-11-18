@@ -140,6 +140,8 @@ final class WindowManager {
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
     var pendingEphemeralWindows: [String] = []
+    /// Agent sessions' own incognito profiles and background workspaces (`WindowManager+Incognito`).
+    lazy var agentIncognito = AgentIncognitoSessions(offTheRecord: services.browserStores.offTheRecord) { [weak self] in await self?.closeAgentWorkspace($0) }
     /// Incognito window of each tab it lists (`rememberIncognitoTabs`).
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).

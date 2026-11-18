@@ -67,6 +67,10 @@ pub struct TabAnnounce {
     /// tab's driver sends pointer input as touch (`CdpDriver::set_touch_emulation`, cx-3ny35).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub touch: bool,
+    /// The tab is in an agent session's own in-memory store (`tabs.open
+    /// {incognito: true}`): it closes with its session and is never kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub incognito: bool,
 }
 
 fn unit_scale() -> f64 {
@@ -420,6 +424,7 @@ mod tests {
                 visible: false,
                 input_scale: 1.0,
                 touch: false,
+                incognito: false,
             }],
         }
     }

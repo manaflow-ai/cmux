@@ -66,6 +66,7 @@ enum EphemeralWorkspaces {
     /// names: the incognito window waiting for one, else a new incognito
     /// window (a workspace another client made ephemeral).
     static func placements(_ manager: WindowManager, live: [String], placements: [String: String]) -> [String: String] {
+        guard manager.agentIncognito.creating.isEmpty else { return [:] } // an agent session's create claims its own first
         let registered = manager.registry.value
         var result: [String: String] = [:]
         var waiting = manager.pendingEphemeralWindows.filter { registered.window($0) == nil }

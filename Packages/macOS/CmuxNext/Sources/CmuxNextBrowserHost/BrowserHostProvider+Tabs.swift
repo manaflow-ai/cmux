@@ -168,6 +168,7 @@ extension BrowserHostProvider {
         ]
         if tab.inputScale != 1 { fields["inputScale"] = .number(tab.inputScale) }
         if tab.touch { fields["touch"] = .bool(true) }
+        if tab.incognito { fields["incognito"] = .bool(true) }
         return .object(fields)
     }
 }

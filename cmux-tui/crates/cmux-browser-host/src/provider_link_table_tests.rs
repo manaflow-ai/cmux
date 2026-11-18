@@ -14,6 +14,7 @@ fn announce(url: &str) -> TabAnnounce {
         visible: true,
         input_scale: 1.0,
         touch: false,
+        incognito: false,
     }
 }
 

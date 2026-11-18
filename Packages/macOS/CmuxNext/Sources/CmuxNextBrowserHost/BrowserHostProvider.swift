@@ -286,6 +286,8 @@ public final class BrowserHostProvider {
         let ended = leases.keys
         leases = [:]
         for targetID in ended { notifyLease(targetID, nil) }
+        // The host's sessions ended with its link: their own incognito stores go too.
+        if let opener = opener { Task { await opener.endIncognitoSessions() } }
     }
 
     /// Queues a frame on the current link; dropped when there is none. Encoded on the link's
