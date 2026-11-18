@@ -192,7 +192,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Every Chief this Home lists, through the Mac's own rule (``HomeChiefs``, CmuxChiefList): the
     /// Mac's Chief rows and every Cloud Chief, which one is Main and where each runs.
     private var chiefs: HomeChiefs {
-        HomeChiefs(macRows: feed.rows.map { hiddenRows.visible($0) }, macChief: sources.mac.conversationID ?? feed.macChiefID,
+        // Every row, as the Mac's roster reads its store's rows: hiding a row here never moves Main.
+        HomeChiefs(macRows: feed.rows, macChief: sources.mac.conversationID ?? feed.macChiefID,
                    cloud: sources.isCloudReady ? sources.cloudChiefs : [], open: sources.cloudChief)
     }
 
@@ -230,8 +231,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private var otherCloudChiefs: [CloudChief] {
         guard sources.isCloudReady else { return [] }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let macRows = Set((feed.rows ?? []).map(\.id))
         return sources.cloudChiefs.filter { chief in
-            chief.id != sources.cloudChief?.id && chief.mainConversation != nil
+            chief.id != sources.cloudChief?.id && chief.mainConversation.map { !macRows.contains($0) } == true
                 && (needle.isEmpty || ChiefPickerItems.name(chief).localizedStandardContains(needle))
         }
     }
@@ -619,13 +621,13 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// Another of the account's Cloud Chiefs: a tap opens it (the picker's Open), as the Mac's list
-    /// opens any Chief row.
+    /// Another of the account's Cloud Chiefs: a tap opens that Chief's own conversation (New Message's
+    /// route to it), as the Mac's list opens any Chief row; the Chief this phone has open stays the same.
     private func otherCloudRow(_ chief: CloudChief, tag: String?) -> some View {
         let name = ChiefPickerItems.name(chief)
         return Button {
-            sources.select(chief)
-            open(.chief(.cloud))
+            guard let conversation = chief.mainConversation else { return }
+            open(.cloud(CloudConversationRoute(conversationID: conversation, title: name, chief: chief.id)))
         } label: {
             MessagesRow(title: name, subtitle: tag, preview: "", stamp: "", isUnread: false, isMuted: false,
                         needsYou: false, isTyping: false) { size in
@@ -633,7 +635,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             }
         }
         .buttonStyle(.cmuxPressFill)
-        .disabled(sources.isChanging)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
         .listRowBackground(theme.colors.bg.color)
         .accessibilityIdentifier("home.chief.cloud.\(chief.id)")

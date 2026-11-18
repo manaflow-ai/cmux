@@ -37,10 +37,16 @@ import Testing
         #expect(noMac.tag(for: "c-hosted", macName: nil) == "Main \u{00B7} Cloud")
     }
 
-    @Test func beforeTheMacsListArrivesItsChiefStaysListed() {
-        let chiefs = HomeChiefs(macRows: nil, macChief: "mac", cloud: [], open: nil)
-        #expect(chiefs.list.conversations == ["mac"])
-        #expect(chiefs.list.main == "mac")
+    @Test func beforeTheMacsListArrivesTheReadyCloudChiefIsMain() {
+        let chiefs = HomeChiefs(macRows: nil, macChief: "mac", cloud: Self.cloud, open: Self.cloud[0])
+        #expect(chiefs.list.conversations == ["c-hosted", "c-ops"])
+        #expect(chiefs.list.main == "c-hosted")
+        #expect(HomeChiefs(macRows: nil, macChief: "mac", cloud: [], open: nil).list.main == nil)
+    }
+
+    @Test func aCloudChiefTheMacAlsoListsIsListedOnceAsTheMacsRow() {
+        let chiefs = HomeChiefs(macRows: Self.rows + [Self.row("c-ops")], macChief: "mac", cloud: Self.cloud, open: Self.cloud[0])
+        #expect(chiefs.list.conversations == ["mac", "mac-named", "c-ops", "c-hosted"])
     }
 
     @Test func aPlacedChiefTheUserOpenedIsMainAndNamesItsServer() {

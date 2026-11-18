@@ -15,19 +15,21 @@ struct HomeChiefs: Equatable {
     let list: ChiefList
 
     /// - Parameters:
-    ///   - macRows: The Mac's Home rows shown (its `home-inbox`, minus rows hidden here); nil before they arrive.
+    ///   - macRows: The Mac's Home rows (its `home-inbox`, hidden rows too, as the Mac's roster reads them); nil before they arrive.
     ///   - macChief: The Mac's own Chief conversation (its session's, else the one its list names).
     ///   - cloud: The account's Cloud Chiefs (`chief.list`, archived ones already left out).
     ///   - open: The Cloud Chief this phone has open: a placed one is the user's pick, as the Mac's Chief tab choice.
     init(macRows: [MacHomeRow]?, macChief: String?, cloud: [CloudChief], open: CloudChief?) {
-        var mac = (macRows ?? []).filter { $0.kind == .chief }.map { ChiefList.Chief(conversation: $0.id, isCloud: false) }
-        // Before the Mac's list arrives its Chief stays listed (Home shows it), as the Mac's own list does.
-        if macRows == nil, let macChief { mac.append(ChiefList.Chief(conversation: macChief, isCloud: false)) }
+        let mac = (macRows ?? []).filter { $0.kind == .chief }.map { ChiefList.Chief(conversation: $0.id, isCloud: false) }
+        let macIDs = Set(mac.map(\.conversation))
+        // A Cloud Chief the Mac's list also has is listed once, as the Mac's row (Home shows that row).
+        let clouds = ChiefList.cloudChiefs(cloud).filter { !macIDs.contains($0.conversation) }
         let placed = ChiefList.placed(in: cloud)
-        // The Mac's Engine row is not on the wire: Auto, whose answer is the Mac's Chief while that
-        // Mac's Chief answers (its conversation is listed), else the cloud Chief.
-        let listed = macChief.map { id in mac.contains { $0.conversation == id } } ?? false
-        list = ChiefList(chiefs: mac + ChiefList.cloudChiefs(cloud), local: macChief,
+        // Not on the wire: the Mac's Engine row and whether its brain runs. The phone reads Auto, whose
+        // answer is the Mac's Chief while the Mac's list has it, else the cloud Chief. Before the list
+        // arrives the Mac's Chief is not listed, so a ready Cloud Chief is Main (as before this change).
+        let listed = macChief.map(macIDs.contains) ?? false
+        list = ChiefList(chiefs: mac + clouds, local: macChief,
                          hosted: ChiefList.hosted(in: cloud)?.mainConversation, placed: placed?.mainConversation,
                          server: placed?.brainPlace?.host, showsPlaced: open?.isPlaced == true,
                          prefersLocal: ChiefDefault.auto.prefersLocal(localRunning: listed))

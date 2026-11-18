@@ -105,7 +105,7 @@ import Testing
     }
 
     @Test func placesEncodeAsBefore() throws {
-        // The Mac's launch cache keeps places (HomeChiefPlace is this type): the case names are its format.
+        // The same case names and coding as the Mac's HomeChiefPlace, which its launch cache keeps.
         let data = try JSONEncoder().encode([ChiefPlace.thisMac, .cloud, .server("cmux20")])
         let text = String(decoding: data, as: UTF8.self)
         #expect(text == #"[{"thisMac":{}},{"cloud":{}},{"server":{"_0":"cmux20"}}]"#)
