@@ -139,9 +139,12 @@ fn notices_and_gate_read_one_crate_list_that_covers_cargo_tree() {
     }
 }
 
+/// One dependency edge: (name, license, source, dep kind).
+type Dep<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<&'a str>);
+
 /// A fabricated `cargo metadata`: cmux-rd-host, from a path, and `deps`, each
 /// (name, license, source, dep kind) one edge from the root.
-fn fabricated_metadata(deps: &[(&str, Option<&str>, Option<&str>, Option<&str>)]) -> String {
+fn fabricated_metadata(deps: &[Dep]) -> String {
     let id = |name: &str| format!("{name} 1.0.0");
     let mut packages = vec![serde_json::json!({
         "id": id("cmux-rd-host"), "name": "cmux-rd-host", "version": "1.0.0",
@@ -167,7 +170,7 @@ fn fabricated_metadata(deps: &[(&str, Option<&str>, Option<&str>, Option<&str>)]
     .to_string()
 }
 
-fn gate_on(name: &str, deps: &[(&str, Option<&str>, Option<&str>, Option<&str>)]) -> Output {
+fn gate_on(name: &str, deps: &[Dep]) -> Output {
     let dir =
         std::env::temp_dir().join(format!("cmux-rd-license-gate-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
