@@ -117,12 +117,22 @@ class Wiring(unittest.TestCase):
     """The nightly and every signer put and sign the executable inside the Computer Use helper."""
 
     def test_the_nightly_moves_it_in_after_assembling_the_helper_and_before_the_layout_check(self) -> None:
+        # Two paths put the helper in place (a verified prebuilt, else a source build); each moves the
+        # executable in right before its layout check, and the source build keeps its prebuilt zip
+        # before that, so a reused helper never carries another build's screen sharing executable.
         text = ASSEMBLE.read_text()
-        built = text.index("build-cmux-cua.sh")
-        moved = text.index("bundle-screen-sharing-helper.sh --into-computer-use")
-        checked = text.index("verify-computer-use-helper.sh layout")
-        self.assertLess(built, moved)
-        self.assertLess(moved, checked)
+        self.assertIn("bundle-screen-sharing-helper.sh --into-computer-use", text)
+        code = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        checks = [i for i, line in enumerate(code) if line.startswith("./scripts/ci/verify-computer-use-helper.sh layout")]
+        self.assertEqual(len(checks), 2, checks)
+        for i in checks:
+            self.assertEqual(code[i - 1], "move_screen_sharing_in", code[i - 1])
+        built = text.index("./scripts/build-cmux-cua.sh")
+        kept = text.index('ditto -c -k --norsrc --keepParent "$helper"')
+        moved_last = text.rindex("\nmove_screen_sharing_in\n")
+        self.assertLess(text.index('install_prebuilt "$zip"; then\n  move_screen_sharing_in'), built)
+        self.assertLess(built, kept)
+        self.assertLess(kept, moved_last)
 
     def test_the_architecture_gate_reads_the_executable_inside_the_helper(self) -> None:
         text = (ROOT / "scripts/ci/nightly-steps/prepare-verify-binary-architectures.sh").read_text()
