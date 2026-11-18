@@ -206,31 +206,61 @@ import Testing
     /// falls back (a full resync, then bytes mode) before it draws a wrong one. Seeded:
     /// the same 6,000 cases on every run.
     @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() async {
-        let report = await onProofThread { Self.fuzz() }
-        #expect(report.fixtures == HybridParityFixture.names.count, "the parity fixtures")
-        #expect(report.failures.isEmpty, "\(report.failures.count) cases: \(report.failures.prefix(5))")
-        print(report.line)
+        // The cases run in `fuzzShards` parts at once, each on a thread of its own: one thread
+        // took 39 to 52 s in CI, the whole rest of the run waiting on it.
+        let shards = await withTaskGroup(of: FuzzReport.self) { group in
+            for shard in 0..<Self.fuzzShards {
+                group.addTask { await onProofThread { Self.fuzz(shard: shard, of: Self.fuzzShards) } }
+            }
+            return await group.reduce(into: [FuzzReport]()) { $0.append($1) }
+        }
+        let report = FuzzReport(merging: shards)
+        #expect(shards.allSatisfy { $0.fixtures == HybridParityFixture.names.count }, "the parity fixtures")
+        #expect(report.ran == Self.fuzzCases, "every case ran once")
+        #expect(report.failures.isEmpty, "\(report.failures.count) cases: \(report.failures.prefix(5).map(\.text))")
+        let summary = (try? JSONSerialization.data(withJSONObject: report.tally, options: [.sortedKeys]))
+            .map { String(decoding: $0, as: UTF8.self) } ?? ""
+        print("HYBRID_PROOF fuzz {\"cases\":\(Self.fuzzCases),\"seed\":\"0x44052C0FFEE07CEE\",\"failures\":\(report.failures.count),\"tally\":\(summary)}")
     }
+
+    static let fuzzCases = 6000
+    static let fuzzShards = 6
 
     struct FuzzReport: Sendable {
-        var fixtures: Int
-        var failures: [String]
-        var line: String
+        var fixtures = 0
+        /// Cases this part ran (a case whose segment is too short to mutate counts too).
+        var ran = 0
+        var failures: [(index: Int, text: String)] = []
+        var tally: [String: [String: Int]] = [:]
+
+        init() {}
+
+        init(merging parts: [FuzzReport]) {
+            for part in parts {
+                ran += part.ran
+                failures += part.failures
+                for (group, counts) in part.tally {
+                    for (key, count) in counts { tally[group, default: [:]][key, default: 0] += count }
+                }
+            }
+            failures.sort { $0.index < $1.index }
+        }
     }
 
-    /// The 6,000 cases behind `randomFrameStreamsNeverDrawAWrongScreenSilently`, off the
-    /// test's executor.
-    static func fuzz() -> FuzzReport {
-        let onMain = Thread.isMainThread
+    /// Part `shard` of `shards` of the 6,000 cases behind
+    /// `randomFrameStreamsNeverDrawAWrongScreenSilently`, off the test's executor. Every part
+    /// draws every case from the one seeded generator, so the cases are the same 6,000 in any
+    /// split; it decodes and checks only the cases `index % shards == shard`.
+    static func fuzz(shard: Int, of shards: Int) -> FuzzReport {
+        var report = FuzzReport()
         let fixtures = HybridParityFixture.all
-        guard fixtures.count == HybridParityFixture.names.count else {
-            return FuzzReport(fixtures: fixtures.count, failures: [], line: "HYBRID_PROOF fuzz {\"fixtures\":\(fixtures.count)}")
-        }
+        report.fixtures = fixtures.count
+        guard fixtures.count == HybridParityFixture.names.count else { return report }
+        if Thread.isMainThread { report.failures.append((-1, "the fuzz holds the main thread")) }
         var rng = SeededGenerator(seed: 0x4405_2C0F_FEE0_7CEE)
-        var tally: [String: [String: Int]] = [:]
-        var failures: [String] = []
-        let cases = 6000
-        for index in 0..<cases {
+        for index in 0..<fuzzCases {
+            let mine = index % shards == shard
+            if mine { report.ran += 1 }
             let fixture = fixtures[index % fixtures.count]
             let lean = index % 2 == 0
             let connections = (fixture.steps.map(\.connection).max() ?? 0) + 1
@@ -375,22 +405,20 @@ import Testing
                 default: true
                 }
             }
+            guard mine else { continue }
             let outcome = run(lines, fixture: fixture, connection: connection, resume: resume)
             let form = lean ? "lean" : "v1"
             let group = tellable ? "\(form) told" : "\(form) not told"
             let result = outcome.wrong != nil ? "wrong" : outcome.fellBack ? "fellBack" : "matched"
-            tally[group, default: [:]][result, default: 0] += 1
-            tally[group, default: [:]]["cases", default: 0] += 1
-            for kind in applied { tally["mutations", default: [:]][kind.rawValue, default: 0] += 1 }
+            report.tally[group, default: [:]][result, default: 0] += 1
+            report.tally[group, default: [:]]["cases", default: 0] += 1
+            for kind in applied { report.tally["mutations", default: [:]][kind.rawValue, default: 0] += 1 }
             let caseName = "case \(index) \(fixture.name) \(form) \(applied.map(\.rawValue))"
-            if outcome.drewAfterFallback { failures.append("\(caseName): drew after a fallback") }
-            if tellable, let wrong = outcome.wrong { failures.append("\(caseName): \(wrong)") }
-            if tellable, bad.contains(true), !outcome.fellBack { failures.append("\(caseName): no fallback") }
+            if outcome.drewAfterFallback { report.failures.append((index, "\(caseName): drew after a fallback")) }
+            if tellable, let wrong = outcome.wrong { report.failures.append((index, "\(caseName): \(wrong)")) }
+            if tellable, bad.contains(true), !outcome.fellBack { report.failures.append((index, "\(caseName): no fallback")) }
         }
-        let summary = (try? JSONSerialization.data(withJSONObject: tally, options: [.sortedKeys])).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        if onMain { failures.append("6,000 fuzz cases hold the main thread") }
-        return FuzzReport(fixtures: fixtures.count, failures: failures,
-                          line: "HYBRID_PROOF fuzz {\"cases\":\(cases),\"seed\":\"0x44052C0FFEE07CEE\",\"failures\":\(failures.count),\"tally\":\(summary)}")
+        return report
     }
 
     // MARK: The fallback signal
