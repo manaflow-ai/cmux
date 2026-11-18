@@ -1709,6 +1709,7 @@ dependencies = [
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
  "hpke",
  "libc",
@@ -1963,6 +1964,7 @@ version = "0.2.7"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-file-lock",
  "cmux-hub-host",
  "cmux-process",
  "cmux-rd-core",
