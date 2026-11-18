@@ -2553,9 +2553,9 @@ async fn dispatch_request_with_identity(
             if params.get("usage") == Some(&Value::Bool(true)) {
                 // `usageOnly` (the app's trigger on each connect): the read alone, no rows. It
                 // read the whole list a second time for the numbers (31-38 MB at 10,790 chats).
+                // Its reply waits for nothing: the numbers come as each row's change.
                 if params.get("usageOnly") == Some(&Value::Bool(true)) {
-                    let read = hub.read_usage_and_tell();
-                    let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+                    drop(hub.read_usage_and_tell());
                     return Ok(json!({"sessions": []}));
                 }
                 let read = hub.refresh_usage_stats();

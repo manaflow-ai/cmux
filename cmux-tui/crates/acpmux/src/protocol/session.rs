@@ -80,7 +80,7 @@ pub struct SessionSummary {
     pub stuck_error: Option<String>,
     /// A live repeated-tool episode (`hub/loop_detector.rs`), if this turn is looping.
     /// Additive so older clients and peers can omit it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     #[schemars(default)]
     pub loop_episode: Option<LoopEpisodeSummary>,
     /// Unix milliseconds when its harness first refused a command because the harness's own

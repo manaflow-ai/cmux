@@ -37,7 +37,7 @@ enum Sent {
     /// ...session}`), so an omitted key would keep its old value there.
     Always,
     /// Only when it holds something: every reader takes absent as empty, and the pane does not
-    /// read it from its merged row (or sets it to null itself, `loopEpisode`).
+    /// read it from its merged row.
     WhenSet,
     /// Only when it holds something, as before this table: the pane reads it from its merged
     /// row, which keeps the last value it saw. Named so no key joins them unseen.
@@ -62,8 +62,8 @@ const READERS: &[(&str, Readers, Sent)] = &[
     ("stuckReason", &["cli"], WhenSet),
     ("stuckSince", &["cli"], WhenSet),
     ("stuckError", &["cli"], WhenSet),
-    // The pane's merge sets it to null when a change leaves it out (`direct.ts`).
-    ("loopEpisode", &["web"], WhenSet),
+    // A clear goes out as null (`stalled_turn.rs`): an older pane's merge kept a left-out one.
+    ("loopEpisode", &["web"], Always),
     ("harnessSandboxFailed", &["cli"], WhenSet),
     // `ls_table.rs` reads it absent as an older daemon's row and falls back to the timestamp.
     ("harnessSandboxFailing", &["cli"], Always),
@@ -321,7 +321,7 @@ fn every_summary_key_has_a_named_reader() {
         // The pane merges a changed row into its selected chat's: an omitted key it reads would
         // keep its old value there.
         assert!(
-            *sent != WhenSet || !readers.contains(&"web") || *key == "loopEpisode",
+            *sent != WhenSet || !readers.contains(&"web"),
             "{key}: the pane reads it from a merged row, so it is sent empty"
         );
     }

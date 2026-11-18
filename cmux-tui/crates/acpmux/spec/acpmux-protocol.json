@@ -5897,7 +5897,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
@@ -5950,7 +5949,6 @@
           "type": "string"
         },
         "harnessSandboxFailed": {
-          "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -6267,7 +6265,6 @@
           "type": "boolean"
         },
         "stuckError": {
-          "default": null,
           "description": "Last classified error, redacted and bounded. Omitted for peers.",
           "type": [
             "string",
@@ -6282,11 +6279,9 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "stuckSince": {
-          "default": null,
           "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -6320,7 +6315,6 @@
           ]
         },
         "titleSource": {
-          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
@@ -6598,7 +6592,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "description": "Who created it (`hub/created_by.rs`): `{kind: \"person\"|\"agent\"|\"script\", workspace?,\nsession?}`, decided by the daemon from the connection, never from a request value.\nNull for a fork, a moved-in session and one saved before it existed; absent from a\npeer on an older acpmux."
         },
         "currentModeId": {
@@ -6651,7 +6644,6 @@
           "type": "string"
         },
         "harnessSandboxFailed": {
-          "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -6956,7 +6948,6 @@
           "type": "boolean"
         },
         "stuckError": {
-          "default": null,
           "description": "Last classified error, redacted and bounded. Omitted for peers.",
           "type": [
             "string",
@@ -6971,11 +6962,9 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "stuckSince": {
-          "default": null,
           "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
           "format": "uint64",
           "minimum": 0,
@@ -7009,7 +6998,6 @@
           ]
         },
         "titleSource": {
-          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
