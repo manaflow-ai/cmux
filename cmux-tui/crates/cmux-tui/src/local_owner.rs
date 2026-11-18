@@ -845,6 +845,8 @@ fn owner_command(program: &std::path::Path, launcher: Option<&std::ffi::OsStr>) 
     if launcher.is_some() {
         command.arg("run").arg("--").arg(program);
     }
+    // The owner, its shells and their programs never see it: only this `server ensure` uses it.
+    command.env_remove(OWNER_LAUNCHER_ENV);
     command
 }
 

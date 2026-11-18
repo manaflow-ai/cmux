@@ -7,7 +7,10 @@
 # under it, so macOS asks for Files and Folders once for every DEV build. Run from the "Embed
 # Computer Use helper (dev)" phase (embed-cua-helper-dev.sh). The bytes are never re-signed: the
 # helper's code identity, and so a person's answers, must stay the same across builds.
-# A Release configuration (stable, NIGHTLY, RC, the NEXT DEV daily, bench) never embeds it.
+# Dev only, by construction: it embeds only into a Debug configuration whose bundle id is
+# com.cmuxterm.app.debug[.<tag>]. Every other configuration (Release: stable, NIGHTLY, RC, the
+# NEXT DEV daily, bench and --release dogfood tags) and every other bundle id (staging included)
+# embeds nothing and removes a stale copy; there is no override. tests/test_files_host_dev_only.py.
 # No pin file or no asset (no store and no R2 read credentials) embeds nothing with one note line:
 # the build then runs as before. A sha256 mismatch or a bad signature fails the build.
 # CMUX_NEXT_SKIP_FILES_HOST=1 embeds nothing.
@@ -25,7 +28,10 @@ skip() {
   exit 0
 }
 [[ "${CMUX_NEXT_SKIP_FILES_HOST:-0}" == "1" ]] && skip "CMUX_NEXT_SKIP_FILES_HOST=1"
-[[ "${CONFIGURATION:-}" == "Release" ]] && skip "Release configuration (DEV builds only)"
+[[ "${CONFIGURATION:-}" == "Debug" ]] || skip "configuration '${CONFIGURATION:-}' is not Debug (DEV builds only)"
+bundle_id="${PRODUCT_BUNDLE_IDENTIFIER:-}"
+[[ "$bundle_id" == "com.cmuxterm.app.debug" || "$bundle_id" == com.cmuxterm.app.debug.* ]] ||
+  skip "bundle id '$bundle_id' is not a DEV build's (DEV builds only)"
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="$SCRIPT_DIR/files-host-dev.pin.json"
 [[ -f "$pin" ]] || skip "no pin file $pin"

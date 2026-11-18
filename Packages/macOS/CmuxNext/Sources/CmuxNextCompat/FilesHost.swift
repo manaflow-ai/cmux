@@ -6,9 +6,12 @@ public import Foundation
 /// disclaimed. macOS then charges their shells' and agents' Files and Folders checks to one
 /// identity for every DEV build, instead of to each tag's app.
 ///
-/// Only a DEV or staging build (`com.cmuxterm.app.debug[.<tag>]`, `com.cmuxterm.app.staging[.<tag>]`)
-/// that embeds the helper uses it; Release, NIGHTLY, RC and stable never do, even with a copy
-/// inside. `CMUX_NEXT_FILES_HOST=0` in the app's environment turns it off.
+/// Dev only, by construction: only a Debug compile (`#if DEBUG`) of a DEV build
+/// (`com.cmuxterm.app.debug[.<tag>]`) that embeds the helper uses it. Every Release-configuration
+/// product (stable, NIGHTLY, RC, staging, the NEXT DEV daily, `--release` dogfood tags) compiles
+/// the check to nil and never looks for the helper, even with a copy inside; staging is excluded
+/// by bundle id too, because it is a shipping channel. `CMUX_NEXT_FILES_HOST=0` in the app's
+/// environment turns it off.
 public nonisolated struct FilesHost: Sendable, Equatable {
     /// `cmux-tui server ensure` runs the owner it spawns through this launcher
     /// (`local_owner.rs` `OWNER_LAUNCHER_ENV`).
@@ -17,21 +20,35 @@ public nonisolated struct FilesHost: Sendable, Equatable {
     public static let switchKey = "CMUX_NEXT_FILES_HOST"
     /// The embedded executable, relative to the app bundle (cmux-files-host `EMBEDDED_EXECUTABLE`).
     public static let embeddedExecutable = "Contents/Library/cmux Files (dev).app/Contents/MacOS/cmux-files-host"
-    static let developmentBundlePrefixes = ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
+    static let developmentBundlePrefix = "com.cmuxterm.app.debug"
+
+    /// Whether this compile is a Debug build. Release configurations compile it to `false`, so a
+    /// shipped build never resolves, stats or runs the helper.
+    public static var isDebugBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
 
     /// The embedded helper's executable.
     public let executable: URL
 
-    /// The helper of the app at `bundleURL`, or nil when this build does not use one.
+    /// The helper of the app at `bundleURL`, or nil when this build does not use one. The checks
+    /// that need no disk come first, so a Release compile or a non-DEV bundle never stats it.
     public init?(
         bundleURL: URL,
         bundleIdentifier: String?,
         environment: [String: String],
+        isDebugBuild: Bool = FilesHost.isDebugBuild,
         isExecutable: (String) -> Bool = { FileManager.checked.isExecutableFile(atPath: $0) }
     ) {
-        guard environment[Self.switchKey] != "0",
+        guard isDebugBuild,
+              environment[Self.switchKey] != "0",
               let bundleIdentifier,
-              Self.developmentBundlePrefixes.contains(where: { bundleIdentifier == $0 || bundleIdentifier.hasPrefix($0 + ".") })
+              bundleIdentifier == Self.developmentBundlePrefix
+                || bundleIdentifier.hasPrefix(Self.developmentBundlePrefix + ".")
         else { return nil }
         let executable = bundleURL.appendingPathComponent(Self.embeddedExecutable)
         guard isExecutable(executable.path) else { return nil }
