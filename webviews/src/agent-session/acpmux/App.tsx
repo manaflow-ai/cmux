@@ -310,7 +310,7 @@ import {
   useSessionInfoOpen,
   sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
-import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere, opensProcessTerminal } from "./processTerminal";
 import {
   descendants,
   subagentChangesFolder,
@@ -330,21 +330,11 @@ import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgrou
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
-import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { runResume as runSubagentResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
-import {
-  type DoneLineCache,
-  finishedTrayItems,
-  type TrayItem,
-  trayItemKey,
-  trayItems,
-  useSubagentTray,
-  withSubagentLines,
-  endedInFailure,
-} from "./subagents/runningTray";
-import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
+import { type DoneLineCache, useSubagentTray, withSubagentLines } from "./subagents/runningTray";
+import { usePaneTrayCard, usePaneTrayItems } from "./subagents/usePaneTray";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip } from "./conversation/SelectionReply";
 import { quoteInReply, setQuoteReplySink } from "./conversation/selectionReplyModel";
@@ -6071,96 +6061,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runningAgents = useMemo(() => (counting ? chatAgents.filter(running) : NO_AGENTS), [counting, chatAgents]);
   const runningCommands = counting ? runningCommandList : NO_COMMANDS;
   const runningSessions = counting ? runningChildSessions : NO_STARTED;
-  // The tray's lines (subagents/runningTray.ts): the subagents, the background commands
-  // (session-info/processes.ts `backgroundCommands`, the registry's merged with the transcript's) and
-  // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
-  const commandsKey = runningCommandList
-    .map((task) =>
-      [
-        task.id,
-        task.command,
-        task.description ?? "",
-        task.startedAt ?? "",
-        task.processId ?? "",
-        task.toolCallId ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
-  // Labs: a workflow has its card in the transcript and its panel, never a tray row, running or ended.
-  const trayAgents = useMemo(
-    () => (workflowLabsEnabled ? chatAgents.filter((agent) => agent.kind !== "workflow") : chatAgents),
-    [workflowLabsEnabled, chatAgents],
-  );
-  const trayList = useMemo(
-    () => (subagentTray ? trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
-  );
-  // What ended stays in the hat a while as done, failed or stopped, then goes (subagents/trayLinger.ts;
-  // Leo, 2026-11-07: "it's probably better to let them expire after a while. But the key point: after
-  // a while. Okay, they, like, disappear instantly"): the subagents and started chats that ended, and
-  // the background commands that ended (the registry's, with their exit and end, and the transcript's).
-  // Never in the header's running count. A new list only when what ended changes, never per token.
-  const endedCommandList = useMemo(
-    () =>
-      subagentTray
-        ? backgroundCommands(processRegistry.processes, transcriptTasks, processRegistry.listed).filter(
-            (command) => command.state !== "running",
-          )
-        : NO_COMMANDS,
-    [subagentTray, processRegistry, transcriptTasks],
-  );
-  const endedCommandsKey = endedCommandList
-    .map((task) =>
-      [
-        task.id,
-        task.state,
-        task.command,
-        task.description ?? "",
-        task.startedAt ?? "",
-        task.endedAt ?? "",
-        task.toolCallId ?? "",
-        task.subagent ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
-  const endedCommandItems = useMemo((): TrayItem[] => {
-    const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
-    return endedCommandList.map((command) => {
-      const owner = command.subagent === undefined ? undefined : byId.get(command.subagent);
-      return { kind: "command", id: command.id, command, ...(owner ? { owner } : {}) };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
-  }, [endedCommandsKey, trayAgents]);
-  const endedTray = useMemo(
-    () =>
-      subagentTray
-        ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter(
-            (item) => !endedInFailure(item),
-          )
-        : [],
-    [subagentTray, endedCommandItems, trayAgents, childSessions],
-  );
-  const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
-  const lingerEnded = useMemo(
-    () => endedTray.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
-    [endedTray],
-  );
-  // The hat is open or under the pointer: nothing expires until it lets go (SubagentTray.tsx `onHold`).
-  const [hatHeld, setHatHeld] = useState(false);
-  // The hat could be seen (SubagentTray.tsx `onSeen`): the grace counts only while it could, so what
-  // ended while the person was in another window, or the hat was tucked away, waits for them.
-  const [hatSeen, setHatSeen] = useState(false);
-  // On the session's clock, as the ends are stamped (a peer's may run behind or ahead of this one).
-  const lingerClock = useMemo(
-    () => ({ offsetMs: snapshot.clockOffsetMs ?? 0, seen: hatSeen }),
-    [snapshot.clockOffsetMs, hatSeen],
-  );
-  const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld, lingerClock);
-  const trayFinished = useMemo(
-    () => lingeringTrayItems(endedTray, lingering.kept, lingering.ends),
-    [endedTray, lingering],
-  );
+  // The tray's lines and what ended and lingers in the hat (subagents/usePaneTray.ts).
+  const { trayAgents, trayList, trayFinished, setHatHeld, setHatSeen } = usePaneTrayItems({
+    subagentTray,
+    workflowLabsEnabled,
+    chatAgents,
+    runningCommandList,
+    childSessions,
+    isWorking: snapshot.isWorking,
+    processRegistry,
+    transcriptTasks,
+    clockOffsetMs: snapshot.clockOffsetMs,
+    shownSessionId,
+  });
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   // Its output apart from what it read, when every call carried the split; held by its numbers, as
@@ -6429,23 +6342,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showToolRow,
     previewChips,
   ]);
-  // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or
-  // a command only the transcript knows), the Bash call that started it in the transcript; with no
-  // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
-  // place, its section that lists it (Background tasks, a dev server's included).
-  const openTrayCommand = useCallback(
-    (command: BackgroundCommand) => {
-      const local = opensProcessTerminal(counted.current.summary);
-      void openCommand(command.toolCallId, { local, showCall: showToolRow }).then((opened) => {
-        if (opened !== "none") return;
-        const { summaryCard: card, sessionInfo: panel } = counted.current;
-        // The section that lists it (processes.ts `backgroundSection`).
-        if (panel.reveal) panel.reveal(backgroundSection([command]));
-        else card.show();
-      });
-    },
-    [showToolRow],
-  );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(
     () =>
@@ -6672,22 +6568,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudTypeWoke.current = undefined;
     setCloudTypeWaking(false);
   }, [cloudWakeChat]);
-  const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0 || hatPlan !== undefined);
-  // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
-  // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
-  // last rendered without one (a tray that appears in it eases in; one a chat opens with is there).
-  // A chat that shows again starts over: its tray, if any, is simply there.
-  const trayChat = useRef(shownSessionId);
-  const trayAbsentIn = useRef<string | undefined>(undefined);
-  if (trayChat.current !== shownSessionId) trayAbsentIn.current = undefined;
-  trayChat.current = shownSessionId;
-  const trayEnters = shownSessionId !== undefined && trayAbsentIn.current === shownSessionId;
-  // Absence counts only once the chat's own rows are read: a partial snapshot during a slow switch
-  // would make a tray it already had look new.
-  if (!hasTray && snapshot.chatRead === true) trayAbsentIn.current = shownSessionId;
-  // A chat switch, or the tray moving to another placement (another host), is not the tray leaving:
-  // its kept copy goes before the frame paints.
-  useLayoutEffect(() => settleTrayExit(), [shownSessionId, trayPlacement]);
+  // Whether the tray shows, its motion and its command opener (subagents/usePaneTray.ts).
+  const { hasTray, trayChat, trayEnters, openTrayCommand } = usePaneTrayCard({
+    quick,
+    freshView,
+    trayList,
+    trayFinished,
+    hatPlan,
+    shownSessionId,
+    chatRead: snapshot.chatRead,
+    trayPlacement,
+    counted,
+    showToolRow,
+  });
   const trayNode = hasTray ? (
     <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
       <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
