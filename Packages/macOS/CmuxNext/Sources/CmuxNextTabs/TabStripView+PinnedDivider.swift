@@ -46,16 +46,15 @@ extension TabStripView {
         // A divider that just showed is at its place at once, as a new tab's separator is.
         guard let move, wasShown else { return }
         let delta = CGPoint(x: from.x - pinnedDivider.position.x - scroll, y: from.y - pinnedDivider.position.y)
-        if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
-            move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: pinnedDivider, as: "divider")
-        }
+        // Still moving: it restarts from where it shows on this change's curve, with the pinned tabs.
+        move.move(pinnedDivider, position: delta, as: "divider")
         move.addScroll(scroll, to: pinnedDivider)
     }
 
-    /// The theme's separator tone at the tab separators' strength; clear under `appearance.borders` none.
+    /// The chrome's divider colour at the tab separators' strength; clear under `appearance.borders` none.
     func applyPinnedDividerColor() {
         pinnedDivider.backgroundColor = themeScope.perform {
-            Borders.color(Palette.separator.withAlphaComponent(metrics.separatorOpacity)).cgColor
+            Borders.color(Palette.chromeDivider(opacity: metrics.separatorOpacity)).cgColor
         }
     }
 }

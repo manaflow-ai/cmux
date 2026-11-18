@@ -27,7 +27,11 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
-mod at_rest_writers;
+#[cfg(unix)]
+mod agent_turn_end_commits;
+#[cfg(unix)]
+mod agent_turn_end_crash_order;
+pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;
@@ -38,16 +42,27 @@ mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
 mod disk_budget;
+mod disk_usage_read_cost;
 mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
+#[cfg(unix)]
+mod history_agent_save_stride;
+#[cfg(unix)]
+mod holder_late_start;
+mod input_queue_backstop;
 mod journal_lane_full;
 mod journal_roster;
+mod journal_seal_cost;
+mod journal_vacuum_backlog;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
 mod layout_sizes;
+#[cfg(unix)]
+mod layout_sizes_session_cost;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
@@ -66,6 +81,7 @@ mod resource_selectors;
 mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
 mod session_lists;
 mod signaled_mutex;
 mod single_reads;
@@ -85,11 +101,14 @@ mod terminal_views;
 mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
+mod window_record_put_cost;
 #[cfg(unix)]
 mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 
@@ -310,6 +329,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
                     },
                 ],
             },
+            floating: Vec::new(),
         },
         RegistryScreen {
             public_id: second_screen.clone(),
@@ -321,6 +341,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
             zoomed_pane: Some(panes[4].clone()),
             auto_layout: Some(vec![panes[4].clone()]),
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         },
     ];
     let registry_panes = vec![

@@ -49,7 +49,7 @@ async fn big_hub_with(extra: Vec<Value>) -> Arc<crate::hub::Hub> {
     list.push(row(BIG.to_owned(), ROWS / 2, BIG_BYTES));
     list.extend(extra);
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))

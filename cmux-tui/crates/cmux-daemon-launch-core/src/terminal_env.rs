@@ -168,10 +168,11 @@ pub fn term(prefers_ghostty_term: bool, home: &str, fs: &Fs) -> &'static str {
     }
 }
 
-/// The terminal identity Ghostty exports to its shells: `TERM` ([`term`]),
-/// `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` (no `TERM_PROGRAM_VERSION`:
-/// advertising a version makes Codex drop its copy-on-select fallback), and
-/// `GHOSTTY_RESOURCES_DIR`.
+/// The terminal identity the app hands its terminals: `TERM` ([`term`]),
+/// `COLORTERM=truecolor`, `TERM_PROGRAM=cmux`, and `GHOSTTY_RESOURCES_DIR`.
+/// No `TERM_PROGRAM_VERSION`: the daemon sets cmux's own on every terminal
+/// child (`cmux_pty::TERMINAL_IDENTITY`), and a Ghostty version here would
+/// turn off Codex's and Claude's copy-on-select fallback (cmux#22585).
 pub fn ghostty(
     resources_directory: Option<&str>,
     prefers_ghostty_term: bool,
@@ -181,7 +182,7 @@ pub fn ghostty(
     let mut env = Env::new();
     env.insert("TERM".into(), term(prefers_ghostty_term, home, fs).into());
     env.insert("COLORTERM".into(), "truecolor".into());
-    env.insert("TERM_PROGRAM".into(), "ghostty".into());
+    env.insert("TERM_PROGRAM".into(), "cmux".into());
     if let Some(dir) = resources_directory.filter(|d| !d.is_empty()) {
         env.insert("GHOSTTY_RESOURCES_DIR".into(), dir.into());
     }

@@ -177,7 +177,7 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             }
             badge.isHidden = false
             badge.transform = show ? CGAffineTransform(scaleX: 0.3, y: 0.3) : .identity
-            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0) {
+            UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0) {
                 self.badge.transform = show ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
                 self.imageView.alpha = show ? 0.75 : 1
             } completion: { _ in

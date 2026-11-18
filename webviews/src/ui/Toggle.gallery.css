@@ -1,0 +1,5 @@
+/* Toggle gallery only. `accent` is the look not picked (Toggle.gallery.tsx says why). */
+.ui-toggle-gallery[data-look="accent"] .ui-btn.ui-toggle-button[data-pressed] {
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+}

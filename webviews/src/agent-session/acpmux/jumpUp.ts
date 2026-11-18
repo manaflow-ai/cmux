@@ -34,11 +34,58 @@ export type JumpBack = { top: number; atLatest: boolean };
 /// seen (`prompt`: null for none, undefined before the first read), a send whose prompt row has not
 /// come yet (`sent`), and the pinned mark.
 export type IdleMark = {
-  read?: { place: TranscriptPlace; below?: number };
+  read?: { place: TranscriptPlace; below?: number; base?: RowsBase };
   prompt?: string | null;
   sent?: true;
   mark?: ManualMark;
 };
+
+/// The rows below a stretch's place when it was first measured (`settleIdle` with `rows`): the newest
+/// ROWS_BASE_MAX of them with their versions and drawn heights, how many rows were below the place,
+/// and the newest row time among them. Against it, new content is a row newer than that time (one
+/// that came in since), and the growth of a row whose version moved (a reply streaming on). A row
+/// measuring to its drawn height (a reload), a section folding and opening (its rows come back with
+/// their old times and versions) and a redrawn older row never count.
+export type RowsBase = {
+  rows: Map<string, { version: number; height: number }>;
+  after: number;
+  newest: number;
+};
+/// The most rows below the place the base holds; the measure reads at most this many past the ones
+/// that came since, so a reader idle far up a long chat costs a bounded number of lookups a render.
+export const ROWS_BASE_MAX = 200;
+type IdleRow = { id: string; version: number; at: number };
+
+/// The base of the rows after `placeIndex`, newest first.
+function rowsBase(rows: readonly IdleRow[], placeIndex: number, heightAt: (index: number) => number): RowsBase {
+  const base: RowsBase = { rows: new Map(), after: rows.length - placeIndex - 1, newest: Number.NEGATIVE_INFINITY };
+  for (let i = rows.length - 1; i > placeIndex && base.rows.size < ROWS_BASE_MAX; i--) {
+    const row = rows[i]!;
+    base.rows.set(row.id, { version: row.version, height: heightAt(i) });
+    if (row.at > base.newest) base.newest = row.at;
+  }
+  return base;
+}
+
+/// The new content after `placeIndex` since `base`, px (`RowsBase`).
+function grownSince(
+  base: RowsBase,
+  rows: readonly IdleRow[],
+  placeIndex: number,
+  heightAt: (index: number) => number,
+): number {
+  const after = rows.length - placeIndex - 1;
+  const reach = Math.min(after, base.rows.size + Math.max(0, after - base.after) + ROWS_BASE_MAX);
+  let grown = 0;
+  for (let i = rows.length - 1, seen = 0; i > placeIndex && seen < reach; i--, seen++) {
+    const row = rows[i]!;
+    const was = base.rows.get(row.id);
+    if (was) {
+      if (was.version !== row.version) grown += Math.max(0, heightAt(i) - was.height);
+    } else if (row.at > base.newest) grown += heightAt(i);
+  }
+  return grown;
+}
 
 /// The reader scrolled by hand to `place`: a new idle stretch starts there, and the pinned mark goes.
 export function readerScrolled(state: IdleMark, place: TranscriptPlace | undefined): IdleMark {
@@ -61,6 +108,11 @@ export function readerSent(state: IdleMark, newest: { id: string; at: number } |
 /// the whole content height, the view's height, the reader's newest own prompt.
 export type IdleLayout = {
   topOf: (place: TranscriptPlace) => number | undefined;
+  /// The rows, their drawn heights and the place's row, when the caller has them: new content is then
+  /// told from rows measuring or folding (`RowsBase`). Without them it is the content height's growth.
+  rows?: readonly IdleRow[];
+  heightAt?: (index: number) => number;
+  indexOf?: (place: TranscriptPlace) => number;
   totalHeight: number;
   viewHeight: number;
   lastPrompt?: string;
@@ -88,6 +140,14 @@ export function settleIdle(state: IdleMark, layout: IdleLayout): IdleMark {
   const read = next.read;
   const top = layout.topOf(read.place);
   if (top === undefined || !Number.isFinite(top)) return next;
+  const { rows, heightAt, indexOf } = layout;
+  if (rows && heightAt && indexOf) {
+    const index = indexOf(read.place);
+    if (index < 0) return next;
+    if (!read.base) return { ...next, read: { ...read, base: rowsBase(rows, index, heightAt) } };
+    if (grownSince(read.base, rows, index, heightAt) < layout.viewHeight) return next;
+    return { ...next, mark: { place: read.place, at: layout.now, why: "idle" } };
+  }
   const below = layout.totalHeight - top;
   // The first layout measures the stretch's start; content that went (a row folded, an estimate
   // measured shorter, the live line gone at a turn's end) lowers it, so only new content counts.

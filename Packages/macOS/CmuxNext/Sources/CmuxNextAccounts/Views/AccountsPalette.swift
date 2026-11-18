@@ -12,6 +12,7 @@ public struct AccountsPalette: Sendable, Equatable {
     var card: Color
     var hover: Color
     var selection: Color
+    var pressed: Color
     var separator: Color
     var danger: Color
     var success: Color
@@ -26,6 +27,7 @@ public struct AccountsPalette: Sendable, Equatable {
         card = color(tokens.chromeBackground)
         hover = color(tokens.hoverFill)
         selection = color(tokens.selectionFill)
+        pressed = color(tokens.pressedFill)
         separator = color(tokens.separator)
         danger = color(tokens.danger)
         success = color(tokens.success)
@@ -80,9 +82,8 @@ struct AccountsButtonStyle: ButtonStyle {
             .foregroundStyle(destructive ? palette.danger : palette.text)
             .padding(.horizontal, Metrics.space4)
             .padding(.vertical, Metrics.space1 + 1)
-            .background(configuration.isPressed ? palette.selection : (prominent ? palette.selection : palette.hover),
-                        in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
-            .opacity(configuration.isPressed && prominent ? 0.7 : 1)
-            .contentShape(Rectangle())
+            // A held prominent button takes the theme's pressed fill, never a dimmed label.
+            .cmuxPressFill(configuration.isPressed, rest: prominent ? palette.selection : palette.hover,
+                           pressed: prominent ? palette.pressed : palette.selection)
     }
 }

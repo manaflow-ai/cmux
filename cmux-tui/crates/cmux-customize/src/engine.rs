@@ -87,7 +87,9 @@ impl Customize {
             .as_ref()
             .and_then(|draft| draft.asks.last())
             .and_then(|ask| first_change_after(ask.at_ms, &changes, &scan));
+        let try_on = self.store.try_on()?.filter(|try_on| index.current == Some(try_on.generation));
         Ok(Status {
+            try_on,
             current: index.current().cloned(),
             draft: draft.as_ref().map(DraftInfo::from),
             changes,
@@ -178,12 +180,14 @@ impl Customize {
         let mut draft = existing.unwrap_or(Draft {
             base: index.current,
             started_ms: now_ms,
+            absent_dirs: tree::absent_dirs(&self.roots),
             ..Draft::default()
         });
         draft.asks.push(Ask {
             text: ask.trim().to_owned(),
             at_ms: now_ms,
             origin: origin.to_owned(),
+            description: None,
         });
         self.store.put_draft(Some(&draft))?;
         Ok(Begun { draft: DraftInfo::from(&draft), baseline, by_hand, refined })
@@ -214,6 +218,17 @@ impl Customize {
     /// [`Error::Invalid`] records nothing and leaves the preview live.
     pub fn apply(&self, label: Option<&str>, origin: &str, now_ms: u64) -> Result<Applied, Error> {
         let _lock = self.store.lock()?;
+        self.apply_locked(label, origin, now_ms)
+    }
+
+    /// [`Customize::apply`] for a caller that holds the store's lock (a
+    /// try-on).
+    pub(crate) fn apply_locked(
+        &self,
+        label: Option<&str>,
+        origin: &str,
+        now_ms: u64,
+    ) -> Result<Applied, Error> {
         let mut index = self.store.index()?;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
@@ -225,7 +240,12 @@ impl Customize {
         let changed = changes(&base, &scan.tree, draft.as_ref());
         if let Some(current) = index.current().filter(|_| changed.is_empty()).cloned() {
             self.store.put_draft(None)?;
-            return Ok(Applied { generation: current, recorded: false, changes: changed });
+            return Ok(Applied {
+                generation: current,
+                recorded: false,
+                changes: changed,
+                library: None,
+            });
         }
         let label = label
             .map(str::trim)
@@ -238,7 +258,29 @@ impl Customize {
         let generation = self.record(&mut index, kind, &tree, origin, &label, now_ms)?;
         self.store.put_draft(None)?;
         self.store.prune(&mut index)?;
-        Ok(Applied { generation, recorded: true, changes: changed })
+        // Every apply saves itself in the library; a library that cannot be
+        // written never fails the apply it follows.
+        let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
+        Ok(Applied { generation, recorded: true, changes: changed, library })
+    }
+
+    pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
+        Ok(self.store.index()?.current)
+    }
+
+    /// Makes generation `n` current and live for a caller that holds the
+    /// lock; what was live is kept as `keep` when it differs.
+    pub(crate) fn restore_locked(
+        &self,
+        n: u32,
+        keep: Kind,
+        origin: &str,
+        label: &str,
+        now_ms: u64,
+    ) -> Result<Restored, Error> {
+        let mut index = self.store.index()?;
+        let target = index.get(n).cloned().ok_or(Error::NoSuchGeneration(n))?;
+        self.restore_to(&mut index, target, keep, origin, label, now_ms)
     }
 
     /// Puts the current generation back. What was live is kept as a
@@ -279,7 +321,7 @@ impl Customize {
 
     // ---- inside ----
 
-    fn current_tree(&self, index: &Index) -> io::Result<Tree> {
+    pub(crate) fn current_tree(&self, index: &Index) -> io::Result<Tree> {
         match index.current {
             Some(n) => self.store.tree(n),
             None => Ok(Tree::new()),
@@ -299,7 +341,7 @@ impl Customize {
     /// The live tree with every file's content in the store. Each file is
     /// stored from one read, so the tree names exactly what was stored even
     /// while someone is saving.
-    fn capture(&self) -> io::Result<Tree> {
+    pub(crate) fn capture(&self) -> io::Result<Tree> {
         let Scan { mut tree, .. } = tree::scan(&self.roots)?;
         let paths: Vec<String> = tree.keys().cloned().collect();
         for path in paths {
@@ -325,7 +367,7 @@ impl Customize {
     /// Writes generation `next` and its index row. Baseline, applied and
     /// by-hand generations become current; a discarded or autosaved one is
     /// only kept.
-    fn record(
+    pub(crate) fn record(
         &self,
         index: &mut Index,
         kind: Kind,

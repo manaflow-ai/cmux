@@ -92,11 +92,15 @@ nonisolated enum AcpmuxStatusClient {
     /// running for the next daemon. With `endAgents` (Quit Everything) they end, except the
     /// agents of `keepSessions`. A daemon of another acpmux home on the socket belongs to
     /// another app or tag and is never stopped: `.otherHome`.
-    @concurrent static func shutdown(socketPath: String, home: URL, endAgents: Bool = false, keepSessions: [String] = [],
-                                     deadline: Duration = .seconds(2)) async throws {
+    /// `reason` names the trigger; the daemon logs it beside this app's executable, and the daily
+    /// count of the app's stops (leo-workspace tools/daemon_stops.py) sorts them by it. Required,
+    /// so no stop is added without saying why.
+    @concurrent static func shutdown(socketPath: String, home: URL, reason: String, endAgents: Bool = false,
+                                     keepSessions: [String] = [], deadline: Duration = .seconds(2)) async throws {
         let running = try await status(socketPath: socketPath, deadline: deadline)
         guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
-        let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        var params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        params["reason"] = "app: " + reason
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
 

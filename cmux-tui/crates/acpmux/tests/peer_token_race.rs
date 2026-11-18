@@ -34,7 +34,20 @@ impl Drop for Daemon {
             let _ = c.kill();
             let _ = c.wait();
         }
-        let _ = std::fs::remove_dir_all(&self.home);
+        if !self.home.as_os_str().is_empty() {
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
+    }
+}
+
+impl Daemon {
+    /// Stops the daemon and hands back its home, kept for its next run.
+    fn stop_keeping_home(mut self) -> PathBuf {
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        std::mem::take(&mut self.home)
     }
 }
 
@@ -42,9 +55,17 @@ fn start(tag: &str, config: Value, listen: bool, path: Option<&Path>) -> Daemon 
     let home = std::env::temp_dir().join(format!("ptr-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
+    run(home, config, listen, path, true)
+}
+
+/// A daemon in `home`; with `memory` off it keeps its state there across runs.
+fn run(home: PathBuf, config: Value, listen: bool, path: Option<&Path>, memory: bool) -> Daemon {
     std::fs::write(home.join("config.json"), config.to_string()).unwrap();
     let mut cmd = daemon_env::acpmux(&home);
-    cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"]);
+    cmd.args(["daemon", "run", "--ready-fd", "1", "--log", "warn"]);
+    if memory {
+        cmd.arg("--memory");
+    }
     if listen {
         cmd.args(["--listen", "127.0.0.1:0"]);
     }
@@ -192,6 +213,8 @@ struct Pair {
     local: Daemon,
     _remote: Daemon,
     dir: PathBuf,
+    /// The remote's listening port, which the peer's URL names.
+    port: String,
 }
 
 impl Drop for Pair {
@@ -202,19 +225,46 @@ impl Drop for Pair {
 
 impl Pair {
     fn start(tag: &str, reads: Reads) -> Self {
+        Self::start_in(tag, reads, true)
+    }
+
+    /// A pair whose local daemon keeps its home across runs (`restart_local`).
+    fn start_kept(tag: &str, reads: Reads) -> Self {
+        Self::start_in(tag, reads, false)
+    }
+
+    fn start_in(tag: &str, reads: Reads, memory: bool) -> Self {
         let remote = start(&format!("{tag}-remote"), json!({}), true, None);
         let port = remote.listen.as_deref().unwrap().rsplit(':').next().unwrap().to_owned();
         let dir = std::env::temp_dir().join(format!("ptr-{tag}-ssh-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         fake_ssh(&dir, &remote.home, reads);
-        let local = start(
-            &format!("{tag}-local"),
-            json!({"peers": {"box": {"url": format!("ssh://box.invalid:{port}")}}}),
-            false,
-            Some(&dir),
-        );
-        Self { local, _remote: remote, dir }
+        let home = std::env::temp_dir().join(format!("ptr-{tag}-local-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let config = Self::config(&format!("ssh://box.invalid:{port}"));
+        let local = run(home, config, false, Some(&dir), memory);
+        Self { local, _remote: remote, dir, port }
+    }
+
+    fn config(url: &str) -> Value {
+        json!({"peers": {"box": {"url": url}}})
+    }
+
+    /// Stops the local daemon, lets `between` change its home, and starts it again in the
+    /// same home with the peer at `url`.
+    fn restart_local(&mut self, url: &str, between: impl FnOnce(&Path)) {
+        let placeholder = Daemon { child: None, home: PathBuf::new(), listen: None };
+        let home = std::mem::replace(&mut self.local, placeholder).stop_keeping_home();
+        between(&home);
+        self.local = run(home, Self::config(url), false, Some(&self.dir), false);
+    }
+
+    /// The peer tokens file in the local daemon's home.
+    fn kept_tokens(&self) -> Value {
+        serde_json::from_slice(&std::fs::read(self.local.home.join("peer-tokens.json")).unwrap())
+            .unwrap()
     }
 
     fn peer(&self) -> Value {
@@ -333,6 +383,77 @@ fn a_refused_kept_token_is_read_again_and_the_redial_connects() {
     assert_eq!(peer["servedAs"], json!("peer"), "{peer}");
     assert_eq!(pair.reads(), 2, "one read after the refusal");
     assert_eq!(pair.count("tunnels"), tunnels + 2, "the refused tunnel and the one that connected");
+}
+
+/// A restarted daemon presents the tokens its peer read on the run before (`peer-tokens.json`),
+/// so its first connect is one ssh login, the tunnel's, not two.
+#[test]
+fn a_restarted_daemon_connects_with_the_tokens_it_kept_and_reads_none() {
+    let mut pair = Pair::start_kept("kept", Reads::Always);
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 1, "the first connect ever reads the tokens");
+    let kept = pair.kept_tokens();
+    assert_eq!(kept["peers"]["box"]["url"], json!(format!("ssh://box.invalid:{}", pair.port)));
+    use std::os::unix::fs::PermissionsExt as _;
+    let file = pair.local.home.join("peer-tokens.json");
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    let tunnels = pair.count("tunnels");
+    let url = format!("ssh://box.invalid:{}", pair.port);
+    pair.restart_local(&url, |_| {});
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 1, "a restarted daemon reads no tokens");
+    assert_eq!(pair.count("tunnels"), tunnels + 1, "one tunnel, no read");
+}
+
+/// A kept dashboard token the remote refuses after a restart (its config changed while this
+/// daemon was down): the refused connect reads once and connects with what it found.
+#[test]
+fn a_kept_token_refused_after_a_restart_is_read_again_once_and_connects() {
+    let mut pair = Pair::start_kept("kept-refused", Reads::Always);
+    pair.wait_served_as("peer");
+    let url = format!("ssh://box.invalid:{}", pair.port);
+    pair.restart_local(&url, |home| {
+        let path = home.join("peer-tokens.json");
+        let mut kept: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        kept["peers"]["box"]["token"] = json!("a-token-the-remote-no-longer-takes");
+        std::fs::write(&path, kept.to_string()).unwrap();
+    });
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 2, "one read after the refusal");
+    assert_ne!(
+        pair.kept_tokens()["peers"]["box"]["token"],
+        json!("a-token-the-remote-no-longer-takes")
+    );
+}
+
+/// A kept peer token of the remote's previous run (it restarted while this daemon was down):
+/// the remote serves the link as Web, and the peer reads again and reconnects as a peer.
+#[test]
+fn a_kept_peer_token_of_an_earlier_remote_run_is_read_again_and_reconnects_as_a_peer() {
+    let mut pair = Pair::start_kept("kept-stale", Reads::Always);
+    pair.wait_served_as("peer");
+    let url = format!("ssh://box.invalid:{}", pair.port);
+    pair.restart_local(&url, |home| {
+        let path = home.join("peer-tokens.json");
+        let mut kept: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        kept["peers"]["box"]["peerToken"] = json!("0".repeat(64));
+        std::fs::write(&path, kept.to_string()).unwrap();
+    });
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 2, "one read once the link was served as Web");
+}
+
+/// A peer whose URL changed while the daemon was down does not present the tokens it read
+/// over the old one: it reads again.
+#[test]
+fn a_peer_whose_url_changed_reads_again_and_keeps_the_new_url() {
+    let mut pair = Pair::start_kept("kept-url", Reads::Always);
+    pair.wait_served_as("peer");
+    let moved = format!("ssh://someone@box.invalid:{}", pair.port);
+    pair.restart_local(&moved, |_| {});
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 2, "the tokens kept for the old URL are not presented");
+    assert_eq!(pair.kept_tokens()["peers"]["box"]["url"], json!(moved));
 }
 
 /// Both the config read and a configured-token tunnel preserve the SSH failure class.

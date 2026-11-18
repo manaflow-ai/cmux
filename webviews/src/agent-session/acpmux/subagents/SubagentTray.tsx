@@ -99,8 +99,7 @@ import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
-import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
-import { useSenderIconLook, type SenderIconBadge } from "./senderIconLook";
+import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -109,6 +108,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
+import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
@@ -127,6 +127,7 @@ import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { hatTuckLook } from "./hatTuck.experiment";
 import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
@@ -142,6 +143,7 @@ import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -175,6 +177,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenPanel,
   stop,
   stopProcess,
+  resume,
   placement = "tray",
   shown,
   enters = false,
@@ -214,6 +217,9 @@ export const SubagentTray = memo(function SubagentTray({
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// Resume on a stopped subagent's finished line (ResumeControl.tsx): the chat's `resumeAgent`,
+  /// as the transcript's end line has it. The tray sits outside the transcript's TurnActionsContext.
+  resume?: ResumeActions;
   /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
   placement?: SubagentTrayPlacement;
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
@@ -295,6 +301,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
+  const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
   const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
@@ -378,7 +385,8 @@ export const SubagentTray = memo(function SubagentTray({
     // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
     // then. Focus the person put elsewhere since stays where it is.
     const fell = !focused || focused === tray?.ownerDocument.body;
-    if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
+    if ((fell || tray?.contains(focused)) && focused !== headButton.current)
+      focusRoute(headButton.current, "system", "the subagent tray changed");
   }, [open]);
   // Held while open, or while the pointer or keyboard focus is on it (Leo, 2026-11-07: "if you have
   // things expanded and you're looking at them, they shouldn't just disappear like that"). Enter and
@@ -480,9 +488,11 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // What runs by name, newest first: computed when the items change (an event), never per tick.
   // The width the list's scrollbar takes, if it takes any (a classic, always-shown scrollbar): the
-  // header's panel button and chevron move in by it too, so they stay over the lines' Stop and chevron
-  // columns (Leo, 2026-11-03: "all that alignment can be done better ... the chevrons with the stop
-  // symbols"). One observer on the list while it is mounted; it disconnects with the list.
+  // lines give it their end inset (subagents.css `--acpmux-tray-inset-end`), so their Stop and chevron
+  // columns stay under the header's (Leo, 2026-11-03: "all that alignment can be done better ... the
+  // chevrons with the stop symbols"), and the header never moves as the hat opens or folds (Leo,
+  // 2026-11-14: "don't do that for the composer hat"). One observer on the list while it is mounted;
+  // it disconnects with the list.
   const [gutter, setGutter] = useState(0);
   const listRef = useCallback((node: HTMLUListElement | null) => {
     if (!node) return undefined;
@@ -510,13 +520,10 @@ export const SubagentTray = memo(function SubagentTray({
   const since = runSince(runStart, items);
   if (since !== runStart) setRunStart(since);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
-  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
-  // change of the setting draws them again.
-  const senderBadge = useSenderIconLook().badge;
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
-    () => (head === "stack" || lone ? stackMarks(t, leading, finished, chatHarness, senderBadge) : NO_MARKS),
-    [t, head, lone, leading, finished, chatHarness, senderBadge],
+    () => (head === "stack" || lone ? stackMarks(leading, finished, chatHarness) : NO_MARKS),
+    [head, lone, leading, finished, chatHarness],
   );
   const headCounts = useMemo(
     () =>
@@ -569,6 +576,9 @@ export const SubagentTray = memo(function SubagentTray({
   const workText =
     items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
+  // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
+  // plan the head keeps the work's ring.
+  const planOnly = Boolean(planText) && !workText;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -674,7 +684,7 @@ export const SubagentTray = memo(function SubagentTray({
   return (
     <section
       ref={setTrayRef}
-      className="acpmux-running-tray"
+      className={`acpmux-running-tray${items.length > 0 || planned || surface !== "none" ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
       // It holds still while the chat streams, ticks and scrolls: only its times tick, in their own
       // text (Elapsed.tsx). The dev budgets warn otherwise (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="hat"
@@ -703,6 +713,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
+      data-tuck-look={onTuck ? tuckLook : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
       data-sized={(resizes && hatHeight !== undefined) || undefined}
@@ -765,12 +776,18 @@ export const SubagentTray = memo(function SubagentTray({
             // (desktop.css --grid-tray-text) instead of jumping to the inset.
             <span
               className="acpmux-lineage__icon"
-              data-state={runs ? "running" : "done"}
-              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
-              data-blank={head === "bare" || head === "stack" || undefined}
+              data-state={planOnly ? "done" : runs ? "running" : "done"}
+              // A plan-only header draws the Plan mode mark over its rows' status column (Lucas, 2026-11-14:
+              // "we should either have an icon (ideally) or align it"). Else an empty stack keeps the slot
+              // blank, never the ring.
+              data-blank={(!planOnly && (head === "bare" || head === "stack")) || undefined}
               aria-hidden="true"
             >
-              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+              <Icon
+                name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
+                size={ROW_ICON}
+                row
+              />
             </span>
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
@@ -991,7 +1008,7 @@ export const SubagentTray = memo(function SubagentTray({
               progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
               progressAgent={item.agent}
               icon={SUBAGENT_FALLBACK}
-              mark={foreignHarness(item.agent.harness, chatHarness, senderBadge)}
+              mark={item.agent.harness ?? chatHarness}
               tone={agentTone(item.agent.id)}
               doneLook={doneLook}
               status={subagentStatus(item.agent, waiting)}
@@ -1005,7 +1022,6 @@ export const SubagentTray = memo(function SubagentTray({
               title={agentTooltip(t, item.agent)}
               label={subagentTaskLabel(t, item.agent)}
               chevron
-              expanded={isOpen}
               trayColumns
               // A narrow tray's workflow progress wraps under the title, above its time and controls.
               progressAt={row === "below" || narrow ? "below" : "meta"}
@@ -1013,11 +1029,13 @@ export const SubagentTray = memo(function SubagentTray({
               latest={showLatest ? agentLatest : undefined}
               latestAt={latestPlacement}
               via={parent ? subagentTaskLabel(t, parent) : undefined}
-              onOpen={toggleThis}
+              onOpen={() => onOpen(item.agent.id)}
               after={
-                stop &&
-                item.agent.state === "running" &&
-                !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                item.agent.state === "running"
+                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                  : // A stopped one's Resume sits in Stop's column (Leo, 2026-11-12: "WHY CANT WE
+                    // RESTART AGENTS THAT WERE STOPPED").
+                    resume && <ResumeControl agent={item.agent} actions={resume} />
               }
             />,
             // An agent a shell call started stops with that call, not through the harness.
@@ -1031,14 +1049,6 @@ export const SubagentTray = memo(function SubagentTray({
                 () => stop(item.agent.id),
               ),
           )}
-          <TrayLineFold open={isOpen}>
-            <TrayAgentDetail
-              name={subagentTaskLabel(t, item.agent)}
-              task={item.agent.task}
-              latest={agentLatest}
-              onOpen={() => onOpen(item.agent.id)}
-            />
-          </TrayLineFold>
         </>
       );
     }
@@ -1279,28 +1289,37 @@ const NO_MARKS: readonly HeadMark[] = [];
 const STACK_MARKS = 4;
 
 /// The marks the header stacks (the `stack` arm): the first lines' own glyphs, what runs first, then
-/// what ended. A subagent draws its subagent mark in its tone, or another family's harness mark; a
-/// chat its harness's; a command its command icon. Computed when the lists change, never per tick.
+/// what ended. Agents use their harness logos; commands share one terminal mark.
+/// Computed when the lists change, never per tick.
 function stackMarks(
-  t: Translate,
   items: readonly TrayItem[],
   finished: readonly TrayItem[],
   chatHarness: string | undefined,
-  senderBadge: SenderIconBadge,
 ): readonly HeadMark[] {
   const marks: HeadMark[] = [];
-  for (const item of [...items.slice(0, STACK_MARKS), ...finished.slice(0, STACK_MARKS)]) {
+  const hasCommands = items.some((item) => item.kind === "command") || finished.some((item) => item.kind === "command");
+  const agentLimit = STACK_MARKS - (hasCommands ? 1 : 0);
+  let agentsShown = 0;
+  let commandsShown = false;
+  for (const item of [...items, ...finished]) {
     if (marks.length === STACK_MARKS) break;
+    if (item.kind === "command") {
+      if (commandsShown) continue;
+      commandsShown = true;
+    } else {
+      if (agentsShown === agentLimit) continue;
+      agentsShown += 1;
+    }
     marks.push(
       item.kind === "agent"
         ? {
             key: itemKey(item),
-            harness: foreignHarness(item.agent.harness, chatHarness, senderBadge),
+            harness: item.agent.harness ?? chatHarness,
             tone: agentTone(item.agent.id),
             icon: SUBAGENT_FALLBACK,
           }
         : item.kind === "command"
-          ? { key: itemKey(item), icon: commandRead(t, item.command).icon }
+          ? { key: "commands", icon: "terminal" }
           : {
               key: itemKey(item),
               harness: item.session.harness,
@@ -1315,6 +1334,8 @@ function stackMarks(
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
+/// A plan header's mark: the composer's Plan mode checklist (composerPlusRegistry.ts).
+const PLAN_ICON = "mode.plan";
 
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();

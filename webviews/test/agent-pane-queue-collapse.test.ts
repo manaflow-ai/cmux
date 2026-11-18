@@ -210,6 +210,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     seq = opening.length + queuedRecords().length;
     edits.length = 0;
     const page = await browser!.newPage({ viewport });
+    // Claude's look, whose queue these rows' geometry was written for: Codex's (the default since
+    // #42247) rounds the box 22 px and moves the rows 2 px, so the opened row's hold reads as motion.
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;

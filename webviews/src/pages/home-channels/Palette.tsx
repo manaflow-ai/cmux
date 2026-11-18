@@ -173,6 +173,8 @@ export function Palette({
         inputClassName="lg-palette-input"
         listClassName="lg-palette-list"
         itemClassName="lg-palette-row"
+        empty={t("switcher.none")}
+        emptyClassName="lg-palette-none"
         renderItem={(id) => {
           const item = byId.get(id);
           if (!item) return null;
@@ -193,7 +195,6 @@ export function Palette({
           );
         }}
       />
-      {results.length === 0 && <p className="lg-palette-none">{t("switcher.none")}</p>}
       <p className="lg-palette-hint" aria-hidden="true">
         {t("switcher.hint")}
       </p>

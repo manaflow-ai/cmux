@@ -287,7 +287,11 @@ mod other {
     impl Archive {
         pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
             let pass = &root.join(id).join(pass);
-            anyhow::ensure!(!pass.exists(), "archive folder {} already exists", pass.display());
+            anyhow::ensure!(
+                !crate::home_fs::try_exists_nofollow(pass)?,
+                "archive folder {} already exists",
+                pass.display()
+            );
             crate::home_fs::create_dirs(pass.parent().unwrap_or(pass))?;
             crate::config::private_state_dir(pass)?;
             crate::config::private_state_dir(&pass.join("events"))?;

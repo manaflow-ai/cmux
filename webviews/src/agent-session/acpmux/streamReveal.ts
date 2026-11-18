@@ -30,6 +30,7 @@ export class StreamReveal {
   static readonly minCharsPerSecond = 40;
   static readonly maxBacklogMs = 900;
   static readonly catchUpMs = 250;
+  // motion-allow: the text reveal's finish pace, not a motion step
   static readonly finishMs = 180;
   static readonly stallMs = 600;
   /// A longer gap between frames (a hidden pane, a long task) counts as this long.
@@ -62,6 +63,18 @@ export class StreamReveal {
   /// Shows everything now (a hidden page, a session switch).
   flush(): void {
     this.shown = this.received;
+  }
+
+  /// A completed reply was replaced by a historical/page snapshot. The replacement is already
+  /// visible content, so it must not be paced as if it had just streamed in.
+  replace(text: string): void {
+    this.shown = text.length;
+    this.received = text.length;
+    this.lastFrame = undefined;
+    this.lastArrival = undefined;
+    this.arrivals = [];
+    this.gaps = [];
+    this.drainUntil = undefined;
   }
 
   /// Reduce Motion changed while the row is mounted: on, all of `text` (the latest, which may not

@@ -16,6 +16,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 surfaces=plans/cmux-next/action-surfaces.json
 md=plans/cmux-next/actions.md
 links=plans/cmux-next/links.json
+dump=plans/cmux-next/action-catalog.json
 
 repo="$tmp/repo"
 mkdir -p "$repo/scripts/cmux-next/lib" "$repo/scripts/ci" "$repo/Packages/macOS/CmuxNext" "$repo/plans/cmux-next" "$tmp/bin"
@@ -26,6 +27,7 @@ echo '// swift-tools-version:6.0' > "$repo/Packages/macOS/CmuxNext/Package.swift
 printf '{"actions": ["old"]}\n' > "$repo/$surfaces"
 printf '# Actions\nold\n' > "$repo/$md"
 printf '{"links": []}\n' > "$repo/$links"
+printf '{"actions": ["old"]}\n' > "$repo/$dump"
 printf '.build/\n' > "$repo/.gitignore"
 git -C "$repo" init -q -b feat
 git -C "$repo" add -A
@@ -39,6 +41,10 @@ cat > "$tmp/bin/swift" <<'STUB'
 root="$(git rev-parse --show-toplevel)"
 printf '%s\n' "$STUB_SURFACES" > "$root/plans/cmux-next/action-surfaces.json"
 printf '%s\n' "$STUB_MD" > "$root/plans/cmux-next/actions.md"
+# The dump changes only when its real exporting suite was selected.
+if [[ "$*" == *ActionCatalogDumpTests* ]]; then
+  printf '%s\n' "$STUB_SURFACES" > "$root/plans/cmux-next/action-catalog.json"
+fi
 STUB
 chmod +x "$tmp/bin/swift"
 
@@ -52,6 +58,7 @@ run() { # <surfaces> <md>
 run '{"actions": ["old", "devices.setup"]}' $'# Actions\nold\ndevices.setup' > "$tmp/out" 2>&1 || fail "the regeneration failed: $(cat "$tmp/out")"
 [[ -f "$repo/.build/exports/$surfaces" && -f "$repo/.build/exports/$md" ]] || fail "OUT lacks the changed exports: $(cat "$tmp/out")"
 [[ ! -e "$repo/.build/exports/$links" ]] || fail "OUT holds an export that did not change"
+[[ -f "$repo/.build/exports/$dump" ]] || fail "the full catalog dump was not regenerated and carried with the surface export"
 [[ -s "$repo/.build/exports.patch" ]] || fail "no OUT.patch: $(cat "$tmp/out")"
 [[ -z "$(find "$repo/.build/exports" -name '*.patch')" ]] || fail "the patch is inside OUT, where base-autofix.sh would commit it"
 grep -q '^patch: .*exports.patch' "$tmp/out" || fail "the log does not name the patch: $(cat "$tmp/out")"
@@ -59,7 +66,8 @@ git clone -q "$repo" "$tmp/lane"
 git -C "$tmp/lane" apply --allow-empty "$repo/.build/exports.patch" || fail "the patch does not apply to a clean checkout"
 cmp -s "$tmp/lane/$surfaces" "$repo/$surfaces" || fail "the patched action-surfaces.json differs from the regenerated one"
 cmp -s "$tmp/lane/$md" "$repo/$md" || fail "the patched actions.md differs from the regenerated one"
-[[ "$(git -C "$tmp/lane" diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == "$(printf '%s\n' "$md" "$surfaces" | LC_ALL=C sort | tr '\n' ' ')" ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
+cmp -s "$tmp/lane/$dump" "$repo/$dump" || fail "the patched full catalog differs from the regenerated one"
+[[ "$(git -C "$tmp/lane" diff --name-only | LC_ALL=C sort | tr '\n' ' ')" == "$(printf '%s\n' "$md" "$surfaces" "$dump" | LC_ALL=C sort | tr '\n' ' ')" ]] || fail "the patch touches other files: $(git -C "$tmp/lane" diff --name-only)"
 
 # 2. Nothing changed: the patch holds no diff (an earlier run's patch is not handed over again), yet
 #    is not an empty file: the fleet's artifact store refuses a 0-byte artifact (cache_http_400; step

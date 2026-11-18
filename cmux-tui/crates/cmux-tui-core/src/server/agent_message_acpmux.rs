@@ -49,12 +49,58 @@ impl crate::mux::Mux {
         else {
             return Handover::Unreachable;
         };
+        // Steered into a running turn when the agent steers, so a busy recipient reads it at its
+        // next tool boundary instead of after its turn; acpmux queues it for an agent that does
+        // not. A steer without `interrupt` never stops the turn; only an explicit interrupt
+        // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
+        let mut meta = json!({"steer": true, "promptId": id, "resend": true});
+        if let Some(provenance) = provenance(message, recipient) {
+            meta.insert("provenance", provenance);
+        }
+        let text = render(std::slice::from_ref(message));
+        self.acp_prompt(session, id, text, meta)
+    }
+
+    /// Hands `text` to the acpmux session `session` as one prompt whose id
+    /// is `prompt_id`, with `meta` as its `_meta.acpmux`; delivered once
+    /// acpmux accepts it (`_acpmux/prompt_accepted`) or answers its turn.
+    pub(crate) fn acp_prompt(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+    ) -> Handover {
+        self.acp_prompt_with_scope(session, prompt_id, text, meta, false)
+    }
+
+    /// Hands a diff-comments review only to a session owned by this daemon.
+    /// The diff page routes the operation to the session host; agent.message
+    /// sends use [`acp_prompt`] and keep their peer-forwarding behavior.
+    pub(crate) fn acp_prompt_diff_comments(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+    ) -> Handover {
+        self.acp_prompt_with_scope(session, prompt_id, text, meta, true)
+    }
+
+    fn acp_prompt_with_scope(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+        require_local: bool,
+    ) -> Handover {
         let Some(socket) = self.control_clients.agent_sessions.socket() else {
             return Handover::Unreachable;
         };
         let (heard, hearing) = sync_channel::<Heard>(4);
         let accepted = heard.clone();
-        let prompt_id = id.to_owned();
+        let prompt_id = prompt_id.to_owned();
         let Ok(link) = AcpmuxLink::connect(&socket, move |inbound| {
             if let Inbound::Notification(method, params) = inbound
                 && method == "_acpmux/prompt_accepted"
@@ -67,19 +113,10 @@ impl crate::mux::Mux {
         };
         // Only a session acpmux runs, by its exact id, takes the prompt.
         let known = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
-        if !known.is_ok_and(|info| info.get("sessionId").and_then(Value::as_str) == Some(session)) {
+        if !known.is_ok_and(|info| session_info(&info, session, require_local)) {
             link.close();
             return Handover::Unreachable;
         }
-        // Steered into a running turn when the agent steers, so a busy recipient reads it at its
-        // next tool boundary instead of after its turn; acpmux queues it for an agent that does
-        // not. A steer without `interrupt` never stops the turn; only an explicit interrupt
-        // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
-        let mut meta = json!({"steer": true, "promptId": id, "resend": true});
-        if let Some(provenance) = provenance(message, recipient) {
-            meta.insert("provenance", provenance);
-        }
-        let text = render(std::slice::from_ref(message));
         let params = json!({
             "sessionId": session,
             "prompt": [{"type": "text", "text": text}],
@@ -151,9 +188,7 @@ impl crate::mux::Mux {
             Ok(Withdrawn::NoSession) => {
                 let info = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
                 match info {
-                    Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
-                        Ok(Withdrawn::NotFound)
-                    }
+                    Ok(info) if session_info(&info, session, false) => Ok(Withdrawn::NotFound),
                     // acpmux names another session, or its own lookup
                     // (`Hub::resolve`) knows none here or on a peer.
                     Ok(_) => Ok(Withdrawn::NoSession),
@@ -199,6 +234,14 @@ impl crate::mux::Mux {
     }
 }
 
+/// `_acpmux/info` can resolve a session mirrored from a peer. Diff-comment
+/// sends run on the session host, so they require a local session; the generic
+/// agent-message path allows acpmux to forward a peer session.
+fn session_info(info: &Value, session: &str, require_local: bool) -> bool {
+    info.get("sessionId").and_then(Value::as_str) == Some(session)
+        && (!require_local || info.get("peer").is_none_or(Value::is_null))
+}
+
 /// acpmux's error answer to `_acpmux/prompt_withdraw`: its message and its
 /// `data`.
 fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawError> {
@@ -221,5 +264,20 @@ fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawEr
     } else {
         // The spec's limit on `error.acpmux_reason`.
         Err(WithdrawError::Refused(clip(&reason, ACPMUX_REASON_MAX)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_info;
+    use serde_json::json;
+
+    #[test]
+    fn peer_session_info_is_allowed_only_for_forwarding() {
+        assert!(session_info(&json!({"sessionId": "chat"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": null}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", true));
+        assert!(!session_info(&json!({"sessionId": "other"}), "chat", true));
+        assert!(session_info(&json!({"sessionId": "chat", "peer": "other"}), "chat", false));
     }
 }

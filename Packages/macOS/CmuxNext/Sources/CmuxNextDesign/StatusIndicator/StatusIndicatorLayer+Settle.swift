@@ -18,6 +18,12 @@ extension StatusIndicatorLayer {
         target.add(tint, forKey: Self.settleTintKey)
     }
 
+    /// Ends a settle still playing, before its glyph changes or its animations restart.
+    func removeSettle() {
+        layer.removeAnimation(forKey: Self.settleScaleKey)
+        tintTarget?.0.removeAnimation(forKey: Self.settleTintKey)
+    }
+
     /// The scale a settle starts from.
     static let settleScale: CGFloat = 0.6
 

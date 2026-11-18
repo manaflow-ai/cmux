@@ -77,7 +77,7 @@ import Testing
     @Test func creationButtonsStayOutOfTheTopBarForChatAndTerminal() throws {
         let registry = ActionRegistry.standard()
         let pane = ActionTargetRef(kind: .pane, id: "sample-pane")
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil }, paneTarget: pane)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: pane)
         toolbar.update(target: "sample-chat", kind: nil)
         #expect(toolbar.view.items.isEmpty, "the new-terminal and new-browser buttons repeat the + menu")
         #expect(toolbar.view.buttons.isEmpty)
@@ -97,7 +97,7 @@ import Testing
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "openDiffViewer", "file.open"]
         for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: target)
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: pins)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [], selectedID: nil), reveal: LaunchReveal(deadline: .zero))
         pane.toolbar = toolbar
@@ -137,7 +137,7 @@ import Testing
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "toggleSplitZoom"]
         for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
+        let toolbar = PaneToolbar(registry: { registry }, paneTarget: target)
         toolbar.update(target: "sample-browser", kind: .browser, pinned: pins)
         tab.pane.toolbar = toolbar
         for width: CGFloat in [200, 600, 200] {

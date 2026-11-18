@@ -31,6 +31,9 @@ import math
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "manaflow-ai"
@@ -181,6 +184,17 @@ class _Parser:
         raise ValueError(f"unexpected {value!r}")
 
 
+def _label_array(value):
+    """fromJSON of a described variable's value: a tuple of labels, or unknown when it is not a JSON string array."""
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, list) and parsed and all(isinstance(label, str) for label in parsed):
+        return tuple(parsed)
+    return Unknown("fromjson(...)")
+
+
 def _truthy(value) -> bool:
     if value is NULL or value is False:
         return False
@@ -268,6 +282,9 @@ class _Evaluator:
                     out |= _compare(node[1], left, right)
             return out
         if kind == "call":
+            if node[1] == "fromjson" and len(node[2]) == 1 and node[2][0][0] == "ctx" and node[2][0][1] in self.variables:
+                # A described variable holding a JSON label array (vars.CI_SIDE_LANE_LABELS): the labels, as a tuple.
+                return {_label_array(value) for value in self(node[2][0])}
             return _call(node[1], [self(arg) for arg in node[2]])
         if kind == "prop":
             target = node[1]
@@ -295,7 +312,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
     text = str(runs_on).strip()
-    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    whole = gh_expressions.EXPRESSION.fullmatch(text)
     if whole is None:
         if "${{" in text:
             raise ValueError(f"runs-on mixes text and an expression: {text!r}")

@@ -225,7 +225,7 @@ public final class OverlaySurfaceView: NSView {
         addSubview(view, positioned: .below, relativeTo: nil)
         materialView = view
         installRim()
-        if let focused, let window = focused.window { window.makeFirstResponder(focused) }
+        if let focused, let window = focused.window { FocusRoute(.system, "an overlay rebuilt: keep its focused view").moveKeyboard(in: window, to: focused) }
         applyShape()
         applyTheme()
         // Content colors may depend on the material (a veil that only
@@ -297,7 +297,8 @@ public final class OverlaySurfaceView: NSView {
             let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = isClear || floatingVariant?.tintsGlass == false ? nil : veil ?? overlayTint
+                let untinted = tone.style.map { floatingVariant?.tintsGlass($0) == false } ?? false
+                (materialView as? GlassPanelView)?.tintColor = isClear || untinted ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor

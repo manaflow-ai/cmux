@@ -38,6 +38,9 @@ struct FileOpenRun {
         let topology = call.snapshot.topology
         let placement = try BrowserOpenSplitPlacement.resolve(workspaceID: request.workspaceID, agentSession: nil,
                                                               terminalID: request.terminalID, in: topology, method: call.method)
+        // An agent's file with no pane of its own opens in the agent's own workspace: the `file.open`
+        // action places its caller (ControlRouter.placeBesideCaller), never in the focused pane, Home.
+        let caller = placement.targetTab == nil ? call.params["caller"] : nil
         // `file.open` takes a pane: the pane of the placement's tab, else the action's own focused pane.
         let paneID = placement.targetTab.flatMap { topology.tab(id: $0)?.pane.id }
         var opened: [JSONValue] = []
@@ -46,7 +49,7 @@ struct FileOpenRun {
             if let place = request.place { args["where"] = .string(place) }
             if request.asText { args["asText"] = true }
             var params: [String: JSONValue] = ["action": "file.open", "args": .object(args), "wait": true, "focus": .bool(request.focus)]
-            if let paneID { params["target"] = .string("pane:" + paneID) }
+            if let paneID { params["target"] = .string("pane:" + paneID) } else if let caller { params["caller"] = caller }
             if let origin = request.origin { params["origin"] = .string(origin) }
             if let key = request.idempotencyKey { params["idempotency_key"] = .string("\(key).\(index)") }
             // The first run claims the call's progress; the rest run against the current snapshot.
@@ -64,7 +67,7 @@ struct FileOpenRun {
 
 /// The checked params of one `file.open`.
 struct FileOpenRequest: Sendable, Equatable {
-    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "focus",
+    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "caller", "focus",
                                           "idempotency_key", "origin", "after"]
 
     var paths: [String]

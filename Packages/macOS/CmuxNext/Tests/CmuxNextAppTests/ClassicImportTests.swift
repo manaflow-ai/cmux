@@ -4,6 +4,8 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextImportCards
+import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -30,19 +32,13 @@ struct ClassicImportTests {
     private static let everything = fixture("session-everything.json")
 
     @Test func previewIncludesInterruptedWorkspacesThatWillBeReplaced() {
-        let source = ClassicMigrationSource(
-            path: "/tmp/session.json",
-            bundleID: ClassicSessionImporter.stableBundleIdentifier,
-            size: 1,
-            modifiedAt: 1,
-            createdAt: 1
-        )
-        let plan = ClassicImportPlan(
-            source: source,
-            migration: ClassicMigrationPlan(cleanup: ["half-made-1", "half-made-2"])
-        )
-        #expect(plan.cleanupWorkspaces == 2)
-        #expect(ClassicImportStrings.previewLines(plan).count == 9)
+        let plan = ClassicImportPreview(counts: ClassicImportReply.Preview(workspaces: 0, cleanupWorkspaces: 2),
+                                        bundleID: "com.cmuxterm.app", savedAt: 1, classicRunning: false)
+        let lines = plan.promptLines(atLaunch: false)
+        #expect(lines.last == ClassicImportPreviewStrings.interruptedClose(2), "\(lines)")
+        // The launch's prompt says where the import waits; its Cancel reads Not Now.
+        let launch = plan.dialogSpec(atLaunch: true)
+        #expect(launch.lines.last == ClassicImportPreviewStrings.later && launch.cancelButton?.title == ClassicImportPreviewStrings.notNow)
     }
 
     /// What the import left: each workspace's pane trees by name, the SSH
@@ -258,20 +254,22 @@ struct ClassicImportTests {
             .replacingOccurrences(of: "/Users/cmux/p4rt-classic/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux/p4rt-full/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux", with: root.path)
-        let file = root.appendingPathComponent("session-com.cmuxterm.app.json")
-        try session.write(to: file, atomically: true, encoding: .utf8)
+        // Where the daemon, whose home is `root`, finds classic stable's save.
+        let home = ClassicTestHome(root: root)
+        try FileManager.default.createDirectory(at: home.classic, withIntermediateDirectories: true)
+        try session.write(to: home.session(), atomically: true, encoding: .utf8)
 
+        // `classic_import.*` is the verified app's only: the daemon gets an install key and the
+        // connection proves it, as the app's own (`DaemonService.localConfiguration`).
+        let key = FrontendInstallKey.generate()
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-classic-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+                                 stateDirectory: root.appendingPathComponent("state"), installKey: key),
+            environment: { home.daemonEnvironment() })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.onboarding.classicSessions = ClassicSessionImporter(fileURL: file)
-        services.onboarding.classicMigrationDirectory = root.appendingPathComponent("migration")
-        services.onboarding.classicMigrationDirectory = root.appendingPathComponent("migration")
         services.onboarding.classicMigrationAtLaunch = false
         var destinations: [String] = []
         services.onboarding.classicSSH = { destination in
@@ -280,7 +278,8 @@ struct ClassicImportTests {
         }
         services.onboarding.classicChatPlan = { adopt, cwd in AcpmuxChatOpenPlan(result: plan(adopt, cwd)) }
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, clientHello: .init(installKey: key)),
+                             endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         defer {
@@ -328,8 +327,8 @@ struct ClassicImportTests {
         let preview = try #require(CmuxDialogCenter.shared.records.last {
             $0.spec.identifier == "cmux.dialog.classicImport"
         }, "classic import showed no preview")
-        #expect(preview.spec.title == ClassicImportStrings.previewTitle)
-        #expect(preview.spec.lines.count == 9 && preview.spec.lines.allSatisfy { !$0.isEmpty })
+        #expect(preview.spec.title == ClassicImportPreviewStrings.title)
+        #expect(preview.spec.lines.count >= 2 && preview.spec.lines.allSatisfy { !$0.isEmpty }, "\(preview.spec.lines)")
         #expect(preview.spec.defaultButton?.id == ClassicImportConfirmation.importButton)
         #expect(preview.spec.cancelButton?.id == "cancel")
         #expect(try await connection.listWorkspaces().workspaces.count == before,

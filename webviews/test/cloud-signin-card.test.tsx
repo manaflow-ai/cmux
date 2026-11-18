@@ -509,6 +509,27 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
 });
 
+test("a team Cloud machine with no team account for the agent offers Use an API key there, saved on the machine", async () => {
+  const { client, calls } = mockClient();
+  const { signIn } = signInFor(client);
+  const team = { ...cloudRoute, teamMachine: true };
+  const missing = "Codex needs a team account on this machine: run cr add codex to add one";
+  await render({ route: team, cloudSignIn: signIn, switchModel: () => undefined }, missing);
+  await flush();
+  expect(host.querySelector(".cv-turn-error")?.getAttribute("data-failure-kind")).toBe("no-team-account");
+  // The team's own way stays the card's words; the API key is the click that goes on now, never a personal sign-in.
+  expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain("cr add codex");
+  expect(labels()).toContain("Use an API key");
+  expect(button("Sign in to Claude")).toBeUndefined();
+  await act(async () => button("Use an API key")!.click());
+  const field = host.querySelector<HTMLInputElement>('input[type="password"]');
+  expect(field).not.toBeNull();
+  expect(calls).toEqual([]);
+  // A chat with no sign-in on its machine keeps the card's words alone.
+  await render({ route: team, switchModel: () => undefined }, missing);
+  expect(button("Use an API key")).toBeUndefined();
+});
+
 test("API key: a password field, saved on the machine, then Send again", async () => {
   const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
   const { signIn, intents } = signInFor(client);

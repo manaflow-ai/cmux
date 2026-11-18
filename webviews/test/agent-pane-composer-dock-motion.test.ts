@@ -457,7 +457,9 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
         const field = page.locator(".acpmux-composer-box .ProseMirror").first();
         await field.click();
         await page.keyboard.type(LINES[0]!, { delay: 8 });
-        // fixed-wait: the first line's growth (if any) plays out before the one under test.
+        await page.keyboard.press("Shift+Enter");
+        await page.keyboard.type(LINES[1]!, { delay: 8 });
+        // fixed-wait: two lines fill the Codex editor's 40px minimum before the measured third line.
         await page.waitForTimeout(400);
         const scroller = page.locator(".acpmux-scroll").first();
         const box = (await scroller.boundingBox())!;
@@ -596,7 +598,9 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
         const field = page.locator(".acpmux-composer-box .ProseMirror").first();
         await field.click();
         await page.keyboard.type(LINES[0]!, { delay: 8 });
-        // fixed-wait: the first line's growth (if any) plays out before the one under test.
+        await page.keyboard.press("Shift+Enter");
+        await page.keyboard.type(LINES[1]!, { delay: 8 });
+        // fixed-wait: two lines fill the Codex editor's 40px minimum before the measured third line.
         await page.waitForTimeout(400);
         const scroller = page.locator(".acpmux-scroll").first();
         const box = (await scroller.boundingBox())!;

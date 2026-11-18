@@ -250,9 +250,22 @@ impl AuditLog {
         match exited.recv_timeout(deadline) {
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 tracing::warn!("audit: the writer did not finish within {deadline:?} at shutdown");
+                // Kept for `wait_closed`: the writer still writes.
+                *self.exited.lock().unwrap_or_else(|e| e.into_inner()) = Some(exited);
                 false
             }
             _ => true,
+        }
+    }
+
+    /// Ends the channel and waits for the writer to exit, however long that takes: what holds
+    /// the daemon's home lock until then (`Hub::persist_for_handoff`).
+    pub(crate) fn wait_closed(&self) {
+        drop(self.tx.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let exited = self.exited.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(exited) = exited {
+            // Disconnected once the writer thread ends (its sender drops).
+            let _ = exited.recv();
         }
     }
 

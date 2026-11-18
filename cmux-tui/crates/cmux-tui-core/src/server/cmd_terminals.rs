@@ -4,6 +4,7 @@
 //! renderer grants. Each function is one `Command` arm of
 //! `handle_command_with_cancellation`.
 
+use super::Command;
 use super::MutationRequest;
 use super::frontend_shell;
 use super::get_surface;
@@ -207,6 +208,19 @@ pub(super) fn terminal_last_command(
         })
     });
     Ok(json!({ "terminal_id": terminal_id, "last_command": last }))
+}
+
+/// `terminal-command-context`: the newest command the PTY `surface`'s shell
+/// finished, read from its screen now, or null.
+pub(super) fn terminal_command_context(
+    mux: &Arc<Mux>,
+    surface: SurfaceId,
+    intent: crate::command_context::Intent,
+) -> anyhow::Result<Value> {
+    let surface = get_surface(mux, surface)?;
+    require_pty(&surface)?;
+    let context = surface.terminal_command_context().map(|context| context.to_json(intent));
+    Ok(json!({ "context": context }))
 }
 
 /// `terminal-resume-command`: an absent `command` reads, a string sets and
@@ -633,3 +647,25 @@ fn ensure_workspace(
 #[cfg(test)]
 #[path = "create_terminal_workspace_tests.rs"]
 mod create_terminal_workspace_tests;
+
+impl Command {
+    /// The commands whose reply names one terminal or view by `surface` and
+    /// `terminal_id`: with `terminal-public-ids-v1` they carry its public ids.
+    pub(super) fn names_a_terminal_view(&self) -> bool {
+        matches!(
+            self,
+            Self::Run { .. }
+                | Self::ResolveTerminal { .. }
+                | Self::NewTab { .. }
+                | Self::NewBrowserTab { .. }
+                | Self::NewWorkspace { .. }
+                | Self::CreateTerminal { .. }
+                | Self::NewScreen(_)
+                | Self::NewPane { .. }
+                | Self::NewPaneRight(_)
+                | Self::Split(_)
+                | Self::MoveTerminal { .. }
+                | Self::NewRow(_)
+        )
+    }
+}

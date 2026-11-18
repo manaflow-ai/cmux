@@ -9,6 +9,8 @@ struct ConnectivityAudienceTests {
         ("aziz@manaflow.ai", ConnectivityAudience.team),
         ("  Lawrence@CMUX.com ", .team),
         ("leo@eng.manaflow.ai", .team),
+        ("sam@manaflow.com", .team),
+        ("a@notmanaflow.com", .everyone),
         ("a@notmanaflow.ai", .everyone),
         ("a@manaflow.ai.example.com", .everyone),
         ("a@cmux.co", .everyone),

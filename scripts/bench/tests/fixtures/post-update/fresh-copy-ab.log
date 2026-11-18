@@ -1,0 +1,57 @@
+NFL host cmuxs-Mac-mini-3 chip="Apple M4 Pro" macOS 27.0.1 session Aqua
+NFL build base 3207ecb91ee9da9300f688f14a388cd54aed1bbc 1098 s 1.0G
+NFL build head 5d001f37ad94ec90e6db77fdc893fe8a3b2ecb38 378 s 1.0G
+NFL-AB-ROUND 1 base
+[base] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 4.223883541999385, "phases": {"pre_main": 2415.2, "to_frame": 525.1, "to_page": 1004.0, "frame": 2940.3, "page": 3944.3, "reveal_home": 3944.3, "harness": 4224}}
+[base] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.8584407919988735, "phases": {"pre_main": 1252.1, "to_frame": 457.7, "to_page": 795.7, "frame": 1709.8, "page": 2505.5, "reveal_home": 2505.4, "harness": 2858}}
+[base] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.464781167000183, "phases": {"pre_main": 1274.9, "to_frame": 538.5, "to_page": 35.0, "frame": 1813.4, "page": 1848.4, "reveal_home": 1848.3, "harness": 2465}}
+[base] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2415.2, "to_frame": 525.1, "to_page": 1004.0, "frame": 2940.3, "page": 3944.3, "harness": 4224}
+[base] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1252.1, "to_frame": 457.7, "to_page": 795.7, "frame": 1709.8, "page": 2505.5, "harness": 2858}
+[base] NFL-MEDIAN warm {"n": 1, "pre_main": 1274.9, "to_frame": 538.5, "to_page": 35.0, "frame": 1813.4, "page": 1848.4, "harness": 2465}
+[base] NFL verdict exit 0
+NFL-AB-ROUND 1 head
+[head] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 3.8976639169995906, "phases": {"pre_main": 2417.4, "to_frame": 454.7, "to_page": 654.6, "frame": 2872.1, "page": 3526.7, "reveal_home": 3526.7, "harness": 3898}}
+[head] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.5567449160007527, "phases": {"pre_main": 1274.2, "to_frame": 419.1, "to_page": 679.4, "frame": 1693.3, "page": 2372.7, "reveal_home": 2372.6, "harness": 2557}}
+[head] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.3463932089944137, "phases": {"pre_main": 1267.9, "to_frame": 576.3, "to_page": -72.1, "frame": 1844.2, "page": 1772.1, "reveal_home": 1772.1, "harness": 2346}}
+[head] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2417.4, "to_frame": 454.7, "to_page": 654.6, "frame": 2872.1, "page": 3526.7, "harness": 3898}
+[head] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1274.2, "to_frame": 419.1, "to_page": 679.4, "frame": 1693.3, "page": 2372.7, "harness": 2557}
+[head] NFL-MEDIAN warm {"n": 1, "pre_main": 1267.9, "to_frame": 576.3, "to_page": -72.1, "frame": 1844.2, "page": 1772.1, "harness": 2346}
+[head] NFL verdict exit 0
+NFL-AB-ROUND 2 base
+[base] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 4.09722320799483, "phases": {"pre_main": 2615.3, "to_frame": 492.3, "to_page": 777.2, "frame": 3107.6, "page": 3884.8, "reveal_home": 3884.8, "harness": 4097}}
+[base] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.5987592920137104, "phases": {"pre_main": 1262.2, "to_frame": 452.0, "to_page": 808.4, "frame": 1714.2, "page": 2522.6, "reveal_home": 2522.6, "harness": 2599}}
+[base] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.584126624991768, "phases": {"pre_main": 1277.2, "to_frame": 546.4, "to_page": 42.3, "frame": 1823.6, "page": 1865.9, "reveal_home": 1865.8, "harness": 2584}}
+[base] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2615.3, "to_frame": 492.3, "to_page": 777.2, "frame": 3107.6, "page": 3884.8, "harness": 4097}
+[base] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1262.2, "to_frame": 452.0, "to_page": 808.4, "frame": 1714.2, "page": 2522.6, "harness": 2599}
+[base] NFL-MEDIAN warm {"n": 1, "pre_main": 1277.2, "to_frame": 546.4, "to_page": 42.3, "frame": 1823.6, "page": 1865.9, "harness": 2584}
+[base] NFL verdict exit 0
+NFL-AB-ROUND 2 head
+[head] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 4.063233167005819, "phases": {"pre_main": 2332.0, "to_frame": 493.5, "to_page": 783.8, "frame": 2825.5, "page": 3609.3, "reveal_home": 3609.3, "harness": 4063}}
+[head] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.4766893749911105, "phases": {"pre_main": 1270.6, "to_frame": 429.6, "to_page": 679.3, "frame": 1700.2, "page": 2379.5, "reveal_home": 2379.5, "harness": 2477}}
+[head] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.0867413340019993, "phases": {"pre_main": 1234.4, "to_frame": 511.1, "to_page": 28.6, "frame": 1745.5, "page": 1774.1, "reveal_home": 1774.1, "harness": 2087}}
+[head] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2332.0, "to_frame": 493.5, "to_page": 783.8, "frame": 2825.5, "page": 3609.3, "harness": 4063}
+[head] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1270.6, "to_frame": 429.6, "to_page": 679.3, "frame": 1700.2, "page": 2379.5, "harness": 2477}
+[head] NFL-MEDIAN warm {"n": 1, "pre_main": 1234.4, "to_frame": 511.1, "to_page": 28.6, "frame": 1745.5, "page": 1774.1, "harness": 2087}
+[head] NFL verdict exit 0
+NFL-AB-ROUND 3 base
+[base] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 3.911602291991585, "phases": {"pre_main": 2300.5, "to_frame": 516.3, "to_page": 848.3, "frame": 2816.8, "page": 3665.1, "reveal_home": 3665.1, "harness": 3912}}
+[base] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.659128042010707, "phases": {"pre_main": 1259.8, "to_frame": 464.1, "to_page": 722.6, "frame": 1723.9, "page": 2446.5, "reveal_home": 2446.5, "harness": 2659}}
+[base] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.236595333000878, "phases": {"pre_main": 1261.2, "to_frame": 619.6, "to_page": -47.0, "frame": 1880.8, "page": 1833.8, "reveal_home": 1833.8, "harness": 2237}}
+[base] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2300.5, "to_frame": 516.3, "to_page": 848.3, "frame": 2816.8, "page": 3665.1, "harness": 3912}
+[base] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1259.8, "to_frame": 464.1, "to_page": 722.6, "frame": 1723.9, "page": 2446.5, "harness": 2659}
+[base] NFL-MEDIAN warm {"n": 1, "pre_main": 1261.2, "to_frame": 619.6, "to_page": -47.0, "frame": 1880.8, "page": 1833.8, "harness": 2237}
+[base] NFL verdict exit 0
+NFL-AB-ROUND 3 head
+[head] NFL-LAUNCH 1 fresh-copy {"exit": null, "rendered_at": 3.9788602080079727, "phases": {"pre_main": 2334.2, "to_frame": 466.7, "to_page": 779.2, "frame": 2800.9, "page": 3580.1, "reveal_home": 3580.1, "harness": 3979}}
+[head] NFL-LAUNCH 1 same-copy {"exit": null, "rendered_at": 2.421934792000684, "phases": {"pre_main": 1252.7, "to_frame": 465.6, "to_page": 449.8, "frame": 1718.3, "page": 2168.1, "reveal_home": 2168.1, "harness": 2422}}
+[head] NFL-LAUNCH 1 warm {"exit": null, "rendered_at": 2.1652077920007287, "phases": {"pre_main": 1256.6, "to_frame": 526.2, "to_page": 21.7, "frame": 1782.8, "page": 1804.5, "reveal_home": 1804.5, "harness": 2165}}
+[head] NFL-MEDIAN fresh-copy {"n": 1, "pre_main": 2334.2, "to_frame": 466.7, "to_page": 779.2, "frame": 2800.9, "page": 3580.1, "harness": 3979}
+[head] NFL-MEDIAN same-copy {"n": 1, "pre_main": 1252.7, "to_frame": 465.6, "to_page": 449.8, "frame": 1718.3, "page": 2168.1, "harness": 2422}
+[head] NFL-MEDIAN warm {"n": 1, "pre_main": 1256.6, "to_frame": 526.2, "to_page": 21.7, "frame": 1782.8, "page": 1804.5, "harness": 2165}
+[head] NFL verdict exit 0
+NFL-AB base fresh-copy {"n": 3, "pre_main": 2415.2, "to_frame": 516.3, "to_page": 848.3, "frame": 2940.3, "page": 3884.8, "harness": 4097}
+NFL-AB base same-copy {"n": 3, "pre_main": 1259.8, "to_frame": 457.7, "to_page": 795.7, "frame": 1714.2, "page": 2505.5, "harness": 2659}
+NFL-AB base warm {"n": 3, "pre_main": 1274.9, "to_frame": 546.4, "to_page": 35.0, "frame": 1823.6, "page": 1848.4, "harness": 2465}
+NFL-AB head fresh-copy {"n": 3, "pre_main": 2334.2, "to_frame": 466.7, "to_page": 779.2, "frame": 2825.5, "page": 3580.1, "harness": 3979}
+NFL-AB head same-copy {"n": 3, "pre_main": 1270.6, "to_frame": 429.6, "to_page": 679.3, "frame": 1700.2, "page": 2372.7, "harness": 2477}
+NFL-AB head warm {"n": 3, "pre_main": 1256.6, "to_frame": 526.2, "to_page": 21.7, "frame": 1782.8, "page": 1774.1, "harness": 2165}

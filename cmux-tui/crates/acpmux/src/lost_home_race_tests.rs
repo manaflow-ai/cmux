@@ -516,6 +516,51 @@ fn a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes() {
     );
 }
 
+/// Off Unix a read goes between two checks of the home (`home_fs::held_read`). A home replaced
+/// after the first check and before the read: the read, made by path in the replacement, fails
+/// (`NotFound`: the replacement has no such file). That error must not stand for the held home's
+/// answer: `LocalStore::load` reads `NotFound` as "no session", which would hide the lost home
+/// (#41915 review F1). The second check runs whatever the read answered, and a home replaced
+/// before it is the lost home's error. The race is forced at the end of the first check
+/// (`config::seams::on_checked`) on the same `held_read` the Windows arms use, so it runs on
+/// every platform.
+#[test]
+fn a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found() {
+    isolated(
+        module_path!(),
+        "a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found",
+        |home| {
+            let file = home.join("sessions").join("c").join("session.json");
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, b"{}").unwrap();
+            crate::config::hold_home();
+            let swapped = std::rc::Rc::new(std::cell::Cell::new(false));
+            let _hook = {
+                let (swapped, home, file) = (swapped.clone(), home.to_path_buf(), file.clone());
+                crate::config::seams::on_checked(move |path, passed| {
+                    if path == file && passed && !swapped.replace(true) {
+                        replace(&home);
+                    }
+                })
+            };
+            let read = crate::home_fs::held_read(&file, || std::fs::symlink_metadata(&file));
+            assert!(
+                swapped.get(),
+                "the home was not replaced between the first check and the read"
+            );
+            let error = read.expect_err("a read in a replaced home answered");
+            assert_ne!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "the replacement's NotFound stood for the held home's answer: {error}"
+            );
+            assert!(error.to_string().contains("is gone"), "not the lost home's error: {error}");
+            assert!(home.with_extension("old").join("sessions/c/session.json").exists());
+        },
+        |_, _| {},
+    );
+}
+
 /// The permission bits of `path` itself (never through a link).
 #[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
@@ -574,6 +619,47 @@ fn a_copy_or_write_never_shows_its_bytes_to_others() {
                 crate::home_fs::create_dir(dir.join("made"), 0o755).unwrap();
                 assert_eq!(mode_of(&dir.join("made")), 0o700, "the folder's mode");
             }
+        },
+        |_, _| {},
+    );
+}
+
+/// #41721 review F1: `home_fs::symlink_metadata` and `try_exists_nofollow` read the held home,
+/// not a replacement at its path, and give what `std::fs::symlink_metadata` gives there (the same
+/// file, its length and times, a symlink itself never followed); a name in neither home is
+/// `Ok(false)`.
+#[cfg(unix)]
+#[test]
+fn a_metadata_read_reads_the_held_home_not_its_replacement() {
+    isolated(
+        module_path!(),
+        "a_metadata_read_reads_the_held_home_not_its_replacement",
+        |home| {
+            use std::os::unix::fs::MetadataExt as _;
+            let dir = home.join("sessions").join("c");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("cold.zst"), b"archive").unwrap();
+            std::os::unix::fs::symlink("nowhere", dir.join("link")).unwrap();
+            crate::config::hold_home();
+            let want = std::fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            let got = crate::home_fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            assert_eq!(
+                (got.dev(), got.ino(), got.len(), got.mode(), got.mtime(), got.mtime_nsec()),
+                (want.dev(), want.ino(), want.len(), want.mode(), want.mtime(), want.mtime_nsec()),
+            );
+            assert_eq!(got.created().ok(), want.created().ok(), "the birth time");
+            let link = crate::home_fs::symlink_metadata(dir.join("link")).unwrap();
+            assert!(link.file_type().is_symlink(), "a symlink is read itself, never followed");
+            replace(home);
+            std::fs::create_dir_all(home.join("sessions").join("c")).unwrap();
+            assert!(
+                crate::home_fs::try_exists_nofollow(dir.join("cold.zst")).unwrap(),
+                "the held home's archive, though the replacement has none"
+            );
+            let held = crate::home_fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            assert_eq!(held.ino(), want.ino(), "the held home's file");
+            assert!(!crate::home_fs::try_exists_nofollow(dir.join("none")).unwrap());
+            assert!(!crate::home_fs::try_exists_nofollow(home.join("no").join("such")).unwrap());
         },
         |_, _| {},
     );

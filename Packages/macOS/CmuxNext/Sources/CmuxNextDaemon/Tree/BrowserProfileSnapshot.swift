@@ -16,7 +16,7 @@ public struct BrowserProfileSnapshot: Sendable, Hashable, Decodable, Identifiabl
     public var proxy: Proxy?
 
     /// A profile's proxy as the daemon stores it (no secret): `{scheme, host, port, bypass?}`.
-    public struct Proxy: Sendable, Hashable, Decodable {
+    public struct Proxy: Sendable, Hashable, Codable {
         /// `http`, `https` or `socks5`.
         public var scheme: String
         public var host: String
@@ -39,6 +39,15 @@ public struct BrowserProfileSnapshot: Sendable, Hashable, Decodable, Identifiabl
             host = try c.decode(String.self, forKey: .host)
             port = try c.decode(Int.self, forKey: .port)
             bypass = try c.decodeIfPresent([String].self, forKey: .bypass) ?? []
+        }
+
+        /// The form `update-browser-profile` takes (`bypass` only when it has rules).
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(scheme, forKey: .scheme)
+            try c.encode(host, forKey: .host)
+            try c.encode(port, forKey: .port)
+            if !bypass.isEmpty { try c.encode(bypass, forKey: .bypass) }
         }
     }
 

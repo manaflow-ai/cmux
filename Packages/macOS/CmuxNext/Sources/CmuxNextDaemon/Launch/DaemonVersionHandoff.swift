@@ -105,14 +105,19 @@ extension DaemonLauncher {
     /// (`build_id`) decides when both sides have one: it is the stamped commit for a packaged build
     /// and the commit plus `-dirty.<hash>` for an unstamped one, so two builds of one commit with
     /// other edits differ. An owner older than `daemon-build-v1` has no identity, and the stamped
-    /// commits decide. With neither, the owner is kept and the reason names the unknown side.
+    /// commits decide. With neither, the owner is kept and the reason names the unknown side
+    /// (`version_decision`, cmux-daemon-launch-core src/handoff.rs).
     public static func versionDecision(running: DaemonBuildStamp, bundled: DaemonBuildStamp?) -> DaemonVersionDecision {
-        if let runningID = running.id, let bundledID = bundled?.id {
-            return runningID == bundledID ? .keep("same build") : .restart(running: runningID, bundled: bundledID)
+        let stamp = { (stamp: DaemonBuildStamp) -> [String: Any] in
+            ["commit": stamp.commit ?? NSNull(), "id": stamp.id ?? NSNull()]
         }
-        guard let running = running.commit else { return .keep("running build unknown") }
-        guard let bundled = bundled?.commit else { return .keep("bundled build unknown") }
-        return running == bundled ? .keep("same build") : .restart(running: running, bundled: bundled)
+        let decision = DaemonLaunchRules.call("version_decision", [
+            "running": stamp(running), "bundled": bundled.map(stamp) ?? NSNull(),
+        ]) as? [String: Any]
+        if let restart = decision?["restart"] as? [String: String], let from = restart["running"], let to = restart["bundled"] {
+            return .restart(running: from, bundled: to)
+        }
+        return .keep(decision?["keep"] as? String ?? "no decision")
     }
 
     /// After an update the app finds the daemon an older app started: hand

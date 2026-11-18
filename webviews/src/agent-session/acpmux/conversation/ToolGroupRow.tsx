@@ -21,6 +21,7 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./ico
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
+import { ShimmerEnabledContext } from "./ShimmerText";
 import { useT } from "../i18n";
 import {
   callDisclosureKeys,
@@ -491,32 +492,34 @@ export function ToolGroupRow({
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <FoldPin.Provider value={pin}>
-          <div {...fold.bodyProps}>
-            {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
-            {kind === "edits" ? (
-              <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
-                {!files.length
-                  ? entryNodes(items, kind, thoughtId)
-                  : [
-                      ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                      // Edits that carried no diff (a delete, a move), as rows.
-                      ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
-                    ]}
-              </div>
-            ) : (
-              <RunScroll running={running}>
-                <StepList
-                  id={detailsId}
-                  disclosureKey={disclosureKey}
-                  entries={entries}
-                  items={items}
-                  kind={kind}
-                  thoughtId={thoughtId}
-                  defer={byClick}
-                />
-              </RunScroll>
-            )}
-          </div>
+          <ShimmerEnabledContext value={false}>
+            <div {...fold.bodyProps}>
+              {showFindTitle && <pre className="cv-mcp-call__body selectable">{findTitle}</pre>}
+              {kind === "edits" ? (
+                <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
+                  {!files.length
+                    ? entryNodes(items, kind, thoughtId)
+                    : [
+                        ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                        // Edits that carried no diff (a delete, a move), as rows.
+                        ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
+                      ]}
+                </div>
+              ) : (
+                <RunScroll running={running}>
+                  <StepList
+                    id={detailsId}
+                    disclosureKey={disclosureKey}
+                    entries={entries}
+                    items={items}
+                    kind={kind}
+                    thoughtId={thoughtId}
+                    defer={byClick}
+                  />
+                </RunScroll>
+              )}
+            </div>
+          </ShimmerEnabledContext>
         </FoldPin.Provider>
       )}
     </>

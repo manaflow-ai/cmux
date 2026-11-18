@@ -97,14 +97,13 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
-    /// cmux menu row shows one) that runs `handler`.
-    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with an optional SF Symbol, running `handler` when selected.
+    static func item(_ title: String, symbol: String?, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
-        item.image = AgentPaneContextMenu.icon(symbol)
+        item.image = symbol.flatMap(AgentPaneContextMenu.icon)
         return item
     }
 }

@@ -40,10 +40,12 @@ def state(sim):
     """(usable, a one-line summary of what the Chief screen says)."""
     els = sim.tree()
     composer = [e for e in els if e.ident == "conversation.composer.text"]
-    bar = [e for e in els if e.ident == "chief.unavailable.bar"]
+    # Chief draws no unavailable bar any more (2026-11-12): until it takes sends, the
+    # composer's + button is disabled (ChiefConversationScreen.updateAvailability).
+    bar = [e for e in els if e.ident == "conversation.composer.plus" and e.get("enabled") is False]
     busy = sorted({(e.label or e.value or "")[:70] for e in els
                    if any(b in (e.label or "") or b in (e.value or "") for b in BUSY)})
-    summary = f"composer={'yes' if composer else 'no'} bar={(bar[0].label or '')[:60] if bar else '-'} busy={busy}"
+    summary = f"composer={'yes' if composer else 'no'} unavailable={'yes' if bar else 'no'} busy={busy}"
     return bool(composer) and not bar and not busy, summary
 
 

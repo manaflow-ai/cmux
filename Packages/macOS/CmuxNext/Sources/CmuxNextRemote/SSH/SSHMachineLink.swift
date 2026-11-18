@@ -12,11 +12,10 @@ public struct SSHPaths: Sendable {
 
     public init(root: URL) { self.root = root }
 
+    /// `ssh-next` in the bundle's own folder under `cmux-next` (``NextSupport/bundleFolder(bundleID:)``);
+    /// builds before kept it in classic cmux's `cmux/<bundle id>`, and the app moves it at launch.
     public static func standard(bundleID: String?) -> SSHPaths {
-        SSHPaths(root: FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
-            .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
-            .appendingPathComponent("ssh-next", isDirectory: true))
+        SSHPaths(root: NextSupport().bundleFolder(bundleID: bundleID).appendingPathComponent("ssh-next", isDirectory: true))
     }
 
     public var clientState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
@@ -58,7 +57,8 @@ public struct SSHPaths: Sendable {
 
     /// The link's local v12 socket, short enough for `sun_path`.
     public func linkSocket(machineID: String) -> String {
-        let hash = SHA256.hash(data: Data((root.path + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+        // Hashed by its name from before the move to `cmux-next`, so a link an older launch started keeps its socket.
+        let hash = SHA256.hash(data: Data((NextSupport.pathIdentity(root.path) + machineID).utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-ssh-\(hash).sock")
     }
 

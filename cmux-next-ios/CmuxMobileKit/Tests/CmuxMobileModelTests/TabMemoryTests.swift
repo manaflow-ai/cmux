@@ -12,9 +12,12 @@ import Testing
         let ws = first.workspaces[0]
         first.noteOpened(tabID: "t-docs", in: ws.id)
 
-        // A new store over the same defaults is a relaunch.
+        // A new store over the same defaults is a relaunch: the tab on screen is
+        // remembered (the relaunch restore asks for it), but a plain open no longer
+        // starts there (`OpeningTabTests`).
         let relaunched = AppStore.mock(tabMemory: TabMemory(defaults: defaults))
-        #expect(relaunched.openingTab(for: relaunched.workspaces[0])?.id == "t-docs")
+        #expect(relaunched.lastTabByWorkspace[ws.id] == "t-docs")
+        #expect(relaunched.openingTab(for: relaunched.workspaces[0])?.id == "t-claude")
     }
 
     @Test func forgottenTabFallsBackToFirst() {

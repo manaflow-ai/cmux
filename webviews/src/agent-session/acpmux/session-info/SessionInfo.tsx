@@ -81,6 +81,7 @@ import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { AlsoHereSection } from "./AlsoHereSection";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
@@ -352,6 +353,7 @@ export function SessionInfo({
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
+  resumeSubagent,
   statuses = {},
   processes = [],
   listed = false,
@@ -430,6 +432,8 @@ export function SessionInfo({
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx).
+  resumeSubagent?: ResumeActions;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
@@ -856,6 +860,7 @@ export function SessionInfo({
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
+          resume={resumeSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
           harness={summary?.harness}

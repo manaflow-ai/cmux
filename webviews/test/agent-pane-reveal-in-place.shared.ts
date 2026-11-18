@@ -169,6 +169,31 @@ export const revealInPlace = async (engine: "chromium" | "webkit", viteConfig: s
     );
   // fixed-wait: the stream's own cadence, bursts a frame or two apart as an agent sends them, is the input under test.
   const pause = (ms: number) => Bun.sleep(ms);
+  /// The ids of the transcript's rows in the DOM.
+  const rowIds = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row[data-row-id]")].map(
+        (row) => row.dataset.rowId!,
+      ),
+    );
+  /// How often, and how far apart (ms), the page away is asked whether it drew a block: 5 s in all.
+  /// A suspended page's timers run about a second late, so its draw takes that long.
+  const AWAY_DRAW_READS = 250;
+  const AWAY_DRAW_EVERY_MS = 20;
+  /// Waits until the page away has drawn a row that `before` does not hold: what came while it was
+  /// away is in its DOM. The page is asked from here, since its own frames wait while it is away.
+  const drawnWhileAway = async (page: Page, before: string[]) => {
+    let rows = before;
+    for (let read = 0; read < AWAY_DRAW_READS; read++) {
+      rows = await rowIds(page);
+      if (rows.some((id) => !before.includes(id))) return;
+      // fixed-wait: the time between two reads of the page away (a poll with a bound, no assert on it).
+      await pause(AWAY_DRAW_EVERY_MS);
+    }
+    throw new Error(
+      `the block that came while the page was away was not drawn in ${(AWAY_DRAW_READS * AWAY_DRAW_EVERY_MS) / 1000} s: the page still has the ${rows.length} rows it had (the last ones: ${rows.slice(-3).join(", ")})`,
+    );
+  };
   async function words(count: number) {
     for (let index = 0; index < count; index++) {
       const text = WORDS.slice(index % 9, (index % 9) + 4).join(" ");
@@ -417,8 +442,16 @@ export const revealInPlace = async (engine: "chromium" | "webkit", viteConfig: s
             [away === "occluded", away === "suspended"] as const,
           );
           if (single) {
+            const drawn = await rowIds(page);
             // One block, then nothing: no later move to land the chase it starts.
             toolCall("away-one", "gh run view 42950 --log-failed", "Read the failed run");
+            // The page away draws the block on a timer (direct.ts `emitInFrame`: 50 ms, and a suspended
+            // page's timers run about a second late). The second away starts when the block is drawn,
+            // so the chase it starts waits for a frame all of that second. Counted from the send, the
+            // show came in the same few ms as that draw: when the show was first, the block landed a
+            // frame after the chat showed, as a row that arrives in a shown chat, and the first frame
+            // back (the chat as it was) read 34 px off its later rest (34 of 47 runs).
+            await drawnWhileAway(page, drawn);
             // fixed-wait: a second away with no frames, as the reviewer's case.
             await pause(1000);
           } else {

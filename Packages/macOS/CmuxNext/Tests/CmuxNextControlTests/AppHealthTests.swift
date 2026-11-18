@@ -47,7 +47,7 @@ struct AppHealthTests {
         #expect(first?.action == .reloadPage && first?.id == "page:1")
         await Self.snapshot(of: health) { Self.state($0, "page:1") == "repairing" }
         try await clock.waitForSleeper()
-        clock.advance(by: .seconds(2)) // still silent after the first backoff
+        clock.advance(by: .seconds(30)) // still silent once the reload had its boot wait (PAGE_BOOT_MS)
         let second = await repairs.next()
         #expect(second?.action == .restartRenderer)
     }

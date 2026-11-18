@@ -50,8 +50,9 @@ def timeout(value: object, context: dict, rng: random.Random, base: dict | None 
 
 
 # A limit that is an expression of its own, at least SIGNING_DRAIN_MINUTES above glaeda's bounded signing drain
-# (SIGNING_DRAIN_WAIT_S = 3600): build-sign-notarize-nightly's shortest limit is 160 minutes.
-OWN_LIMIT = {"build-sign-notarize-nightly"}
+# (SIGNING_DRAIN_WAIT_S = 3600): build-sign-notarize-nightly's shortest limit is 160 minutes. nightly-next-one
+# (build, sign, notarize and publish in one job) runs on the signer label in either mode, with 300 minutes.
+OWN_LIMIT = {"build-sign-notarize-nightly", "nightly-next-one"}
 SIGNING_DRAIN_MINUTES = 60
 
 

@@ -87,16 +87,22 @@
   .wn-copy-version { transition: none; }
 }
 .wn-card-close {
+  /* In the card's corner, concentric with it (Lawrence 2026-11-15: the x was not concentric with the card's
+     corner): its center on the corner's center, the same inset from the top and the side (at least 2px), its hover
+     the card's corner less that inset. */
+  --wn-close-half: 9px; /* half the x's side */
+  --wn-card-corner: var(--cmux-sidebar-card-radius, 10px);
+  --concentric-padding: max(2px, calc(var(--wn-card-corner) - var(--wn-close-half)));
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: var(--concentric-padding);
+  right: var(--concentric-padding);
   display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
   padding: 0;
   border: 0;
-  border-radius: 9px;
+  border-radius: min(var(--wn-close-half), calc(var(--wn-card-corner) - var(--concentric-padding)));
   background: transparent;
   color: var(--page-text-3);
   cursor: default;
@@ -105,7 +111,7 @@
   opacity: 0;
   transition: opacity 0.12s ease-out;
 }
-.wn-card:is(:hover, :focus-within) .wn-card-close { opacity: 1; }
+.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .wn-card-close { transition: none; }
 }
@@ -760,13 +766,24 @@
 /* The changes under What's New's areas (Leo 2026-11-08: "the sections should be more obvious what's
    what"): each area's glyph, name and count as What's New heads it (SheetPage's cls-area-head), so a
    click that opens the page lands under a header that reads the same. */
+/* Leo 2026-11-14 ("theese are kinda crappy looking icons and stuff"): the header, its count and the
+   changes share one grid. The symbol takes a 16 px column (its 1:1 size, crisp at 1x and 2x), the
+   name and its count follow it as What's New heads an area (styles.css .cls-area-head), and each
+   change's text starts on the name's line, so nothing floats. */
+.wn-notes-list { --wn-notes-symbol: 16px; }
 .wn-notes-section + .wn-notes-section { margin-top: var(--ds-space-2); }
 .wn-notes-area {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--wn-notes-symbol) auto auto;
+  justify-content: start;
   align-items: center;
-  gap: var(--ds-space-2);
+  column-gap: var(--ds-space-2);
+  width: 100%;
   margin: 0;
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  border: 0;
+  background: transparent;
+  text-align: start;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   font-weight: var(--weight-emphasis);
@@ -774,12 +791,14 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .wn-notes-area-icon {
-  display: inline-flex;
-  color: var(--cmux-accent, currentColor);
+  display: grid;
+  place-items: center;
+  width: var(--wn-notes-symbol);
+  height: var(--wn-notes-symbol);
+  color: var(--page-text-2);
 }
-.wn-notes-area-icon svg { width: 14px; height: 14px; }
+.wn-notes-list[data-head="accent"] .wn-notes-area-icon { color: var(--cmux-accent, var(--page-text-2)); }
 .wn-notes-area-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -801,6 +820,72 @@
   list-style: none;
 }
 .wn-notes-row { padding-block: var(--ds-space-2); }
+/* A change's text on the name's line: the symbol's column and its gap in front of the row. */
+.wn-notes-list:is([data-look="sections"], [data-look="divided"]) .wn-notes-rows {
+  margin-inline-start: calc(var(--wn-notes-symbol) + var(--ds-space-2));
+}
+/* What no person sees, folded into one header-shaped line under the areas; a click opens What's New. */
+.wn-notes-maintenance { cursor: default; border-radius: var(--radius-md); }
+.wn-notes-maintenance:hover { background: var(--page-hover); }
+/* `release` (ships; Leo's Claude Code reference, 2026-11-14): small-capital kind labels, one bullet
+   sentence per change, the version a quiet mono chip, then "Maintenance and fixes" with its count. */
+.wn-notes[data-look="release"] .wn-notes-version .wn-copy-version {
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border-radius: var(--radius-md);
+  background: var(--page-hover);
+  font-family: var(--font-mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.wn-notes-list[data-look="release"] { display: flex; flex-direction: column; gap: var(--ds-space-3); margin-top: var(--ds-space-2); }
+.wn-notes-kind-label {
+  margin: 0;
+  padding: 0 var(--ds-space-2) var(--ds-space-1);
+  color: var(--page-text-3, var(--page-text-2));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wn-notes-list[data-look="release"] .wn-notes-rows { gap: 0; }
+.wn-notes-list[data-look="release"] .wn-notes-row {
+  position: relative;
+  padding-block: var(--ds-space-1);
+  padding-inline-start: calc(var(--ds-space-2) + var(--wn-notes-symbol));
+  color: var(--page-text-2);
+}
+.wn-notes-list[data-look="release"] .wn-notes-row:hover { color: var(--page-text); }
+/* The bullet: centered in the symbol column, on the first line's middle. */
+.wn-notes-list[data-look="release"] .wn-notes-row::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(var(--ds-space-2) + var(--wn-notes-symbol) / 2 - var(--ds-space-1) / 2);
+  top: calc(var(--ds-space-1) + var(--text-body--line-height, 1.4em) / 2 - var(--ds-space-1) / 2);
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+.wn-notes-maintenance-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-top: 1px solid var(--page-separator);
+  border-radius: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: start;
+  cursor: default;
+}
+.wn-notes-maintenance-line:hover { color: var(--page-text); background: var(--page-hover); }
 /* Rows divided by hairlines instead of gaps (gallery variant). */
 .wn-notes-list[data-look="divided"] .wn-notes-rows { gap: 0; }
 .wn-notes-list[data-look="divided"] .wn-notes-rows > li + li { border-top: 1px solid var(--page-separator); }
@@ -891,7 +976,7 @@
 }
 .wn-notes-chip:hover { background: var(--page-hover); color: var(--page-text); }
 .wn-notes-chip[aria-pressed="true"] { background: var(--page-selection, var(--page-hover)); color: var(--page-text); box-shadow: none; }
-.wn-notes-chip .wn-notes-area-icon svg { width: 12px; height: 12px; }
+.wn-notes-chip .wn-notes-area-icon { --wn-notes-symbol: 16px; }
 /* `headline`: the first changes at full size, their details whole; then See all changes. */
 .wn-notes-list[data-look="headline"] { display: flex; flex-direction: column; gap: var(--ds-space-1); }
 .wn-notes-list[data-look="headline"] .wn-notes-row { gap: calc(var(--grid-base, 4px) / 2); padding-block: var(--ds-space-3); }
@@ -941,7 +1026,7 @@
   line-height: var(--text-body--line-height);
   overflow-wrap: anywhere;
 }
-:is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew, .wn-notes-digest-head, .wn-notes-chip, .wn-notes-seeall):focus-visible {
+:is(.wn-notes-whatsnew, .wn-notes-row, .wn-notes-maintenance, .wn-notes-maintenance-line, .wn-card-seenew, .wn-notes-digest-head, .wn-notes-chip, .wn-notes-seeall):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }

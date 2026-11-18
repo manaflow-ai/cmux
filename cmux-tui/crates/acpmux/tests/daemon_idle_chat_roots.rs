@@ -20,7 +20,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 /// Writes per second into files no chat is read from.
@@ -34,6 +34,11 @@ const WINDOWS: u32 = 3;
 /// with no writes: `daemon_idle_chats.rs`'s bound. The windows with no writes come first, so the
 /// daemon's own timers (lane idle's work) are not counted as the writes' cost.
 const MAX_SWITCHES_PER_WINDOW: u64 = 5;
+/// A Claude Code projects root is watched whole (thousands of transcripts), so its writes reach
+/// the FSEvents delivery, which may add this many context switches to the median window over the
+/// windows with no writes. notify's stream (latency 0) took 120-207 for the test's 20 writes a
+/// second, one wake per write; the coalescing stream (`chats/watch.rs` LATENCY) takes about 15-30.
+const MAX_CLAUDE_DELIVERY_SWITCHES: u64 = 60;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Usage {
@@ -373,8 +378,12 @@ fn measure(pick: fn(Noise) -> Vec<PathBuf>) -> Measured {
     private_dir(&acpmux);
     let home = daemon_env::home(&scratch);
     let noisy = pick(chat_home(&home));
-    // A socket path stays short (SUN_LEN): not under the long scratch path.
-    let short = PathBuf::from(format!("/tmp/amx-ir-{}", std::process::id()));
+    // A socket path stays short (SUN_LEN): not under the long scratch path. Each daemon of this
+    // process gets its own folder: the tests run at once, and a shared socket path left one
+    // daemon never ready.
+    static DAEMONS: AtomicUsize = AtomicUsize::new(0);
+    let n = DAEMONS.fetch_add(1, Ordering::Relaxed);
+    let short = PathBuf::from(format!("/tmp/amx-ir-{}-{n}", std::process::id()));
     private_dir(&short);
     let socket = short.join("s.sock");
     let mut child = daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[])
@@ -474,7 +483,8 @@ fn measure(pick: fn(Noise) -> Vec<PathBuf>) -> Measured {
     // A thread that runs in every window with no writes too is the daemon's own timer.
     let periodic: Vec<String> = every_window(&daemon_threads)
         .into_iter()
-        .filter(|found| !quiet_periodic.contains(found))
+        // By name: the runtime moves a timer between its workers from one window to the next.
+        .filter(|found| !quiet_periodic.iter().any(|q| thread_name(q) == thread_name(found)))
         .collect();
     let median_switches = median(&windows);
     println!(
@@ -499,6 +509,11 @@ fn measure(pick: fn(Noise) -> Vec<PathBuf>) -> Measured {
         marks: daemon_threads,
         cache_rewritten: cache_before != cache_after,
     }
+}
+
+/// The thread name in an `every_window` line ("thread NAME#handle ran ..."), or the whole line.
+fn thread_name(line: &str) -> &str {
+    line.strip_prefix("thread ").and_then(|rest| rest.split('#').next()).unwrap_or(line)
 }
 
 /// CODEX_HOME's own logs, databases and history, and its other folders: no chat is read from
@@ -527,7 +542,8 @@ fn an_idle_daemon_does_not_wake_for_writes_to_codex_files_that_hold_no_chat() {
 /// A Claude Code subagent's transcript and a tool's result sit inside the project folder the
 /// index watches whole (thousands of transcripts: no watch per file), so the file-system
 /// events reach the daemon; they end in the watch's callback. Nothing is handed to the chat
-/// watch thread and the index is not touched.
+/// watch thread and the index is not touched, and the deliveries are coalesced (lead order,
+/// 2026-11-12: with 170 agents a projects root changes hundreds of times a second).
 #[test]
 fn writes_under_a_claude_project_that_hold_no_chat_end_in_the_watch_callback() {
     let _ = &HERMETIC;
@@ -538,6 +554,18 @@ fn writes_under_a_claude_project_that_hold_no_chat_end_in_the_watch_callback() {
          ({:?} per {WINDOW:?} window)\ndaemon threads that ran:\n{}",
         m.writes,
         m.windows,
+        m.ran
+    );
+    // The file system's deliveries are coalesced: not one wake of the daemon per write.
+    assert!(
+        m.median_switches <= m.quiet_median + MAX_CLAUDE_DELIVERY_SWITCHES,
+        "{} writes to Claude Code files woke the daemon for each delivery: median {} switches per \
+         {WINDOW:?} window {:?}, against {} with no writes {:?}\ndaemon threads that ran:\n{}",
+        m.writes,
+        m.median_switches,
+        m.windows,
+        m.quiet_median,
+        m.quiet,
         m.ran
     );
 }

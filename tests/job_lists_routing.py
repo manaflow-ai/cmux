@@ -9,7 +9,6 @@ job with the trait is either derived into the list or must be classified by name
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 from collections.abc import Iterable, Mapping
@@ -17,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import workflow_jobs
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -55,16 +56,10 @@ def unresolved_environment_jobs(jobs: Mapping[str, Mapping[str, Any]]) -> set[st
 
 def required_checks() -> tuple[str, ...]:
     """The required status contexts on main, from the mirror required-checks-drift.yml keeps honest."""
-    path = ROOT / "scripts/ci/required_status_checks.py"
-    spec = importlib.util.spec_from_file_location("required_status_checks", path)
-    assert spec is not None and spec.loader is not None
-    module = sys.modules.get("required_status_checks")
-    if module is None:
-        module = importlib.util.module_from_spec(spec)
-        # Registered before execution: its dataclasses resolve types through sys.modules.
-        sys.modules["required_status_checks"] = module
-        spec.loader.exec_module(module)
-    return tuple(module.REQUIRED_CHECKS)
+    # By name (scripts/ci is on sys.path above), as the other tests import it: one module object per file
+    # (tests/test_script_module_loads.py).
+    import required_status_checks  # noqa: PLC0415
+    return tuple(required_status_checks.REQUIRED_CHECKS)
 
 
 def _needs(job: Mapping[str, Any]) -> list[str]:
@@ -82,7 +77,7 @@ def _name_patterns(job: Mapping[str, Any], job_id: str) -> tuple[set[str], list[
         if "${{" not in part:
             patterns.append(re.compile(r".*", re.DOTALL))
             continue
-        pieces = re.split(r"\$\{\{.*?\}\}", part, flags=re.DOTALL)
+        pieces = gh_expressions.EXPRESSION.split(part)[::2]
         patterns.append(re.compile(".*".join(re.escape(piece) for piece in pieces), re.DOTALL))
     return values, patterns
 

@@ -336,6 +336,18 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // A page's palette ranks its rows with it; the
                         // CLI has no palette.
                         | "palette.rank"
+                        // The App Store chat list (extensibility-DESIGN.md step 3):
+                        // `cmux chat list` is the Chief's verb, so the CLI reaches
+                        // these through `cmux raw operation chat.list` for now.
+                        | "chat.list"
+                        | "chat.mark_read"
+                        | "chat.pin"
+                        // `cmux theme import/export/from-image` convert in
+                        // process with the same crate (cmux-theme-tokens);
+                        // the ops are for pages and extensions.
+                        | "theme.scheme.convert"
+                        | "theme.scheme.export"
+                        | "theme.scheme.from_image"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"
@@ -351,6 +363,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // plan and records what it made.
                         | "conductor_import.plan"
                         | "conductor_import.record"
+                        // The browser import is the app's: it reads
+                        // another browser's files, by path.
+                        | "browser_import.read"
                         // Cloud API calls carry the caller's access token;
                         // `cmux cloud` reaches them through its own stdin
                         // request, not a CLI verb per op.
@@ -361,6 +376,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
                         | "cloud.owner.github_app"
+                        | "cloud.owner.github_connect"
+                        | "cloud.owner.github_repos"
                         | "cloud.owner.handoff_begin_turn"
                         | "cloud.owner.handoff_open"
                         | "cloud.owner.handoff_wait"
@@ -476,6 +493,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Apart from settings.list, daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
+                        | "settings.edit"
                         | "settings.get"
                         | "settings.reset"
                         | "settings.reset_all"

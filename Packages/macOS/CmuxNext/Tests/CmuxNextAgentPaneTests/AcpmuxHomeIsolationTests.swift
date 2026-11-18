@@ -175,7 +175,7 @@ struct AcpmuxOtherHomeDaemonTests {
             try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment).prewarm()
             started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             do {
-                try await AcpmuxStatusClient.shutdown(socketPath: socket, home: other, deadline: .seconds(10))
+                try await AcpmuxStatusClient.shutdown(socketPath: socket, home: other, reason: "test", deadline: .seconds(10))
             } catch {
                 refused = error
             }
@@ -184,7 +184,7 @@ struct AcpmuxOtherHomeDaemonTests {
         }
         let after = try? await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15))
         // Its own home stops it.
-        try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
+        try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, reason: "test", deadline: .seconds(10))
         let pid = try #require(started)
         let exitDeadline = ContinuousClock.now + .seconds(10)
         while kill(pid, 0) == 0, ContinuousClock.now < exitDeadline { try await Task.sleep(for: .milliseconds(50)) }

@@ -342,7 +342,7 @@ jobs:
               -print0
           )
           [[ "${#binaries[@]}" -eq 2 ]]
-          for binary in "${binaries[@]}"; do
+          for binary in ${binaries[@]+"${binaries[@]}"}; do
             codesign \
               --force \
               --options runtime \
@@ -372,7 +372,7 @@ jobs:
           [[ "${#verified_binaries[@]}" -eq 2 ]]
           verified_coderouter=()
           verified_cr=()
-          for binary in "${verified_binaries[@]}"; do
+          for binary in ${verified_binaries[@]+"${verified_binaries[@]}"}; do
             case "$(basename "$binary")" in
               coderouter) verified_coderouter+=("$binary") ;;
               cr) verified_cr+=("$binary") ;;
@@ -383,7 +383,7 @@ jobs:
           [[ "${#verified_cr[@]}" -eq 1 ]]
           [[ -x "${verified_coderouter[0]}" ]]
           [[ -x "${verified_cr[0]}" ]]
-          for binary in "${verified_binaries[@]}"; do
+          for binary in ${verified_binaries[@]+"${verified_binaries[@]}"}; do
             bash scripts/verify-macos-signature.sh "$binary"
           done
           verified_package_dirs=("$verify_root"/*)

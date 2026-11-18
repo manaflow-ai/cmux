@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchPriorChat
 public import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextDictation
@@ -68,6 +69,13 @@ public final class AgentPaneView: NSView {
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
     let flickerLog: AgentPageFlickerLog?
+    /// Where a page's text input losing the keyboard with no key or click is recorded (the app's focus log).
+    public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
+    /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
+    public var onPageFocusLost: PageFocusLoss?
+    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold
+    /// gave up on it before it painted (``standInUntilPainted()``), true when a picture shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -228,7 +236,7 @@ public final class AgentPaneView: NSView {
             let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
             pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources, chatModel: model)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -335,8 +343,6 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
-        // Only the page host draws the outside-dictation mark; the old host has no event stream.
-        model.onWatchMicrophone = { [weak self] on in self?.watchMicrophone(on) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
@@ -372,6 +378,10 @@ public final class AgentPaneView: NSView {
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
+        model.onToast = { [weak self] toast in
+            guard let window = self?.window else { return }
+            CmuxToastCenter.shared.show(toast, in: window)
+        }
         installHostGlass()
     }
 
@@ -416,7 +426,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -521,29 +531,8 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
-    /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
-    var microphoneActivity: MicrophoneActivity?
-
-    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
-    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
-    func watchMicrophone(_ on: Bool) {
-        guard let microphoneActivity else { return }
-        guard on, let pageEvents else {
-            microphoneActivity.unwatch(self)
-            return
-        }
-        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
-            // A level is stale at once: with no page subscribed, none is buffered for later.
-            guard let pageEvents, pageEvents.hasSubscribers else { return }
-            _ = pageEvents.publish(.micLevel(level))
-        }, onChange: { [weak pageEvents] state in
-            _ = pageEvents?.publish(.micActivity(state))
-        })
-    }
-
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
-        microphoneActivity?.unwatch(self)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -647,6 +636,9 @@ public final class AgentPaneView: NSView {
             openPanel?.warmWhenIdle()
             // The window's toasts stay clear of its composer.
             toastAvoidanceMoved()
+            // A chat (not a new tab's page) shown before the launch's pane region is ready: the restored front tab is a chat.
+            // Chats outside the focused pane wait for that region (`AgentTabStore.deferAtLaunch`); `cmux app launch-times`, CMUX-119.
+            if model.newTab == nil, !LaunchReveal.shared.isReady(.pane) { AgentPaneLaunchTimings.shared.mark(LaunchPriorChat.frontMark) }
         }
         applyTheme()
     }

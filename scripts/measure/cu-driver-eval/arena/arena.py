@@ -474,19 +474,21 @@ def start_daemon(arm: str, spec: dict, log_dir: Path) -> subprocess.Popen | None
 
 
 def stop_proc(proc: subprocess.Popen | None) -> None:
-    if proc is None or proc.poll() is not None:
+    if proc is None:
         return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767 review
+    # F1). The group keeps the leader's pid as its id while any member lives.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            proc.kill()
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        try:
+            proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def trial(args, arm: str, spec: dict, harness: str, model: str, task_spec: dict, rep: int, preamble: str, out: Path) -> dict:

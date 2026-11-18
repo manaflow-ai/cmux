@@ -355,10 +355,13 @@ fn handle_websocket_connection_with_permit(
     let Ok(mut ping_stream) = websocket.get_ref().try_clone() else { return };
     let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
+    // The sink's descriptor closes when this connection ends, also while a
+    // clone of `writer` lives on elsewhere (bounded_outbound.rs, SinkControl).
+    let control = SinkControl::websocket(control);
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         render_service,
     );
     let writer_outbound = outbound;
@@ -480,6 +483,7 @@ fn handle_websocket_connection_with_permit(
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     let _ = websocket.close(None);
+    control.close();
     drop(connection_permit);
 }
 

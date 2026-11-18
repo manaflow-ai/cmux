@@ -37,18 +37,6 @@ extension CloudNewWorkspaceSetting {
     public nonisolated static let turnCheckpointsDefault = false
 }
 
-extension CloudLoginCopyConsentSetting {
-    /// `cloud.useMyClaudeLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyClaudeLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
-}
-
-extension CloudCodexSignInConsentSetting {
-    /// `cloud.useMyCodexLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyCodexLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
-}
-
 extension CloudAgentStartSetting {
     /// `cloud.agentsStartWithoutAsking`.
     public nonisolated static let configPath = ["cloud", "agentsStartWithoutAsking"]
@@ -83,9 +71,9 @@ extension RemoteSettings {
     /// `remote.endSharingOnQuit`.
     public nonisolated static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
     public nonisolated static let endSharingOnQuitDefault = false
-    /// `remote.ultraMode`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra_mode): on, cmux-wg tunnels this Mac starts use UltraMode::SETTING (rs:4:4); CMUX_WG_ULTRA still wins.
-    public nonisolated static let ultraModePath = ["remote", "ultraMode"]
-    public nonisolated static let ultraModeDefault = false
+    /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
+    public nonisolated static let ultraPath = ["remote", "ultra"]
+    public nonisolated static let ultraDefault: UltraConnectionMode = .auto
 }
 
 extension DeviceHubSettings {
@@ -113,7 +101,7 @@ nonisolated enum MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.enabled", "Computer Use"),
-                help: SettingsText.keyed("settings.computerUse.enabled.help", "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."),
+                help: SettingsText.keyed("settings.computerUse.enabled.help", "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."),
                 summary: SettingsText.keyed("settings.computerUse.enabled.summary", "Lets agents see and use your apps"),
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.enabledDefault),
@@ -124,7 +112,7 @@ nonisolated enum MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.driver", "Computer Use Driver"),
-                help: SettingsText.keyed("settings.computerUse.driver.help", "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."),
+                help: SettingsText.keyed("settings.computerUse.driver.help", "Upstream is the new helper; macOS asks for its permissions again."),
                 summary: SettingsText.keyed("settings.computerUse.driver.summary", "Which helper runs Computer Use"),
                 kind: .choice([
                     SettingChoice(ComputerUseDriver.legacy.rawValue, SettingsText.keyed("settings.computerUse.driver.legacy", "Legacy")),
@@ -138,7 +126,7 @@ nonisolated enum MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.computerUse.livePreview", "Live Preview in Chat"),
-                help: SettingsText.keyed("settings.computerUse.livePreview.help", "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."),
+                help: SettingsText.keyed("settings.computerUse.livePreview.help", "A small live view of the app an agent uses. Click it for Agent Activity."),
                 summary: SettingsText.keyed("settings.computerUse.livePreview.summary", "Shows the app an agent uses in its chat"),
                 kind: .toggle,
                 default: .bool(ComputerUseSettings.livePreviewDefault),
@@ -146,9 +134,7 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var freeModel: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.freeModel", "AI Models")
         return [
@@ -157,7 +143,7 @@ extension MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.freeModel.enabled", "Free AI Model Without Sign-In"),
-                help: SettingsText.keyed("settings.freeModel.enabled.help", "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."),
+                help: SettingsText.keyed("settings.freeModel.enabled.help", "Agents can use the free cmux model while signed out. cmux checks this is a real Mac."),
                 summary: SettingsText.keyed("settings.freeModel.enabled.summary", "Free AI model while signed out"),
                 kind: .toggle,
                 default: .bool(FreeModelSettings.enabledDefault),
@@ -165,9 +151,7 @@ extension MachineSettingsSchema {
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var sshLinks: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
         return [
@@ -176,7 +160,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
-                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."),
+                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "ssh:// links from other apps connect to these hosts without asking."),
                 kind: .stringList,
                 default: .array(SSHLinkHostsSetting.fallback.map { .string($0) }),
                 keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],
@@ -184,9 +168,7 @@ extension MachineSettingsSchema {
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -195,7 +177,7 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.newWorkspacesInCloud", "Run New Workspaces in Cloud"),
-                help: SettingsText.keyed("settings.cloud.newWorkspacesInCloud.help", "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."),
+                help: SettingsText.keyed("settings.cloud.newWorkspacesInCloud.help", "Each new workspace gets its own Cloud machine, and its chats run there."),
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.inCloudDefault),
                 keywords: ["cloud", "vm", "remote", "machine", "new workspace", "cmd-n", "agent", "local", "toggle"]
@@ -205,33 +187,13 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.newWorkspaceFolder", "New Cloud Workspaces Start In"),
-                help: SettingsText.keyed("settings.cloud.newWorkspaceFolder.help", "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."),
+                help: SettingsText.keyed("settings.cloud.newWorkspaceFolder.help", "Current Folder copies your git working copy to the new machine."),
                 kind: .choice([
                     SettingChoice(CloudWorkspaceFolder.inherit.rawValue, SettingsText.keyed("settings.choice.cloudFolderInherit", "Current Folder")),
                     SettingChoice(CloudWorkspaceFolder.empty.rawValue, SettingsText.keyed("settings.choice.cloudFolderEmpty", "Empty Folder")),
                 ]),
                 default: .string(CloudNewWorkspaceSetting.folderDefault.rawValue),
                 keywords: ["cloud", "vm", "folder", "sync", "copy", "inherit", "empty", "snapshot", "working directory"]
-            ),
-            SettingDescriptor(
-                CloudLoginCopyConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyClaudeLogin", "Use My Claude Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyClaudeLogin.help", "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."),
-                kind: .toggle,
-                default: .bool(CloudLoginCopyConsentSetting.fallback),
-                keywords: ["cloud", "claude", "login", "sign in", "token", "credential", "machine", "consent", "copy"]
-            ),
-            SettingDescriptor(
-                CloudCodexSignInConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyCodexLogin", "Use My Codex Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyCodexLogin.help", "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."),
-                kind: .toggle,
-                default: .bool(CloudCodexSignInConsentSetting.fallback),
-                keywords: ["cloud", "codex", "chatgpt", "login", "sign in", "token", "credential", "machine", "consent"]
             ),
             SettingDescriptor(
                 CloudAgentStartSetting.configPath,
@@ -248,16 +210,14 @@ extension MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.cloud.turnCheckpoints", "Save a Checkpoint Before Each Cloud Chat Turn"),
-                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."),
+                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Back to Before This Turn restores the machine in seconds. Keeps the newest few."),
                 kind: .toggle,
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var mobile: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.mobile", "iPhone")
         return [
@@ -266,7 +226,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."),
+                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
                 summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
                 kind: .toggle,
                 default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
@@ -277,7 +237,7 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone."),
+                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
                 kind: .choice([
                     SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
                     SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
@@ -292,16 +252,14 @@ extension MachineSettingsSchema {
                 section: .accounts,
                 group: group,
                 title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order."),
+                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
                 kind: .stringList,
                 default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
                 keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
             ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var macScreen: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
         return [
@@ -310,7 +268,7 @@ extension MachineSettingsSchema {
                 section: .keyboard,
                 group: group,
                 title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."),
+                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help", "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility."),
                 summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
                 kind: .toggle,
                 default: .bool(MacScreenSettings.systemShortcutsDefault),
@@ -318,9 +276,7 @@ extension MachineSettingsSchema {
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var macScreenDebug: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
         return [
@@ -329,7 +285,7 @@ extension MachineSettingsSchema {
                 section: .development,
                 group: group,
                 title: SettingsText.keyed("settings.macScreen.debug.relayOnly", "Relay Only"),
-                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect."),
+                help: SettingsText.keyed("settings.macScreen.debug.relayOnly.help", "Mac Screen tabs connect only through the relay, to test it."),
                 summary: SettingsText.keyed("settings.macScreen.debug.relayOnly.summary", "Mac Screen streams use the relay only"),
                 kind: .toggle,
                 default: .bool(MacScreenDebugSettings.relayOnlyDefault),
@@ -337,9 +293,7 @@ extension MachineSettingsSchema {
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var remote: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
         return [
@@ -348,28 +302,30 @@ extension MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
+                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help", "Off: this Mac stays available to your devices while cmux is quit."),
                 summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
                 kind: .toggle,
                 default: .bool(RemoteSettings.endSharingOnQuitDefault),
                 keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
             ),
             SettingDescriptor(
-                RemoteSettings.ultraModePath,
+                RemoteSettings.ultraPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.remote.ultraMode", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."),
-                summary: SettingsText.keyed("settings.remote.ultraMode.summary", "Uses more data to stay fast on lossy networks"),
-                kind: .toggle,
-                default: .bool(RemoteSettings.ultraModeDefault),
-                keywords: ["ultra", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
+                title: SettingsText.keyed("settings.remote.ultra", "Ultra Connection Mode"),
+                help: SettingsText.keyed("settings.remote.ultra.help", "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data."),
+                summary: SettingsText.keyed("settings.remote.ultra.summary", "Uses more data to stay fast on lossy networks"),
+                kind: .choice([
+                    SettingChoice(UltraConnectionMode.off.rawValue, SettingsText.keyed("settings.remote.ultra.off", "Off")),
+                    SettingChoice(UltraConnectionMode.auto.rawValue, SettingsText.keyed("settings.remote.ultra.auto", "Auto")),
+                    SettingChoice(UltraConnectionMode.always.rawValue, SettingsText.keyed("settings.remote.ultra.always", "Always")),
+                ]),
+                default: .string(RemoteSettings.ultraDefault.rawValue),
+                keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
         ]
     }
-}
 
-extension MachineSettingsSchema {
     static var deviceHub: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
         return [
@@ -378,12 +334,38 @@ extension MachineSettingsSchema {
                 section: .development,
                 group: group,
                 title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help", "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
+                help: SettingsText.keyed("settings.deviceHub.url.help", "The device hub for Mac Screen sharing. Empty uses the built-in one."),
                 summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
                 kind: .url,
                 default: .string(DeviceHubSettings.urlDefault),
                 keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
             ),
+        ]
+    }
+
+    static var imessage: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.section.accounts", "Accounts")
+        return [
+            SettingDescriptor(
+                CmuxConfigSnapshot.imessageEnabledPath,
+                section: .accounts,
+                group: group,
+                title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
+                help: SettingsText.keyed("settings.imessage.enabled.help", "Lets cmux read Messages conversations on this Mac. Sending needs your click."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
+                keywords: ["imessage", "messages", "connector", "privacy"]
+            ).hiddenFromSettingsPage("connect and disconnect from Session Info's iMessage connector"),
+            SettingDescriptor(
+                CmuxConfigSnapshot.imessageAutomationSkippedPath,
+                section: .accounts,
+                group: group,
+                title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
+                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remembers that you skipped the Messages Automation step."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
+                keywords: ["imessage", "messages", "automation", "connector"]
+            ).hiddenFromSettingsPage("permission walkthrough state, set only by the iMessage connector"),
         ]
     }
 }

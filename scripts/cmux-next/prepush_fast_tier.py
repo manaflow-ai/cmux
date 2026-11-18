@@ -164,7 +164,10 @@ def worker(args, refs: str) -> dict:
             checks.append({"name": own.head, "status": "deferred", "detail": "merge attribution goes to full checks"})
         else:
             checks.extend(check_range(args.repo, own, args.scratch))
-    return {"head": heads[0] if len(heads) == 1 else None, "heads": heads, "checks": checks}
+    # Each range as push_range describes it: its note names a base the refresh could not fetch, so the receipt says
+    # when the files it checked were measured from this clone's stale copy.
+    return {"head": heads[0] if len(heads) == 1 else None, "heads": heads, "checks": checks,
+            "ranges": [own.describe() for own in ranges]}
 
 
 def main(argv=None) -> int:
@@ -216,8 +219,12 @@ def main(argv=None) -> int:
                 out, err = proc.communicate(refs, timeout=WORK_SECONDS)
                 receipt.update(json.loads(out))
             except (subprocess.TimeoutExpired, ValueError):
-                if proc.poll() is None:
+                # The group, whatever the worker's state: a worker that exited with no result can leave a child
+                # running in it (cmux#41767 review F1).
+                try:
                     os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
                 proc.communicate()
                 receipt["checks"] = [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}]
     receipt["elapsed_ms"] = round((time.monotonic() - started) * 1000, 2)

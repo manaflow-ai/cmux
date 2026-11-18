@@ -9,23 +9,37 @@
 //! context switches and 18-20 ms of CPU per 12 s for 20 such writes a second.
 //!
 //! - A root whose adapter names its session folders (`cmux_chat_index::session_folders`, Codex)
-//!   is watched as those folders, whole (notify: FSEvents on macOS, inotify on Linux), plus the
-//!   root's own entries and the root-level files the index reads (`classify_path`), each by a
-//!   kqueue vnode watch (`record_watch::DirWatch`, macOS): a write to another file of the root
-//!   never reaches the daemon. A change of the root's entries (a store file or a session folder
-//!   created, renamed or removed) arms the watch again for what the root holds now.
+//!   is watched as those folders, whole, plus the root's own entries and the root-level files
+//!   the index reads (`classify_path`), each by a kqueue vnode watch (`record_watch::DirWatch`,
+//!   macOS): a write to another file of the root never reaches the daemon. A change of the
+//!   root's entries (a store file or a session folder created, renamed or removed) arms the
+//!   watch again for what the root holds now.
 //! - Every other root, and every root on Linux, is watched whole: it may hold thousands of
-//!   transcripts, too many for a watch per file. The notify callback drops each event whose
-//!   paths the index does not read before anything is handed on: those events cost the
-//!   callback, never the chat watch thread or the index.
+//!   transcripts, too many for a watch per file. The callback drops each path the index does
+//!   not read before anything is handed on: those paths cost the callback, never the chat watch
+//!   thread or the index.
+//! - A folder watched whole (`Trees`): on macOS an FSEvents stream of our own with a coalescing
+//!   [`LATENCY`] (`fsevents.rs`): with many agents at work a Claude Code project folder changes
+//!   hundreds of times a second, and notify's stream (latency 0) woke the daemon for each change.
+//!   The first change after a quiet spell still comes at once. Elsewhere notify's watcher
+//!   (inotify on Linux), as before.
+//! - A folder made in, or moved into, a tree notify watches whole (`Message::Folder`): inotify
+//!   gives each folder a watch of its own, which notify adds only after it handed on the event
+//!   that made the folder, so a file written into a new folder before then has no event (Codex
+//!   makes `sessions/YYYY/MM/DD` and writes the day's first rollout into it at once). The chat
+//!   watch thread first waits until notify's thread has added those watches (`Trees::settle`),
+//!   then lists the folder and hands on each file in it the index reads: a file written before
+//!   the watch is listed, one written after it has its event.
+//! - The chat watch thread coalesces what arrives into one index pass per burst (`coalesce`,
+//!   behind the `Source` seam its tests drive with a script and no clock).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_chat_index::{AdapterKind, PathRole, classify_path};
-use notify::Watcher as _;
 
 use super::ChatService;
 
@@ -34,6 +48,14 @@ const QUIET: Duration = Duration::from_millis(300);
 /// ...or after this long, so a harness that writes without pause still
 /// shows its progress.
 const MAX_BURST: Duration = Duration::from_secs(2);
+/// macOS: how long FSEvents gathers the changes of a busy folder into one delivery (`fsevents.rs`).
+/// The smallest latency that brought the watch of 170 agents' Claude Code projects (340 writes a
+/// second) to about 20 ms of CPU per 12 s on a fleet Mac (`watch_bench_tests.rs`, 2026-11-12:
+/// notify 96.6 ms and 1,745 context switches; 0 s 123 ms; 0.25 s 30.7 ms; 0.5 s 20.8 ms and 299;
+/// 1 s 22.9 ms; 2 s 25.3 ms). Past 0.25 s FSEvents still delivers about 12 times a second, so a
+/// longer latency only delays a chat row; what remains is the cost of each changed path.
+#[cfg(target_os = "macos")]
+pub(super) const LATENCY: Duration = Duration::from_millis(500);
 
 /// One root to watch: its real path and its adapter.
 #[derive(Clone, Debug)]
@@ -44,8 +66,10 @@ pub(super) struct WatchedRoot {
 
 /// Keeps the watch alive; dropping it stops the events, and its thread ends.
 pub(super) struct RootWatcher {
-    _watcher: Arc<Mutex<notify::RecommendedWatcher>>,
-    /// Ends the chat watch thread's loop even while a kqueue watch still holds a sender.
+    /// The roots watched whole.
+    _whole: Vec<Tree>,
+    _trees: Arc<Trees>,
+    /// Ends the chat watch thread's loop even while a watch still holds a sender.
     _stop: Sender<Message>,
 }
 
@@ -55,12 +79,21 @@ impl Drop for RootWatcher {
     }
 }
 
+#[derive(Debug)]
 enum Message {
-    Event(notify::Result<notify::Event>),
+    /// Changed paths the index reads; `rescan`: events may have been lost there.
+    Paths {
+        paths: Vec<PathBuf>,
+        rescan: bool,
+    },
     /// A root watched by its folders: its entries or one of its own store files changed.
     /// Sent only by the macOS directory watch, so the variant exists only there.
     #[cfg(target_os = "macos")]
     RootEntries(usize),
+    /// A folder made in, or moved into, a tree notify watches whole: what it holds may have no
+    /// event (the module's text).
+    #[cfg(not(target_os = "macos"))]
+    Folder(PathBuf),
     Stop,
 }
 
@@ -74,48 +107,48 @@ pub(super) fn start(
         return (None, Vec::new());
     }
     let (tx, rx) = std::sync::mpsc::channel();
-    let filter = Filter { roots: roots.to_vec() };
-    let events = tx.clone();
-    let watcher = match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if filter.needed(&event) {
-            let _ = events.send(Message::Event(event));
-        }
-    }) {
-        Ok(watcher) => Arc::new(Mutex::new(watcher)),
+    let filter = Arc::new(Filter { roots: roots.to_vec() });
+    let trees = match Trees::new(filter, tx.clone(), platform_latency()) {
+        Ok(trees) => Arc::new(trees),
         Err(e) => return (None, vec![format!("the chat watcher cannot start: {e}")]),
     };
     let mut errors = Vec::new();
     let mut by_folders = Vec::new();
+    let mut whole = Vec::new();
     for (at, root) in roots.iter().enumerate() {
         match folders_of(root) {
             Some(folders) => {
                 let mut watch = FolderWatch::new(at, root.clone(), folders);
-                watch.arm(&watcher, &tx, &mut errors);
+                watch.arm(&trees, &mut errors);
                 by_folders.push(watch);
             }
-            None => {
-                if let Err(e) = lock(&watcher).watch(&root.path, notify::RecursiveMode::Recursive) {
-                    errors.push(format!("{}: {e}", root.path.display()));
-                }
-            }
+            None => match trees.watch(&root.path) {
+                Ok(tree) => whole.push(tree),
+                Err(e) => errors.push(format!("{}: {e}", root.path.display())),
+            },
         }
     }
-    let thread_watcher = watcher.clone();
-    let thread_tx = tx.clone();
+    let thread_trees = trees.clone();
     // task-owner: the chat service's RootWatcher; ends when it is dropped (its Stop message) or
     // the service is gone.
     if let Err(e) = std::thread::Builder::new()
         .name("acpmux-chat-watch".into())
-        .spawn(move || run(&rx, &service, by_folders, &thread_watcher, &thread_tx))
+        .spawn(move || run(&mut Channel(rx), &service, by_folders, &thread_trees))
     {
         errors.push(format!("the chat watcher thread cannot start: {e}"));
         return (None, errors);
     }
-    (Some(RootWatcher { _watcher: watcher, _stop: tx }), errors)
+    (Some(RootWatcher { _whole: whole, _trees: trees, _stop: tx }), errors)
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+#[cfg(target_os = "macos")]
+fn platform_latency() -> Duration {
+    LATENCY
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_latency() -> Duration {
+    Duration::ZERO
 }
 
 /// The session folders `root` is watched by, on a platform with a watch per file (macOS).
@@ -123,16 +156,23 @@ fn folders_of(root: &WatchedRoot) -> Option<&'static [&'static str]> {
     if cfg!(target_os = "macos") { cmux_chat_index::session_folders(root.kind) } else { None }
 }
 
-/// Which events the index reads: run in notify's callback, before any hand-off.
+/// Which paths the index reads: run in the watch's callback, before any hand-off.
 struct Filter {
     roots: Vec<WatchedRoot>,
 }
 
 impl Filter {
-    fn needed(&self, event: &notify::Result<notify::Event>) -> bool {
+    /// The paths of `paths` the index reads.
+    fn keep(&self, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+        paths.into_iter().filter(|path| self.reads(path)).collect()
+    }
+
+    /// What one notify event hands on, if anything.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    fn handed_from_notify(&self, event: notify::Result<notify::Event>) -> Option<Message> {
         let Ok(event) = event else {
             // A watcher error may have dropped events: the index scans again.
-            return true;
+            return Some(Message::Paths { paths: Vec::new(), rescan: true });
         };
         // Access events (inotify's open and close) change no data: the index's own reads of
         // a store made them, so taking them as changes made every scan trigger the next one.
@@ -140,9 +180,49 @@ impl Filter {
         // read-only connection, so it closes "for write" with no write. Every real write also
         // reports a Modify.
         if matches!(event.kind, notify::EventKind::Access(_)) {
-            return false;
+            return None;
         }
-        event.need_rescan() || event.paths.is_empty() || event.paths.iter().any(|p| self.reads(p))
+        #[cfg(not(target_os = "macos"))]
+        if let Some(folder) = self.folder_came(&event) {
+            return Some(Message::Folder(folder));
+        }
+        let rescan = event.need_rescan();
+        let paths = self.keep(event.paths);
+        (rescan || !paths.is_empty()).then_some(Message::Paths { paths, rescan })
+    }
+
+    /// The folder `event` made in a root, or moved into one: notify names a folder made, and a
+    /// path moved in with no kind, so that one is looked at. In a root whose adapter names its
+    /// session folders (Codex), only a folder that is or is under one of them: the root's other
+    /// folders (its logs, a checkout) hold nothing the index reads and end here.
+    #[cfg(not(target_os = "macos"))]
+    fn folder_came(&self, event: &notify::Event) -> Option<PathBuf> {
+        use notify::event::{CreateKind, ModifyKind, RenameMode};
+        let path = event.paths.last()?;
+        let made = match event.kind {
+            notify::EventKind::Create(CreateKind::Folder) => true,
+            // A link to a folder is not one: `is_dir` follows it, and the folder it points at
+            // may be anywhere (`files_in`).
+            notify::EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
+                std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+            }
+            _ => false,
+        };
+        let inside = self.roots.iter().any(|root| {
+            path.starts_with(&root.path)
+                && path != &root.path
+                && cmux_chat_index::session_folders(root.kind).is_none_or(|folders| {
+                    folders.iter().any(|folder| path.starts_with(root.path.join(folder)))
+                })
+        });
+        (made && inside).then(|| path.clone())
+    }
+
+    /// What one delivery of the own FSEvents stream hands on, if anything.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn handed_from_delivery(&self, paths: Vec<PathBuf>, rescan: bool) -> Option<Message> {
+        let paths = self.keep(paths);
+        (rescan || !paths.is_empty()).then_some(Message::Paths { paths, rescan })
     }
 
     /// Whether `path` is a file the index reads, or a root itself (gone, or made again).
@@ -155,6 +235,131 @@ impl Filter {
     }
 }
 
+/// Starts the watches of folders, whole; each hands what the index reads to the chat watch
+/// thread.
+struct Trees {
+    filter: Arc<Filter>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    tx: Sender<Message>,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    latency: Duration,
+    #[cfg(not(target_os = "macos"))]
+    watcher: Arc<std::sync::Mutex<notify::RecommendedWatcher>>,
+}
+
+/// One folder watched whole; dropping it ends that watch.
+struct Tree {
+    #[cfg(target_os = "macos")]
+    _stream: super::fsevents::Stream,
+    #[cfg(not(target_os = "macos"))]
+    watcher: Arc<std::sync::Mutex<notify::RecommendedWatcher>>,
+    #[cfg(not(target_os = "macos"))]
+    path: PathBuf,
+}
+
+#[cfg(not(target_os = "macos"))]
+impl Drop for Tree {
+    fn drop(&mut self) {
+        use notify::Watcher as _;
+        let mut watcher = self.watcher.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = watcher.unwatch(&self.path);
+    }
+}
+
+impl Trees {
+    fn new(filter: Arc<Filter>, tx: Sender<Message>, latency: Duration) -> Result<Self, String> {
+        #[cfg(not(target_os = "macos"))]
+        let watcher = {
+            let (filter, tx) = (filter.clone(), tx.clone());
+            let watcher = notify::recommended_watcher(move |event| {
+                if let Some(message) = filter.handed_from_notify(event) {
+                    let _ = tx.send(message);
+                }
+            })
+            .map_err(|e| e.to_string())?;
+            Arc::new(std::sync::Mutex::new(watcher))
+        };
+        Ok(Self {
+            filter,
+            tx,
+            latency,
+            #[cfg(not(target_os = "macos"))]
+            watcher,
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn watch(&self, folder: &Path) -> Result<Tree, String> {
+        let (filter, tx) = (self.filter.clone(), self.tx.clone());
+        let stream = super::fsevents::Stream::start(
+            folder,
+            self.latency,
+            Box::new(move |paths, rescan| {
+                if let Some(message) = filter.handed_from_delivery(paths, rescan) {
+                    let _ = tx.send(message);
+                }
+            }),
+        )?;
+        Ok(Tree { _stream: stream })
+    }
+
+    /// Returns once notify's thread has handled every event it read before now, and added the
+    /// watches of the folders those events made: notify answers a configure call on that thread,
+    /// after the pass over its queue that handed on a folder's event and then watched it.
+    #[cfg(not(target_os = "macos"))]
+    fn settle(&self) {
+        use notify::Watcher as _;
+        let _ = self
+            .watcher
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .configure(notify::Config::default());
+    }
+
+    /// `folder` itself when the index reads it (as it was handed on before), and the files under
+    /// it the index reads. Never through a symbolic link, `folder` itself included (a link made
+    /// in its place after its event: then nothing at all): what a link points at may lie outside
+    /// every root, and a scan of the root does not follow links either (the adapters list
+    /// entries by their own type), so a link to a folder or to a session file is skipped.
+    #[cfg(not(target_os = "macos"))]
+    fn files_in(&self, folder: &Path, out: &mut Vec<PathBuf>) {
+        let meta = std::fs::symlink_metadata(folder);
+        if meta.as_ref().is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return;
+        }
+        // Gone already: the index still hears of it, as before the listing.
+        if self.filter.reads(folder) && !out.iter().any(|p| p == folder) {
+            out.push(folder.to_path_buf());
+        }
+        if !meta.is_ok_and(|meta| meta.is_dir()) {
+            return;
+        }
+        let mut pending = vec![folder.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let Ok(kind) = entry.file_type() else { continue };
+                let path = entry.path();
+                if kind.is_dir() {
+                    pending.push(path);
+                } else if kind.is_file() && self.filter.reads(&path) && !out.contains(&path) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn watch(&self, folder: &Path) -> Result<Tree, String> {
+        use notify::Watcher as _;
+        self.watcher
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .watch(folder, notify::RecursiveMode::Recursive)
+            .map_err(|e| e.to_string())?;
+        Ok(Tree { watcher: self.watcher.clone(), path: folder.to_path_buf() })
+    }
+}
+
 /// A root watched as its session folders, its own entries and the root-level files the index
 /// reads.
 struct FolderWatch {
@@ -162,7 +367,7 @@ struct FolderWatch {
     root: WatchedRoot,
     folders: &'static [&'static str],
     /// The session folders watched now, and the root-level files the kqueue watch holds.
-    watched: Vec<PathBuf>,
+    watched: HashMap<PathBuf, Tree>,
     files: Vec<PathBuf>,
     #[cfg(target_os = "macos")]
     entries: Option<crate::agent_host::record_watch::DirWatch>,
@@ -174,7 +379,7 @@ impl FolderWatch {
             at,
             root,
             folders,
-            watched: Vec::new(),
+            watched: HashMap::new(),
             files: Vec::new(),
             #[cfg(target_os = "macos")]
             entries: None,
@@ -197,12 +402,7 @@ impl FolderWatch {
     /// Watches what the root holds now: each session folder that exists, whole, and the
     /// root's entries and own files. Returns whether that changed (a folder or a file came or
     /// went), so the index scans the root again.
-    fn arm(
-        &mut self,
-        watcher: &Mutex<notify::RecommendedWatcher>,
-        tx: &Sender<Message>,
-        errors: &mut Vec<String>,
-    ) -> bool {
+    fn arm(&mut self, trees: &Trees, errors: &mut Vec<String>) -> bool {
         let folders: Vec<PathBuf> = self
             .folders
             .iter()
@@ -210,27 +410,29 @@ impl FolderWatch {
             .filter(|folder| folder.is_dir())
             .collect();
         let files = self.own_files();
-        if folders == self.watched && files == self.files && self.armed() {
+        let same_folders = folders.len() == self.watched.len()
+            && folders.iter().all(|folder| self.watched.contains_key(folder));
+        if same_folders && files == self.files && self.armed() {
             return false;
         }
-        {
-            let mut watcher = lock(watcher);
-            for gone in self.watched.iter().filter(|w| !folders.contains(w)) {
-                let _ = watcher.unwatch(gone);
+        self.watched.retain(|folder, _| folders.contains(folder));
+        for folder in folders {
+            if self.watched.contains_key(&folder) {
+                continue;
             }
-            for folder in folders.iter().filter(|f| !self.watched.contains(f)) {
-                if let Err(e) = watcher.watch(folder, notify::RecursiveMode::Recursive) {
-                    errors.push(format!("{}: {e}", folder.display()));
+            match trees.watch(&folder) {
+                Ok(tree) => {
+                    self.watched.insert(folder, tree);
                 }
+                Err(e) => errors.push(format!("{}: {e}", folder.display())),
             }
         }
-        self.watched = folders;
         self.files = files;
         #[cfg(target_os = "macos")]
         {
             let mut paths = vec![self.root.path.clone()];
             paths.extend(self.files.iter().cloned());
-            let (tx, at) = (tx.clone(), self.at);
+            let (tx, at) = (trees.tx.clone(), self.at);
             // Dropping the old watch ends its thread at its next event; the new one is armed
             // before, so no change falls between them.
             let entries = crate::agent_host::record_watch::DirWatch::start(&paths, move || {
@@ -244,8 +446,6 @@ impl FolderWatch {
             }
             self.entries = entries;
         }
-        #[cfg(not(target_os = "macos"))]
-        let _ = tx;
         true
     }
 
@@ -257,10 +457,16 @@ impl FolderWatch {
     }
 }
 
-#[derive(Default)]
+/// What the chat watch thread gathered: one index pass.
+#[derive(Default, Debug, PartialEq)]
 struct Burst {
     paths: Vec<PathBuf>,
     rescan: bool,
+    /// The roots watched by their folders whose entries changed.
+    entries: Vec<usize>,
+    /// Folders made in a tree notify watches whole, to be listed (`Message::Folder`).
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    folders: Vec<PathBuf>,
 }
 
 impl Burst {
@@ -269,73 +475,108 @@ impl Burst {
             self.paths.push(path);
         }
     }
+}
 
-    fn add(&mut self, event: notify::Result<notify::Event>) {
-        match event {
-            Ok(event) => {
-                self.rescan |= event.need_rescan();
-                for path in event.paths {
-                    self.add_path(path);
+/// Where the chat watch thread's messages come from, and its clock: the channel and the real
+/// clock in the daemon, a script with no clock and no sleep in the tests.
+trait Source {
+    fn now(&self) -> Instant;
+    /// The next message, waiting at most until `until` (None: as long as it takes).
+    fn next(&mut self, until: Option<Instant>) -> Next;
+}
+
+#[derive(Debug)]
+enum Next {
+    Message(Message),
+    Timeout,
+    Closed,
+}
+
+struct Channel(Receiver<Message>);
+
+impl Source for Channel {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn next(&mut self, until: Option<Instant>) -> Next {
+        let Some(until) = until else {
+            return self.0.recv().map_or(Next::Closed, Next::Message);
+        };
+        match self.0.recv_timeout(until.saturating_duration_since(Instant::now())) {
+            Ok(message) => Next::Message(message),
+            Err(RecvTimeoutError::Timeout) => Next::Timeout,
+            Err(RecvTimeoutError::Disconnected) => Next::Closed,
+        }
+    }
+}
+
+/// Gathers what `source` sends into bursts: a burst ends after [`QUIET`] with no message, or
+/// [`MAX_BURST`] after its first. `on_burst` gets each one (false: stop). Returns on a Stop
+/// message or a closed source; a burst in progress then is dropped with the service.
+fn coalesce(source: &mut impl Source, mut on_burst: impl FnMut(Burst) -> bool) {
+    loop {
+        let Next::Message(first) = source.next(None) else { return };
+        let end = source.now() + MAX_BURST;
+        let mut burst = Burst::default();
+        let mut next = Some(first);
+        loop {
+            match next.take() {
+                Some(Message::Paths { paths, rescan }) => {
+                    burst.rescan |= rescan;
+                    for path in paths {
+                        burst.add_path(path);
+                    }
                 }
+                #[cfg(target_os = "macos")]
+                Some(Message::RootEntries(at)) if !burst.entries.contains(&at) => {
+                    burst.entries.push(at)
+                }
+                #[cfg(target_os = "macos")]
+                Some(Message::RootEntries(_)) => {}
+                // Each folder once, and none below another: its listing lists them too.
+                #[cfg(not(target_os = "macos"))]
+                Some(Message::Folder(folder))
+                    if !burst.folders.iter().any(|seen| folder.starts_with(seen)) =>
+                {
+                    burst.folders.retain(|seen| !seen.starts_with(&folder));
+                    burst.folders.push(folder);
+                }
+                #[cfg(not(target_os = "macos"))]
+                Some(Message::Folder(_)) => {}
+                None => {}
+                Some(Message::Stop) => return,
             }
-            // A watcher error may have dropped events: scan again.
-            Err(_) => self.rescan = true,
+            let now = source.now();
+            if now >= end {
+                break;
+            }
+            match source.next(Some((now + QUIET).min(end))) {
+                Next::Message(message) => next = Some(message),
+                Next::Timeout => break,
+                Next::Closed => return,
+            }
+        }
+        if !on_burst(burst) {
+            return;
         }
     }
 }
 
 /// Ends when the watch is dropped (its Stop message) or the service is gone.
 fn run(
-    rx: &Receiver<Message>,
+    source: &mut impl Source,
     service: &Weak<ChatService>,
     mut by_folders: Vec<FolderWatch>,
-    watcher: &Mutex<notify::RecommendedWatcher>,
-    tx: &Sender<Message>,
+    trees: &Trees,
 ) {
-    while let Ok(first) = rx.recv() {
-        let started = Instant::now();
-        let mut burst = Burst::default();
-        // Roots whose folder watch reported a change; only macOS has folder watches.
-        #[cfg(target_os = "macos")]
-        let mut entries = Vec::new();
-        #[cfg(not(target_os = "macos"))]
-        let entries: Vec<usize> = Vec::new();
-        let mut closed = false;
-        let mut next = Some(first);
-        loop {
-            match next.take() {
-                Some(Message::Event(event)) => burst.add(event),
-                #[cfg(target_os = "macos")]
-                Some(Message::RootEntries(at)) if !entries.contains(&at) => entries.push(at),
-                #[cfg(target_os = "macos")]
-                Some(Message::RootEntries(_)) => {}
-                Some(Message::Stop) => {
-                    closed = true;
-                    break;
-                }
-                None => {}
-            }
-            let left = MAX_BURST.saturating_sub(started.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            match rx.recv_timeout(QUIET.min(left)) {
-                Ok(message) => next = Some(message),
-                Err(RecvTimeoutError::Timeout) => break,
-                Err(RecvTimeoutError::Disconnected) => {
-                    closed = true;
-                    break;
-                }
-            }
-        }
-        if closed {
-            return;
-        }
+    coalesce(source, |mut burst| {
         // A root watched by its folders: its own files as they are now, and, when what it
         // holds changed, the root again.
+        let entries = std::mem::take(&mut burst.entries);
         for watch in by_folders.iter_mut().filter(|w| entries.contains(&w.at)) {
             let mut errors = Vec::new();
-            if watch.arm(watcher, tx, &mut errors) {
+            if watch.arm(trees, &mut errors) {
                 burst.rescan = true;
                 burst.add_path(watch.root.path.clone());
             }
@@ -346,11 +587,28 @@ fn run(
                 burst.add_path(file.clone());
             }
         }
-        let Some(service) = service.upgrade() else { return };
+        // Folders made in a tree watched whole: listed once notify watches them.
+        #[cfg(not(target_os = "macos"))]
+        if !burst.folders.is_empty() {
+            trees.settle();
+            for folder in std::mem::take(&mut burst.folders) {
+                trees.files_in(&folder, &mut burst.paths);
+            }
+        }
+        // Folders that held nothing the index reads: no pass.
+        if burst.paths.is_empty() && !burst.rescan {
+            return true;
+        }
+        let Some(service) = service.upgrade() else { return false };
         service.paths_changed(&burst.paths, burst.rescan);
-    }
+        true
+    });
 }
 
 #[cfg(test)]
 #[path = "watch_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "watch_bench_tests.rs"]
+mod bench;

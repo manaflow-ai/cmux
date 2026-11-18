@@ -69,8 +69,8 @@ final class TerminalFloodBench {
         let daemon = daemon
         let session = DaemonTerminalSession(
             surface: 1,
-            open: { DaemonClient(channel: daemon.main) },
-            openInput: { DaemonClient(channel: daemon.lane) }
+            open: { DaemonClient(channel: daemon.main, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
+            openInput: { DaemonClient(channel: daemon.lane, eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) }
         )
         model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "flood bench")
     }

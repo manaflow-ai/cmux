@@ -128,11 +128,67 @@ async fn the_daemon_serves_a_fixture_and_reads_nothing_live() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A set variable whose file is missing, or that is empty, stops the start: no ready line.
+/// A first-run matrix cell (`matrix:CELL`, src/harness_fixture/matrix.rs) through the real
+/// daemon: Leo's Mac on 2026-11-12 lists exactly its four agents with their sign-ins.
+#[tokio::test]
+async fn the_daemon_serves_a_first_run_matrix_cell() {
+    let dir = scratch("mx");
+    let mut child = daemon(&dir, Path::new("matrix:leo-2026-11-12")).spawn().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+            .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true))
+    });
+    assert!(tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap());
+
+    let stream = tokio::net::UnixStream::connect(dir.join("s.sock")).await.unwrap();
+    let (rd, mut wr) = stream.into_split();
+    let mut lines = tokio::io::BufReader::new(rd).lines();
+    let harnesses = call(&mut lines, &mut wr, 1, "_acpmux/harnesses", json!({})).await;
+    let ids: Vec<&String> =
+        harnesses["result"]["harnesses"].as_object().expect("harnesses").keys().collect();
+    assert_eq!(ids, ["antigravity", "claude", "codex", "opencode"], "{harnesses}");
+    let health =
+        call(&mut lines, &mut wr, 2, "_acpmux/harness/health", json!({"refresh": true})).await;
+    let auths: Vec<(&str, &str)> = health["result"]["harnesses"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| (row["id"].as_str().unwrap(), row["auth"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        auths,
+        [
+            ("claude", "expired"),
+            ("codex", "expired"),
+            ("antigravity", "signedIn"),
+            ("opencode", "signedIn"),
+        ],
+        "{health}"
+    );
+    assert!(!dir.join("harness-health.json").exists(), "a fixture's health was saved");
+
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let stop = Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        assert!(stop.elapsed() < Duration::from_secs(8), "daemon still running after SIGTERM");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A set variable whose file is missing, that is empty, or that names a wrong
+/// matrix cell, stops the start: no ready line.
 #[test]
 fn an_unreadable_fixture_stops_the_daemon() {
     let dir = scratch("bad");
-    for fixture in [dir.join("missing.json"), PathBuf::new()] {
+    for fixture in
+        [dir.join("missing.json"), PathBuf::new(), PathBuf::from("matrix:claud=signedIn")]
+    {
         let out = daemon(&dir, &fixture).output().unwrap();
         assert!(!out.status.success(), "{fixture:?}");
         assert!(!String::from_utf8_lossy(&out.stdout).contains("\"ready\""), "{fixture:?}");

@@ -43,6 +43,46 @@ struct BgSpawn<'a> {
     subagent: Option<Value>,
 }
 
+/// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
+/// every task of its chat and stopped all ten running ones, none of them its own (other
+/// subagents' CI waits and the lead's stall watcher). So the chat's own agent acts on the tasks
+/// its caller started unless it asks for more (`server/bg_tasks.rs`); the person, and the
+/// daemon's own callers (workflows), act on every task.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum BgScope {
+    /// Every task of the chat.
+    #[default]
+    Every,
+    /// The tasks one caller of the chat's agent started: a Claude Code subagent (`{id, type}`,
+    /// [`Record::subagent`]), or the lead agent itself (`None`, a task no subagent started).
+    Caller(Option<Value>),
+}
+
+/// The subagent id a task was started by, or that a caller is (`None`: the lead agent).
+fn owner_id(subagent: Option<&Value>) -> Option<&str> {
+    subagent?.get("id")?.as_str()
+}
+
+/// A task's starter in words, for a refusal: "the general-purpose subagent a12" or the lead.
+pub fn bg_owner_words(subagent: Option<&Value>) -> String {
+    let word = |k: &str| subagent.and_then(|s| s.get(k)).and_then(Value::as_str);
+    match (word("type"), word("id")) {
+        (Some(kind), Some(id)) => format!("the {kind} subagent {id}"),
+        (None, Some(id)) => format!("the subagent {id}"),
+        _ => "the chat's lead agent (no subagent)".to_owned(),
+    }
+}
+
+impl BgScope {
+    /// Whether this scope covers task `record`.
+    fn covers(&self, record: &Record) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Caller(sub) => owner_id(sub.as_ref()) == owner_id(record.subagent.as_ref()),
+        }
+    }
+}
+
 impl Hub {
     pub(super) fn bg_dir(&self, session: &Session) -> PathBuf {
         crate::config::home().join("bg").join(&session.id)
@@ -312,10 +352,17 @@ impl Hub {
 
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.
     pub fn bg_list(&self, session: &Session) -> Value {
+        self.bg_list_as(session, &BgScope::Every)
+    }
+
+    /// `_acpmux/bg/list` for `scope`: its tasks, and `otherOwners`, how many it leaves out.
+    pub fn bg_list_as(&self, session: &Session, scope: &BgScope) -> Value {
         let dir = self.bg_dir(session);
-        let tasks: Vec<Value> =
-            self.bg_records(&dir).iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
-        json!({"tasks": tasks})
+        let records = self.bg_records(&dir);
+        let (mine, others): (Vec<&Record>, Vec<&Record>) =
+            records.iter().partition(|r| scope.covers(r));
+        let tasks: Vec<Value> = mine.iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
+        json!({"tasks": tasks, "otherOwners": others.len()})
     }
 
     pub(crate) fn workflow_bg_uncertain(&self, session: &Session, id: &str) -> bool {
@@ -383,7 +430,26 @@ impl Hub {
     /// `_acpmux/bg/stop`: asks the task's runner to stop it (SIGTERM to the task's group, SIGKILL
     /// to the group after the grace) and waits until the runner is gone, at most [`STOP_WAIT`].
     pub async fn bg_stop(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
+        self.bg_stop_as(session, id, &BgScope::Every).await
+    }
+
+    /// `_acpmux/bg/stop` for `scope`: a task outside it is refused, naming who started it and
+    /// what to do instead, and nothing is signalled.
+    pub async fn bg_stop_as(
+        &self,
+        session: &Session,
+        id: &str,
+        scope: &BgScope,
+    ) -> Result<Value, RpcError> {
         let (dir, record) = self.bg_record(session, id)?;
+        if !scope.covers(&record) {
+            let owner = bg_owner_words(record.subagent.as_ref());
+            let what = record.description.as_deref().unwrap_or(&record.command);
+            return Err(RpcError::invalid_params(format!(
+                "bg_stop refused: background task {id} ({what}) was started by {owner}, not by you, so it was left running. Stop only tasks you started (bg_list lists them); ask its owner or your lead to stop it, or, if it truly must stop now, call bg_stop again with force_other_owner: true"
+            ))
+            .with_data(json!({"id": id, "startedBy": record.subagent, "owner": owner})));
+        }
         if bg_run::request_stop(&dir, id, &record.generation) {
             bg_wait_gone(&dir, id).await;
         }
@@ -459,13 +525,8 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
             .name("workflow-bg-wait".into())
             .spawn(move || {
                 let wait = || -> Result<(), RpcError> {
-                    use std::os::fd::AsRawFd;
                     let file = std::fs::File::open(path).map_err(internal)?;
-                    // SAFETY: this thread owns the descriptor, which closes on return.
-                    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-                        return Err(internal(std::io::Error::last_os_error()));
-                    }
-                    Ok(())
+                    wait_released(file).map_err(internal)
                 };
                 let _ = finished.send(wait());
             })
@@ -477,6 +538,15 @@ async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
         let _ = path;
         Err(RpcError::internal("workflow machine tasks require Unix"))
     }
+}
+
+/// Blocks until the runner that holds `file`'s lock lets go (a shared flock taken, as the
+/// runner's exclusive one excludes it). The shared lock is unlocked before the file closes:
+/// a child another daemon thread forked meanwhile keeps no lock, so the task's liveness probe
+/// reads the ended runner as gone.
+#[cfg(unix)]
+fn wait_released(file: std::fs::File) -> std::io::Result<()> {
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Shared).map(drop)
 }
 
 /// Clears the moved folders of earlier purges whose runners are all gone.
@@ -639,6 +709,8 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         "keptFromByte": read.kept_from, "tail": String::from_utf8_lossy(&read.data),
         // Set when the spool failed (a full disk): output after it is gone, so it is incomplete.
         "outputError": r.output_error,
+        // The Claude Code subagent that started it (`{id, type}`); null: the lead agent.
+        "startedBy": r.subagent,
     });
     if r.result_line {
         let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
@@ -792,5 +864,26 @@ mod workflow_output_tests {
         assert_eq!(view["totalBytes"], bytes.len());
         assert_eq!(view["nextByte"], bytes.len());
         assert_eq!(view["skippedBytes"], 0);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod wait_lock_tests {
+    use super::*;
+
+    /// A wait for a runner to end lets go of the lock it took, also while a child the daemon
+    /// forked meanwhile has the descriptor: else the task's liveness probe reads the ended runner
+    /// as running (the cap counts it, its chat's folder is not swept).
+    #[test]
+    fn a_finished_wait_leaves_the_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.lock");
+        std::fs::write(&path, b"").unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        wait_released(file).unwrap();
+        let free = crate::fork_tests::free(&path);
+        drop(keeper);
+        assert!(free, "the wait left the runner's lock held");
     }
 }

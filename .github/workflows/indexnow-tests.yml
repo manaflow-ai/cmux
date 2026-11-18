@@ -8,6 +8,7 @@ on:
       - scripts/ci/notify-indexnow.py
       - tests/test_indexnow_notification.py
       - tests/workflow_jobs.py
+      - scripts/ci/gh_expressions.py
       - web/app/lib/indexnow.ts
   workflow_dispatch:
 

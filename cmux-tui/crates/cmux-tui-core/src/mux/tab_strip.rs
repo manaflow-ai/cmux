@@ -16,7 +16,9 @@
 //! rows (`Mux::state_update_tab`), which patches the presentation cache with
 //! [`Mux::patch_tab_presentation`].
 
+pub(crate) mod place_list;
 pub(crate) mod reopen_identity;
+pub(crate) mod tab_place;
 pub(crate) mod tab_slot;
 
 use std::collections::BTreeSet;
@@ -214,8 +216,9 @@ impl Mux {
                         }
                     }),
                 });
-                let mut projection = mux.resource_effect_projection_locked(
+                let mut projection = mux.changed_state_projection_locked(
                     registry,
+                    state,
                     &mut projected,
                     serde_json::json!({}),
                 )?;
@@ -231,6 +234,7 @@ impl Mux {
                     projected,
                 )
                 .projected(projection.restates_all)
+                .restating(projection.restated)
                 .with_state_write(write);
                 if let Some(ledger) = ledger {
                     plan = plan.with_workspace_ledger(ledger);

@@ -180,6 +180,30 @@ impl<T> SignaledMutex<T> {
         locked
     }
 
+    /// How many lockers of both kinds wait for this mutex now (each from its call to its take).
+    /// Work that can wait reads this before it takes the lock and stands back while a locker
+    /// waits (`mux/startup_restore/restate_parts.rs`).
+    pub(crate) fn waiters(&self) -> usize {
+        self.interactive_waiters
+            .load(Ordering::Acquire)
+            .saturating_add(self.plain_waiters.load(Ordering::Acquire))
+    }
+
+    /// One try, for work that must not wait for the lock: `None` while
+    /// another thread holds it. The take does not queue behind the lockers
+    /// that wait.
+    #[track_caller]
+    pub(crate) fn try_lock_free(&self) -> Option<LockResult<SignaledMutexGuard<'_, T>>> {
+        let (site, waited_from) = (std::panic::Location::caller(), Instant::now());
+        match self.value.try_lock() {
+            Ok(value) => Some(Ok(self.guard(value, site, waited_from, None))),
+            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::Poisoned(error)) => {
+                Some(Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, None))))
+            }
+        }
+    }
+
     /// An interactive locker waits and has not used up its streak.
     fn interactive_goes_first(&self) -> bool {
         self.interactive_waiters.load(Ordering::Acquire) > 0
@@ -562,8 +586,8 @@ impl StateMutex {
         }
     }
 
-    /// The state lock if it is free now (the accept loop, which never waits
-    /// for it, and the snapshot reader that builds, `resource_api/committed_snapshot.rs`).
+    /// The state lock if it is free now (the snapshot reader that builds,
+    /// `resource_api/committed_snapshot.rs`).
     /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
@@ -626,24 +650,13 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        // Wait for the answers of earlier indeterminate commits before the
-        // pin: the writer needs the connection to commit and answer, so a
-        // wait under the pin could only run out. The caller holds the
-        // registry, so no new indeterminate commit appears after this. A
-        // commit still unanswered stays; the flow's own prepare refuses to
-        // build on it (`drain_unsettled` without waiting).
-        let _ = registry.connection.drain_unsettled();
         let connection = registry.connection.pin();
-        let (mut pinned, poisoned) = match self.state.lock() {
+        let (pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: the answers that can arrive were taken before the
-        // pin; one still unanswered stays for a later holder, and the
-        // prepare paths refuse to build on it (drain_unsettled).
-        self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }

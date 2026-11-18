@@ -96,8 +96,10 @@ mod unix {
         writer_tx: Sender<OutboundLine>,
         /// A duplicate of the stream's descriptor, owned here, so `end()`
         /// shuts the socket down even after both halves dropped and never
-        /// touches a descriptor number another resource reused.
-        shutdown_fd: std::os::fd::OwnedFd,
+        /// touches a descriptor number another resource reused. `end()` also
+        /// closes it: on macOS the daemon's blocking read can miss the wake of
+        /// a shutdown while the relay keeps any descriptor of the socket.
+        shutdown_fd: Mutex<Option<std::os::fd::OwnedFd>>,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -159,7 +161,7 @@ mod unix {
         Ok(Arc::new(UnixControl {
             shared,
             writer_tx,
-            shutdown_fd,
+            shutdown_fd: Mutex::new(Some(shutdown_fd)),
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
@@ -388,10 +390,17 @@ mod unix {
             // Shut both directions so the read loop sees EOF and any blocked
             // writer unblocks. shutdown acts on the socket, so the owned
             // duplicate reaches it; a socket already shut down is harmless.
-            // SAFETY: shutdown on a descriptor this handle owns.
-            unsafe {
-                use std::os::fd::AsRawFd as _;
-                libc::shutdown(self.shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
+            let shutdown_fd = match self.shutdown_fd.lock() {
+                Ok(mut shutdown_fd) => shutdown_fd.take(),
+                Err(poisoned) => poisoned.into_inner().take(),
+            };
+            if let Some(shutdown_fd) = shutdown_fd {
+                // SAFETY: shutdown on a descriptor this handle owns.
+                unsafe {
+                    use std::os::fd::AsRawFd as _;
+                    libc::shutdown(shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
+                }
+                drop(shutdown_fd);
             }
         }
     }
@@ -462,6 +471,56 @@ mod tests {
         assert_eq!(request.get("cmd").and_then(Value::as_str), Some("probe"));
 
         control.end();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    /// Whether any process still holds a descriptor of the other end of
+    /// `socket`: macOS answers the other end's pid until its last descriptor
+    /// closes. A shutdown alone does not change the answer.
+    #[cfg(target_os = "macos")]
+    fn other_end_open(socket: &std::os::unix::net::UnixStream) -> bool {
+        use std::os::fd::AsRawFd as _;
+        let mut pid: libc::pid_t = 0;
+        let mut len = size_of::<libc::pid_t>() as libc::socklen_t;
+        // SAFETY: `socket` is open for this call; `pid` and `len` describe a
+        // live buffer of the size that getsockopt may write.
+        let status = unsafe {
+            libc::getsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                (&raw mut pid).cast(),
+                &raw mut len,
+            )
+        };
+        status == 0
+    }
+
+    /// `end()` closes every relay descriptor of the control socket while the
+    /// handle lives on (the pty session keeps it): the daemon reads each
+    /// client in a blocking read, and on macOS that read can miss the wake of
+    /// the relay's shutdown while the relay keeps a descriptor, so the daemon
+    /// would keep a ghost client until the session ends.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn ending_a_control_closes_its_socket_while_the_handle_lives_on() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-end-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
+        let control =
+            connect_control(&socket_path, 3_000).await.expect("connect control test socket");
+        let (daemon, _) = listener.accept().await.expect("accept control test socket");
+        let daemon = daemon.into_std().expect("the daemon end as a std socket");
+
+        control.end();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while other_end_open(&daemon) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(!other_end_open(&daemon), "the ended control's socket is still open in the relay");
+        drop(control);
         let _ = std::fs::remove_file(socket_path);
     }
 }

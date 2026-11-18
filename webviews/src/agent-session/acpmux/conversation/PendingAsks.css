@@ -44,3 +44,10 @@
   outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: 1px;
 }
+
+/* The pinned copy belongs to the composer stack; the historical card keeps its transcript fill. */
+.acpmux-pending-ask .acpmux-next-step:not(.acpmux-next-step--answered) {
+  border: 0;
+  background: var(--acpmux-stack-tint);
+  box-shadow: var(--acpmux-stack-shadow);
+}

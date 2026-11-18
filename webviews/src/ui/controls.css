@@ -28,7 +28,7 @@
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
   border: 0;
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   color: var(--ds-color-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -42,12 +42,12 @@
 .ui-btn[data-size="sm"] {
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-2);
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
 }
 .ui-btn[data-size="lg"] {
   height: var(--ds-control-primary);
   padding-inline: var(--ds-space-4);
-  border-radius: var(--ds-radius-lg);
+  border-radius: var(--ds-radius-control);
 }
 .ui-btn[data-icon] {
   width: var(--ds-control-row);
@@ -301,7 +301,7 @@
   gap: var(--ds-space-2);
   height: var(--ds-control-row);
   padding-inline: var(--ds-space-3);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   color: var(--ds-color-muted);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);

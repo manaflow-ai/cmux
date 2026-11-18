@@ -101,6 +101,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     height = 560,
   ): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width, height } });
+    // Claude's look, whose strip is text over the card: Codex's (the default since #42247) tucks it
+    // as a tray under the card's top edge (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -626,10 +629,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine-cloud", 430, "Cloud", null],
     ["strip-where-machine-cloud", 244, "Cloud", null],
     ["strip-where-machine-cloud", 243, false, null],
-    ["strip-where-machine-machine-picked", 430, "Remote", "gpu-box"],
-    ["strip-where-machine-machine-picked", 402, "Remote", "gpu-box"],
-    ["strip-where-machine-machine-picked", 401, "Remote", false],
-    ["strip-where-machine-machine-picked", 346, "Remote", false],
+    ["strip-where-machine-machine-picked", 430, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 402, "Other devices", "gpu-box"],
+    ["strip-where-machine-machine-picked", 401, "Other devices", false],
+    ["strip-where-machine-machine-picked", 346, "Other devices", false],
     ["strip-where-machine-machine-picked", 345, false, false],
     ["strip-combined", 244, "This Mac", null],
     ["strip-combined", 243, false, null],

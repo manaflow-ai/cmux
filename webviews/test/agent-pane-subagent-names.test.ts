@@ -143,7 +143,7 @@ test("a finished background subagent whose Agent call is not loaded reads its de
   const row = snapshot.rows.find((row: any) => row.subagents?.[0]?.state === "completed");
   const container = await render(createElement(SubagentDoneLine, { row }));
   const sentence = container.querySelector(".cv-tool__text")!.textContent;
-  expect(sentence).toBe(`Subagent finished: ${SUBAGENT_NAMES_TASK}`);
+  expect(sentence).toBe(`${SUBAGENT_NAMES_TASK} finished`);
 });
 
 test("a SendMessage to a subagent's agentId reads Sent to <its description>", async () => {
