@@ -224,6 +224,12 @@ final class AgentPaneSessionInfoContent: NSView {
     /// The list's views, for tests.
     var lines: [SessionInfoLineView] { list.subviews.compactMap { $0 as? SessionInfoLineView } }
 
+    /// The list's work since the counts were last cleared, for the count tests.
+    var counts: SessionInfoListCounts {
+        get { list.counts }
+        set { list.counts = newValue }
+    }
+
     private func reload() {
         guard let store else { return }
         let items = store.info?.items ?? []
@@ -262,9 +268,23 @@ private final class SessionInfoClipView: NSClipView {
     }
 }
 
+/// How much work the list did (AgentPaneSessionInfoCountTests): a changed row configures one line, a
+/// scroll step makes only the lines it reveals, and nothing grows with the list's length.
+struct SessionInfoListCounts: Equatable {
+    /// Line views built or rebuilt from a model value.
+    var configured = 0
+    /// Views added to the list.
+    var mounted = 0
+    /// Children whose frame the list set to a new value.
+    var laidOut = 0
+    /// Line heights the list measured.
+    var measured = 0
+}
+
 /// The list's document view: its items laid out top down at the scroll view's width.
 final class SessionInfoListView: NSView {
     override var isFlipped: Bool { true }
+    var counts = SessionInfoListCounts()
     private var items: [SessionInfoItem] = []
     private var ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil }, move: { _, _, _ in }, flush: {})
     private var pendingItems: [SessionInfoItem]?
@@ -328,11 +348,13 @@ final class SessionInfoListView: NSView {
                 addSubview(line)
             case .line(let value):
                 if let identity = value.id, let old = existingLines[identity] {
-                    if !old.matches(line: value, ink: ink) { old.update(line: value, ink: ink) }
+                    if !old.matches(line: value, ink: ink) { old.update(line: value, ink: ink); counts.configured += 1 }
                     addSubview(old)
                 } else {
                     addSubview(SessionInfoLineView(line: value, ink: ink))
+                    counts.configured += 1
                 }
+                counts.mounted += 1
             }
         }
         place()
@@ -420,7 +442,12 @@ final class SessionInfoListView: NSView {
             case .line:
                 guard let line = view as? SessionInfoLineView else { continue }
                 let height = line.height(forWidth: inner)
-                if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
+                counts.measured += 1
+                if apply {
+                    let frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height)
+                    if line.frame != frame { counts.laidOut += 1 }
+                    line.frame = frame
+                }
                 y += height
             }
         }
