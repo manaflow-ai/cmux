@@ -88,7 +88,8 @@ impl Client {
     }
 
     async fn attach(&mut self, id: &str) {
-        self.call(method::MUX_ATTACH, json!({"sessionId": id, "waitLogs": false, "limit": 0})).await;
+        self.call(method::MUX_ATTACH, json!({"sessionId": id, "waitLogs": false, "limit": 0}))
+            .await;
     }
 
     async fn watch(&mut self, on: bool) {
@@ -187,7 +188,9 @@ async fn a_connection_not_attached_and_not_watching_is_never_woken_by_other_chat
         .iter()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(|v| v["method"] == method::SESSION_UPDATE)
-        .filter_map(|v| v.pointer("/params/update/content/text").and_then(Value::as_str).map(str::to_owned))
+        .filter_map(|v| {
+            v.pointer("/params/update/content/text").and_then(Value::as_str).map(str::to_owned)
+        })
         .collect();
     let expected: Vec<String> = (0..STREAMED).map(|n| format!("w{n} ")).collect();
     assert_eq!(texts, expected, "the connection attached to {s} gets each record once, in order");

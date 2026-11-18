@@ -41,7 +41,8 @@ fn drain(inbox: &Inbox) -> Vec<String> {
 #[test]
 fn an_event_reaches_only_the_inboxes_that_want_it() {
     let router = Router::new(64);
-    let (idle, pane, watcher, chats) = (router.inbox(), router.inbox(), router.inbox(), router.inbox());
+    let (idle, pane, watcher, chats) =
+        (router.inbox(), router.inbox(), router.inbox(), router.inbox());
     router.attach(&pane, "a");
     router.set_watching(&watcher, true);
     router.hear_activity(&chats);
