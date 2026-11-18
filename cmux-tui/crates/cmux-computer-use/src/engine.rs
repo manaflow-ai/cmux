@@ -416,6 +416,9 @@ fn need_f64(args: &Value, key: &str) -> Result<f64, ToolOutput> {
 impl Engine {
     pub fn new(parts: EngineParts) -> Self {
         let audit = parts.state_dir.as_ref().map(|d| d.join("audit.jsonl"));
+        if let Some(dir) = &parts.state_dir {
+            parts.stops.keep_in(dir.join("stopped.json"));
+        }
         let config = Arc::new(RwLock::new(parts.config.clone()));
         parts.desktop.set_menu_guard(Arc::new(PolicyMenuGuard(config.clone())));
         let preview =
@@ -837,8 +840,18 @@ impl Engine {
             }
             // Not focus-guarded on purpose (Access::Discover): asking for a
             // permission shows the OS prompt or opens System Settings in front,
-            // which is what the person must see to grant it.
+            // which is what the person must see to grant it. Only the person at
+            // this machine grants its OS permissions, so another machine's agent
+            // never raises the prompt here, and the mode still applies (Off).
             "request_permission" => {
+                if let OriginKind::Remote { .. } = ctx.origin {
+                    return Err(ToolOutput::error(
+                        Refusal::RemoteNotAllowed.code(),
+                        "Only the person at this machine can grant its permissions: ask them to \
+                         open Settings > Computer Use there.",
+                    ));
+                }
+                self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let which = need(args, "permission")?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((ToolOutput::ok(json!({"requested": which})), None))

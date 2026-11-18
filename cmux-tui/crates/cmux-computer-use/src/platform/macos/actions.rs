@@ -2009,7 +2009,10 @@ fn settle_web_caret(
         return Ok(roles::Autocorrection::NoneOffered);
     };
     let typed_len = typed.encode_utf16().count() as isize;
-    if !caret_off_and_back(d, t, el, at, typed_len)? {
+    // The text is already typed: a caret write refused here (another
+    // session's menu scope holds the app) must not turn the call into an
+    // error that says nothing was sent, or a retry types it twice.
+    if !caret_off_and_back(d, t, el, at, typed_len).unwrap_or(false) {
         return Ok(roles::Autocorrection::NoneOffered);
     }
     if !roles::may_be_autocorrected(typed) {
@@ -2033,7 +2036,8 @@ fn settle_web_caret(
         return Ok(roles::Autocorrection::NoneOffered);
     }
     // Offered: the caret off the typed text and back dismisses it.
-    let _ = caret_off_and_back(d, t, el, at, typed_len)?;
+    // A refused write leaves the bubble up, and the wait below reports it.
+    let _ = caret_off_and_back(d, t, el, at, typed_len).unwrap_or(false);
     let gone = super::menus::wait_for(BUBBLE_GONE_WAIT, || !bubble());
     Ok(roles::autocorrection(true, !gone))
 }
