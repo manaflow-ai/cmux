@@ -3,7 +3,8 @@
 # as a LaunchAgent, so it runs in the console user's Aqua session). Writes $D/out/results.jsonl, one
 # JSON line per check, and PNGs to $D/out. Rounds, each against TextEdit with a note open:
 #   A-unlocked           the baseline;
-#   A2-unlocked-virtual  TextEdit's window moved onto a CGVirtualDisplay this run holds;
+#   A2-unlocked-virtual  TextEdit's window moved onto a CGVirtualDisplay this run holds (no
+#                        display-sleep assertion, so round C can find the displays asleep);
 #   B-locked             right after SACLockScreenImmediate;
 #   C-locked-late        after LATE more seconds locked (the display may sleep by then);
 #   D-off-console        after SACSwitchToLoginWindow (fast user switching): the session is off the
@@ -13,6 +14,8 @@
 # three ways (CGEventPostToPid, AX selected-text write, CGEventPost at the HID tap) and reads the
 # document back through AX, then does the same through Cua Driver (get_window_state, type_text).
 set -u
+# A driver that exits must not take this script with it: a write to its FIFO then fails (EPIPE).
+trap '' PIPE
 D=/Users/lume/lsc
 LATE=$(cat "$D/late" 2>/dev/null || echo 120)
 P="$D/lockprobe"
@@ -48,10 +51,20 @@ mcp_call() { mcp_rpc tools/call "{\"name\":\"$1\",\"arguments\":$2}"; }
 
 printf 'lockprobe note\n' >"$D/note.txt"
 open -a TextEdit "$D/note.txt"
-sleep 5
-TE=$(pgrep -nx TextEdit)
-WID=$("$P" wid "$TE")
-note setup "textedit pid $TE window $WID"
+TE="" WID=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  sleep 2
+  TE=$(pgrep -nx TextEdit)
+  [[ -n "$TE" ]] && WID=$("$P" wid "$TE" note.txt)
+  [[ -n "$TE" && "$WID" != 0 ]] && break
+done
+note setup "textedit pid ${TE:-none} window $WID"
+if [[ -z "$TE" || "$WID" == 0 ]]; then
+  "$P" windows | tagged setup
+  note setup "no TextEdit window for note.txt: nothing to measure"
+  echo 3 >"$D/status"
+  exit 3
+fi
 "$P" windows "$TE" | tagged setup
 mcp_start
 note setup "cua-driver tools: $(grep -o '"name":"[a-z_]*"' "$O/mcp-tools.json" | cut -d'"' -f4 | tr '\n' ' ')"
@@ -73,6 +86,11 @@ round() {  # PHASE
   "$P" type-hid "$TE" " hid-$ph" | tagged "$ph"
   mcp_call type_text "{\"pid\":$TE,\"window_id\":$WID,\"text\":\" cua-$ph\"}" >"$O/$ph-cua-type.json"
   "$P" mcp-result "$O/$ph-cua-type.json" "$O/$ph-cua-type.png" | tagged "$ph-cua-type_text"
+  # A key and a pixel click, Cua Driver's background routes: the key lands as an "x" in the document.
+  mcp_call press_key "{\"pid\":$TE,\"window_id\":$WID,\"key\":\"x\"}" >"$O/$ph-cua-key.json"
+  "$P" mcp-result "$O/$ph-cua-key.json" "$O/$ph-cua-key.png" | tagged "$ph-cua-press_key"
+  mcp_call click "{\"pid\":$TE,\"window_id\":$WID,\"x\":200,\"y\":200}" >"$O/$ph-cua-click.json"
+  "$P" mcp-result "$O/$ph-cua-click.json" "$O/$ph-cua-click.png" | tagged "$ph-cua-click"
   sleep 1
   "$P" ax-text "$TE" | tagged "$ph"
   mcp_call get_window_state "{\"pid\":$TE,\"window_id\":$WID}" >"$O/$ph-cua-state.json"
@@ -84,7 +102,7 @@ round() {  # PHASE
 
 round A-unlocked
 
-"$P" vdisplay $((LATE + 600)) assert >"$O/vdisplay.jsonl" 2>&1 &
+"$P" vdisplay $((LATE + 600)) >"$O/vdisplay.jsonl" 2>"$O/vdisplay.err" &
 VPID=$!
 sleep 4
 VDID=$(head -1 "$O/vdisplay.jsonl" | sed -n 's/.*"display_id":\([0-9]*\).*/\1/p')

@@ -25,8 +25,8 @@ for arg in "$@"; do
     *) echo "macos-locked-screen-cu.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$late" =~ ^[0-9]{1,4}$ && "$guest_mem" =~ ^[0-9]{1,2}$ && "$guest_cpu" =~ ^[0-9]{1,2}$ ]] ||
-  { echo "macos-locked-screen-cu.sh: late= s, guest_mem= GB, guest_cpu= count" >&2; exit 2; }
+[[ "$late" =~ ^[0-9]{1,4}$ && "$late" -le 2400 && "$guest_mem" =~ ^[0-9]{1,2}$ && "$guest_cpu" =~ ^[0-9]{1,2}$ ]] ||
+  { echo "macos-locked-screen-cu.sh: late= s (at most 2400), guest_mem= GB, guest_cpu= count" >&2; exit 2; }
 started_at=$(date +%s)
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -74,7 +74,7 @@ pin() { python3 -I -c 'import functools, json, sys; print(functools.reduce(lambd
 note "STAGE build"
 b="$out/build"
 xcrun clang -fobjc-arc -O2 -arch arm64 -mmacosx-version-min=14.0 -Wno-deprecated-declarations -o "$b/lockprobe" \
-  "$here/lockprobe.m" -framework AppKit -framework ApplicationServices -framework ScreenCaptureKit -framework CoreGraphics \
+  "$here/lockprobe.m" -framework Foundation -framework AppKit -framework ApplicationServices -framework ScreenCaptureKit -framework CoreGraphics \
   -framework IOKit >"$b/lockprobe.log" 2>&1 || { cat "$b/lockprobe.log"; finish "lockprobe.m did not compile (build/lockprobe.log)"; exit 4; }
 codesign -s - -f "$b/lockprobe" >/dev/null 2>&1 || { finish "ad-hoc signing failed"; exit 4; }
 cp "$here/guest.sh" "$b/guest.sh"

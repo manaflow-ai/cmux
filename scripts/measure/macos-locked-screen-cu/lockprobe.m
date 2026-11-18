@@ -1,7 +1,7 @@
 // lockprobe: what macOS lets a background process do to other apps' windows while the
 // console session is screen-locked. Experiment tool for ask-3cf710da4e; not product code.
 //
-// Build: clang -fobjc-arc -fmodules -framework Foundation -framework AppKit -framework CoreGraphics \
+// Build: clang -fobjc-arc -framework Foundation -framework AppKit -framework CoreGraphics \
 //   -framework ScreenCaptureKit -framework ApplicationServices -framework IOKit lockprobe.m -o lockprobe
 // Every subcommand prints one JSON line.
 #import <Foundation/Foundation.h>
@@ -95,6 +95,12 @@ static NSDictionary *pixelStats(CGImageRef img) {
     return @{@"w": @(w), @"h": @(h), @"lit": @(total ? (double)lit / total : 0), @"colors": @(colors.count)};
 }
 
+// A capture counts only when it was written and holds content: a blank or redacted picture (the
+// wallpaper-only or black result of a capture macOS withholds) has almost no lit pixels or colors.
+static BOOL hasContent(NSDictionary *stats) {
+    return [stats[@"lit"] doubleValue] > 0.05 && [stats[@"colors"] intValue] > 2;
+}
+
 static NSArray *windowsOf(pid_t pid) {
     NSArray *all = (__bridge_transfer NSArray *)CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
     NSMutableArray *r = [NSMutableArray array];
@@ -115,8 +121,10 @@ static int cmdCaptureCG(CGWindowID wid, NSString *path) {
     if (!fn) { out(@{@"cmd": @"capture-cg", @"error": @"CGWindowListCreateImage unavailable"}); return 1; }
     CGImageRef img = fn(CGRectNull, kCGWindowListOptionIncludingWindow, wid,
                         kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution);
-    BOOL ok = writePNG(img, path);
-    out(@{@"cmd": @"capture-cg", @"window": @(wid), @"ok": @(ok), @"stats": pixelStats(img), @"session": sessionState()});
+    BOOL wrote = writePNG(img, path);
+    NSDictionary *stats = pixelStats(img);
+    BOOL ok = wrote && hasContent(stats);
+    out(@{@"cmd": @"capture-cg", @"window": @(wid), @"ok": @(ok), @"wrote": @(wrote), @"stats": stats, @"session": sessionState()});
     if (img) CGImageRelease(img);
     return ok ? 0 : 1;
 }
@@ -130,8 +138,10 @@ static int cmdCaptureHW(CGWindowID wid, NSString *path) {
     uint32_t w = wid;
     CFArrayRef arr = cap(mainConn(), &w, 1, (1 << 11) | (1 << 8));
     CGImageRef img = (arr && CFArrayGetCount(arr) > 0) ? (CGImageRef)CFArrayGetValueAtIndex(arr, 0) : NULL;
-    BOOL ok = writePNG(img, path);
-    out(@{@"cmd": @"capture-hw", @"window": @(wid), @"ok": @(ok), @"stats": pixelStats(img), @"session": sessionState()});
+    BOOL wrote = writePNG(img, path);
+    NSDictionary *stats = pixelStats(img);
+    BOOL ok = wrote && hasContent(stats);
+    out(@{@"cmd": @"capture-hw", @"window": @(wid), @"ok": @(ok), @"wrote": @(wrote), @"stats": stats, @"session": sessionState()});
     if (arr) CFRelease(arr);
     return ok ? 0 : 1;
 }
@@ -174,9 +184,11 @@ static int cmdCaptureSCK(CGWindowID wid, NSString *path, BOOL display) {
     if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) {
         out(@{@"cmd": @"capture-sck", @"error": @"capture timed out", @"session": sessionState()}); return 1;
     }
-    BOOL ok = writePNG(img, path);
-    out(@{@"cmd": display ? @"capture-sck-display" : @"capture-sck", @"target": @(wid), @"ok": @(ok),
-          @"error": err.description ?: @"", @"stats": pixelStats(img), @"session": sessionState()});
+    BOOL wrote = writePNG(img, path);
+    NSDictionary *stats = pixelStats(img);
+    BOOL ok = wrote && hasContent(stats);
+    out(@{@"cmd": display ? @"capture-sck-display" : @"capture-sck", @"target": @(wid), @"ok": @(ok), @"wrote": @(wrote),
+          @"error": err.description ?: @"", @"stats": stats, @"session": sessionState()});
     if (img) CGImageRelease(img);
     return ok ? 0 : 1;
 }
@@ -218,7 +230,9 @@ static NSString *axText(pid_t pid, AXError *errOut) {
     if (win) {
         NSMutableArray *queue = [NSMutableArray arrayWithObject:(__bridge id)win];
         for (int n = 0; queue.count && n < 400 && !found; n++) {
-            AXUIElementRef el = (__bridge AXUIElementRef)queue[0]; [queue removeObjectAtIndex:0];
+            id held = queue[0];  // keeps the element alive after it leaves the queue
+            [queue removeObjectAtIndex:0];
+            AXUIElementRef el = (__bridge AXUIElementRef)held;
             CFTypeRef role = NULL;
             AXUIElementCopyAttributeValue(el, kAXRoleAttribute, &role);
             if (role && [(__bridge NSString *)role isEqualToString:(__bridge NSString *)kAXTextAreaRole]) {
@@ -299,8 +313,14 @@ int main(int argc, const char **argv) {
             int rc = fn(); usleep(3000000);
             out(@{@"cmd": cmd, @"rc": @(rc), @"session": sessionState()}); return 0;
         }
-        if ([cmd isEqualToString:@"wid"] && argc > 2) {  // the app's first normal window id, bare
-            for (NSDictionary *w in windowsOf(atoi(argv[2]))) if ([w[@"layer"] intValue] == 0) { printf("%s\n", [w[@"id"] description].UTF8String); return 0; }
+        if ([cmd isEqualToString:@"wid"] && argc > 2 && atoi(argv[2]) > 0) {
+            // The app's on-screen normal window whose title holds argv[3] (any title without it), bare.
+            NSString *want = argc > 3 ? @(argv[3]) : @"";
+            for (NSDictionary *w in windowsOf(atoi(argv[2])))
+                if ([w[@"layer"] intValue] == 0 && [w[@"onscreen"] boolValue]
+                    && (!want.length || [w[@"name"] rangeOfString:want].location != NSNotFound)) {
+                    printf("%s\n", [w[@"id"] description].UTF8String); return 0;
+                }
             printf("0\n"); return 1;
         }
         if ([cmd isEqualToString:@"main-display"]) { printf("%u\n", CGMainDisplayID()); return 0; }
