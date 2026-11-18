@@ -7,7 +7,7 @@
 // params[0]: x dot pitch (points), y block size (dots), z glow radius (dots), w pointer glow
 // params[1]: x matrix level, y ambient light, z accent tint, w activity response
 
-const BM_STEPS: f32 = 4.0;
+const BM_STEPS: f32 = 8.0;
 
 fn bm_hash(p: vec3<f32>) -> f32 {
     var q = fract(p * 0.1031);
@@ -19,6 +19,13 @@ fn bm_gauss(d: vec2<f32>, r: f32) -> f32 {
     return exp(-dot(d, d) / (r * r));
 }
 
+// Flat-topped: level across most of its radius, then a quick falloff, so a drifting light lifts
+// the dots under it by one even amount, like a block, instead of a long dim rim.
+fn bm_flat(d: vec2<f32>, r: f32) -> f32 {
+    let q = dot(d, d) / (r * r);
+    return exp(-q * q);
+}
+
 // The light at `x` (in dots): the pointer and its trail, the drifting lights and the newest
 // agent event, summed and clamped to 0..1.
 fn bm_field(x: vec2<f32>, t: f32, grid: vec2<f32>, seed: f32) -> f32 {
@@ -27,47 +34,56 @@ fn bm_field(x: vec2<f32>, t: f32, grid: vec2<f32>, seed: f32) -> f32 {
     let pitch = max(pa.x * max(frame.size.z, 0.25), 2.5);
     let present = frame.presence.x;
 
-    // The pointer, centered on the cursor; the trail sits where it was a moment ago.
+    // The pointer, centered on the cursor; a dim, short trail where it was a moment ago, and a
+    // fainter, wider afterglow behind that, so dots it leaves fade out instead of switching off.
     let r = max(pa.z, 2.0);
     let p = frame.pointer.xy / pitch;
-    var back = frame.pointer.zw / pitch * 0.16;
+    var back = frame.pointer.zw / pitch * 0.1;
     let backLen = length(back);
-    if (backLen > r * 2.5) {
-        back = back * (r * 2.5 / backLen);
+    if (backLen > r * 1.5) {
+        back = back * (r * 1.5 / backLen);
     }
-    var f = pa.w * present * (bm_gauss(x - p, r) + 0.55 * bm_gauss(x - (p - back), r * 1.25));
+    var f = pa.w * present * (0.5 * (bm_gauss(x - p, r) + bm_flat(x - p, r)) + 0.2 * bm_gauss(x - (p - back), r * 1.2) + 0.08 * bm_gauss(x - (p - 2.5 * back), r * 1.5));
 
-    // Four large lights that drift slowly and ease in and out, each over its own period.
-    let reach = min(grid.x, grid.y);
-    for (var i = 0; i < 4; i = i + 1) {
+    // Faint background lights, like blocks of a store filling and draining: each slot, once per
+    // period of 3.5 to 5.5 seconds, picks a new spot, eases in, holds a moment and eases out, then
+    // stays dark for the rest of the period. About one slot per 450 dots of window, so the density
+    // holds at any size.
+    let count = i32(clamp(round(grid.x * grid.y / 450.0), 2.0, 12.0));
+    for (var i = 0; i < 12; i = i + 1) {
+        if (i >= count) {
+            break;
+        }
         let fi = f32(i);
         let h = bm_hash(vec3<f32>(fi, seed, 3.0));
-        let c = grid * (vec2<f32>(0.5) + vec2<f32>(0.44 * sin(t * 0.031 * (1.0 + h) + fi * 2.1), 0.42 * cos(t * 0.026 * (1.0 + 0.7 * h) + fi * 1.3)));
-        let period = 11.0 + 6.0 * h;
-        let tt = t + fi * 3.7;
+        let period = 3.5 + 2.0 * h;
+        let tt = t + period * bm_hash(vec3<f32>(fi, seed, 4.0));
         let epoch = floor(tt / period);
         let ph = tt / period - epoch;
-        let ease = smoothstep(0.0, 0.35, ph) * (1.0 - smoothstep(0.6, 1.0, ph));
-        let amp = pb.y * (0.45 + 0.55 * bm_hash(vec3<f32>(epoch, fi, seed)));
-        f = f + amp * ease * bm_gauss(x - c, reach * (0.22 + 0.12 * h));
+        let ease = smoothstep(0.0, 0.2, ph) * (1.0 - smoothstep(0.35, 0.62, ph));
+        let k = vec3<f32>(epoch, fi, seed);
+        let c = grid * vec2<f32>(bm_hash(k + 1.0), bm_hash(k + 2.0));
+        let amp = pb.y * (0.6 + 0.4 * bm_hash(k + 3.0));
+        f = f + amp * ease * bm_flat(x - c, 5.25 + 6.25 * bm_hash(k + 4.0));
     }
 
-    // The newest agent event: a light at a place set by its count, fading over a few seconds.
+    // The newest agent event: a dim light at a place set by its count, easing in and fading over
+    // several seconds.
     var act = frame.activity;
     if (frame.time.w > 0.5) {
         act = vec4<f32>(0.5, 0.6, 7.0, 0.0);
     }
     let ev = act.z;
     let spot = vec2<f32>(bm_hash(vec3<f32>(ev, seed, 1.0)), bm_hash(vec3<f32>(ev, seed, 2.0))) * grid;
-    f = f + pb.w * step(0.5, ev) * exp(-act.y * 0.9) * (0.5 + 0.3 * act.x) * bm_gauss(x - spot, r * 1.4);
+    f = f + pb.w * step(0.5, ev) * smoothstep(0.0, 0.8, act.y) * exp(-act.y * 0.45) * (0.3 + 0.2 * act.x) * bm_gauss(x - spot, r * 1.4);
     return clamp(f, 0.0, 1.0);
 }
 
-// Soft steps: a value holds at one of BM_STEPS levels and eases to the next over the last
-// fifth of each step, so a block brightens smoothly as light reaches it.
+// Soft steps: a value holds at one of BM_STEPS levels and eases to the next over the second
+// half of each step, so a block brightens a level at a time, smoothly, as light reaches it.
 fn bm_steps(v: f32) -> f32 {
     let s = clamp(v, 0.0, 1.0) * BM_STEPS;
-    return (floor(s) + smoothstep(0.82, 1.0, fract(s))) / BM_STEPS;
+    return (floor(s) + smoothstep(0.5, 1.0, fract(s))) / BM_STEPS;
 }
 
 fn bm_disc(r: f32, radius: f32, aa: f32) -> f32 {
@@ -94,8 +110,8 @@ fn wallpaper(px: vec2<f32>) -> vec4<f32> {
     let q = 0.5 * (bm_steps(bm_field(ca, t, grid, seed)) + bm_steps(bm_field(cb, t, grid, seed)));
     let fine = bm_field(x, t, grid, seed);
     // A hot core right under the cursor, smooth and not stepped: the brightest, largest dots.
-    let core = pa.w * frame.presence.x * bm_gauss(x - frame.pointer.xy / pitch, max(pa.z, 2.0) * 0.4);
-    let lit = clamp(0.62 * q + 0.38 * core + 0.2 * q * fine, 0.0, 1.0);
+    let core = pa.w * frame.presence.x * bm_gauss(x - frame.pointer.xy / pitch, max(pa.z, 2.0) * 0.6);
+    let lit = clamp(0.7 * q + 0.3 * core + 0.15 * q * fine, 0.0, 1.0);
 
     // A faint, even matrix everywhere; a lit dot is brighter and larger. The level is how
     // bright a dot looks, so it goes through the display's gamma to the linear color we return.
