@@ -34,6 +34,9 @@ public final class TerminalHistoryWindowProbe {
     /// the page, `:` then the outcome letter and, for `Z`, why (`anchor`: no
     /// rows away from the bottom, `text`: the rows did not read, `glide`).
     var lastReset = "-"
+    /// The last reset that marked nothing (`Z`), as `lastReset` reads it:
+    /// kept, since the resets after it overwrite `lastReset`.
+    var lastMiss = "-"
 
     func note(_ event: Character) {
         counts[event, default: 0] += 1
@@ -46,7 +49,7 @@ public final class TerminalHistoryWindowProbe {
     /// `U`: a drag began before the page reached the restored rows; it was moved there first.
     public var caption: String {
         let fields = "PFKUSTDNRMWZG".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
-        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest) reset=\(lastReset)"
+        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest) reset=\(lastReset) miss=\(lastMiss)"
     }
 }
 #endif

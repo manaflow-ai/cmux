@@ -1204,6 +1204,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 let outcome = probeWaiting ? "W" : (readingMark != nil ? "M" : "Z")
                 TerminalHistoryWindowProbe.shared.note(Character(outcome))
                 TerminalHistoryWindowProbe.shared.lastReset = "\(probeContext):\(outcome)\(outcome == "Z" ? probeMarkMiss : "")"
+                // The first attach marks nothing (no document yet): not a miss.
+                if outcome == "Z", document != nil {
+                    TerminalHistoryWindowProbe.shared.lastMiss = TerminalHistoryWindowProbe.shared.lastReset
+                }
                 #endif
                 freezeLastFrame()
                 // Held already (a second reset, D4): the frame that releases
@@ -1722,7 +1726,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         #if DEBUG
-        probeMarkMiss = "text\(anchor.row)/\(scrollbar.total)"
+        // The anchor, the rows Ghostty holds, its viewport's top and its grid's rows.
+        probeMarkMiss = "text\(anchor.row)/\(scrollbar.total)v\(scrollbar.offset)g\(surface.grid.rows)"
         #endif
         if scrollView.isDecelerating || fling != nil {
             fling?.stop()
