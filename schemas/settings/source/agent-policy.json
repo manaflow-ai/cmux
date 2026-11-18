@@ -1458,6 +1458,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.",
+      "keys": [
+        "agents.mcpServers.enabled"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
       "keys": [

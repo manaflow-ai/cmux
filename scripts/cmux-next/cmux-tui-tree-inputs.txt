@@ -98,6 +98,7 @@ blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
 blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
+blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
