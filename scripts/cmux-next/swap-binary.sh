@@ -213,7 +213,7 @@ cmd_build() {
     while IFS= read -r s; do settings+=("$s"); done < <(source "$src/scripts/cmux-next/lib/swift-size-opt.sh"; swift_size_opt_xcodebuild_args)
   fi
   local scheme log="$out/xcodebuild.log" t0=$SECONDS status=0
-  scheme="$(cd "$root/app-exe" && xcodebuild -list -json -derivedDataPath "$root/dd" 2>"$out/list.err" | python3 -I -c '
+  scheme="$(cd "$root/app-exe" && xcodebuild -list -json -clonedSourcePackagesDirPath "$root/dd/SourcePackages" 2>"$out/list.err" | python3 -I -c '
 import json, sys
 s = (json.load(sys.stdin).get("workspace") or {}).get("schemes") or []
 print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxNextAppExecutable") if n in s), ""))')" || true
