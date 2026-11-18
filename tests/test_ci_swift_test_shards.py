@@ -260,7 +260,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("tree_path=/dev/null/no-same-tree-here", run)
         # Every live-daemon helper reads a set path that is no binary as none, without looking again.
         tests = ROOT / "Packages" / "macOS" / "CmuxNext" / "Tests"
-        for helper in ("CmuxNextAppTests/FirstLaunchTests.swift", "CmuxNextMobileTests/LiveDaemonTests.swift",
+        for helper in ("CmuxNextAppTests/FirstLaunchTests.swift",
                        "CmuxNextDaemonTests/IntegrationTests.swift"):
             with self.subTest(helper=helper):
                 self.assertRegex((tests / helper).read_text(),

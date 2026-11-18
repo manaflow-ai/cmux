@@ -157,7 +157,10 @@ impl Hub {
     /// Want the spare for this shape (its start runs in the background).
     async fn spare_want(self: &Arc<Self>, r: Remembered) {
         let Remembered { harness, preset, cwd, model, .. } = r;
-        match self.pool_spec_in(Some(harness.clone()), preset, cwd, Some(model)).await {
+        match self
+            .pool_spec_in(Some(harness.clone()), preset, cwd, Some(model), &PrewarmShape::default())
+            .await
+        {
             Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
         }

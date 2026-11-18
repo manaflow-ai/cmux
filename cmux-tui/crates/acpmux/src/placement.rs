@@ -292,7 +292,8 @@ pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<S
 }
 
 /// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
-/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), else a top-level `reservations` entry naming it
+/// `now_ms`: its `retired` flag, its `status` (`stopped`), its own `hold` (`hold`), its lanes'
+/// `accept_new` false (a drain), else a top-level `reservations` entry naming it
 /// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
 /// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
 /// reads them).
@@ -309,6 +310,16 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
     }
     if let Some(why) = hold(machine, now_ms) {
         return Some(why);
+    }
+    // leo-workspace lane-place's drain flag: a lane host with `lanes.accept_new` false takes no new
+    // lanes, so this pick skips it too and one field drains a host for every placer.
+    let lanes = machine.get("lanes");
+    if lanes.and_then(|l| l.get("accept_new")) == Some(&Value::Bool(false)) {
+        let why = lanes.and_then(|l| l.get("accept_new_why")).and_then(Value::as_str);
+        return Some(match why.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(why) => format!("draining: {why}"),
+            None => "draining (lanes.accept_new false)".into(),
+        });
     }
     let time = |v: &Value| v.as_str().and_then(crate::clock_text::rfc3339_ms);
     // A list, or an entry's hosts, that cannot be read may name any machine: it holds them all.
