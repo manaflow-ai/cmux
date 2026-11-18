@@ -9,10 +9,13 @@ picture of the recording (a later build's rows may carry the same two numbers fo
 
 The zero of a row. frame_strip takes its key time AFTER the send of the key returned (DebugFrameStrip.swift), and
 that send runs the key's own main thread work. So the reply's times count from the END of that work, and its
-opening marks start before its zero. `one_key` moves the zero back to the start of the first key's earliest opening
-mark (`cmdN.start`; `newTab.take` or `newTab.open`): `key_work_ms` is that distance, added to each row's time
-before a frame is numbered, and `zero` names the mark. The time of the key's router before that mark is in no
-number. A reply with no such mark has no known zero: the row is INVALID.
+opening marks start before its zero. `one_key` moves the zero back to the time at which the key went in, when the
+reply says it (`before_send_ms`: how long before the reply's zero the key or gesture went in; the key's router is
+then in the numbers). A reply with no such number (a build from before it) has the start of the first key's
+earliest opening mark as its zero (`cmdN.start`; `newTab.take` or `newTab.open`), and the time of the key's router
+before that mark is then in no number. `key_work_ms` is the distance from the row's zero to the reply's zero, added
+to each row's time before a frame is numbered, and `zero` names which of the two zeros the row has: rows with
+unlike zeros are not one table. A reply with neither has no known zero: the row is INVALID.
 
 For one key (`one_key`), counted in frames of the display after the key (frame 1 = the first frame composited
 after it) and in ms:
@@ -42,8 +45,10 @@ and a recorder that delivers each second frame of the display then gives half of
 
 A key that comes `gap_ms` after another key in the same recording is counted from the time at which that second
 key was due (the first key's zero plus the gap: a person's key waits in the queue while the app works, so the wait
-counts). frame_strip's timer for the second key starts when the first key's work ended, so the second key goes in
-`key_work_ms` after its due time at the earliest, and that wait is in the row's numbers too. The picture before is
+counts). In a build whose reply has `before_send_ms`, frame_strip's timer for the second key counts from the time
+the first key went in, so the second key is late only when the first key's work is longer than the gap. In a build
+from before it the timer starts when the first key's work ended, so the second key goes in `key_work_ms` after its
+due time at the earliest. That wait is in the row's numbers in both (`second_key_late_ms`). The picture before is
 then the one before the FIRST key, so `tab` is the frame at which the tab's region reached the last picture (both
 new tabs or rows drawn), and `content_first` is 1 when the first key's page is on the screen already.
 
@@ -72,6 +77,7 @@ REGIONS = ("content", "outside", "strip")
 # The marks that open a key's own work, by key: the earliest of them is the row's zero.
 OPENING_MARKS = {"n": ("cmdN.start",), "t": ("newTab.take", "newTab.open")}
 ZERO = "the start of the first key's earliest opening mark"
+ZERO_SENT = "the time at which the first key went in (the reply's before_send_ms)"
 # A caret: at most this share of a region, each phase this long (ms), this many phases at least.
 BLINK_SHARE = 0.002
 BLINK_PHASE_MS = (250, 900)
@@ -209,14 +215,17 @@ def input_proof(key, keys_sent, opened, counted, spans):
 def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=SETTLE_MS):
     """One recording's numbers (the module doc). `reply` is frame_strip's; `gap_ms` > 0: two keys that far apart,
     counted from the second one's due time."""
-    work = key_work_of(key, reply.get("spans"))
+    sent = reply.get("before_send_ms")
+    said = _number(sent) and sent >= 0
+    work = sent if said else key_work_of(key, reply.get("spans"))
     out = {"key": key, "gap_ms": gap_ms, "invalid": [], "capture": reply.get("capture"),
            "capture_error": reply.get("capture_error"), "spans": reply.get("spans") or [],
-           "key_work_ms": work, "zero": None if work is None else ZERO}
+           "key_work_ms": work, "zero": ZERO_SENT if said else None if work is None else ZERO}
     if reply.get("capture") != CAPTURE:
         out["invalid"].append(f"capture: the frames are not the screen's ({reply.get('capture')!r}): the page is not in them")
     if work is None:
-        out["invalid"].append("zero: the spans have no opening mark of the first key: the time of the key's own work is not known")
+        out["invalid"].append("zero: the reply does not say when the key went in and the spans have no opening mark of the "
+                              "first key: the time of the key's own work is not known")
     # The rows after the judged key, their ms from it: the reply's zero is the end of the first key's own work, and
     # the judged key is the first one, or the second one at its due time in a gap recording.
     shift = (work or 0) - gap_ms

@@ -112,19 +112,24 @@ def fresh_session(tag, app=None):
     tag's terminals). So this refuses, and ends nothing, when the path is not a `cmux DEV <tag>.app` bundle
     (bench_launch.tag_of: a shipped bundle, a folder that is no bundle), when the bundle's tag is not `tag`, and
     when an app of the bundle runs now (`tag-in-use`, as a BenchApp launch refuses): that app is a person's, or
-    another run's, and not this run's to end."""
+    another run's, and not this run's to end. A process lists the path that it was started by, so the app is
+    searched by the bundle's real path, by the path as given (a link to the bundle) and by the real path with no
+    `/private` before it (a Mac's `/tmp` and `/var`). The state that moves is the bundle's tag's (`--tag My-Tag` is
+    the tag `my-tag`)."""
     import bench_launch  # only this mode's launch and the entry's cleanup need it
     if app:
         from tag_teardown import TagTeardown
-        app = os.path.realpath(app).rstrip("/")
+        given, app = os.path.abspath(app).rstrip("/"), os.path.realpath(app).rstrip("/")
         of_bundle = bench_launch.tag_of(app)  # stops here when the path is not a tagged DEV bundle
         if of_bundle != re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-"):
             sys.exit(f"{MARK}: --tag {tag} is not the tag of {os.path.basename(app)} ({of_bundle}): nothing ended, no session moved")
-        running = bench_launch.bundle_pids(app, "Contents/MacOS/")
+        paths = {app, given, app[len("/private"):] if app.startswith("/private/") else app}
+        running = sorted({pid for path in paths for pid in bench_launch.bundle_pids(path, "Contents/MacOS/")})
         if running:
             sys.exit(f"{MARK}: tag-in-use: an app of {app} runs now (pid {', '.join(map(str, running))}): it is not this "
                      "run's to end. Quit it, then run again. Nothing ended, no session moved")
         TagTeardown(app).end()
+        tag = of_bundle
     bench_launch.start_fresh_state(tag)
 
 
@@ -254,7 +259,9 @@ class Screen:
             self.tools["close_new"](1)
 
     def pictures(self, row, folder, run):
-        wanted = run < self.opts.keep_keys or row.get("changes_after_content") or row.get("invalid")
+        # A row that is not first-is-final by its first content frame alone has no later changed frame: keep it too.
+        wanted = (run < self.opts.keep_keys or row.get("changes_after_content") or row.get("invalid")
+                  or row.get("content_first_is_last_picture") is False)
         if not wanted or self.kept >= 160:
             return
         os.makedirs(self.keep, exist_ok=True)
@@ -292,7 +299,8 @@ class Screen:
                     self.rows.append(row)
                     said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
                     print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
-                          f"{json.dumps(said)} changes_after_content={row.get('changes_after_content')} "
+                          f"{json.dumps(said)} first_is_final={row.get('first_is_final')} "
+                          f"changes_after_content={row.get('changes_after_content')} "
                           f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}", flush=True)
                 report["cases"][case] = frames_of.summarize(rows)
                 print(f"{MARK} {case}: {frames_of.cell(report['cases'][case])}", flush=True)
