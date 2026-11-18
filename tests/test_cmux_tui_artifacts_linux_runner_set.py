@@ -80,10 +80,10 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
-# The owned GCP pool the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
-OWNED = "cmux-fleet-linux-x64"
-# Jobs with a placement or override of their own: the daemon tests (linux-placement) and the shadow.
-OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
+# The owned GCP runners the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
+OWNED = "cmux-gcp-lane-build-x64"
+# The one job with an override of its own, which keeps it on the nightly path too.
+OWN_ROUTE_JOBS = (DARWIN_CROSS_JOB,)
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
