@@ -2,7 +2,8 @@
 """A page beside a pane a person resizes (scripts/ci/frame-pacing/split_resize.py).
 
 Launches a tagged DEV app (bench_launch.py), splits right, opens the page in the right pane (`--pane`: a Chromium
-tab with the probe page, or an agent chat) and resizes that pane (`--gesture`: the divider dragged through the real
+tab with the probe page, an agent chat, or a terminal showing a long wrapped transcript, the stand-in for Claude Code
+in a terminal) and resizes that pane (`--gesture`: the divider dragged through the real
 mouse path, the sidebar toggled, the window's corner dragged) while every display frame is sampled; then one more
 divider drag, held open, with a window snapshot every 12 moves (strip-NN.png) and one after it landed
 (strip-landed.png). Writes the judge's verdict to --json and everything to --out. Report only.
@@ -17,7 +18,7 @@ Each pane runs in its own launch of the same build, back to back, with every ges
 `browserResize.dragResize` variants this bench once took are gone: no tunable picks how a pane drag
 resizes a page now (CEFTabContentView.paneResizeGestureDidChange, CEFLayerHosting).
 
-Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--pane=browser,chat|all]
+Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--pane=browser,chat,terminal|all]
        [--gesture=divider,divider-pause,sidebar,window-edge|all] [--seed=ROWS]
 """
 
@@ -42,7 +43,8 @@ parser.add_argument("--tag")
 parser.add_argument("--pane", default="browser")
 # The gestures that resize the page's pane, in each launch.
 parser.add_argument("--gesture", default="divider")
-# Rows seeded into the chat before its gestures (`--pane=chat`): 2800 is about a 700-turn chat.
+# Rows seeded into the chat before its gestures (`--pane=chat`): 2800 is about a 700-turn chat. With
+# `--pane=terminal`: the transcript's turns are a quarter of it (the same chat; 0: split_resize.TRANSCRIPT_TURNS, 700).
 parser.add_argument("--seed", type=int, default=0)
 opts, _ = parser.parse_known_args()
 
@@ -82,7 +84,7 @@ def measure(pane: str, folder: Path) -> dict:
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
-        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures, seed=opts.seed if pane == "chat" else 0)
+        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures, seed=opts.seed if pane in ("chat", "terminal") else 0)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)

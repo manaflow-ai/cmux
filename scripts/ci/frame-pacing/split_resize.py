@@ -9,7 +9,20 @@ scripts/cmux-next/split-resize-bench.py (`--pane`, `--gesture`). The page is one
   innerWidth, innerHeight]` on every animation frame (`window.__rz`, read with `browser.page.eval`);
 - `chat`: the workspace is split right and the right pane opens an agent chat; the same recorder
   runs in the chat page through `debug.agent_pane` `resize_probe` (`start` resets it, `read`
-  returns its frames and the app's clock), as `browser.page.eval` does not reach a chat.
+  returns its frames and the app's clock), as `browser.page.eval` does not reach a chat;
+- `terminal`: the workspace is split right and the right pane shows a terminal (the split's own, else a new
+  terminal tab, `newSurface`) that `cat`s a generated transcript (`seed` / 4 turns, as a chat seeds about four rows
+  a turn; default TRANSCRIPT_TURNS), each turn a user line and one or two assistant paragraphs of long prose lines,
+  so every column change reflows a long wrapped scrollback. It stands in for Claude Code in a terminal (Leo's 2026-11-18 bar: the chat pane must reflow on a
+  divider drag "as fast as Claude Code does [in a terminal] when the pane is resized"): Claude Code is not signed in
+  on the fleet Macs, so a terminal reflowing a long wrapped transcript is what it is measured against. The
+  terminal's own report gives its frames: `debug.motion`'s `terminal` target
+  (TerminalSurfaceView+MotionSample.swift) samples, on every display frame of the same trace, the surface layer's
+  width in points (its area) and the width in pixels of the IOSurface it shows (the frame Ghostty last drew,
+  divided by the backing scale read at rest: the width it was laid out at), and Ghostty's frame counter; a sample
+  whose counter or shown width changed is one of the terminal's frames. `debug.terminal_final_grid` runs beside
+  each gesture and records the grids each terminal drew (`grid_reflows`: the new grids drawn while the pane moved,
+  the most of any one terminal, each a reflow of its scrollback; data only, its clock is not the trace's).
 
 The gestures (`GESTURES`), each traced four times:
 
@@ -48,7 +61,11 @@ while it is detached and no page window is over the pane). The judge reports, pe
 A chat's page area is its pane's content width (`panes`), offset by the chat page's width at
 rest, and its wall clock the trace's `t0_s` on the app's clock (`resize_probe`'s `clock`).
 `seed` > 0 fills the chat with that many rows first (`debug.agent_pane` `seed_rows`, about four
-rows a turn), so the drag runs beside a long chat.
+rows a turn), so the drag runs beside a long chat. A terminal needs no clock: its frames are the trace's own
+samples, its page area the surface layer's width; its widths match within TERMINAL_TOLERANCE points (a pixel
+width over the backing scale rounds), and it has no page window, so `edge_lag` is not measured for it.
+
+Every pane gives the same verdict keys, so the chat and the terminal compare row for row.
 
 Report only: no threshold fails a run.
 """
@@ -56,13 +73,24 @@ Report only: no threshold fails a run.
 from __future__ import annotations
 
 import json
+import random
+import shlex
 import time
 from pathlib import Path
 
 import browser_resize
 
 DRAGS = (-160, 160, -160, 160)
-PANES = ("browser", "chat")
+PANES = ("browser", "chat", "terminal")
+# The terminal's transcript: turns when `seed` is 0 (about the chat's 2800 seeded rows), and its words.
+TRANSCRIPT_TURNS = 700
+TRANSCRIPT_WORDS = ("the", "pane", "layout", "reflow", "width", "frame", "divider", "agent", "session", "change",
+                    "message", "terminal", "scrollback", "column", "renders", "while", "after", "before", "because",
+                    "resize", "measure", "every", "display", "refresh", "cursor", "transcript", "wraps", "line",
+                    "prose", "long", "reads", "writes", "tool", "result", "output", "context", "window", "steady",
+                    "under", "load", "each", "turn", "keeps", "its", "text", "and", "then", "with", "from", "into")
+# Points a terminal's shown width may differ from its layer's and still count as laid out at it (pixels over scale).
+TERMINAL_TOLERANCE = 1.0
 GESTURES = ("divider", "divider-pause", "sidebar", "window-edge")
 # `divider-pause`: each move's points, then the rest after it, with the mouse held down throughout.
 PAUSED_DRAG = ((-80, 0.25), (-80, 0.25), (-80, 0.25), (120, 0.25), (120, 0.0))
@@ -110,6 +138,38 @@ def _page(sample: dict) -> list | None:
     if not rows:
         return None
     return max(rows, key=lambda row: float(row[5]) if len(row) >= 8 else 0.0)
+
+
+def _terminal(sample: dict) -> list | None:
+    """The rightmost terminal surface of a `terminal` sample (the split's new pane), or None: `[x, y, width, height,
+    shown width px, shown height px, frames, ...]` (TerminalSurfaceView+MotionSample.swift)."""
+    rows = [row for row in sample.get("terminal") or [] if len(row) >= 7]
+    if not rows:
+        return None
+    return max(rows, key=lambda row: float(row[0]))
+
+
+def transcript(turns: int, seed: int = 1) -> str:
+    """A long chat transcript as plain text: per turn a user line and one or two assistant paragraphs, each one long
+    line of prose (200 to 1400 characters) the terminal wraps. The same text for the same `turns` and `seed`."""
+    pick = random.Random(seed)
+
+    def prose(low: int, high: int) -> str:
+        words: list[str] = []
+        length, goal = 0, pick.randint(low, high)
+        while length < goal:
+            word = pick.choice(TRANSCRIPT_WORDS)
+            words.append(word)
+            length += len(word) + 1
+        return " ".join(words).capitalize() + "."
+
+    lines = []
+    for turn in range(1, turns + 1):
+        lines.append(f"> [{turn}] {prose(80, 400)}")
+        for _ in range(pick.randint(1, 2)):
+            lines.append(f"  {prose(200, 1400)}")
+        lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 def _pixels(row: list) -> tuple[float, float, str | None]:
@@ -174,6 +234,9 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
                 break
     time.sleep(1.0)
     chat_pane: str | None = None
+    # The pane the page is in, whose divider the gestures drag (the chat's, the terminal's; the browser's: None).
+    beside: str | None = None
+    targets = TARGETS + (["terminal"] if pane == "terminal" else [])
     if pane == "browser":
         page = out / "split-resize-probe.html"
         page.write_text(browser_resize.PROBE_PAGE)
@@ -196,6 +259,68 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
 
         def recording() -> bool:
             return evaluate("document.readyState === 'complete' && Array.isArray(window.__rz) && window.__rz.length > 2") is True
+    elif pane == "terminal":
+        def shown() -> tuple[list | None, list | None]:
+            """The rightmost pane's `panes` row and the terminal surface inside it (None when it shows none)."""
+            driver.call("debug.motion", {"action": "trace_start", "targets": ["panes", "terminal"]})
+            time.sleep(0.2)
+            snapshot = driver.call("debug.motion", {"action": "trace_stop"})
+            rows = [sample for sample in snapshot.get("samples") or [] if sample.get("panes")]
+            right = _pane_row(rows[-1], None) if rows else None
+            surface = _terminal(rows[-1]) if rows else None
+            if right is None or surface is None:
+                return right, None
+            # The surface is the right pane's when its middle is inside the pane's shown rect.
+            middle = float(surface[0]) + float(surface[2]) / 2
+            inside = float(right[1]) <= middle <= float(right[1]) + float(right[3])
+            return right, surface if inside else None
+
+        right, surface = shown()
+        beside = str(right[0]) if right is not None else None
+        opened: dict = {"split_terminal": surface is not None}
+        tab = None
+        if right is not None and surface is None:
+            # The split's new pane shows no terminal (it split a page): a new terminal tab in it.
+            made = driver.call("action.run", {"action": "newSurface", "target": f"pane:{right[0]}", "focus": True}, timeout=30)
+            if "error" in made or (made.get("data") or {}).get("not_run"):
+                made = driver.call("action.run", {"action": "newSurface", "focus": True}, timeout=30)
+            opened["new_tab"] = made
+            created = made.get("created") or (made.get("data") or {}).get("created") or []
+            tab = next((str(item) for item in created if str(item).startswith("tab_")), None)
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and surface is None:
+                time.sleep(0.5)
+                right, surface = shown()
+        turns = max(1, seed // 4) if seed > 0 else TRANSCRIPT_TURNS
+        text = out / "split-resize-transcript.txt"
+        text.write_text(transcript(turns))
+        command = f"clear; cat {shlex.quote(str(text))}\r"
+        sent = driver.call("action.run", {"action": "terminal.sendText", "args": {"text": command}, "focus": True,
+                                          **({"target": f"tab:{tab}"} if tab else {})}, timeout=30)
+        opened.update({"transcript": {"turns": turns, "bytes": text.stat().st_size}, "sent": sent})
+
+        def frames_drawn() -> float | None:
+            _, row = shown()
+            return float(row[6]) if row is not None and float(row[4]) > 0 else None
+
+        # The transcript has printed when the terminal stops drawing: its frame counter holds for 1.5 s (at most 60 s).
+        deadline, last, still_since = time.monotonic() + 60, frames_drawn(), time.monotonic()
+        while time.monotonic() < deadline and time.monotonic() - still_since < 1.5:
+            time.sleep(0.5)
+            now = frames_drawn()
+            if now != last:
+                last, still_since = now, time.monotonic()
+        opened["printed_s"] = round(60 - max(0.0, deadline - time.monotonic()), 1)
+
+        def reset() -> None:
+            pass
+
+        def read() -> tuple[list, dict | None]:
+            # The terminal's frames are the trace's own `terminal` samples (judge_drag reads them there).
+            return [], None
+
+        def recording() -> bool:
+            return frames_drawn() is not None
     else:
         # The chat opens in the split's new pane (the rightmost), not in a chat dock.
         driver.call("debug.motion", {"action": "trace_start", "targets": ["panes"]})
@@ -216,6 +341,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
                 break
             time.sleep(0.5)
         chat_pane = ready.get("pane") if "error" not in ready else None
+        beside = chat_pane
         target = {"pane": chat_pane} if chat_pane else {}
         seeded = (driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target}, timeout=120)
                   if seed > 0 else None)
@@ -254,7 +380,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
 
     def at_rest() -> dict | None:
         """One sample of the window at rest: the dividers, the panes and the window size."""
-        if "error" in driver.call("debug.motion", {"action": "trace_start", "targets": TARGETS}):
+        if "error" in driver.call("debug.motion", {"action": "trace_start", "targets": targets}):
             return None
         time.sleep(0.2)
         snapshot = driver.call("debug.motion", {"action": "trace_stop"})
@@ -262,7 +388,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         return rest[-1] if rest else None
 
     rest = at_rest()
-    if rest is None or (("divider" in gestures or "divider-pause" in gestures or strip) and not _divider(rest, chat_pane)):
+    if rest is None or (("divider" in gestures or "divider-pause" in gestures or strip) and not _divider(rest, beside)):
         driver.save("split_resize", {"error": "no split divider in the window", "pane": pane, "split": split,
                                      "opened": opened, "rest": rest})
         return
@@ -284,7 +410,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
 
     def divider_point() -> tuple[float, float] | None:
         sample = at_rest()
-        divider = _divider(sample, chat_pane) if sample else None
+        divider = _divider(sample, beside) if sample else None
         if divider is None:
             return None
         return float(divider[1]) + float(divider[3]) / 2, float(divider[2]) + float(divider[4]) / 2
@@ -347,12 +473,18 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         for act in acts(gesture):
             reset()
             cef_before = _cef_counters(driver.call("debug.cef", {}, timeout=10))
-            trace = driver.trace(TARGETS, act, 0.8 if gesture != "sidebar" else 1.2)
+            if pane == "terminal":
+                # Each terminal's drawn and PTY grids through the gesture (data: the reflows it drew).
+                driver.call("debug.terminal_final_grid", {"action": "start"}, timeout=10)
+            trace = driver.trace(targets, act, 0.8 if gesture != "sidebar" else 1.2)
+            if pane == "terminal":
+                trace["grids"] = (driver.call("debug.terminal_final_grid", {"action": "stop"}, timeout=20)
+                                  .get("terminals"))
             trace["page_frames"], clock = read()
             cef_after = _cef_counters(driver.call("debug.cef", {}, timeout=10))
             # What the page windows did through this gesture: resize fences joined, presented, missed, expired.
             trace["cef"] = {key: round(cef_after[key] - cef_before.get(key, 0.0), 2) for key in cef_after}
-            trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "clock": clock})
+            trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "beside": beside, "clock": clock})
             drags.append(trace)
             time.sleep(0.6)
     shots = []
@@ -375,7 +507,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
     driver.save("split_resize", {"drags": drags, "pane": pane, "gestures": list(gestures), "split": split,
-                                 "opened": opened, "chat_pane": chat_pane, "strip": shots})
+                                 "opened": opened, "chat_pane": chat_pane, "beside": beside, "strip": shots})
 
 
 # The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).
@@ -385,25 +517,46 @@ STRIP_EVERY = 6
 def judge_drag(trace: dict, refresh: float) -> dict:
     gesture = trace.get("gesture") or "divider"
     chat = trace.get("pane") == "chat"
+    terminal = trace.get("pane") == "terminal"
     chat_pane = trace.get("chat_pane")
+    # The pane whose divider the gestures drag: the chat's, the terminal's (the browser's: the leftmost divider).
+    beside = trace.get("beside") or (chat_pane if chat else None)
     if chat:
         samples = [sample for sample in trace.get("samples") or [] if _pane_row(sample, chat_pane)]
+    elif terminal:
+        samples = [sample for sample in trace.get("samples") or [] if _terminal(sample)]
     else:
         samples = [sample for sample in trace.get("samples") or [] if _page(sample)]
     if gesture in ("divider", "divider-pause"):
-        samples = [sample for sample in samples if _divider(sample, chat_pane if chat else None)]
+        samples = [sample for sample in samples if _divider(sample, beside)]
     if len(samples) < 3:
         return {"error": "no per-frame samples with a divider and a chat pane" if chat
+                else "no per-frame samples with a divider and a terminal surface" if terminal
                 else "no per-frame samples with a divider and a Chromium host"}
     lag_frames, changes, p = browser_resize._lag_frames, browser_resize._changes, browser_resize._percentile
+    # How far the page's width may be from its area's and still count as laid out at it.
+    tolerance = TERMINAL_TOLERANCE if terminal else 0.5
     times = [float(sample.get("t", 0)) for sample in samples]
     page = sorted((float(row[0]), float(row[1])) for row in trace.get("page_frames") or [] if len(row) >= 2)
-    # The page's pixels: a Chromium host's row (a chat in CEF has one too: the only one then).
-    rows = [_page(sample) for sample in samples]
+    # The page's pixels: a Chromium host's row (a chat in CEF has one too: the only one then; a terminal has none).
+    rows = [] if terminal else [_page(sample) for sample in samples]
     if chat and not all(row is not None and len(sample.get("page") or []) == 1 for row, sample in zip(rows, samples)):
         rows = []
     extended = bool(rows) and all(len(row) >= 8 for row in rows)
-    if chat:
+    surfaces = [_terminal(sample) for sample in samples] if terminal else []
+    shown_widths: list[float] = []
+    if terminal:
+        # The terminal's area is its surface layer's width (points); what it is laid out at, the IOSurface it shows
+        # (pixels) over the backing scale, read where both are known (1 or 2 on a Mac: the nearest whole ratio).
+        ratios = [float(row[4]) / float(row[2]) for row in surfaces if float(row[4]) > 0 and float(row[2]) > 0]
+        scale = max(1.0, float(round(ratios[0]))) if ratios else 1.0
+        area = [(i, float(row[2])) for i, row in enumerate(surfaces)]
+        walls = times
+        shown_widths = [float(row[4]) / scale if float(row[4]) > 0 else -1.0 for row in surfaces]
+        # The terminal's frames: the samples whose frame counter or shown width changed (the first one included).
+        page = [(times[i], shown_widths[i]) for i, row in enumerate(surfaces) if shown_widths[i] >= 0 and (
+            i == 0 or float(row[6]) != float(surfaces[i - 1][6]) or shown_widths[i] != shown_widths[i - 1])]
+    elif chat:
         # The chat page's width is its pane's content width at a constant offset (borders), read at rest.
         clock = trace.get("clock") or {}
         try:
@@ -422,15 +575,16 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         area = [(i, float(row[7]) if extended else float(row[0])) for i, row in enumerate(rows)]
         walls = [float(row[4]) for row in rows]
     pixels = [_pixels(row) for row in rows] if rows else []
-    page_window = [(i, width) for i, (width, _, _) in enumerate(pixels)]
+    # The page's shown width per sample (-1: none): a terminal's drawn frame, else the page window or hosted root.
+    page_window = list(enumerate(shown_widths)) if terminal else [(i, width) for i, (width, _, _) in enumerate(pixels)]
 
-    divider_rows = [_divider(sample, chat_pane if chat else None) for sample in samples]
+    divider_rows = [_divider(sample, beside) for sample in samples]
     divider = [(i, float(row[1])) for i, row in enumerate(divider_rows) if row is not None]
     window = [(i, float((sample.get("window") or [0])[0])) for i, sample in enumerate(samples)]
     # What moved the pane, and the area it should have taken from it.
     area_lags: list[int] = []
     if gesture in ("divider", "divider-pause") and divider:
-        pane_row = _pane_row(samples[0], chat_pane) if chat else None
+        pane_row = _pane_row(samples[0], beside) if (chat or terminal) else None
         page_right = float(pane_row[1]) >= divider[0][1] if pane_row is not None else True
         if page_right:
             total = area[0][1] + divider[0][1]
@@ -462,6 +616,9 @@ def judge_drag(trace: dict, refresh: float) -> dict:
                 page_x.append((i, x))
         edge_lags = lag_frames(host_x, page_x)
         gap_frames = sum(1 for (_, a), (_, w) in zip(area, page_window) if w >= 0 and a - w > 0.5)
+    elif terminal:
+        # The surface layer wider than the frame it shows (the layer's ground shows beside the frame).
+        gap_frames = sum(1 for (_, a), (_, w) in zip(area, page_window) if w >= 0 and a - w > tolerance)
 
     moving = [i for (i, a), (_, b) in zip(driver_series, driver_series[1:]) if abs(b - a) > 0.5]
     first, last = (moving[0], moving[-1] + 1) if moving else (0, 0)
@@ -469,21 +626,21 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     if page:
         for index, width in changes([(float(i), v) for i, v in area])[1:]:
             wall = walls[int(index)]
-            hit = next((t for t, w in page if t >= wall - refresh / 2 and abs(w - width) <= 0.5), None)
+            hit = next((t for t, w in page if t >= wall - refresh / 2 and abs(w - width) <= tolerance), None)
             if hit is not None:
                 layout_lags.append(max(0.0, (hit - wall) / refresh))
         # Only the frames the pane moved in, the same frames `moving_frames` counts.
         for index in moving:
             width, wall = area[min(index + 1, len(area) - 1)][1], walls[min(index + 1, len(walls) - 1)]
             shown = [w for t, w in page if t <= wall + refresh / 2]
-            if shown and abs(shown[-1] - width) > 0.5:
+            if shown and abs(shown[-1] - width) > tolerance:
                 stale += 1
         if moving:
             during = [w for t, w in page if walls[first] <= t <= walls[min(last, len(walls) - 1)] + refresh]
             relayouts = len(changes([(0.0, w) for w in during])) - 1 if during else 0
             final = area[-1][1]
             end = walls[min(last, len(walls) - 1)]
-            settled = next((t for t, w in page if t >= end - refresh / 2 and abs(w - final) <= 0.5), None)
+            settled = next((t for t, w in page if t >= end - refresh / 2 and abs(w - final) <= tolerance), None)
             settle_ms = round(max(0.0, settled - end), 1) if settled is not None else None
     intervals = [b - a for a, b in zip(times[first:last + 1], times[first + 1:last + 1])]
     dropped = sum(max(0, round(interval / refresh) - 1) for interval in intervals if interval > 1.5 * refresh)
@@ -533,7 +690,19 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         # The host's widths over the drag: one value when it held its size (no Chromium host: None).
         "host_widths": {"min": min(v for _, v in host), "max": max(v for _, v in host),
                         "distinct": len({round(v) for _, v in host})} if host else None,
+        # A terminal's grids drawn through the gesture (`debug.terminal_final_grid`, drive's `grids`): per terminal
+        # shown, the new grids it drew (each one a reflow of its scrollback); the most of any one. Not a terminal: None.
+        "grid_reflows": _grid_reflows(trace.get("grids")) if terminal else None,
     }
+
+
+def _grid_reflows(grids) -> dict | None:
+    """The new grids each terminal of a `debug.terminal_final_grid` stop reply drew after the trace began (its first
+    mark is the grid it showed then): `max` over the terminals, and the terminals that drew one; None with no reply."""
+    if not isinstance(grids, dict) or not grids:
+        return None
+    counts = [max(0, len(terminal.get("drawn") or []) - 1) for terminal in grids.values() if isinstance(terminal, dict)]
+    return {"max": max(counts, default=0), "terminals": len(counts), "reflowed": sum(1 for n in counts if n)}
 
 
 def _summary(measured: list[dict]) -> dict:
@@ -564,6 +733,7 @@ def _summary(measured: list[dict]) -> dict:
         "page_dropped": sum(drag["page_dropped"] for drag in measured),
         "interval_ms_p95": worst("interval_ms", "p95"),
         "interval_ms_max": worst("interval_ms", "max"),
+        "grid_reflows_max": worst("grid_reflows", "max"),  # a terminal's most reflows in one gesture; else None
         "cef": {key: round(sum((drag.get("cef") or {}).get(key, 0.0) for drag in measured), 2) for key in CEF_COUNTERS},
     }
 
@@ -574,8 +744,8 @@ def judge(data: dict, refresh: float) -> dict:
     measured = [drag for drag in drags if "error" not in drag and drag.get("moving_frames", 0) > 0]
     if not measured:
         return {"ok": True, "problems": [], "measured": False, "pane": data.get("pane") or "browser",
-                "note": "not measured: " + (data.get("error") or next((drag["error"] for drag in drags), None)
-                                            or "no drag with a divider and a Chromium host")}
+                "note": "not measured: " + (data.get("error") or next((drag["error"] for drag in drags if "error" in drag), None)
+                                            or "no drag that moved its pane")}
     gestures = {}
     for gesture in GESTURES:
         of_gesture = [drag for drag in measured if drag["gesture"] == gesture]
@@ -595,7 +765,7 @@ def markdown_row(verdict: dict) -> str:
 
     what = {"divider": "a dragged divider", "divider-pause": "a divider dragged with pauses", "sidebar": "a toggled sidebar", "window-edge": "a dragged window corner"}
     gesture = verdict.get("gesture")
-    page = "Agent chat" if verdict.get("pane") == "chat" else "Chromium page"
+    page = {"chat": "Agent chat", "terminal": "Terminal with a long transcript"}.get(verdict.get("pane"), "Chromium page")
     return (f"| split_resize | ok | | | | {page} beside {what.get(gesture, 'a resized pane')}: page edge trails the pane "
             f"≤{shown(verdict['edge_lag_max'])} frames ({verdict['unmatched_page_window']} samples with no page window, "
             f"{verdict.get('detached_frames', 0)} detached); "
